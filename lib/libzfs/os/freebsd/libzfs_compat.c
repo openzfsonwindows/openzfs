@@ -370,3 +370,11 @@ zfs_version_kernel(void)
 	}
 	return (version);
 }
+
+/* Called from the tail end of zfs_rollback() */
+int
+zfs_rollback_os(zfs_handle_t *zhp)
+{
+	(void) zhp;
+	return (0);
+}
