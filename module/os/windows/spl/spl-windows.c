@@ -486,10 +486,12 @@ ddi_copyinstr(const void *uaddr, void *kaddr, size_t len, size_t *done)
 	return (ret);
 }
 
-int
-spl_start(PUNICODE_STRING RegistryPath)
-{
+void *spl_DriverObject = NULL;
 
+int
+spl_start(PUNICODE_STRING RegistryPath, void *DriverObject)
+{
+	spl_DriverObject = DriverObject;
 	uint64_t  zfs_total_memory_limit = 0;
 	dprintf("SPL: start\n");
 	max_ncpus = KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);

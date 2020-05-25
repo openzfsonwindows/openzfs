@@ -365,6 +365,7 @@ size_t	kmem_max_cached = KMEM_BIG_MAXBUF;	/* maximum kmem_alloc cache */
 // int kmem_flags = KMF_DEADBEEF | KMF_REDZONE | KMF_CONTENTS | KMF_AUDIT;
 int kmem_flags = KMF_LITE;
 #else
+// int kmem_flags = KMF_DEADBEEF | KMF_REDZONE | KMF_LITE;
 int kmem_flags = 0;
 #endif
 int kmem_ready;
@@ -713,7 +714,7 @@ caller()
 void *
 calloc(size_t n, size_t s)
 {
-	return (zfs_kmem_zalloc(n * s, KM_NOSLEEP));
+	return (kmem_zalloc(n * s, KM_NOSLEEP));
 }
 
 #define	IS_DIGIT(c)	((c) >= '0' && (c) <= '9')
@@ -1992,14 +1993,14 @@ void
 kmem_dump_init(size_t size)
 {
 	if (kmem_dump_start != NULL)
-		zfs_kmem_free(kmem_dump_start, kmem_dump_size);
+		kmem_free(kmem_dump_start, kmem_dump_size);
 
 	if (kmem_dump_log == NULL)
 		kmem_dump_log =
-		    (kmem_dump_log_t *)zfs_kmem_zalloc(
+		    (kmem_dump_log_t *)kmem_zalloc(
 		    KMEM_DUMP_LOGS * sizeof (kmem_dump_log_t), KM_SLEEP);
 
-	kmem_dump_start = zfs_kmem_alloc(size, KM_SLEEP);
+	kmem_dump_start = kmem_alloc(size, KM_SLEEP);
 
 	if (kmem_dump_start != NULL) {
 		kmem_dump_size = size;
@@ -2676,8 +2677,156 @@ kmem_slab_prefill(kmem_cache_t *cp, kmem_slab_t *sp)
 	mutex_enter(&cp->cache_lock);
 }
 
+/*
+ * Define to record allocation stacks of certain sizes
+ */
+
+#ifdef MEMLEAK
+
+// We allocate externally to SPL, for the leak nodes.
+
+uint64_t memleak_low = 24576;  /* Exclusive */
+uint64_t memleak_high = 32768;  /* Inclusive */
+
+ZFS_MODULE_PARAM(zfs, , memleak_low, U64, ZMOD_RW,
+	"memleak start size (exclusive)");
+
+ZFS_MODULE_PARAM(zfs, , memleak_high, U64, ZMOD_RW,
+	"memleak end size (inclusive)");
+
+#define	MEMLEAK_MAX_STACK 6
+
+typedef struct memleak {
+	void *func;
+	uint64_t line;
+	uint64_t count;
+	uint64_t size;
+	boolean_t alloc; // or free
+	uintptr_t stack[MEMLEAK_MAX_STACK];
+	avl_node_t avlnode;
+} memleak_t;
+static avl_tree_t memleak_tree;
+static kmutex_t memleak_lock;
+
+static int memleak_compare(const void *arg1, const void *arg2)
+{
+	const memleak_t *node1 = arg1;
+	const memleak_t *node2 = arg2;
+	if (node1->func > node2->func)
+		return (1);
+	if (node1->line < node2->line)
+		return (-1);
+	return (0);
+}
+
+
+// For memleak
+#include <zfs_gitrev.h>
+extern PDRIVER_OBJECT spl_DriverObject;
+//
+static inline void dump_stack(uintptr_t *stack)
+{
+	for (int i = 1; i < MEMLEAK_MAX_STACK; i++)
+		if (stack[i] >= spl_DriverObject->DriverStart &&
+		    stack[i] < spl_DriverObject->DriverStart +
+		    spl_DriverObject->DriverSize)
+			dprintf("OpenZFS+%p\n",
+			    (void *)stack[i] -
+			    (void *)spl_DriverObject->DriverStart);
+		else
+			dprintf("%p\n", stack[i]);
+}
+
+static inline void
+leak_add(size_t size, const char *func, int line, boolean_t alloc)
+{
+	uintptr_t stack[MEMLEAK_MAX_STACK];
+
+	if (size > memleak_low && size <= memleak_high) {
+		memleak_t search, *ml = NULL;
+		avl_index_t loc;
+
+		search.func = func;
+		search.line = line;
+		mutex_enter(&memleak_lock);
+		ml = avl_find(&memleak_tree, &search, &loc);
+		mutex_exit(&memleak_lock);
+
+		getpcstack(stack, MEMLEAK_MAX_STACK);
+		if (ml) {
+			// Same caller, just increase
+			atomic_inc_64(&ml->count);
+			atomic_add_64(&ml->size, size);
+			return;
+		}
+
+		// New caller, make noe
+		ml = ExAllocatePoolWithTag(NonPagedPoolNx,
+		    sizeof (*ml), 'LEAK');
+
+		if (ml) {
+			memcpy(ml->stack, stack,
+			    sizeof (void *) * MEMLEAK_MAX_STACK);
+			ml->func = func;
+			ml->line = line;
+			ml->count = 1;
+			ml->size = size;
+			ml->alloc = alloc;
+			mutex_enter(&memleak_lock);
+			avl_add(&memleak_tree, ml);
+			mutex_exit(&memleak_lock);
+		}
+	}
+}
+
+#ifndef SYS_OPENZVOL_H
+void
+zfs_kmem_memleak_dump(void)
+{
+	memleak_t *ml;
+	dprintf("SPL: Memory leak report: base=0x%llx size=0x%llx (%s)\n",
+	    spl_DriverObject->DriverStart, spl_DriverObject->DriverSize,
+	    ZFS_META_GITREV);
+	mutex_enter(&memleak_lock);
+	for (ml = avl_first(&memleak_tree); ml != NULL;
+	    ml = AVL_NEXT(&memleak_tree, ml)) {
+		dprintf(
+		    "SPL: %s caller %s:%llu called %llu times %llu bytes\n",
+		    ml->alloc ? "kmem_alloc" : "kmem_free",
+		    (const char *)ml->func, ml->line, ml->count, ml->size);
+		dump_stack(ml->stack);
+	}
+	mutex_exit(&memleak_lock);
+}
+#endif
+
+
+// The real alloc/free calls
 void *
-zfs_kmem_zalloc(size_t size, int kmflag)
+zfs_kmem_alloc_internal(size_t size, int kmflag);
+void
+zfs_kmem_free_internal(void *buf, size_t size);
+
+void *
+zfs_kmem_alloc_memleak(size_t size, int kmflag, const char *func, int line)
+{
+	void *ptr;
+	ptr = zfs_kmem_alloc_internal(size, kmflag);
+	leak_add(size, func, line, B_TRUE);
+	return (ptr);
+}
+
+
+void
+zfs_kmem_free_memleak(const void *buf, size_t size, const char *func, int line)
+{
+	leak_add(size, func, line, B_FALSE);
+	zfs_kmem_free_internal(buf, size);
+}
+#endif
+
+void *
+zfs_kmem_zalloc_memleak(size_t size, int kmflag, const char *func, int line)
 {
 	size_t index;
 	void *buf;
@@ -2697,6 +2846,9 @@ zfs_kmem_zalloc(size_t size, int kmflag)
 				}
 			}
 			memset(buf, 0, size);
+#ifdef MEMLEAK
+			leak_add(size, func, line, B_TRUE);
+#endif
 		}
 	} else {
 		buf = zfs_kmem_alloc(size, kmflag);
@@ -2706,8 +2858,13 @@ zfs_kmem_zalloc(size_t size, int kmflag)
 	return (buf);
 }
 
+#ifdef MEMLEAK
+void *
+zfs_kmem_alloc_internal(size_t size, int kmflag)
+#else
 void *
 zfs_kmem_alloc(size_t size, int kmflag)
+#endif
 {
 	size_t index;
 	kmem_cache_t *cp;
@@ -2754,8 +2911,13 @@ zfs_kmem_alloc(size_t size, int kmflag)
 	return (buf);
 }
 
+#ifdef MEMLEAK
+void
+zfs_kmem_free_internal(void *buf, size_t size)
+#else
 void
 zfs_kmem_free(const void *buf, size_t size)
+#endif
 {
 	size_t index;
 	kmem_cache_t *cp;
@@ -2825,7 +2987,7 @@ kmem_alloc_tryhard(size_t size, size_t *asize, int kmflag)
 	} while (*asize <= PAGESIZE);
 
 	*asize = P2ROUNDUP(size, KMEM_ALIGN);
-	return (zfs_kmem_alloc(*asize, kmflag));
+	return (kmem_alloc(*asize, kmflag));
 }
 
 /*
@@ -5580,6 +5742,14 @@ spl_kmem_init(uint64_t xtotal_memory)
 
 	kmem_slab_log = kmem_log_init(kmem_slab_log_size);
 
+#ifdef MEMLEAK
+	mutex_init(&memleak_lock, NULL, MUTEX_DEFAULT, NULL);
+	avl_create(&memleak_tree, memleak_compare,
+	    sizeof (memleak_t), offsetof(memleak_t, avlnode));
+	dprintf("SPL: Looking for leaks in %u > size <= %u \n",
+	    memleak_low, memleak_high);
+#endif
+
 	spl_tsd_init();
 	spl_rwlock_init();
 	spl_taskq_init();
@@ -5635,6 +5805,23 @@ spl_kmem_init(uint64_t xtotal_memory)
 void
 spl_kmem_fini(void)
 {
+
+#ifdef MEMLEAK
+	memleak_t *ml;
+	void *cookie = NULL;
+	dprintf("SPL: Leaks, numnodes %lu\n", avl_numnodes(&memleak_tree));
+	zfs_kmem_memleak_dump();
+
+	mutex_enter(&memleak_lock);
+	while ((ml = avl_destroy_nodes(&memleak_tree, &cookie))) {
+		dump_stack(ml->stack);
+		ExFreePoolWithTag(ml, 'LEAK');
+	}
+	dprintf("SPL: End of leaks (if any)\n");
+	avl_destroy(&memleak_tree);
+	mutex_exit(&memleak_lock);
+	mutex_destroy(&memleak_lock);
+#endif
 
 	kmem_cache_applyall(kmem_cache_magazine_disable, NULL, TQ_SLEEP);
 
@@ -6444,7 +6631,7 @@ kmem_cache_move_notify_task(void *arg)
 	ASSERT(taskq_member(kmem_taskq, curthread));
 	ASSERT(list_link_active(&cp->cache_link));
 
-	zfs_kmem_free(args, sizeof (kmem_move_notify_args_t));
+	kmem_free(args, sizeof (kmem_move_notify_args_t));
 	mutex_enter(&cp->cache_lock);
 	sp = kmem_slab_allocated(cp, NULL, buf);
 
@@ -6504,14 +6691,14 @@ kmem_cache_move_notify(kmem_cache_t *cp, void *buf)
 {
 	kmem_move_notify_args_t *args;
 
-	args = zfs_kmem_alloc(sizeof (kmem_move_notify_args_t), KM_NOSLEEP);
+	args = kmem_alloc(sizeof (kmem_move_notify_args_t), KM_NOSLEEP);
 	if (args != NULL) {
 		args->kmna_cache = cp;
 		args->kmna_buf = buf;
 		if (!taskq_dispatch(kmem_taskq,
 		    (task_func_t *)kmem_cache_move_notify_task, args,
 		    TQ_NOSLEEP))
-			zfs_kmem_free(args, sizeof (kmem_move_notify_args_t));
+			kmem_free(args, sizeof (kmem_move_notify_args_t));
 	}
 }
 
@@ -6732,7 +6919,7 @@ kmem_strdup(const char *str)
 void
 kmem_strfree(char *str)
 {
-	zfs_kmem_free(str, strlen(str) + 1);
+	kmem_free(str, strlen(str) + 1);
 }
 
 /*
@@ -6764,7 +6951,6 @@ kmem_scnprintf(char *restrict str, size_t size, const char *restrict fmt, ...)
 
 	return (n);
 }
-
 char *
 kvasdprintf(const char *fmt, va_list ap)
 {

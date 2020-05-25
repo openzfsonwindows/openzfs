@@ -298,11 +298,15 @@ void ZLIB_INTERNAL zcfree(voidpf opaque, voidpf ptr)
 #endif /* SYS16BIT */
 
 #ifdef _KERNEL
+#include <sys/kmem.h>
 
 /* TODO: figure out the include paths */
 #define	KM_SLEEP	0x0000	/* can block for memory; success guaranteed */
-void *zfs_kmem_alloc(size_t size, int kmflags);
-void zfs_kmem_free(void *buf, size_t size);
+void *zfs_kmem_alloc_memleak(size_t size, int kmflags, const char *func, int line);
+void zfs_kmem_free_memleak(const void *buf, size_t size, const char *func, int line);
+
+#define	zfs_kmem_alloc(size, kmflags) zfs_kmem_alloc_memleak((size), (kmflags), __func__, __LINE__)
+#define	zfs_kmem_free(buf, size) zfs_kmem_free_memleak((buf), (size), __func__, __LINE__)
 
 voidpf
 zcalloc(

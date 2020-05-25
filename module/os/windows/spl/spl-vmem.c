@@ -3537,10 +3537,10 @@ vmem_fini(vmem_t *heap)
 	}
 	vmem_free_span_list();
 
-	dprintf("SPL: %s destroying spl_bucket_arenas...", __func__);
+	dprintf("SPL: %s destroying spl_bucket_arenas...\n", __func__);
 	for (int32_t i = VMEM_BUCKET_LOWBIT; i <= VMEM_BUCKET_HIBIT; i++) {
 		vmem_t *vmpt = vmem_bucket_arena[i - VMEM_BUCKET_LOWBIT];
-		dprintf(" %llu", (1ULL << i));
+		dprintf(" %llu\n", (1ULL << i));
 		vmem_destroy(vmpt); // parent: spl_default_arena_parent
 	}
 	dprintf("\n");
@@ -3624,12 +3624,19 @@ vmem_fini(vmem_t *heap)
 
 	dprintf("SPL: arenas removed, now try destroying mutexes... \n");
 
+	dprintf("vmem_xnu_alloc_lock ");
 	mutex_destroy(&vmem_xnu_alloc_lock);
+	dprintf("vmem_panic_lock ");
 	mutex_destroy(&vmem_panic_lock);
+	dprintf("vmem_pushpage_lock ");
 	mutex_destroy(&vmem_pushpage_lock);
+	dprintf("vmem_nosleep_lock ");
 	mutex_destroy(&vmem_nosleep_lock);
+	dprintf("vmem_sleep_lock ");
 	mutex_destroy(&vmem_sleep_lock);
+	dprintf("vmem_segfree_lock ");
 	mutex_destroy(&vmem_segfree_lock);
+	dprintf("vmem_list_lock ");
 	mutex_destroy(&vmem_list_lock);
 
 	dprintf("SPL: %s: walking list of live slabs at time of call to %s\n",

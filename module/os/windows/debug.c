@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <Trace.h>
 #include <sys/mod_os.h>
+#include <sys/kmem.h>
 
 #define	max_line_length 1024
 
@@ -198,6 +199,9 @@ saveBuffer(void)
 	IO_STATUS_BLOCK ioStatusBlock;
 	NTSTATUS status;
 	int len;
+
+	void zfs_kmem_memleak_dump(void);
+	zfs_kmem_memleak_dump();
 
 	RtlInitUnicodeString(&fileNameUnicode, CBUF_FILENAME);
 

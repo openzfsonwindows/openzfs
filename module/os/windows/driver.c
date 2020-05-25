@@ -48,7 +48,7 @@ DRIVER_UNLOAD OpenZFS_Fini;
 
 extern int initDbgCircularBuffer(void);
 extern int finiDbgCircularBuffer(void);
-extern int spl_start(PUNICODE_STRING RegistryPath);
+extern int spl_start(PUNICODE_STRING RegistryPath, void *);
 extern int spl_stop(void);
 extern int zfs_start(void);
 extern void zfs_stop(void);
@@ -152,7 +152,7 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 	// Process Registry once before init.
 	sysctl_os_all(pRegistryPath);
 
-	spl_start(pRegistryPath);
+	spl_start(pRegistryPath, DriverObject);
 
 	system_taskq_init();
 

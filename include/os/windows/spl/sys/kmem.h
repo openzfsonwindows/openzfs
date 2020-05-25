@@ -66,13 +66,36 @@ extern uint64_t physmem;
 	ExFreePoolWithTag((A), '!SFZ')
 
 // Work around symbol collisions in XNU
+#define	MEMLEAK
+
+#ifdef MEMLEAK
+#define	kmem_alloc(size, kmflags) \
+	zfs_kmem_alloc_memleak((size), (kmflags), __func__, __LINE__)
+#define	kmem_zalloc(size, kmflags) \
+	zfs_kmem_zalloc_memleak((size), (kmflags), __func__, __LINE__)
+#define	kmem_free(buf, size) \
+	zfs_kmem_free_memleak((buf), (size), __func__, __LINE__)
+#define	zfs_kmem_alloc(size, kmflags) \
+	zfs_kmem_alloc_memleak((size), (kmflags), __func__, __LINE__)
+#define	zfs_kmem_zalloc(size, kmflags) \
+	zfs_kmem_zalloc_memleak((size), (kmflags), __func__, __LINE__)
+#define	zfs_kmem_free(buf, size) \
+	zfs_kmem_free_memleak((buf), (size), __func__, __LINE__)
+void *zfs_kmem_alloc_memleak(size_t size, int kmflags,
+    const char *func, int line);
+void *zfs_kmem_zalloc_memleak(size_t size, int kmflags,
+    const char *func, int line);
+void zfs_kmem_free_memleak(const void *buf, size_t size,
+    const char *func, int line);
+#else
 #define	kmem_alloc(size, kmflags) zfs_kmem_alloc((size), (kmflags))
 #define	kmem_zalloc(size, kmflags) zfs_kmem_zalloc((size), (kmflags))
 #define	kmem_free(buf, size) zfs_kmem_free((buf), (size))
-
 void *zfs_kmem_alloc(size_t size, int kmflags);
 void *zfs_kmem_zalloc(size_t size, int kmflags);
 void zfs_kmem_free(const void *buf, size_t size);
+#endif
+
 
 void spl_kmem_init(uint64_t);
 void spl_kmem_thread_init();
