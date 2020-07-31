@@ -18,10 +18,7 @@
  * information: Portions Copyright [yyyy] [name of copyright owner]
  *
  * CDDL HEADER END
- */
-/*
- * Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ *
  */
 
 #ifndef _SYS_VDEV_FILE_H
@@ -35,6 +32,10 @@ extern "C" {
 
 typedef struct vdev_file {
 	zfs_file_t	*vf_file;
+#ifdef _WIN32
+	uint64_t	vdev_win_offset; /* soft partition start */
+	uint64_t	vdev_win_length; /* soft partition length */
+#endif
 } vdev_file_t;
 
 extern void vdev_file_init(void);
