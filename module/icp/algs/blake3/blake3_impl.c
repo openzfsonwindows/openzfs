@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2021-2022 Tino Reichardt <milky-zfs@mcmilk.de>
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  */
 
 #include <sys/zfs_context.h>
@@ -303,6 +304,20 @@ blake3_param_set(const char *val, zfs_kernel_param_t *unused)
 {
 	(void) unused;
 	return (blake3_impl_setname(val));
+}
+
+#elif defined(_WIN32)
+
+static uint32_t zfs_blake3_impl = 0;
+
+static int
+blake3_param_set(ZFS_MODULE_PARAM_ARGS)
+{
+	*ptr = zt->zt_ptr;
+	*len = sizeof (uint32_t);
+	*type = ZT_TYPE_INT;
+
+	return (0);
 }
 
 #elif defined(__FreeBSD__)

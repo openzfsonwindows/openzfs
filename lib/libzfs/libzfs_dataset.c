@@ -40,7 +40,6 @@
 #include <libintl.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
 #include <unistd.h>
 #include <stddef.h>
 #include <zone.h>
@@ -878,8 +877,12 @@ libzfs_mnttab_find(libzfs_handle_t *hdl, const char *fsname,
 
 		if (avl_numnodes(&hdl->libzfs_mnttab_cache))
 			libzfs_mnttab_fini(hdl);
-
+#ifdef WIN32
+		// Unfortunately Windows abort() on unknown file mode
+		if ((mnttab = fopen(MNTTAB, "rb")) == NULL)
+#else
 		if ((mnttab = fopen(MNTTAB, "re")) == NULL)
+#endif
 			return (ENOENT);
 
 		srch.mnt_special = (char *)fsname;
@@ -2647,7 +2650,12 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 
 			if (literal ||
 			    localtime_r(&time, &t) == NULL ||
-			    strftime(propbuf, proplen, "%a %b %e %k:%M %Y",
+			    strftime(propbuf, proplen,
+#ifdef _WIN32
+			    "%a %b %d %H:%M %Y",
+#else
+			    "%a %b %e %k:%M %Y",
+#endif
 			    &t) == 0)
 				(void) snprintf(propbuf, proplen, "%llu",
 				    (u_longlong_t)val);

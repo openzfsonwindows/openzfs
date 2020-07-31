@@ -104,7 +104,7 @@ read_efi_label(nvlist_t *config, diskaddr_t *sb)
 	if (nvlist_lookup_string(config, ZPOOL_CONFIG_PATH, &path) != 0)
 		return (err);
 
-	(void) snprintf(diskname, sizeof (diskname), "%s%s", DISK_ROOT,
+	(void) snprintf(diskname, sizeof (diskname), "%s/%s", DISK_ROOT,
 	    strrchr(path, '/'));
 	if ((fd = open(diskname, O_RDONLY|O_DIRECT|O_CLOEXEC)) >= 0) {
 		struct dk_gpt *vtoc;

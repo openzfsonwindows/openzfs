@@ -116,7 +116,7 @@ zdb_ot_name(dmu_object_type_t type)
 
 extern int reference_tracking_enable;
 extern int zfs_recover;
-extern unsigned long zfs_arc_meta_min, zfs_arc_meta_limit;
+extern uint64_t zfs_arc_meta_min, zfs_arc_meta_limit;
 extern uint_t zfs_vdev_async_read_max_active;
 extern boolean_t spa_load_verify_dryrun;
 extern boolean_t spa_mode_readable_spacemaps;
@@ -4014,6 +4014,11 @@ dump_cachefile(const char *cachefile)
 		exit(1);
 	}
 
+	if (statbuf.st_size == 0) {
+		(void) close(fd);
+		return;
+	}
+
 	if ((buf = malloc(statbuf.st_size)) == NULL) {
 		(void) fprintf(stderr, "failed to allocate %llu bytes\n",
 		    (u_longlong_t)statbuf.st_size);
@@ -7891,7 +7896,7 @@ zdb_dump_block(char *label, void *buf, uint64_t size, int flags)
 	int do_bswap = !!(flags & ZDB_FLAG_BSWAP);
 	unsigned i, j;
 	const char *hdr;
-	char *c;
+	unsigned char *c;
 
 
 	if (do_bswap)
@@ -7911,7 +7916,7 @@ zdb_dump_block(char *label, void *buf, uint64_t size, int flags)
 		    (u_longlong_t)(do_bswap ? BSWAP_64(d[i]) : d[i]),
 		    (u_longlong_t)(do_bswap ? BSWAP_64(d[i + 1]) : d[i + 1]));
 
-		c = (char *)&d[i];
+		c = (unsigned char *)&d[i];
 		for (j = 0; j < 2 * sizeof (uint64_t); j++)
 			(void) printf("%c", isprint(c[j]) ? c[j] : '.');
 		(void) printf("\n");
