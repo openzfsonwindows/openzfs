@@ -1,0 +1,34 @@
+name: build_for_wsl
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+    - name: Reclaim disk space
+      run: |
+        ${{ github.workspace }}/.github/workflows/scripts/reclaim_disk_space.sh
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        xargs --arg-file=${{ github.workspace }}/.github/workflows/build-dependencies.txt sudo apt-get install -qq
+        sudo apt-get clean
+    - name: Autogen.sh
+      run: |
+        ./autogen.sh
+    - name: Configure
+      run: |
+        ./configure --enable-debug --enable-debuginfo --enable-asan --enable-ubsan
+    - name: Make
+      run: |
+        make -j16 --no-print-directory --silent
+        #make -j$(nproc) --no-print-directory --silent pkg-utils pkg-kmod
+    - name: get files
+      run: ls -Rla

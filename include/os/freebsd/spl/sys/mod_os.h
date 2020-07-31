@@ -31,6 +31,14 @@
 
 #include <sys/sysctl.h>
 
+#define	EXPORT_SYMBOL(x)
+#define	module_param(a, b, c)
+#define	MODULE_PARM_DESC(a, b)
+
+/* Other platforms have long as 32-bit */
+#define	ZFS_MODULE_LONG long
+#define	ZFS_MODULE_ULONG unsigned long
+
 #define	ZMOD_RW CTLFLAG_RWTUN
 #define	ZMOD_RD CTLFLAG_RDTUN
 
