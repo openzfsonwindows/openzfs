@@ -531,6 +531,62 @@ typedef struct zfs_useracct {
 	uint64_t zu_space;
 } zfs_useracct_t;
 
+typedef struct
+{
+    uint64_t total;
+    uint64_t count;
+}stat_pair;
+
+
+typedef struct {
+    uint64_t	arcstat_hits;
+    uint64_t	arcstat_misses;
+    uint64_t	arcstat_total_demand_hits;
+    uint64_t	arcstat_total_demand_miss;
+    uint64_t	arcstat_perfetch_hits;
+    uint64_t	arcstat_perfetch_miss;
+    uint64_t	arcstat_size;
+    uint64_t	arcstat_c;
+    uint64_t	arcstat_mfu_hits;
+    uint64_t	arcstat_mru_hits;
+    uint64_t	arcstat_mru_ghost_hits;
+    uint64_t	arcstat_mfu_ghost_hits;
+    uint64_t	arcstat_evict_skip;
+    uint64_t	arcstat_mutex_miss;
+    uint64_t	arcstat_compressed_size;
+    uint64_t	arcstat_uncompressed_size;
+    uint64_t	arcstat_overhead_size;
+    uint64_t	arcstat_read_ps;
+    uint64_t	arcstat_metadata_accesses_ps;
+    uint64_t	arcstat_metadata_hit_ps;
+    uint64_t	arcstat_metadata_miss_ps;
+    uint64_t	arcstat_perfetch_ps;
+    uint64_t	arcstat_demand_ps;
+    uint64_t	arcstat_l2_hits;
+    uint64_t	arcstat_l2_misses;
+    uint64_t	arcstat_l2_read_bytes;
+    uint64_t	arcstat_l2_write_bytes;
+    uint64_t	arcstat_l2_access_ps;
+
+	/*
+	 * ZIL and SLOG counters
+	 */
+    uint64_t	zil_commit_count;
+    uint64_t	zil_commit_writer_count;
+    uint64_t	zil_itx_count;
+    uint64_t	zil_itx_indirect_count;
+    uint64_t	zil_itx_indirect_bytes;
+    uint64_t	zil_itx_copied_count;
+    uint64_t	zil_itx_copied_bytes;
+    uint64_t	zil_itx_needcopy_count;
+    uint64_t	zil_itx_needcopy_bytes;
+    uint64_t	zil_itx_metaslab_normal_count;
+    uint64_t	zil_itx_metaslab_normal_bytes;
+    uint64_t	zil_itx_metaslab_slog_count;
+    uint64_t	zil_itx_metaslab_slog_bytes;
+
+} cache_counters;
+
 #define	ZFSDEV_MAX_MINOR	(1 << 16)
 
 #define	ZPOOL_EXPORT_AFTER_SPLIT 0x1
@@ -551,6 +607,8 @@ extern void zfs_unmount_snap(const char *);
 extern void zfs_destroy_unmount_origin(const char *);
 extern int getzfsvfs_impl(struct objset *, struct zfsvfs **);
 extern int getzfsvfs(const char *, struct zfsvfs **);
+extern void latency_stats(uint64_t *histo, unsigned int buckets,
+    stat_pair* lat);
 
 enum zfsdev_state_type {
 	ZST_ONEXIT,
@@ -577,6 +635,8 @@ extern int zfsdev_getminor(zfs_file_t *fp, minor_t *minorp);
 
 extern uint_t zfs_fsyncer_key;
 extern uint_t zfs_allow_log_key;
+
+
 
 #endif	/* _KERNEL */
 

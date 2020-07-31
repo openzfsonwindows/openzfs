@@ -31,6 +31,10 @@
 
 #include <sys/sysctl.h>
 
+#define	EXPORT_SYMBOL(x)
+#define	module_param(a, b, c)
+#define	MODULE_PARM_DESC(a, b)
+
 #define	ZMOD_RW CTLFLAG_RWTUN
 #define	ZMOD_RD CTLFLAG_RDTUN
 

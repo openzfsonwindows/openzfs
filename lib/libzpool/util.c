@@ -192,10 +192,11 @@ err_free:
 int
 set_global_var(char const *arg)
 {
+	int ret = 0;
+#ifndef _WIN32 // Windowsify me
 	void *zpoolhdl;
 	char *varname;
 	u_longlong_t val;
-	int ret;
 
 #ifndef _ZFS_LITTLE_ENDIAN
 	/*
@@ -239,6 +240,7 @@ out_dlclose:
 out_free:
 	free(varname);
 out_ret:
+#endif
 	return (ret);
 }
 

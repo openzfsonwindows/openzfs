@@ -1078,7 +1078,11 @@ zpool_read_label(int fd, nvlist_t **config, int *num_labels)
 			error = zpool_read_label_slow(fd, config, num_labels);
 			saved_errno = errno;
 		}
+<<<<<<< HEAD
 		umem_free_aligned(labels, VDEV_LABELS * sizeof (*labels));
+=======
+		posix_memalign_free(labels);
+>>>>>>> 62b7a687fb... Add Windows support to OpenZFS
 		errno = saved_errno;
 		return (error);
 	}
@@ -1127,7 +1131,12 @@ zpool_read_label(int fd, nvlist_t **config, int *num_labels)
 	if (num_labels != NULL)
 		*num_labels = count;
 
+<<<<<<< HEAD
 	umem_free_aligned(labels, VDEV_LABELS * sizeof (*labels));
+=======
+	posix_memalign_free(labels);
+
+>>>>>>> 62b7a687fb... Add Windows support to OpenZFS
 	*config = expected_config;
 
 	return (0);
