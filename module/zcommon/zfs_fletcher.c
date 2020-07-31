@@ -921,6 +921,20 @@ fletcher_4_param_set(const char *val, zfs_kernel_param_t *unused)
 	return (fletcher_4_impl_set(val));
 }
 
+#elif defined(_WIN32)
+
+static uint32_t zfs_fletcher_4_impl = 0;
+
+static int
+fletcher_4_param_set(ZFS_MODULE_PARAM_ARGS)
+{
+	*ptr = zt->zt_ptr;
+	*len = sizeof (uint32_t);
+	*type = ZT_TYPE_INT;
+
+	return (0);
+}
+
 #else
 
 #include <sys/sbuf.h>
@@ -928,7 +942,7 @@ fletcher_4_param_set(const char *val, zfs_kernel_param_t *unused)
 static int
 fletcher_4_param(ZFS_MODULE_PARAM_ARGS)
 {
-	int err;
+	int err = 0;
 
 	if (req->newptr == NULL) {
 		const uint32_t impl = IMPL_READ(fletcher_4_impl_chosen);

@@ -993,7 +993,7 @@ zpool_read_label_slow(int fd, nvlist_t **config, int *num_labels)
 	if (num_labels != NULL)
 		*num_labels = count;
 
-	free(label);
+	posix_memalign_free(label);
 	*config = expected_config;
 
 	return (0);
@@ -1079,7 +1079,7 @@ zpool_read_label(int fd, nvlist_t **config, int *num_labels)
 			error = zpool_read_label_slow(fd, config, num_labels);
 			saved_errno = errno;
 		}
-		free(labels);
+		posix_memalign_free(labels);
 		errno = saved_errno;
 		return (error);
 	}
@@ -1128,7 +1128,8 @@ zpool_read_label(int fd, nvlist_t **config, int *num_labels)
 	if (num_labels != NULL)
 		*num_labels = count;
 
-	free(labels);
+	posix_memalign_free(labels);
+
 	*config = expected_config;
 
 	return (0);
