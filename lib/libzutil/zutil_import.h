@@ -58,4 +58,5 @@ int slice_cache_compare(const void *, const void *);
 
 void zpool_open_func(void *);
 
+
 #endif /* _LIBZUTIL_ZUTIL_IMPORT_H_ */

@@ -61,6 +61,8 @@
 !RELEASES.md
 !TEST
 !zfs.release.in
+!CMakeLists.txt
+!CMakeSettings.json
 
 #
 # Normal rules
