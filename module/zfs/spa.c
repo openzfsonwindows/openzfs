@@ -1072,6 +1072,8 @@ spa_taskqs_init(spa_t *spa, zio_type_t t, zio_taskq_type_t q)
 				pri++;
 #elif defined(__FreeBSD__)
 				pri += 4;
+#elif defined(_WIN32)
+				pri++;
 #else
 #error "unknown OS"
 #endif
