@@ -211,6 +211,7 @@ set_global_var(char const *arg)
 		goto out_ret;
 	}
 
+#ifndef _WIN32 // Windowsify me
 	zpoolhdl = dlopen("libzpool.so", RTLD_LAZY);
 	if (zpoolhdl != NULL) {
 		uint32_t *var;
@@ -237,6 +238,8 @@ out_dlclose:
 	free(varname);
 out_ret:
 	return (ret);
+#endif
+	return (0);
 }
 
 static nvlist_t *
