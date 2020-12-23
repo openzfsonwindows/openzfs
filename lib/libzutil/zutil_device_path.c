@@ -85,7 +85,12 @@ zfs_resolve_shortname(const char *name, char *path, size_t len)
 		}
 	}
 
-	return (errno = ENOENT);
+#ifdef _WIN32
+	/* Nothing found, attempt OS specific shortnames */
+	if (zfs_resolve_shortname_os(name, path, len) == 0)
+		return (0);
+#endif
+	return (ENOENT);
 }
 
 /*
