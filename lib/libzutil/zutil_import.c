@@ -1105,7 +1105,8 @@ zpool_read_label(int fd, nvlist_t **config, int *num_labels)
 	if (num_labels != NULL)
 		*num_labels = count;
 
-	free(labels);
+	posix_memalign_free(labels);
+
 	*config = expected_config;
 
 	return (0);
