@@ -930,6 +930,7 @@ _LIBZFS_H int zfs_smb_acl_rename(libzfs_handle_t *, char *, char *, char *,
  */
 _LIBZFS_H int zpool_enable_datasets(zpool_handle_t *, const char *, int);
 _LIBZFS_H int zpool_disable_datasets(zpool_handle_t *, boolean_t);
+_LIBZFS_H void zpool_disable_datasets_os(zpool_handle_t *zhp, boolean_t force);
 
 /*
  * Parse a features file for -o compatibility

@@ -1639,6 +1639,11 @@ zpool_disable_datasets(zpool_handle_t *zhp, boolean_t force)
 			remove_mountpoint(datasets[i]);
 	}
 
+#ifdef __APPLE__
+	/* We have to do a bunch of work to kick ZVOLs off */
+	zpool_disable_datasets_os(zhp, force);
+#endif
+
 	ret = 0;
 out:
 	(void) fclose(mnttab);
