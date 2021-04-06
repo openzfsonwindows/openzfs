@@ -216,7 +216,7 @@ mountmgr_get_mountpoint(PDEVICE_OBJECT mountmgr,
  * to MOUNTMGR_IS_DRIVE_LETTER()
  */
 NTSTATUS
-mountmgr_get_drive_letter(DEVICE_OBJECT mountmgr,
+mountmgr_get_drive_letter(DEVICE_OBJECT *mountmgr,
     PUNICODE_STRING devpath, char *savename)
 {
 	return (mountmgr_get_mountpoint(mountmgr, devpath, savename,

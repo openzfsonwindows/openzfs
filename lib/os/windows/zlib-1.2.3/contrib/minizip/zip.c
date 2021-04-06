@@ -800,7 +800,7 @@ zipOpenNewFileInZip3(
 	    (uLong)0, 4); /* compr size */
 	ziplocal_putValue_inmemory(zi->ci.central_header+24,
 	    (uLong)0, 4); /* uncompr size */
-	ziplocal_putValue_inmemory(zi->ci.central_header+28
+	ziplocal_putValue_inmemory(zi->ci.central_header+28,
 	    (uLong)size_filename, 2);
 	ziplocal_putValue_inmemory(zi->ci.central_header+30,
 	    (uLong)size_extrafield_global, 2);
@@ -1088,7 +1088,7 @@ zipCloseFileInZipRaw(
 			uTotalOutBefore = zi->ci.stream.total_out;
 			err = deflate(&zi->ci.stream,  Z_FINISH);
 			zi->ci.pos_in_buffered_data +=
-			    q(uInt)(zi->ci.stream.total_out - uTotalOutBefore);
+			    (uInt)(zi->ci.stream.total_out - uTotalOutBefore);
 		}
 
 	if (err == Z_STREAM_END)

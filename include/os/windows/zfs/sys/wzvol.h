@@ -173,7 +173,7 @@ typedef struct _HW_HBA_EXT {
 	UCHAR		ProductId[17];
 	UCHAR		ProductRevision[5];
 
-	BOOLEAN		bDontReport:	// TRUE => no Report LUNs.
+	BOOLEAN		bDontReport;	// TRUE => no Report LUNs.
 	BOOLEAN		bReportAdapterDone;
 	// To be set only by a kernel debugger.
 	LUNInfo		LUNInfoArray[LUNInfoMax];

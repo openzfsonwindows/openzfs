@@ -372,6 +372,7 @@ VOP_LOOKUP(struct vnode *vp, struct vnode **vpp, struct componentname *cn,
 }
 #endif
 
+#if 0
 extern errno_t VNOP_REMOVE(struct vnode *, struct vnode *,
     struct componentname *, int, vfs_context_t);
 errno_t

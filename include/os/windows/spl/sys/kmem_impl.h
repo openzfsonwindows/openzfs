@@ -29,7 +29,6 @@
 #include <sys/kmem.h>
 #include <sys/vmem.h>
 #include <sys/thread.h>
-#include <sys/t_lock.h>
 #include <sys/time.h>
 #include <sys/kstat.h>
 #include <sys/cpuvar.h>

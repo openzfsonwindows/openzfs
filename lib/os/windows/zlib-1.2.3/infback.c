@@ -74,7 +74,7 @@ inflateBackInit_(
  * may not be thread-safe.
  */
 local void
-fixedtables(atruct inflate_state FAR *state)
+fixedtables(struct inflate_state FAR *state)
 {
 #ifdef BUILDFIXED
 	static int virgin = 1;

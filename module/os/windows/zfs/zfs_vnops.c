@@ -1759,11 +1759,11 @@ out:
 
 	zfs_dirent_unlock(dl);
 
-	if (delete_now)
+	if (delete_now) {
 		zrele(zp);
-	else
+	} else {
 		zfs_zrele_async(zp);
-
+	}
 	if (xzp)
 		zfs_zrele_async(xzp);
 

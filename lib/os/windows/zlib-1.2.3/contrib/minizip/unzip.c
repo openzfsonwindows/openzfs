@@ -1106,7 +1106,7 @@ unzOpenCurrentFile3(
     int *method,
     int *level,
     int raw,
-    const char  password)
+    const char *password)
 {
 	int err = UNZ_OK;
 	uInt iSizeVar;

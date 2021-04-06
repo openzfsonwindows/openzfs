@@ -146,6 +146,7 @@ extern int			vttoif_tab[];
 #define	VTTOIF(indx)		(vttoif_tab[(int)(indx)])
 #define	MAKEIMODE(indx, mode)	(int)(VTTOIF(indx) | (mode))
 
+#define	ATTR_NOACLCHECK 0x20
 
 /*
  * Windows uses separate vnop getfileinformation to deal with XATTRs, so

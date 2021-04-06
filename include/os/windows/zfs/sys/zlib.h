@@ -1179,7 +1179,7 @@ ZEXTERN int ZEXPORT    gzflush OF((gzFile file, int flush));
  */
 
 ZEXTERN z_off_t ZEXPORT    gzseek OF((gzFile file,
-    nz_off_t offset, int whence));
+    z_off_t offset, int whence));
 /*
  *     Sets the starting position for the next gzread or gzwrite on the
  *  given compressed file. The offset represents a number of bytes in the

@@ -69,9 +69,9 @@ spl_mutex_init(kmutex_t *mp, char *name, kmutex_type_t type, void *ibc)
 	ASSERT(type != MUTEX_SPIN);
 	ASSERT(ibc == NULL);
 
-	if (mp->m_initialised == MUTEX_M_INITIALISED)
+	if (mp->m_initialised == MUTEX_INITIALISED)
 		panic("%s: mutex already m_initialised\n", __func__);
-	mp->m_initialised = MUTEX_M_INITIALISED;
+	mp->m_initialised = MUTEX_INITIALISED;
 	mp->m_set_event_guard = 0;
 
 	mp->m_owner = NULL;
@@ -87,7 +87,7 @@ spl_mutex_destroy(kmutex_t *mp)
 	if (!mp)
 		return;
 
-	if (mp->m_initialised != MUTEX_M_INITIALISED)
+	if (mp->m_initialised != MUTEX_INITIALISED)
 		panic("%s: mutex not m_initialised\n", __func__);
 
 	// Make sure any call to KeSetEvent() has completed.
@@ -112,7 +112,7 @@ spl_mutex_enter(kmutex_t *mp)
 	NTSTATUS Status;
 	kthread_t *thisthread = current_thread();
 
-	if (mp->m_initialised != MUTEX_M_INITIALISED)
+	if (mp->m_initialised != MUTEX_INITIALISED)
 		panic("%s: mutex not m_initialised\n", __func__);
 
 	if (mp->m_owner == thisthread)
@@ -169,7 +169,7 @@ spl_mutex_tryenter(kmutex_t *mp)
 	// NTSTATUS Status;
 	kthread_t *thisthread = current_thread();
 
-	if (mp->m_initialised != MUTEX_M_INITIALISED)
+	if (mp->m_initialised != MUTEX_INITIALISED)
 		panic("%s: mutex not m_initialised\n", __func__);
 
 	if (mp->m_owner == thisthread)
