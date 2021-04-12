@@ -419,6 +419,7 @@ void procfs_list_add(procfs_list_t *procfs_list, void *p);
 #define	kmem_cache_destroy(_c)	umem_cache_destroy(_c)
 #define	kmem_cache_alloc(_c, _f) umem_cache_alloc(_c, _f)
 #define	kmem_cache_free(_c, _b)	umem_cache_free(_c, _b)
+#define kmem_cache_free_aligned(_c, _b)	umem_cache_free_aligned(_c, _b)
 #define	kmem_debugging()	0
 #define	kmem_cache_reap_now(_c)	umem_cache_reap_now(_c);
 #define	kmem_cache_set_move(_c, _cb)	/* nothing */

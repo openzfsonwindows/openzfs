@@ -46,6 +46,7 @@
 #include <sys/zvol.h>
 #include <zfs_fletcher.h>
 #include <zlib.h>
+#include <winternl.h>
 
 /*
  * Emulation of kernel services in userland.
@@ -118,7 +119,6 @@ zk_thread_create(void (*func)(void *), void *arg, size_t stksize, int state)
 	VERIFY0(pthread_attr_setstacksize(&attr, stksize));
 	VERIFY0(pthread_attr_setguardsize(&attr, PAGESIZE));
 #endif
-
 	VERIFY0(pthread_create(&tid, &attr, (void *(*)(void *))func, arg));
 	VERIFY0(pthread_attr_destroy(&attr));
 
@@ -818,9 +818,8 @@ random_get_pseudo_bytes(uint8_t *ptr, size_t len)
 int
 ddi_strtoul(const char *hw_serial, char **nptr, int base, unsigned long *result)
 {
-	char *end;
-
-	*result = strtoul(hw_serial, &end, base);
+	char* end;
+	*result = strtoul(hw_serial, nptr, base);
 	if (*result == 0)
 		return (errno);
 	if (nptr != NULL)
@@ -831,9 +830,9 @@ ddi_strtoul(const char *hw_serial, char **nptr, int base, unsigned long *result)
 int
 ddi_strtoull(const char *str, char **nptr, int base, u_longlong_t *result)
 {
-	char *end;
+	char* end;
 
-	*result = strtoull(str, &end, base);
+	*result = strtoull(str, nptr , base);
 	if (*result == 0)
 		return (errno);
 	if (nptr != NULL)
@@ -1090,64 +1089,47 @@ zvol_rename_minors(spa_t *spa, const char *oldname, const char *newname,
 int
 zfs_file_open(const char *path, int flags, int mode, zfs_file_t **fpp)
 {
-	int fd = -1;
-	int dump_fd = -1;
-	int err;
-	int old_umask = 0;
-	zfs_file_t *fp;
-	struct stat64 st;
+    UNICODE_STRING uniName;
+    DWORD desiredAccess = 0;
+    DWORD dwCreationDisposition;
 
-	if (!(flags & O_CREAT) && stat64(path, &st) == -1)
-		return (errno);
-
-	if (!(flags & O_CREAT) && S_ISBLK(st.st_mode))
-		flags |= O_DIRECT;
-
-	if (flags & O_CREAT)
-		old_umask = umask(0);
-
-	fd = open64(path, flags, mode);
-	if (fd == -1)
-		return (errno);
-
-	if (flags & O_CREAT)
-		(void) umask(old_umask);
-
-	if (vn_dumpdir != NULL) {
-		char *dumppath = umem_zalloc(MAXPATHLEN, UMEM_NOFAIL);
-		char *inpath = basename((char *)(uintptr_t)path);
-
-		(void) snprintf(dumppath, MAXPATHLEN,
-		    "%s/%s", vn_dumpdir, inpath);
-		dump_fd = open64(dumppath, O_CREAT | O_WRONLY, 0666);
-		umem_free(dumppath, MAXPATHLEN);
-		if (dump_fd == -1) {
-			err = errno;
-			close(fd);
-			return (err);
-		}
-	} else {
-		dump_fd = -1;
-	}
-
-	(void) fcntl(fd, F_SETFD, FD_CLOEXEC);
-
-	fp = umem_zalloc(sizeof (zfs_file_t), UMEM_NOFAIL);
-	fp->f_fd = fd;
-	fp->f_dump_fd = dump_fd;
-	*fpp = fp;
-
-	return (0);
+    if (flags == O_RDONLY) {
+	desiredAccess = GENERIC_READ;
+	dwCreationDisposition = OPEN_EXISTING;
+    }
+    if (flags & O_WRONLY) {
+	desiredAccess = GENERIC_WRITE;
+	dwCreationDisposition = OPEN_ALWAYS | FILE_OVERWRITE_IF;
+    }
+    if (flags & O_RDWR) {
+	desiredAccess = GENERIC_READ | GENERIC_WRITE;
+	dwCreationDisposition = OPEN_ALWAYS | FILE_OVERWRITE_IF;
+    }
+    if (flags & O_TRUNC) {
+	dwCreationDisposition = FILE_SUPERSEDE;
+    }
+    zfs_file_t* hFile = (zfs_file_t*)kmem_zalloc(sizeof(zfs_file_t), KM_SLEEP);
+	*hFile = CreateFile(
+	path,
+	desiredAccess,
+	FILE_SHARE_READ | FILE_SHARE_WRITE,
+	NULL,
+	dwCreationDisposition,
+	FILE_ATTRIBUTE_NORMAL,
+	NULL
+    );
+    if (*hFile == INVALID_HANDLE_VALUE) {
+	return ENOENT;
+    }
+    *fpp = hFile;
+    return 0;
 }
 
 void
-zfs_file_close(zfs_file_t *fp)
+zfs_file_close(zfs_file_t *hFile)
 {
-	close(fp->f_fd);
-	if (fp->f_dump_fd != -1)
-		close(fp->f_dump_fd);
-
-	umem_free(fp, sizeof (zfs_file_t));
+    CloseHandle(*hFile);
+    kmem_free(hFile,sizeof(zfs_file_t));
 }
 
 /*
@@ -1162,21 +1144,25 @@ zfs_file_close(zfs_file_t *fp)
  * Returns 0 on success errno on failure.
  */
 int
-zfs_file_write(zfs_file_t *fp, const void *buf, size_t count, ssize_t *resid)
+zfs_file_write(zfs_file_t *fp, const void *buf, size_t len, ssize_t *resid)
 {
-	ssize_t rc;
+    DWORD dwBytesWritten;
+    BOOL res = WriteFile(
+	*fp,
+	buf,
+	len,
+	&dwBytesWritten,
+	NULL
+    );
+    if (!res)
+	return EIO;
 
-	rc = write(fp->f_fd, buf, count);
-	if (rc < 0)
-		return (errno);
+    if (resid)
+	*resid = len - dwBytesWritten;
+    else if (len != dwBytesWritten)
+	return EIO;
 
-	if (resid) {
-		*resid = count - rc;
-	} else if (rc != count) {
-		return (EIO);
-	}
-
-	return (0);
+    return 0;
 }
 
 /*
@@ -1191,48 +1177,48 @@ zfs_file_write(zfs_file_t *fp, const void *buf, size_t count, ssize_t *resid)
  * Returns 0 on success errno on failure.
  */
 int
-zfs_file_pwrite(zfs_file_t *fp, const void *buf,
-    size_t count, loff_t pos, ssize_t *resid)
+zfs_file_pwrite(zfs_file_t *hFile, const void *buf,
+    size_t count, loff_t off, ssize_t *resid)
 {
-	ssize_t rc, split, done;
-	int sectors;
-
-	/*
-	 * To simulate partial disk writes, we split writes into two
-	 * system calls so that the process can be killed in between.
-	 * This is used by ztest to simulate realistic failure modes.
-	 */
-	sectors = count >> SPA_MINBLOCKSHIFT;
-	split = (sectors > 0 ? rand() % sectors : 0) << SPA_MINBLOCKSHIFT;
-	rc = pwrite64(fp->f_fd, buf, split, pos);
-	if (rc != -1) {
-		done = rc;
-		rc = pwrite64(fp->f_fd, (char *)buf + split,
-		    count - split, pos + split);
-	}
-#ifdef __linux__
-	if (rc == -1 && errno == EINVAL) {
-		/*
-		 * Under Linux, this most likely means an alignment issue
-		 * (memory or disk) due to O_DIRECT, so we abort() in order
-		 * to catch the offender.
-		 */
-		abort();
-	}
-#endif
-
-	if (rc < 0)
-		return (errno);
-
-	done += rc;
-
-	if (resid) {
-		*resid = count - done;
-	} else if (done != count) {
-		return (EIO);
-	}
-
-	return (0);
+    /*
+     * To simulate partial disk writes, we split writes into two
+     * system calls so that the process can be killed in between.
+     * This is used by ztest to simulate realistic failure modes.
+     */
+    int sectors, split;
+    sectors = count >> SPA_MINBLOCKSHIFT;
+    split = (sectors > 0 ? rand() % sectors : 0) << SPA_MINBLOCKSHIFT;
+    DWORD dwBytesWritten;
+    OVERLAPPED ol = { 0 };
+    ol.Offset = (DWORD)(off & 0xFFFFFFFFLL);
+    ol.OffsetHigh = (DWORD)((off & 0xFFFFFFFF00000000LL) >> 32);
+    BOOL res = WriteFile(
+	*hFile,
+	buf,
+	split,
+	&dwBytesWritten,
+	&ol
+    );
+    if (res) {
+	OVERLAPPED ol2 = { 0 };
+	off += split;
+	ol2.Offset = (DWORD)(off & 0xFFFFFFFFLL);
+	ol2.OffsetHigh = (DWORD)((off & 0xFFFFFFFF00000000LL) >> 32);
+	res = WriteFile(
+	    *hFile,
+	    (char*)buf + split,
+	    count - split,
+	    &dwBytesWritten,
+	    &ol2
+	);
+}
+    if (!res)
+	return EIO;
+    if (resid)
+	*resid = count - dwBytesWritten;
+    else if (count != dwBytesWritten)
+	return EIO;
+    return 0;
 }
 
 /*
@@ -1247,21 +1233,25 @@ zfs_file_pwrite(zfs_file_t *fp, const void *buf,
  * Returns 0 on success errno on failure.
  */
 int
-zfs_file_read(zfs_file_t *fp, void *buf, size_t count, ssize_t *resid)
+zfs_file_read(zfs_file_t *fp, void *buf, size_t len, ssize_t *resid)
 {
-	int rc;
+	DWORD dwBytesRead;
+	BOOL res = ReadFile(
+	    *fp,
+	    buf,
+	    (DWORD)len,
+	    &dwBytesRead,
+	    NULL
+	);
+	if (!res)
+	    return EIO;
 
-	rc = read(fp->f_fd, buf, count);
-	if (rc < 0)
-		return (errno);
+	if (resid)
+	    *resid = len - dwBytesRead;
+	else if (dwBytesRead != len)
+	    return EIO;
 
-	if (resid) {
-		*resid = count - rc;
-	} else if (rc != count) {
-		return (EIO);
-	}
-
-	return (0);
+	return 0;
 }
 
 /*
@@ -1279,36 +1269,24 @@ int
 zfs_file_pread(zfs_file_t *fp, void *buf, size_t count, loff_t off,
     ssize_t *resid)
 {
-	ssize_t rc;
-
-	rc = pread64(fp->f_fd, buf, count, off);
-	if (rc < 0) {
-#ifdef __linux__
-		/*
-		 * Under Linux, this most likely means an alignment issue
-		 * (memory or disk) due to O_DIRECT, so we abort() in order to
-		 * catch the offender.
-		 */
-		if (errno == EINVAL)
-			abort();
-#endif
-		return (errno);
-	}
-
-	if (fp->f_dump_fd != -1) {
-		int status;
-
-		status = pwrite64(fp->f_dump_fd, buf, rc, off);
-		ASSERT(status != -1);
-	}
-
-	if (resid) {
-		*resid = count - rc;
-	} else if (rc != count) {
-		return (EIO);
-	}
-
-	return (0);
+    DWORD dwBytesRead;
+    OVERLAPPED ol = { 0 };
+    ol.Offset = (DWORD)(off & 0xFFFFFFFFLL);
+    ol.OffsetHigh = (DWORD)((off & 0xFFFFFFFF00000000LL) >> 32);
+    BOOL res = ReadFile(
+	*fp,
+	buf,
+	(DWORD)count,
+	&dwBytesRead,
+	&ol
+    );
+    if (!res)
+	return EIO;
+    if (resid)
+	*resid = count - dwBytesRead;
+    else if (count != dwBytesRead)
+	return EIO;
+    return 0;
 }
 
 /*
@@ -1323,15 +1301,13 @@ zfs_file_pread(zfs_file_t *fp, void *buf, size_t count, loff_t off,
 int
 zfs_file_seek(zfs_file_t *fp, loff_t *offp, int whence)
 {
-	loff_t rc;
-
-	rc = lseek(fp->f_fd, *offp, whence);
-	if (rc < 0)
-		return (errno);
-
-	*offp = rc;
-
-	return (0);
+    LONG lpDistanceToMoveHigh;
+    return SetFilePointer(
+	*fp,
+	(LONG)*offp,
+	&lpDistanceToMoveHigh, // this pointer is used for higher order 32 bits of the signed 64 bit distance to move
+	(DWORD)whence// FILE_BEGIN FILE_CURRENT FILE_END
+    );
 }
 
 /*
@@ -1345,17 +1321,17 @@ zfs_file_seek(zfs_file_t *fp, loff_t *offp, int whence)
  * Returns 0 on success or error code of underlying getattr call on failure.
  */
 int
-zfs_file_getattr(zfs_file_t *fp, zfs_file_attr_t *zfattr)
+zfs_file_getattr(zfs_file_t *hFile, zfs_file_attr_t *zfattr)
 {
-	struct stat64 st;
-
-	if (fstat64_blk(fp->f_fd, &st) == -1)
-		return (errno);
-
-	zfattr->zfa_size = st.st_size;
-	zfattr->zfa_mode = st.st_mode;
-
-	return (0);
+    DWORD dwFileSize;
+    DWORD dwFileType;
+    LARGE_INTEGER fSize;
+    if (GetFileSizeEx(*hFile, &fSize))
+	zfattr->zfa_size = fSize.QuadPart;
+    DWORD err = GetLastError();
+    dwFileType = GetFileType(*hFile);
+    zfattr->zfa_mode = dwFileType;
+    return 0;
 }
 
 /*
@@ -1367,15 +1343,11 @@ zfs_file_getattr(zfs_file_t *fp, zfs_file_attr_t *zfattr)
  * Returns 0 on success or error code of underlying sync call on failure.
  */
 int
-zfs_file_fsync(zfs_file_t *fp, int flags)
+zfs_file_fsync(zfs_file_t *hFile, int flags)
 {
-	int rc;
-
-	rc = fsync(fp->f_fd);
-	if (rc < 0)
-		return (errno);
-
-	return (0);
+    return FlushFileBuffers(
+	*hFile
+    );
 }
 
 /*
@@ -1408,7 +1380,20 @@ zfs_file_fallocate(zfs_file_t *fp, int mode, loff_t offset, loff_t len)
 loff_t
 zfs_file_off(zfs_file_t *fp)
 {
-	return (lseek(fp->f_fd, SEEK_CUR, 0));
+	LARGE_INTEGER lpDistanceToMoveHigh;
+	LARGE_INTEGER off;
+	BOOL ret;
+
+	off.QuadPart = 0;
+	ret = SetFilePointerEx(
+		*fp,
+		off,
+		&lpDistanceToMoveHigh, // this pointer is used for higher order 32 bits of the signed 64 bit distance to move, if set to NULL this won't be used
+		FILE_CURRENT
+	);
+	if (!ret)
+		return EFAULT;
+	return lpDistanceToMoveHigh.QuadPart;
 }
 
 /*

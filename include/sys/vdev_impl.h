@@ -443,6 +443,10 @@ struct vdev {
 	 */
 	zfs_ratelimit_t vdev_delay_rl;
 	zfs_ratelimit_t vdev_checksum_rl;
+
+	uint64_t vdev_win_offset; /* soft partition start */
+	uint64_t vdev_win_length; /* soft partition length */
+
 };
 
 #define	VDEV_RAIDZ_MAXPARITY	3

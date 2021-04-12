@@ -328,7 +328,7 @@ zio_buf_free(void *buf, size_t size)
 	atomic_add_64(&zio_buf_cache_frees[c], 1);
 #endif
 
-	kmem_cache_free(zio_buf_cache[c], buf);
+	kmem_cache_free_aligned(zio_buf_cache[c], buf);
 }
 
 void

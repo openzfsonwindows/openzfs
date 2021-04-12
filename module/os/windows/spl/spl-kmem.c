@@ -2492,6 +2492,12 @@ kmem_cache_free(kmem_cache_t *cp, void *buf)
 	kmem_slab_free_constructed(cp, buf, B_TRUE);
 }
 
+void
+kmem_cache_free_aligned(kmem_cache_t* cp, void* buf)
+{
+    return;
+}
+
 /*
  * Free a constructed object to cache cp.
  * Do not free to the magazine layer.

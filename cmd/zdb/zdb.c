@@ -3872,47 +3872,66 @@ dump_config(spa_t *spa)
 static void
 dump_cachefile(const char *cachefile)
 {
-	int fd;
-	struct stat64 statbuf;
-	char *buf;
-	nvlist_t *config;
+    char* buf;
+    nvlist_t* config;
+    int err;
+    zfs_file_attr_t attr;
+    ssize_t resid;
+    char pathname[MAXPATHLEN];
 
-	if ((fd = open64(cachefile, O_RDONLY)) < 0) {
-		(void) printf("cannot open '%s': %s\n", cachefile,
-		    strerror(errno));
-		exit(1);
-	}
+#ifdef WIN32
+    // unpack cachefile path
+    if (strncmp(cachefile, "\\SystemRoot\\", 12) == 0) {
+	(void)snprintf(pathname, MAXPATHLEN, "%s\\%s",
+	    getenv("SystemRoot"), cachefile + 12);
+    }
+    else
+	(void)snprintf(pathname, MAXPATHLEN, "%s", cachefile);
+#else
+    (void)snprintf(pathname, MAXPATHLEN, "%s", cachefile);
+#endif
+    zfs_file_t* fp;
+    err = zfs_file_open(pathname, O_RDONLY, 0, &fp);
+    if (err) {
+	(void)printf("cannot open '%s': %s\n", cachefile,
+	    strerror(errno));
+	exit(1);
+    }
 
-	if (fstat64(fd, &statbuf) != 0) {
-		(void) printf("failed to stat '%s': %s\n", cachefile,
-		    strerror(errno));
-		exit(1);
-	}
+    err = zfs_file_getattr(fp, &attr);
+    if (err) {
+	(void)printf("failed to stat '%s': %s\n", cachefile,
+	    strerror(errno));
+	zfs_file_close(fp);
+	exit(1);
+    }
 
-	if ((buf = malloc(statbuf.st_size)) == NULL) {
-		(void) fprintf(stderr, "failed to allocate %llu bytes\n",
-		    (u_longlong_t)statbuf.st_size);
-		exit(1);
-	}
+    if ((buf = (char*)umem_alloc(attr.zfa_size, UMEM_NOFAIL)) == NULL) {
+	(void)fprintf(stderr, "failed to allocate %llu bytes\n",
+	    (u_longlong_t)attr.zfa_size);
+	zfs_file_close(fp);
+	exit(1);
+    }
 
-	if (read(fd, buf, statbuf.st_size) != statbuf.st_size) {
-		(void) fprintf(stderr, "failed to read %llu bytes\n",
-		    (u_longlong_t)statbuf.st_size);
-		exit(1);
-	}
+    err = zfs_file_read(fp, buf, attr.zfa_size, &resid);
+    if (err) {
+	(void)fprintf(stderr, "failed to read %llu bytes\n",
+	    (u_longlong_t)attr.zfa_size);
+	zfs_file_close(fp);
+	exit(1);
+    }
 
-	(void) close(fd);
+    zfs_file_close(fp);
 
-	if (nvlist_unpack(buf, statbuf.st_size, &config, 0) != 0) {
-		(void) fprintf(stderr, "failed to unpack nvlist\n");
-		exit(1);
-	}
+    if (nvlist_unpack(buf, attr.zfa_size, &config, 0) != 0) {
+	(void)fprintf(stderr, "failed to unpack nvlist\n");
+	exit(1);
+    }
 
-	free(buf);
+    umem_free(buf, attr.zfa_size);
+    dump_nvlist(config, 0);
 
-	dump_nvlist(config, 0);
-
-	nvlist_free(config);
+    nvlist_free(config);
 }
 
 /*

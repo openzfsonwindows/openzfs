@@ -22,7 +22,9 @@
 #ifndef	_SYS_ZFS_FILE_H
 #define	_SYS_ZFS_FILE_H
 
-#ifndef _KERNEL
+#ifndef _KERNEL && defined(_WIN32)
+typedef HANDLE zfs_file_t;
+#elif !defined (_KERNEL)
 typedef struct zfs_file {
 	int f_fd;
 	int f_dump_fd;

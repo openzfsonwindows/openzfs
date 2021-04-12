@@ -134,10 +134,11 @@ umem_free(void* ptr, size_t size __maybe_unused)
     free(ptr);
 }
 
+
 static inline void
-umem_free_aligned(void* ptr, size_t size __maybe_unused)
+umem_free_aligned(void* ptr, size_t size)
 {
-    posix_memalign_free(ptr);
+    _aligned_free(ptr);
 }
 
 static inline void
@@ -203,6 +204,15 @@ umem_cache_free(umem_cache_t *cp, void *ptr)
 		umem_free_aligned(ptr, cp->cache_bufsize);
 	else
 		umem_free(ptr, cp->cache_bufsize);
+}
+
+static inline void
+umem_cache_free_aligned(umem_cache_t* cp, void* ptr)
+{
+    if (cp->cache_destructor)
+	cp->cache_destructor(ptr, cp->cache_private);
+
+    umem_free_aligned(ptr, cp->cache_bufsize);
 }
 
 static inline void

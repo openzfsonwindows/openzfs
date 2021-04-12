@@ -85,6 +85,7 @@ spa_config_load(void)
 	zfs_file_attr_t zfa;
 	uint64_t fsize;
 	int err;
+	struct _buf* file;
 
 #ifdef _KERNEL
 	if (zfs_autoimport_disable)
@@ -96,14 +97,24 @@ spa_config_load(void)
 	 */
 	pathname = kmem_alloc(MAXPATHLEN, KM_SLEEP);
 
-	(void) snprintf(pathname, MAXPATHLEN, "%s", spa_config_path);
-
-	err = zfs_file_open(pathname, O_RDONLY, 0, &fp);
-
 #ifdef __FreeBSD__
 	if (err)
 		err = zfs_file_open(ZPOOL_CACHE_BOOT, O_RDONLY, 0, &fp);
 #endif
+#ifdef _KERNEL
+	(void) snprintf(pathname, MAXPATHLEN, "%s%s",
+	    "", spa_config_path);
+#else
+	if (!strncmp(spa_config_path, "\\SystemRoot\\", 12)) {
+	    (void)snprintf(pathname, MAXPATHLEN, "%s\\%s",
+		getenv("SystemRoot"), spa_config_path + 12);
+	}
+	else {
+	    (void)snprintf(pathname, MAXPATHLEN, "%s%s",
+		"", spa_config_path);
+	}
+#endif
+	err = zfs_file_open(pathname, O_RDONLY, 0, &fp);
 	kmem_free(pathname, MAXPATHLEN);
 
 	if (err)
