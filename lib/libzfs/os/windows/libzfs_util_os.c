@@ -125,7 +125,7 @@ zfs_version_kernel(char *version, int len)
 {
 	HKEY hKey; // SYSTEM\ControlSet001\Services\ZFSin
 	LSTATUS status = RegOpenKeyExA(HKEY_LOCAL_MACHINE,
-	    "SYSTEM\\ControlSet001\\Services\\ZFSin", 0, KEY_READ, &hKey);
+	    "SYSTEM\\ControlSet001\\Services\\OpenZFS", 0, KEY_READ, &hKey);
 
 	if (status != ERROR_SUCCESS)
 		return (-1);

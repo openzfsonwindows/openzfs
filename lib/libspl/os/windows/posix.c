@@ -605,7 +605,7 @@ gethostid(void)
 	DWORD len;
 
 	Status = RegOpenKeyEx(HKEY_LOCAL_MACHINE,
-	    "SYSTEM\\ControlSet001\\Services\\ZFSin",
+	    "SYSTEM\\ControlSet001\\Services\\OpenZFS",
 	    0, KEY_READ, &key);
 	if (Status != ERROR_SUCCESS)
 		return (0UL);
