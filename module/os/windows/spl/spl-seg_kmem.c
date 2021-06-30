@@ -91,8 +91,6 @@
 
 #include <Trace.h>
 
-#include <mach/vm_types.h>
-
 #endif /* _KERNEL */
 
 typedef int page_t;
