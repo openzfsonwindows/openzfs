@@ -30,19 +30,19 @@
  */
 
 #include <sys/debug.h>
-#include <sys/cdefs.h>
+// #include <sys/cdefs.h>
 #include <sys/cmn_err.h>
 #include <sys/param.h>
-#include <sys/kernel.h>
+// #include <sys/kernel.h>
 #include <sys/kstat.h>
 #include <sys/seg_kmem.h>
 #include <sys/systm.h>
-#include <sys/sysctl.h>
+// #include <sys/sysctl.h>
 #include <sys/thread.h>
 #include <sys/taskq.h>
 #include <sys/kmem_impl.h>
 #include <sys/vmem_impl.h>
-#include <kern/sched_prim.h>
+// #include <kern/sched_prim.h>
 #include <sys/callb.h>
 #include <stdbool.h>
 
@@ -95,9 +95,6 @@ extern vm_offset_t virtual_space_end;
 // Can be polled to determine if the VM is experiecing
 // a shortage of free pages.
 extern int vm_pool_low(void);
-
-// Which CPU are we executing on?
-extern int cpu_number(void);
 
 // Invoke the kernel debugger
 extern void Debugger(const char *message);
@@ -3281,7 +3278,7 @@ spl_minimal_physmem_p_logic()
 	return (true);
 }
 
-int32_t
+int64_t
 spl_minimal_physmem_p(void)
 {
 
@@ -4472,26 +4469,6 @@ spl_free_thread()
 
 		uint32_t pages_reclaimed = 0;
 		uint32_t pages_wanted = 0;
-		kern_return_t kr_mon =
-		    mach_vm_pressure_monitor(false,
-		    MSEC2NSEC(10),
-		    &pages_reclaimed,
-		    &pages_wanted);
-
-		if (kr_mon == KERN_SUCCESS) {
-			spl_vm_pages_reclaimed =
-			    pages_reclaimed;
-			spl_vm_pages_wanted =
-			    pages_wanted;
-		} else {
-			printf("%s:%d : mach_vm_pressure_monitor"
-			    " returned error %d, keeping old"
-			    " values reclaimed %u wanted %u\n",
-			    __FILE__, __LINE__,
-			    kr_mon,
-			    spl_vm_pages_reclaimed,
-			    spl_vm_pages_wanted);
-		}
 
 /* get pressure here */
 
@@ -4923,8 +4900,7 @@ spl_event_thread(void *notused)
                     __func__, Status, segkmem_total_mem_allocated);
                 /* We were signalled */
                 // vm_page_free_wanted = vm_page_free_min;
-                spl_free_set_pressure(vm_page_free_min);
-                vm_page_free_wanted = vm_page_free_min;
+                spl_free_set_pressure(spl_vm_page_free_min);
                 cv_broadcast(&spl_free_thread_cv);
         }
 
@@ -6461,7 +6437,7 @@ iksupp_t iksvec[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT] =
  * return true if the reclaim thread should be awakened
  * because we do not have enough memory on hand
  */
-boolean_t
+boolean_t		
 spl_arc_reclaim_needed(const size_t bytes, kmem_cache_t **zp)
 {
 
