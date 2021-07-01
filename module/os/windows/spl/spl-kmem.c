@@ -48,6 +48,11 @@
 
 #include <Trace.h>
 
+// TODO, track down what is using floats in this file
+int _fltused = 0;
+
+
+
 // ===============================================================
 // Options
 // ===============================================================
@@ -652,17 +657,6 @@ calloc(size_t n, size_t s)
 (((c) >= 'a' && (c) <= 'z') || ((c) >= 'A' && (c) <= 'Z'))
 
 /*
- * Get bytes from the /dev/random generator. Returns 0
- * on success. Returns EAGAIN if there is insufficient entropy.
- */
-int
-random_get_bytes(uint8_t *ptr, size_t len)
-{
-	read_random(ptr, len);
-	return (0);
-}
-
-/*
  * BGH - Missing from Windows?
  *
  * Convert a string into a valid C identifier by replacing invalid
@@ -867,66 +861,66 @@ kmem_error(int error, kmem_cache_t *cparg, void *bufarg)
 	kmem_panic_info.kmp_slab = sp;
 	kmem_panic_info.kmp_bufctl = bcp;
 
-	printf("SPL: kernel memory allocator: ");
+	dprintf("SPL: kernel memory allocator: ");
 
 	switch (error) {
 
 		case KMERR_MODIFIED:
-			printf("buffer modified after being freed\n");
+			dprintf("buffer modified after being freed\n");
 			off = verify_pattern(KMEM_FREE_PATTERN, buf,
 			    cp->cache_verify);
 			if (off == NULL)	/* shouldn't happen */
 				off = buf;
-			printf("SPL: modification occurred at offset 0x%lx "
+			dprintf("SPL: modification occurred at offset 0x%lx "
 			    "(0x%llx replaced by 0x%llx)\n",
 			    (uintptr_t)off - (uintptr_t)buf,
 			    (longlong_t)KMEM_FREE_PATTERN, (longlong_t)*off);
 			break;
 
 		case KMERR_REDZONE:
-			printf("redzone violation: write past end of buffer\n");
+			dprintf("redzone violation: write past end of buffer\n");
 			break;
 
 		case KMERR_BADADDR:
-			printf("invalid free: buffer not in cache\n");
+			dprintf("invalid free: buffer not in cache\n");
 			break;
 
 		case KMERR_DUPFREE:
-			printf("duplicate free: buffer freed twice\n");
+			dprintf("duplicate free: buffer freed twice\n");
 			break;
 
 		case KMERR_BADBUFTAG:
-			printf("boundary tag corrupted\n");
-			printf("SPL: bcp ^ bxstat = %lx, should be %lx\n",
+			dprintf("boundary tag corrupted\n");
+			dprintf("SPL: bcp ^ bxstat = %lx, should be %lx\n",
 			    (intptr_t)btp->bt_bufctl ^ btp->bt_bxstat,
 			    KMEM_BUFTAG_FREE);
 			break;
 
 		case KMERR_BADBUFCTL:
-			printf("bufctl corrupted\n");
+			dprintf("bufctl corrupted\n");
 			break;
 
 		case KMERR_BADCACHE:
-			printf("buffer freed to wrong cache\n");
-			printf("SPL: buffer was allocated from %s,\n",
+			dprintf("buffer freed to wrong cache\n");
+			dprintf("SPL: buffer was allocated from %s,\n",
 			    cp->cache_name);
-			printf("SPL: caller attempting free to %s.\n",
+			dprintf("SPL: caller attempting free to %s.\n",
 			    cparg->cache_name);
 			break;
 
 		case KMERR_BADSIZE:
-			printf("bad free: free size (%u) != alloc size (%u)\n",
+			dprintf("bad free: free size (%u) != alloc size (%u)\n",
 			    KMEM_SIZE_DECODE(((uint32_t *)btp)[0]),
 			    KMEM_SIZE_DECODE(((uint32_t *)btp)[1]));
 			break;
 
 		case KMERR_BADBASE:
-			printf("bad free: free address (%p) != alloc address"
+			dprintf("bad free: free address (%p) != alloc address"
 			    " (%p)\n", bufarg, buf);
 			break;
 	}
 
-	printf("SPL: buffer=%p  bufctl=%p  cache: %s\n",
+	dprintf("SPL: buffer=%p  bufctl=%p  cache: %s\n",
 	    bufarg, (void *)bcp, cparg->cache_name);
 
 	if (bcp != NULL && (cp->cache_flags & KMF_AUDIT) &&
@@ -936,18 +930,18 @@ kmem_error(int error, kmem_cache_t *cparg, void *bufarg)
 		kmem_bufctl_audit_t *bcap = (kmem_bufctl_audit_t *)bcp;
 
 		hrt2ts(kmem_panic_info.kmp_timestamp - bcap->bc_timestamp, &ts);
-		printf("SPL: previous transaction on buffer %p:\n", buf);
-		printf("SPL: thread=%p  time=T-%ld.%09ld  slab=%p  cache: %s\n",
+		dprintf("SPL: previous transaction on buffer %p:\n", buf);
+		dprintf("SPL: thread=%p  time=T-%ld.%09ld  slab=%p  cache: %s\n",
 		    (void *)bcap->bc_thread, ts.tv_sec, ts.tv_nsec,
 		    (void *)sp, cp->cache_name);
 		for (d = 0; d < MIN(bcap->bc_depth, KMEM_STACK_DEPTH); d++) {
-			print_symbol(bcap->bc_stack[d]);
+			dprintf("   : %p\n, ", bcap->bc_stack[d]);
 		}
 	}
 
 	if (kmem_panic > 0) {
 		extern  void IODelay(unsigned microseconds); // <IOKit/IOLib.h?
-		IODelay(1000000);
+		DbgBreakPoint();
 		panic("kernel heap corruption detected");
 	}
 
@@ -2029,7 +2023,7 @@ kmem_cache_alloc_dump(kmem_cache_t *cp, int kmflag)
 	    cp->cache_constructor(buf, cp->cache_private, kmflag)
 	    != 0) {
 #ifdef DEBUG
-		printf("name='%s' cache=0x%p: kmem cache constructor failed\n",
+		dprintf("name='%s' cache=0x%p: kmem cache constructor failed\n",
 		    cp->cache_name, (void *)cp);
 #endif
 		/* reset curr pointer iff no allocs were done */
@@ -4211,7 +4205,7 @@ kmem_cache_fini()
 		FREE(fs, M_TEMP);
 
 	}
-	printf("SPL: Released %u slabs\n", i);
+	xprintf("SPL: Released %u slabs\n", i);
 	list_destroy(&freelist);
 }
 
@@ -4274,7 +4268,7 @@ spl_free_set_and_wait_pressure(int64_t new_p, boolean_t fast,
 		mutex_exit(&spl_free_thread_lock);
 		now = zfs_lbolt();
 		if (now > end_by) {
-			printf("%s: ERROR: timed out after one minute!\n",
+			dprintf("%s: ERROR: timed out after one minute!\n",
 			    __func__);
 			break;
 		} else if (now > double_again_at && !doubled_again) {
@@ -4896,7 +4890,7 @@ spl_event_thread(void *notused)
                     KernelMode, FALSE, NULL);
                 KeClearEvent(low_mem_event);
 
-                xprintf("%s: LOWMEMORY EVENT *** 0x%x (memusage: %llu)\n",
+                dprintf("%s: LOWMEMORY EVENT *** 0x%x (memusage: %llu)\n",
                     __func__, Status, segkmem_total_mem_allocated);
                 /* We were signalled */
                 // vm_page_free_wanted = vm_page_free_min;
@@ -6320,38 +6314,59 @@ kmem_strfree(char *str)
 }
 
 char *
-kvasprintf(const char *fmt, va_list ap)
+kvasdprintf(const char *fmt, va_list ap)
 {
-	unsigned int len;
-	char *p;
-	va_list aq;
+	char *p = NULL;
 
-	va_copy(aq, ap);
-	len = vsnprintf(NULL, 0, fmt, aq);
-	va_end(aq);
-	p = zfs_kmem_alloc(len+1, KM_SLEEP);
 	if (!p)
 		return (NULL);
-
-	vsnprintf(p, len+1, fmt, ap);
 
 	return (p);
 }
 
 char *
-kmem_asprintf(const char *fmt, ...)
+kmem_vasdprintf(const char *fmt, va_list ap)
+{
+	char *ptr = NULL;
+
+	return (ptr);
+}
+
+char *
+kmem_asdprintf(const char *fmt, ...)
 {
 	va_list ap;
 	char *ptr;
 
 	do {
 		va_start(ap, fmt);
-		ptr = kvasprintf(fmt, ap);
+		ptr = kvasdprintf(fmt, ap);
 		va_end(ap);
 	} while (ptr == NULL);
 
 	return (ptr);
 }
+
+char *
+kmem_asprintf(const char *fmt, ...)
+{
+	int size;
+	va_list adx;
+	char *buf;
+
+	va_start(adx, fmt);
+	size = _vsnprintf(NULL, 0, fmt, adx) + 1;
+	va_end(adx);
+
+	buf = kmem_alloc(size, KM_SLEEP);
+
+	va_start(adx, fmt);
+	(void) _vsnprintf(buf, size, fmt, adx);
+	va_end(adx);
+
+	return (buf);
+}
+
 
 /*
  * Copyright (C) 2014 insane coder
@@ -6360,25 +6375,25 @@ kmem_asprintf(const char *fmt, ...)
 char *
 kmem_vasprintf(const char *fmt, va_list ap)
 {
-        char *ptr;
-        int size;
-        int r = -1;
+	char *ptr;
+	int size;
+	int r = -1;
 
-        size = vsnprintf(NULL, 0, fmt, ap);
-        if ((size >= 0) && (size < INT_MAX)) {
-                ptr = (char *)kmem_alloc(size + 1, KM_SLEEP); // +1 for null
-                if (ptr) {
-                        r = vsnprintf(ptr, size + 1, fmt, ap);  // +1 for null
-                        if ((r < 0) || (r > size)) {
-                                kmem_free(ptr, size);
-                                r = -1;
-                        }
-                }
-        } else {
-                ptr = 0;
-        }
+	size = vsnprintf(NULL, 0, fmt, ap);
+	if ((size >= 0) && (size < INT_MAX)) {
+		ptr = (char *)kmem_alloc(size + 1, KM_SLEEP); // +1 for null
+		if (ptr) {
+			r = vsnprintf(ptr, size + 1, fmt, ap);  // +1 for null
+			if ((r < 0) || (r > size)) {
+				kmem_free(ptr, size);
+				r = -1;
+			}
+		}
+	} else {
+		ptr = 0;
+	}
 
-        return (ptr);
+	return (ptr);
 }
 
 char *
@@ -6522,19 +6537,19 @@ kmem_cache_buf_in_cache(kmem_cache_t *cparg, void *bufarg)
 	}
 
 	if (sp == NULL) {
-		printf("SPL: %s: KMERR_BADADDR orig cache = %s\n",
+		dprintf("SPL: %s: KMERR_BADADDR orig cache = %s\n",
 		    __func__, cparg->cache_name);
 		return (NULL);
 	}
 
 	if (cp == NULL) {
-		printf("SPL: %s: ERROR cp == NULL; cparg == %s",
+		dprintf("SPL: %s: ERROR cp == NULL; cparg == %s",
 		    __func__, cparg->cache_name);
 		return (NULL);
 	}
 
 	if (cp != cparg) {
-		printf("SPL: %s: KMERR_BADCACHE arg cache = %s but found "
+		dprintf("SPL: %s: KMERR_BADCACHE arg cache = %s but found "
 		    "in %s instead\n",
 		    __func__, cparg->cache_name, cp->cache_name);
 		return (cp);
