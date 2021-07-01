@@ -618,7 +618,7 @@ vmem_freelist_insert_sort_by_time(vmem_t *vmp, vmem_seg_t *vsp)
 
 	ASSERT(vsp->vs_span_createtime != 0);
 	if (vsp->vs_span_createtime == 0) {
-		printf("SPL: %s: WARNING: vsp->vs_span_createtime == 0 (%s)!\n",
+		dprintf("SPL: %s: WARNING: vsp->vs_span_createtime == 0 (%s)!\n",
 		    __func__, vmp->vm_name);
 	}
 
@@ -2148,7 +2148,7 @@ vmem_destroy(vmem_t *vmp)
 
 	leaked = vmem_size(vmp, VMEM_ALLOC);
 	if (leaked != 0)
-		printf("SPL: vmem_destroy('%s'): leaked %lu %s\n",
+		dprintf("SPL: vmem_destroy('%s'): leaked %lu %s\n",
 		    vmp->vm_name, leaked, (vmp->vm_cflags & VMC_IDENTIFIER) ?
 		    "identifiers" : "bytes");
 
@@ -2198,7 +2198,7 @@ vmem_destroy_internal(vmem_t *vmp)
 
 	leaked = vmem_size(vmp, VMEM_ALLOC);
 	if (leaked != 0)
-		printf("SPL: vmem_destroy('%s'): leaked %lu %s\n",
+		dprintf("SPL: vmem_destroy('%s'): leaked %lu %s\n",
 		    vmp->vm_name, leaked, (vmp->vm_cflags & VMC_IDENTIFIER) ?
 		    "identifiers" : "bytes");
 
@@ -2222,7 +2222,7 @@ vmem_destroy_internal(vmem_t *vmp)
 
 	if (!(vmp->vm_cflags & VMC_IDENTIFIER) &&
 	    vmem_size(vmp, VMEM_ALLOC) != 0)
-		printf("SPL: vmem_destroy('%s'): STILL %lu bytes at "
+		dprintf("SPL: vmem_destroy('%s'): STILL %lu bytes at "
 		    "kstat_delete() time\n",
 		    vmp->vm_name, vmem_size(vmp, VMEM_ALLOC));
 
@@ -3143,12 +3143,12 @@ static uint64_t
 spl_validate_bucket_span_size(uint64_t val)
 {
 	if (!ISP2(val)) {
-		printf("SPL: %s: WARNING %llu is not a power of two, "
+		dprintf("SPL: %s: WARNING %llu is not a power of two, "
 		    "not changing.\n", __func__, val);
 		return (0);
 	}
 	if (val < 128ULL*1024ULL || val > 16ULL*1024ULL*1024ULL) {
-		printf("SPL: %s: WARNING %llu is out of range [128k - 16M], "
+		dprintf("SPL: %s: WARNING %llu is out of range [128k - 16M], "
 		    "not changing.\n", __func__, val);
 		return (0);
 	}
@@ -3614,14 +3614,14 @@ vmem_fini(vmem_t *heap)
 	vmem_xfree(spl_default_arena, spl_heap_arena_initial_alloc,
 	    spl_heap_arena_initial_alloc_size);
 
-	printf("SPL: %s: walking spl_heap_arena, aka bucket_heap (pass 2)\n",
+	dprintf("SPL: %s: walking spl_heap_arena, aka bucket_heap (pass 2)\n",
 	    __func__);
 
 	vmem_walk(spl_heap_arena, VMEM_ALLOC, vmem_fini_freelist,
 	    spl_heap_arena);
 	vmem_free_span_list();
 
-	printf("SPL: %s: walking bucket arenas...\n", __func__);
+	dprintf("SPL: %s: walking bucket arenas...\n", __func__);
 
 	for (int i = VMEM_BUCKET_LOWBIT; i <= VMEM_BUCKET_HIBIT; i++) {
 		const int bucket = i - VMEM_BUCKET_LOWBIT;
@@ -3642,7 +3642,7 @@ vmem_fini(vmem_t *heap)
 	}
 	dprintf("\n");
 
-	printf("SPL: %s: walking vmem metadata-related arenas...\n", __func__);
+	dprintf("SPL: %s: walking vmem metadata-related arenas...\n", __func__);
 
 	vmem_walk(vmem_vmem_arena, VMEM_ALLOC | VMEM_REENTRANT,
 	    vmem_fini_void, vmem_vmem_arena);
@@ -3716,24 +3716,24 @@ vmem_fini(vmem_t *heap)
 	dprintf("SPL: %s destroying vmem_vmem_arena\n", __func__);
 	vmem_destroy_internal(vmem_vmem_arena);
 
-	printf("SPL: arenas removed, now try destroying mutexes... ");
+	dprintf("SPL: arenas removed, now try destroying mutexes... ");
 
-	printf("vmem_xnu_alloc_lock ");
+	dprintf("vmem_xnu_alloc_lock ");
 	mutex_destroy(&vmem_xnu_alloc_lock);
-	printf("vmem_panic_lock ");
+	dprintf("vmem_panic_lock ");
 	mutex_destroy(&vmem_panic_lock);
-	printf("vmem_pushpage_lock ");
+	dprintf("vmem_pushpage_lock ");
 	mutex_destroy(&vmem_pushpage_lock);
-	printf("vmem_nosleep_lock ");
+	dprintf("vmem_nosleep_lock ");
 	mutex_destroy(&vmem_nosleep_lock);
-	printf("vmem_sleep_lock ");
+	dprintf("vmem_sleep_lock ");
 	mutex_destroy(&vmem_sleep_lock);
-	printf("vmem_segfree_lock ");
+	dprintf("vmem_segfree_lock ");
 	mutex_destroy(&vmem_segfree_lock);
-	printf("vmem_list_lock ");
+	dprintf("vmem_list_lock ");
 	mutex_destroy(&vmem_list_lock);
 
-	printf("\nSPL: %s: walking list of live slabs at time of call to %s\n",
+	dprintf("\nSPL: %s: walking list of live slabs at time of call to %s\n",
 	    __func__, __func__);
 
 	// annoyingly, some of these should be returned to xnu, but
@@ -3751,12 +3751,12 @@ vmem_fini(vmem_t *heap)
 		// segkmem_free(fs->vmp, fs->slab, fs->slabsize);
 		FREE(fs, M_TEMP);
 	}
-	printf("SPL: WOULD HAVE released %llu bytes (%llu spans) from arenas\n",
+	dprintf("SPL: WOULD HAVE released %llu bytes (%llu spans) from arenas\n",
 	    total, total_count);
 	list_destroy(&freelist);
-	printf("SPL: %s: Brief delay for readability...\n", __func__);
+	dprintf("SPL: %s: Brief delay for readability...\n", __func__);
 	delay(hz);
-	printf("SPL: %s: done!\n", __func__);
+	dprintf("SPL: %s: done!\n", __func__);
 }
 
 /*
