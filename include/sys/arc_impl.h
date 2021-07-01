@@ -974,6 +974,7 @@ extern int arc_no_grow_shift;
 extern int arc_shrink_shift;
 extern kmutex_t arc_prune_mtx;
 extern list_t arc_prune_list;
+extern aggsum_t arc_size;
 extern arc_state_t	*arc_mfu;
 extern arc_state_t	*arc_mru;
 extern uint_t zfs_arc_pc_percent;

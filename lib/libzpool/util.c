@@ -207,11 +207,12 @@ set_global_var(char const *arg)
 	goto out_ret;
 #endif
 
+#ifndef _WIN32 // Windowsify me
+
 	if ((ret = set_global_var_parse_kv(arg, &varname, &val)) != 0) {
 		goto out_ret;
 	}
 
-#ifndef _WIN32 // Windowsify me
 	zpoolhdl = dlopen("libzpool.so", RTLD_LAZY);
 	if (zpoolhdl != NULL) {
 		uint32_t *var;

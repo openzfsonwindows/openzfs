@@ -1104,7 +1104,7 @@ zpool_read_label(int fd, nvlist_t **config, int *num_labels)
 	 * Windows has special aligned free, let's invent a
 	 * complementary free to memalign
 	 */
-	posix_memalign_free(label);
+	posix_memalign_free(labels);
 
 	*config = expected_config;
 
