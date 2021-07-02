@@ -210,8 +210,6 @@ set_global_var(char const *arg)
 	goto out_ret;
 #endif
 
-#ifndef _WIN32 // Windowsify me
-
 	if ((ret = set_global_var_parse_kv(arg, &varname, &val)) != 0) {
 		goto out_ret;
 	}
@@ -241,6 +239,7 @@ out_dlclose:
 	dlclose(zpoolhdl);
 	free(varname);
 out_ret:
+#endif
 	return (ret);
 }
 
