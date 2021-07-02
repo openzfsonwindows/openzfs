@@ -3308,8 +3308,9 @@ vmem_init(const char *heap_name,
 	// o3x is not so lucky, so we start with this
 	// Intel can go with 4096 alignment, but arm64 needs 16384. So
 	// we just use the larger.
-	static char initial_default_block[16ULL*1024ULL*1024ULL]
-	    __attribute__((aligned(16384))) = { 0 };
+	// turns out that Windows refuses alignment over 8192
+        __declspec(align(PAGE_SIZE)) static char
+            initial_default_block[16ULL * 1024ULL * 1024ULL] = { 0 };
 
 	// The default arena is very low-bandwidth; it supplies the initial
 	// large allocation for the heap arena below, and it serves as the
@@ -3319,7 +3320,7 @@ vmem_init(const char *heap_name,
 	spl_default_arena = vmem_create("spl_default_arena", // id 1
 	    initial_default_block, 16ULL*1024ULL*1024ULL,
 	    heap_quantum, spl_vmem_default_alloc, spl_vmem_default_free,
-	    spl_default_arena_parent, 131072,
+	    spl_default_arena_parent, 16ULL*1024ULL*1024ULL,
 	    VM_SLEEP | VMC_POPULATOR | VMC_NO_QCACHE);
 
 	VERIFY(spl_default_arena != NULL);
