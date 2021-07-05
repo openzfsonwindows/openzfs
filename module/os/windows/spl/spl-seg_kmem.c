@@ -119,7 +119,8 @@ void *
 osif_malloc(uint64_t size)
 {
 #ifdef _KERNEL
-        void *tr;
+        void *tr = NULL;
+
         tr = ExAllocatePoolWithTag(NonPagedPoolNx, size, '!SFZ');
         ASSERT(P2PHASE(tr, PAGE_SIZE) == 0);
         if (tr != NULL) {

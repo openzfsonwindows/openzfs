@@ -843,6 +843,8 @@ vmem_span_create(vmem_t *vmp, void *vaddr, size_t size, uint8_t import)
 	uintptr_t end = start + size;
 
 	ASSERT(MUTEX_HELD(&vmp->vm_lock));
+
+	/* AllocatePoolWithTag does not handle alignment: no windows equivalent? */
 	if ((start | end) & (vmp->vm_quantum - 1))
 		panic("vmem_span_create(%p, %p, %lu): misaligned (%s)",
 		    (void *)vmp, vaddr, size, vmp->vm_name);
@@ -3383,7 +3385,8 @@ vmem_init(const char *heap_name,
 		 * bucket_heap arena.
 		 */
 		vmem_t *b = vmem_create(buf, NULL, 0,
-		    MAX(heap_quantum, bucket_largest_size),
+		    // MAX(heap_quantum, bucket_largest_size),
+		    heap_quantum,
 		    xnu_alloc_throttled, xnu_free_throttled,
 		    spl_default_arena_parent,
 		    MAX(heap_quantum * 8, bucket_largest_size * 2),
