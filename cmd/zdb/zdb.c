@@ -4001,6 +4001,11 @@ dump_cachefile(const char *cachefile)
 		exit(1);
 	}
 
+	if (statbuf.st_size == 0) {
+		(void)close(fd);
+		return;
+	}
+
 	if ((buf = malloc(statbuf.st_size)) == NULL) {
 		(void) fprintf(stderr, "failed to allocate %llu bytes\n",
 		    (u_longlong_t)statbuf.st_size);
