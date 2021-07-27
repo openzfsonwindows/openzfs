@@ -4543,10 +4543,6 @@ _Function_class_(DRIVER_DISPATCH)
 				Status = spl_kstat_write(DeviceObject, Irp,
 				    IrpSp);
 				break;
-			case ZPOOL_GET_SIZE_STATS:
-			    dprintf("ZPOOL_GET_SIZE_STATS\n");
-			    Status = zpool_get_size_stats(DeviceObject, Irp, IrpSp);
-			    break;
 			default:
 				dprintf("**** unknown Windows IOCTL: 0x%lx\n",
 				    cmd);
@@ -4766,10 +4762,6 @@ _Function_class_(DRIVER_DISPATCH)
 			dprintf("IOCTL_DISK_GET_DRIVE_GEOMETRY\n");
 			Status = ioctl_disk_get_drive_geometry(DeviceObject,
 			    Irp, IrpSp);
-			break;
-		case ZPOOL_GET_SIZE_STATS:
-			dprintf("ZPOOL_GET_SIZE_STATS\n");
-			Status = zpool_get_size_stats(DeviceObject, Irp, IrpSp);
 			break;
 		default:
 			dprintf("**** unknown disk Windows IOCTL: 0x%lx\n",

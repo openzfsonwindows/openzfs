@@ -143,7 +143,7 @@ wzvol_lock_target(zvol_state_t *zv)
 	return (FALSE);
 }
 
-inline void
+static inline void
 wzvol_unlock_target(zvol_state_t *zv)
 {
 	wzvolContext* zvc = (pwzvolContext)zv->zv_zso->zso_target_context;
@@ -222,7 +222,7 @@ wzvol_assign_targetid(zvol_state_t *zv)
  * note: find_target will lock the zv's remove lock. caller
  * is responsible to unlock_target if a non-NULL zv pointer is returned
  */
-inline zvol_state_t *
+static inline zvol_state_t *
 wzvol_find_target(uint8_t targetid, uint8_t lun)
 {
 	wzvolContext *zv_targets = STOR_wzvolDriverInfo.zvContextArray;
@@ -1081,8 +1081,7 @@ DiReadWriteSetup(
     MpWkRtnAction action,
     zfsiodesc_t* pIo)
 {
-    // SSV-19147: cannot use kmem_alloc with sleep if IRQL dispatch so get straight from NP pool.
-    // SSV-19161: cannot use uio routines at DISPATCH as they use a mutex. Resolve everything in the workitem.
+    // cannot use kmem_alloc with sleep if IRQL dispatch so get straight from NP pool.
     pMP_WorkRtnParms pWkRtnParms = (pMP_WorkRtnParms)ExAllocatePoolWithTag(NonPagedPool, ALIGN_UP_BY(sizeof(MP_WorkRtnParms), 16) + IoSizeofWorkItem(), MP_TAG_GENERAL);
     if (NULL == pWkRtnParms) {
 	if (pIo->Cb) {
