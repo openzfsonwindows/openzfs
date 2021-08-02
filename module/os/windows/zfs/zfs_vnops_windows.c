@@ -5579,12 +5579,12 @@ NTSTATUS pnp_query_di(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION 
 			status = STATUS_INVALID_PARAMETER;
 		else {
 			PVOID zv; //zvol_state_t*, opaque here
-			minor_t minorNum;
-			extern PVOID zvol_name2minor(const char* name, minor_t * minor);
+			uint32_t openCount;
+			extern PVOID zvol_name2zvolState(const char* name, uint32_t* openCount);
 			PCHAR vendorUniqueId = (PCHAR)IrpSp->Parameters.QueryInterface.InterfaceSpecificData;
-			zv = zvol_name2minor(&vendorUniqueId[8], &minorNum);
+			zv = zvol_name2zvolState(&vendorUniqueId[8], &openCount);
 			// check that the minor number is non-zero: that signifies the zvol has fully completed its bringup phase.
-			if (zv && minorNum) {
+			if (zv && openCount) {
 				extern void IncZvolRef(PVOID Context);
 				extern void DecZvolRef(PVOID Context);
 				extern NTSTATUS ZvolDiRead(PVOID Context, zfsiodesc_t * pIo);

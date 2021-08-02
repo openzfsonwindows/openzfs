@@ -1765,7 +1765,7 @@ void DecZvolRef(PVOID Context) {
 }
 
 zvol_state_t*
-zvol_name2minor(const char* name, uint32_t* minor)
+zvol_name2zvolState(const char* name, uint32_t* openCount)
 {
     zvol_state_t* zv;
 
@@ -1773,8 +1773,8 @@ zvol_name2minor(const char* name, uint32_t* minor)
     if (zv == NULL)
 	return zv;
 
-    if (minor)
-	*minor = zv->zv_open_count;
+    if (openCount)
+	*openCount = zv->zv_open_count;
 
     mutex_exit(&zv->zv_state_lock);
     return (zv);
