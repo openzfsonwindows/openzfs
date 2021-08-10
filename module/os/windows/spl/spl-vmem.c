@@ -618,7 +618,8 @@ vmem_freelist_insert_sort_by_time(vmem_t *vmp, vmem_seg_t *vsp)
 
 	ASSERT(vsp->vs_span_createtime != 0);
 	if (vsp->vs_span_createtime == 0) {
-		dprintf("SPL: %s: WARNING: vsp->vs_span_createtime == 0 (%s)!\n",
+		TraceEvent(TRACE_WARNING, "SPL: %s: WARNING: "
+		    "vsp->vs_span_createtime == 0 (%s)!\n",
 		    __func__, vmp->vm_name);
 	}
 
@@ -844,7 +845,11 @@ vmem_span_create(vmem_t *vmp, void *vaddr, size_t size, uint8_t import)
 
 	ASSERT(MUTEX_HELD(&vmp->vm_lock));
 
-	/* AllocatePoolWithTag does not handle alignment: no windows equivalent? */
+	/*
+	 * AllocatePoolWithTag does not handle alignment:
+	 * no windows equivalent?
+	 */
+
 	if ((start | end) & (vmp->vm_quantum - 1))
 		panic("vmem_span_create(%p, %p, %lu): misaligned (%s)",
 		    (void *)vmp, vaddr, size, vmp->vm_name);
@@ -3145,13 +3150,13 @@ static uint64_t
 spl_validate_bucket_span_size(uint64_t val)
 {
 	if (!ISP2(val)) {
-		dprintf("SPL: %s: WARNING %llu is not a power of two, "
-		    "not changing.\n", __func__, val);
+		TraceEvent(TRACE_WARNING, "SPL: %s: WARNING %llu is not a "
+		    "power of two, not changing.\n", __func__, val);
 		return (0);
 	}
 	if (val < 128ULL*1024ULL || val > 16ULL*1024ULL*1024ULL) {
-		dprintf("SPL: %s: WARNING %llu is out of range [128k - 16M], "
-		    "not changing.\n", __func__, val);
+		TraceEvent(TRACE_WARNING, "SPL: %s: WARNING %llu is out "
+		"of range [128k - 16M], not changing.\n", __func__, val);
 		return (0);
 	}
 	return (val);
@@ -3311,8 +3316,8 @@ vmem_init(const char *heap_name,
 	// Intel can go with 4096 alignment, but arm64 needs 16384. So
 	// we just use the larger.
 	// turns out that Windows refuses alignment over 8192
-        __declspec(align(PAGE_SIZE)) static char
-            initial_default_block[16ULL * 1024ULL * 1024ULL] = { 0 };
+	__declspec(align(PAGE_SIZE)) static char
+	    initial_default_block[16ULL * 1024ULL * 1024ULL] = { 0 };
 
 	// The default arena is very low-bandwidth; it supplies the initial
 	// large allocation for the heap arena below, and it serves as the
@@ -3597,7 +3602,7 @@ vmem_fini(vmem_t *heap)
 	vmem_walk(heap, VMEM_ALLOC, vmem_fini_freelist, heap);
 
 	vmem_free_span_list();
-	dprintf("\nSPL: %s destroying heap\n", __func__);
+	dprintf("SPL: %s destroying heap\n", __func__);
 	vmem_destroy(heap); // PARENT: spl_heap_arena
 
 	dprintf("SPL: %s: walking spl_heap_arena, aka bucket_heap (pass 1)\n",
@@ -3712,9 +3717,9 @@ vmem_fini(vmem_t *heap)
 	dprintf("SPL: %s destroying vmem_metadata_arena\n", __func__);
 	vmem_destroy(vmem_metadata_arena); // parent: spl_default_arena
 
-	dprintf("\nSPL: %s destroying spl_default_arena\n", __func__);
+	dprintf("SPL: %s destroying spl_default_arena\n", __func__);
 	vmem_destroy(spl_default_arena); // parent: spl_default_arena_parent
-	dprintf("\nSPL: %s destroying spl_default_arena_parant\n", __func__);
+	dprintf("SPL: %s destroying spl_default_arena_parant\n", __func__);
 	vmem_destroy(spl_default_arena_parent);
 
 	dprintf("SPL: %s destroying vmem_vmem_arena\n", __func__);
@@ -3737,7 +3742,7 @@ vmem_fini(vmem_t *heap)
 	dprintf("vmem_list_lock ");
 	mutex_destroy(&vmem_list_lock);
 
-	dprintf("\nSPL: %s: walking list of live slabs at time of call to %s\n",
+	dprintf("SPL: %s: walking list of live slabs at time of call to %s\n",
 	    __func__, __func__);
 
 	// annoyingly, some of these should be returned to xnu, but
@@ -3755,8 +3760,8 @@ vmem_fini(vmem_t *heap)
 		// segkmem_free(fs->vmp, fs->slab, fs->slabsize);
 		FREE(fs, M_TEMP);
 	}
-	dprintf("SPL: WOULD HAVE released %llu bytes (%llu spans) from arenas\n",
-	    total, total_count);
+	dprintf("SPL: WOULD HAVE released %llu bytes (%llu spans) from"
+	    " arenas\n", total, total_count);
 	list_destroy(&freelist);
 	dprintf("SPL: %s: Brief delay for readability...\n", __func__);
 	delay(hz);

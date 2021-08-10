@@ -866,57 +866,64 @@ kmem_error(int error, kmem_cache_t *cparg, void *bufarg)
 	switch (error) {
 
 		case KMERR_MODIFIED:
-			dprintf("buffer modified after being freed\n");
+			TraceEvent(TRACE_ERROR, "buffer modified after being"
+			    " freed\n");
 			off = verify_pattern(KMEM_FREE_PATTERN, buf,
 			    cp->cache_verify);
 			if (off == NULL)	/* shouldn't happen */
 				off = buf;
-			dprintf("SPL: modification occurred at offset 0x%lx "
-			    "(0x%llx replaced by 0x%llx)\n",
+			TraceEvent(TRACE_ERROR, "SPL: modification occurred "
+			    "at offset 0x%lx (0x%llx replaced by 0x%llx)\n",
 			    (uintptr_t)off - (uintptr_t)buf,
 			    (longlong_t)KMEM_FREE_PATTERN, (longlong_t)*off);
 			break;
 
 		case KMERR_REDZONE:
-			dprintf("redzone violation: write past end of buffer\n");
+			TraceEvent(TRACE_ERROR, "redzone violation: write past"
+			    " end of buffer\n");
 			break;
 
 		case KMERR_BADADDR:
-			dprintf("invalid free: buffer not in cache\n");
+			TraceEvent(TRACE_ERROR, "invalid free: buffer not in"
+			    " cache\n");
 			break;
 
 		case KMERR_DUPFREE:
-			dprintf("duplicate free: buffer freed twice\n");
+			TraceEvent(TRACE_ERROR, "duplicate free: buffer freed"
+			    " twice\n");
 			break;
 
 		case KMERR_BADBUFTAG:
-			dprintf("boundary tag corrupted\n");
-			dprintf("SPL: bcp ^ bxstat = %lx, should be %lx\n",
+			TraceEvent(TRACE_ERROR, "boundary tag corrupted\n");
+			TraceEvent(TRACE_ERROR, "SPL: bcp ^ bxstat = %lx, "
+			    "should be %lx\n",
 			    (intptr_t)btp->bt_bufctl ^ btp->bt_bxstat,
 			    KMEM_BUFTAG_FREE);
 			break;
 
 		case KMERR_BADBUFCTL:
-			dprintf("bufctl corrupted\n");
+			TraceEvent(TRACE_ERROR, "bufctl corrupted\n");
 			break;
 
 		case KMERR_BADCACHE:
-			dprintf("buffer freed to wrong cache\n");
-			dprintf("SPL: buffer was allocated from %s,\n",
-			    cp->cache_name);
-			dprintf("SPL: caller attempting free to %s.\n",
-			    cparg->cache_name);
+			TraceEvent(TRACE_ERROR, "buffer freed to wrong "
+			    "cache\n");
+			TraceEvent(TRACE_ERROR, "SPL: buffer was allocated"
+			    " from %s,\n", cp->cache_name);
+			TraceEvent(TRACE_ERROR, "SPL: caller attempting free"
+			    " to %s.\n", cparg->cache_name);
 			break;
 
 		case KMERR_BADSIZE:
-			dprintf("bad free: free size (%u) != alloc size (%u)\n",
+			TraceEvent(TRACE_ERROR, "bad free: free size (%u) !="
+			    " alloc size (%u)\n",
 			    KMEM_SIZE_DECODE(((uint32_t *)btp)[0]),
 			    KMEM_SIZE_DECODE(((uint32_t *)btp)[1]));
 			break;
 
 		case KMERR_BADBASE:
-			dprintf("bad free: free address (%p) != alloc address"
-			    " (%p)\n", bufarg, buf);
+			TraceEvent(TRACE_ERROR, "bad free: free address"
+			    " (%p) != alloc address (%p)\n", bufarg, buf);
 			break;
 	}
 
@@ -931,8 +938,8 @@ kmem_error(int error, kmem_cache_t *cparg, void *bufarg)
 
 		hrt2ts(kmem_panic_info.kmp_timestamp - bcap->bc_timestamp, &ts);
 		dprintf("SPL: previous transaction on buffer %p:\n", buf);
-		dprintf("SPL: thread=%p  time=T-%ld.%09ld  slab=%p  cache: %s\n",
-		    (void *)bcap->bc_thread, ts.tv_sec, ts.tv_nsec,
+		dprintf("SPL: thread=%p  time=T-%ld.%09ld  slab=%p  cache: "
+		    "%s\n", (void *)bcap->bc_thread, ts.tv_sec, ts.tv_nsec,
 		    (void *)sp, cp->cache_name);
 		for (d = 0; d < MIN(bcap->bc_depth, KMEM_STACK_DEPTH); d++) {
 			dprintf("   : %p\n, ", bcap->bc_stack[d]);
@@ -4268,8 +4275,8 @@ spl_free_set_and_wait_pressure(int64_t new_p, boolean_t fast,
 		mutex_exit(&spl_free_thread_lock);
 		now = zfs_lbolt();
 		if (now > end_by) {
-			dprintf("%s: ERROR: timed out after one minute!\n",
-			    __func__);
+			TraceEvent(TRACE_ERROR, "%s: ERROR: timed out "
+			    "after one minute!\n", __func__);
 			break;
 		} else if (now > double_again_at && !doubled_again) {
 			doubled_again = true;
@@ -4861,48 +4868,48 @@ spl_free_thread()
 static void
 spl_event_thread(void *notused)
 {
-        // callb_cpr_t cpr;
-        NTSTATUS Status;
+	// callb_cpr_t cpr;
+	NTSTATUS Status;
 
-        DECLARE_CONST_UNICODE_STRING(low_mem_name,
-            L"\\KernelObjects\\LowMemoryCondition");
-        HANDLE low_mem_handle;
-        low_mem_event =
-            IoCreateNotificationEvent((PUNICODE_STRING)&low_mem_name,
-            &low_mem_handle);
-        if (low_mem_event == NULL) {
-                TraceEvent(TRACE_ERROR,
-                    "%s: failed IoCreateNotificationEvent(\\KernelObjects"
-                    "\\LowMemoryCondition)", __func__);
-                thread_exit();
-        }
-        KeClearEvent(low_mem_event);
+	DECLARE_CONST_UNICODE_STRING(low_mem_name,
+	    L"\\KernelObjects\\LowMemoryCondition");
+	HANDLE low_mem_handle;
+	low_mem_event =
+	    IoCreateNotificationEvent((PUNICODE_STRING)&low_mem_name,
+	    &low_mem_handle);
+	if (low_mem_event == NULL) {
+		TraceEvent(TRACE_ERROR,
+		    "%s: failed IoCreateNotificationEvent(\\KernelObjects"
+		    "\\LowMemoryCondition)", __func__);
+		thread_exit();
+	}
+	KeClearEvent(low_mem_event);
 
-        dprintf("SPL: beginning spl_event_thread() loop\n");
+	dprintf("SPL: beginning spl_event_thread() loop\n");
 
-        while (!spl_event_thread_exit) {
+	while (!spl_event_thread_exit) {
 
-                /* Don't busy loop */
-                delay(hz);
+		/* Don't busy loop */
+		delay(hz);
 
-                /* Sleep forever waiting for event */
-                Status = KeWaitForSingleObject(low_mem_event, Executive,
-                    KernelMode, FALSE, NULL);
-                KeClearEvent(low_mem_event);
+		/* Sleep forever waiting for event */
+		Status = KeWaitForSingleObject(low_mem_event, Executive,
+		    KernelMode, FALSE, NULL);
+		KeClearEvent(low_mem_event);
 
-                dprintf("%s: LOWMEMORY EVENT *** 0x%x (memusage: %llu)\n",
-                    __func__, Status, segkmem_total_mem_allocated);
-                /* We were signalled */
-                // vm_page_free_wanted = vm_page_free_min;
-                spl_free_set_pressure(spl_vm_page_free_min);
-                cv_broadcast(&spl_free_thread_cv);
-        }
+		dprintf("%s: LOWMEMORY EVENT *** 0x%x (memusage: %llu)\n",
+		    __func__, Status, segkmem_total_mem_allocated);
+		/* We were signalled */
+		// vm_page_free_wanted = vm_page_free_min;
+		spl_free_set_pressure(spl_vm_page_free_min);
+		cv_broadcast(&spl_free_thread_cv);
+	}
 
-        ZwClose(low_mem_handle);
+	ZwClose(low_mem_handle);
 
-        spl_event_thread_exit = FALSE;
-        dprintf("SPL: %s thread_exit\n", __func__);
-        thread_exit();
+	spl_event_thread_exit = FALSE;
+	dprintf("SPL: %s thread_exit\n", __func__);
+	thread_exit();
 }
 
 
@@ -5340,16 +5347,16 @@ void
 spl_kmem_thread_fini(void)
 {
 	shutting_down = 1;
-	
+
 	if (low_mem_event != NULL) {
 		dprintf("SPL: stopping spl_event_thread\n");
-                spl_event_thread_exit = TRUE;
-                KeSetEvent(low_mem_event, 0, FALSE);
-                while (spl_event_thread_exit) {
-                        delay(hz >> 4);
-                }
-                dprintf("SPL: stopped spl_event_thread\n");
-        }
+		spl_event_thread_exit = TRUE;
+		KeSetEvent(low_mem_event, 0, FALSE);
+		while (spl_event_thread_exit) {
+			delay(hz >> 4);
+		}
+		dprintf("SPL: stopped spl_event_thread\n");
+	}
 
 	mutex_enter(&spl_free_thread_lock);
 	spl_free_thread_exit = TRUE;
@@ -6452,7 +6459,7 @@ iksupp_t iksvec[SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT] =
  * return true if the reclaim thread should be awakened
  * because we do not have enough memory on hand
  */
-boolean_t		
+boolean_t
 spl_arc_reclaim_needed(const size_t bytes, kmem_cache_t **zp)
 {
 
@@ -6537,20 +6544,20 @@ kmem_cache_buf_in_cache(kmem_cache_t *cparg, void *bufarg)
 	}
 
 	if (sp == NULL) {
-		dprintf("SPL: %s: KMERR_BADADDR orig cache = %s\n",
-		    __func__, cparg->cache_name);
+		TraceEvent(TRACE_ERROR, "SPL: %s: KMERR_BADADDR orig cache ="
+		    " %s\n", __func__, cparg->cache_name);
 		return (NULL);
 	}
 
 	if (cp == NULL) {
-		dprintf("SPL: %s: ERROR cp == NULL; cparg == %s",
-		    __func__, cparg->cache_name);
+		TraceEvent(TRACE_ERROR, "SPL: %s: ERROR cp == NULL; cparg =="
+		    " %s", __func__, cparg->cache_name);
 		return (NULL);
 	}
 
 	if (cp != cparg) {
-		dprintf("SPL: %s: KMERR_BADCACHE arg cache = %s but found "
-		    "in %s instead\n",
+		TraceEvent(TRACE_ERROR, "SPL: %s: KMERR_BADCACHE arg cache ="
+		    " %s but found in %s instead\n",
 		    __func__, cparg->cache_name, cp->cache_name);
 		return (cp);
 	}
