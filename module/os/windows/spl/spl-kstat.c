@@ -803,7 +803,9 @@ kstat_timer_init(kstat_timer_t *ktp, const char *name)
 	kstat_set_string(ktp->name, name);
 }
 
-/* ARGSUSED */
+/*
+ * ARGSUSED
+ */
 static int
 default_kstat_update(kstat_t *ksp, int rw)
 {
@@ -2248,4 +2250,557 @@ int spl_kstat_write(PDEVICE_OBJECT DiskDevice, PIRP Irp,
 	ksp = (kstat_t *)IrpSp->Parameters.DeviceIoControl.Type3InputBuffer;
 	rc = write_kstat_data(&ksp->ks_returnvalue, (void *)ksp, 0, NULL);
 	return (0);
+}
+
+typedef struct arc_stats_cache {
+	kstat_named_t arcstat_hits;
+	kstat_named_t arcstat_misses;
+	kstat_named_t arcstat_demand_data_hits;
+	kstat_named_t arcstat_demand_data_misses;
+	kstat_named_t arcstat_demand_metadata_hits;
+	kstat_named_t arcstat_demand_metadata_misses;
+	kstat_named_t arcstat_prefetch_data_hits;
+	kstat_named_t arcstat_prefetch_data_misses;
+	kstat_named_t arcstat_prefetch_metadata_hits;
+	kstat_named_t arcstat_prefetch_metadata_misses;
+	kstat_named_t arcstat_mru_hits;
+	kstat_named_t arcstat_mru_ghost_hits;
+	kstat_named_t arcstat_mfu_hits;
+	kstat_named_t arcstat_mfu_ghost_hits;
+	kstat_named_t arcstat_deleted;
+	/*
+	 * Number of buffers that could not be evicted because the hash lock
+	 * was held by another thread.  The lock may not necessarily be held
+	 * by something using the same buffer, since hash locks are shared
+	 * by multiple buffers.
+	 */
+	kstat_named_t arcstat_mutex_miss;
+	/*
+	 * Number of buffers skipped when updating the access state due to the
+	 * header having already been released after acquiring the hash lock.
+	 */
+	kstat_named_t arcstat_access_skip;
+	/*
+	 * Number of buffers skipped because they have I/O in progress, are
+	 * indirect prefetch buffers that have not lived long enough, or are
+	 * not from the spa we're trying to evict from.
+	 */
+	kstat_named_t arcstat_evict_skip;
+	/*
+	 * Number of times arc_evict_state() was unable to evict enough
+	 * buffers to reach its target amount.
+	 */
+	kstat_named_t arcstat_evict_not_enough;
+	kstat_named_t arcstat_evict_l2_cached;
+	kstat_named_t arcstat_evict_l2_eligible;
+	kstat_named_t arcstat_evict_l2_eligible_mfu;
+	kstat_named_t arcstat_evict_l2_eligible_mru;
+	kstat_named_t arcstat_evict_l2_ineligible;
+	kstat_named_t arcstat_evict_l2_skip;
+	kstat_named_t arcstat_hash_elements;
+	kstat_named_t arcstat_hash_elements_max;
+	kstat_named_t arcstat_hash_collisions;
+	kstat_named_t arcstat_hash_chains;
+	kstat_named_t arcstat_hash_chain_max;
+	kstat_named_t arcstat_p;
+	kstat_named_t arcstat_c;
+	kstat_named_t arcstat_c_min;
+	kstat_named_t arcstat_c_max;
+	kstat_named_t arcstat_size;
+	/*
+	 * Number of compressed bytes stored in the arc_buf_hdr_t's b_pabd.
+	 * Note that the compressed bytes may match the uncompressed bytes
+	 * if the block is either not compressed or compressed arc is disabled.
+	 */
+	kstat_named_t arcstat_compressed_size;
+	/*
+	 * Uncompressed size of the data stored in b_pabd. If compressed
+	 * arc is disabled then this value will be identical to the stat
+	 * above.
+	 */
+	kstat_named_t arcstat_uncompressed_size;
+	/*
+	 * Number of bytes stored in all the arc_buf_t's. This is classified
+	 * as "overhead" since this data is typically short-lived and will
+	 * be evicted from the arc when it becomes unreferenced unless the
+	 * zfs_keep_uncompressed_metadata or zfs_keep_uncompressed_level
+	 * values have been set (see comment in dbuf.c for more information).
+	 */
+	kstat_named_t arcstat_overhead_size;
+	/*
+	 * Number of bytes consumed by internal ARC structures necessary
+	 * for tracking purposes; these structures are not actually
+	 * backed by ARC buffers. This includes arc_buf_hdr_t structures
+	 * (allocated via arc_buf_hdr_t_full and arc_buf_hdr_t_l2only
+	 * caches), and arc_buf_t structures (allocated via arc_buf_t
+	 * cache).
+	 */
+	kstat_named_t arcstat_hdr_size;
+	/*
+	 * Number of bytes consumed by ARC buffers of type equal to
+	 * ARC_BUFC_DATA. This is generally consumed by buffers backing
+	 * on disk user data (e.g. plain file contents).
+	 */
+	kstat_named_t arcstat_data_size;
+	/*
+	 * Number of bytes consumed by ARC buffers of type equal to
+	 * ARC_BUFC_METADATA. This is generally consumed by buffers
+	 * backing on disk data that is used for internal ZFS
+	 * structures (e.g. ZAP, dnode, indirect blocks, etc).
+	 */
+	kstat_named_t arcstat_metadata_size;
+	/*
+	 * Number of bytes consumed by dmu_buf_impl_t objects.
+	 */
+	kstat_named_t arcstat_dbuf_size;
+	/*
+	 * Number of bytes consumed by dnode_t objects.
+	 */
+	kstat_named_t arcstat_dnode_size;
+	/*
+	 * Number of bytes consumed by bonus buffers.
+	 */
+	kstat_named_t arcstat_bonus_size;
+#if defined(COMPAT_FREEBSD11)
+	/*
+	 * Sum of the previous three counters, provided for compatibility.
+	 */
+	kstat_named_t arcstat_other_size;
+#endif
+
+	/*
+	 * Total number of bytes consumed by ARC buffers residing in the
+	 * arc_anon state. This includes *all* buffers in the arc_anon
+	 * state; e.g. data, metadata, evictable, and unevictable buffers
+	 * are all included in this value.
+	 */
+	kstat_named_t arcstat_anon_size;
+	/*
+	 * Number of bytes consumed by ARC buffers that meet the
+	 * following criteria: backing buffers of type ARC_BUFC_DATA,
+	 * residing in the arc_anon state, and are eligible for eviction
+	 * (e.g. have no outstanding holds on the buffer).
+	 */
+	kstat_named_t arcstat_anon_evictable_data;
+	/*
+	 * Number of bytes consumed by ARC buffers that meet the
+	 * following criteria: backing buffers of type ARC_BUFC_METADATA,
+	 * residing in the arc_anon state, and are eligible for eviction
+	 * (e.g. have no outstanding holds on the buffer).
+	 */
+	kstat_named_t arcstat_anon_evictable_metadata;
+	/*
+	 * Total number of bytes consumed by ARC buffers residing in the
+	 * arc_mru state. This includes *all* buffers in the arc_mru
+	 * state; e.g. data, metadata, evictable, and unevictable buffers
+	 * are all included in this value.
+	 */
+	kstat_named_t arcstat_mru_size;
+	/*
+	 * Number of bytes consumed by ARC buffers that meet the
+	 * following criteria: backing buffers of type ARC_BUFC_DATA,
+	 * residing in the arc_mru state, and are eligible for eviction
+	 * (e.g. have no outstanding holds on the buffer).
+	 */
+	kstat_named_t arcstat_mru_evictable_data;
+	/*
+	 * Number of bytes consumed by ARC buffers that meet the
+	 * following criteria: backing buffers of type ARC_BUFC_METADATA,
+	 * residing in the arc_mru state, and are eligible for eviction
+	 * (e.g. have no outstanding holds on the buffer).
+	 */
+	kstat_named_t arcstat_mru_evictable_metadata;
+	/*
+	 * Total number of bytes that *would have been* consumed by ARC
+	 * buffers in the arc_mru_ghost state. The key thing to note
+	 * here, is the fact that this size doesn't actually indicate
+	 * RAM consumption. The ghost lists only consist of headers and
+	 * don't actually have ARC buffers linked off of these headers.
+	 * Thus, *if* the headers had associated ARC buffers, these
+	 * buffers *would have* consumed this number of bytes.
+	 */
+	kstat_named_t arcstat_mru_ghost_size;
+	/*
+	 * Number of bytes that *would have been* consumed by ARC
+	 * buffers that are eligible for eviction, of type
+	 * ARC_BUFC_DATA, and linked off the arc_mru_ghost state.
+	 */
+	kstat_named_t arcstat_mru_ghost_evictable_data;
+	/*
+	 * Number of bytes that *would have been* consumed by ARC
+	 * buffers that are eligible for eviction, of type
+	 * ARC_BUFC_METADATA, and linked off the arc_mru_ghost state.
+	 */
+	kstat_named_t arcstat_mru_ghost_evictable_metadata;
+	/*
+	 * Total number of bytes consumed by ARC buffers residing in the
+	 * arc_mfu state. This includes *all* buffers in the arc_mfu
+	 * state; e.g. data, metadata, evictable, and unevictable buffers
+	 * are all included in this value.
+	 */
+	kstat_named_t arcstat_mfu_size;
+	/*
+	 * Number of bytes consumed by ARC buffers that are eligible for
+	 * eviction, of type ARC_BUFC_DATA, and reside in the arc_mfu
+	 * state.
+	 */
+	kstat_named_t arcstat_mfu_evictable_data;
+	/*
+	 * Number of bytes consumed by ARC buffers that are eligible for
+	 * eviction, of type ARC_BUFC_METADATA, and reside in the
+	 * arc_mfu state.
+	 */
+	kstat_named_t arcstat_mfu_evictable_metadata;
+	/*
+	 * Total number of bytes that *would have been* consumed by ARC
+	 * buffers in the arc_mfu_ghost state. See the comment above
+	 * arcstat_mru_ghost_size for more details.
+	 */
+	kstat_named_t arcstat_mfu_ghost_size;
+	/*
+	 * Number of bytes that *would have been* consumed by ARC
+	 * buffers that are eligible for eviction, of type
+	 * ARC_BUFC_DATA, and linked off the arc_mfu_ghost state.
+	 */
+	kstat_named_t arcstat_mfu_ghost_evictable_data;
+	/*
+	 * Number of bytes that *would have been* consumed by ARC
+	 * buffers that are eligible for eviction, of type
+	 * ARC_BUFC_METADATA, and linked off the arc_mru_ghost state.
+	 */
+	kstat_named_t arcstat_mfu_ghost_evictable_metadata;
+	kstat_named_t arcstat_l2_hits;
+	kstat_named_t arcstat_l2_misses;
+	/*
+	 * Allocated size (in bytes) of L2ARC cached buffers by ARC state.
+	 */
+	kstat_named_t arcstat_l2_prefetch_asize;
+	kstat_named_t arcstat_l2_mru_asize;
+	kstat_named_t arcstat_l2_mfu_asize;
+	/*
+	 * Allocated size (in bytes) of L2ARC cached buffers by buffer content
+	 * type.
+	 */
+	kstat_named_t arcstat_l2_bufc_data_asize;
+	kstat_named_t arcstat_l2_bufc_metadata_asize;
+	kstat_named_t arcstat_l2_feeds;
+	kstat_named_t arcstat_l2_rw_clash;
+	kstat_named_t arcstat_l2_read_bytes;
+	kstat_named_t arcstat_l2_write_bytes;
+	kstat_named_t arcstat_l2_writes_sent;
+	kstat_named_t arcstat_l2_writes_done;
+	kstat_named_t arcstat_l2_writes_error;
+	kstat_named_t arcstat_l2_writes_lock_retry;
+	kstat_named_t arcstat_l2_evict_lock_retry;
+	kstat_named_t arcstat_l2_evict_reading;
+	kstat_named_t arcstat_l2_evict_l1cached;
+	kstat_named_t arcstat_l2_free_on_write;
+	kstat_named_t arcstat_l2_abort_lowmem;
+	kstat_named_t arcstat_l2_cksum_bad;
+	kstat_named_t arcstat_l2_io_error;
+	kstat_named_t arcstat_l2_lsize;
+	kstat_named_t arcstat_l2_psize;
+	kstat_named_t arcstat_l2_hdr_size;
+	/*
+	 * Number of L2ARC log blocks written. These are used for restoring the
+	 * L2ARC. Updated during writing of L2ARC log blocks.
+	 */
+	kstat_named_t arcstat_l2_log_blk_writes;
+	/*
+	 * Moving average of the aligned size of the L2ARC log blocks, in
+	 * bytes. Updated during L2ARC rebuild and during writing of L2ARC
+	 * log blocks.
+	 */
+	kstat_named_t arcstat_l2_log_blk_avg_asize;
+	/*
+	 * Aligned size of L2ARC log blocks on L2ARC devices.
+	 */
+	kstat_named_t arcstat_l2_log_blk_asize;
+	/*
+	 * Number of L2ARC log blocks present on L2ARC devices.
+	 */
+	kstat_named_t arcstat_l2_log_blk_count;
+	/*
+	 * Moving average of the aligned size of L2ARC restored data, in bytes,
+	 * to the aligned size of their metadata in L2ARC, in bytes.
+	 * Updated during L2ARC rebuild and during writing of L2ARC log blocks.
+	 */
+	kstat_named_t arcstat_l2_data_to_meta_ratio;
+	/*
+	 * Number of times the L2ARC rebuild was successful for an L2ARC device.
+	 */
+	kstat_named_t arcstat_l2_rebuild_success;
+	/*
+	 * Number of times the L2ARC rebuild failed because the device header
+	 * was in an unsupported format or corrupted.
+	 */
+	kstat_named_t arcstat_l2_rebuild_abort_unsupported;
+	/*
+	 * Number of times the L2ARC rebuild failed because of IO errors
+	 * while reading a log block.
+	 */
+	kstat_named_t arcstat_l2_rebuild_abort_io_errors;
+	/*
+	 * Number of times the L2ARC rebuild failed because of IO errors when
+	 * reading the device header.
+	 */
+	kstat_named_t arcstat_l2_rebuild_abort_dh_errors;
+	/*
+	 * Number of L2ARC log blocks which failed to be restored due to
+	 * checksum errors.
+	 */
+	kstat_named_t arcstat_l2_rebuild_abort_cksum_lb_errors;
+	/*
+	 * Number of times the L2ARC rebuild was aborted due to low system
+	 * memory.
+	 */
+	kstat_named_t arcstat_l2_rebuild_abort_lowmem;
+	/*
+	 * Logical size of L2ARC restored data, in bytes.
+	 */
+	kstat_named_t arcstat_l2_rebuild_size;
+	/*
+	 * Aligned size of L2ARC restored data, in bytes.
+	 */
+	kstat_named_t arcstat_l2_rebuild_asize;
+	/*
+	 * Number of L2ARC log entries (buffers) that were successfully
+	 * restored in ARC.
+	 */
+	kstat_named_t arcstat_l2_rebuild_bufs;
+	/*
+	 * Number of L2ARC log entries (buffers) already cached in ARC. These
+	 * were not restored again.
+	 */
+	kstat_named_t arcstat_l2_rebuild_bufs_precached;
+	/*
+	 * Number of L2ARC log blocks that were restored successfully. Each
+	 * log block may hold up to L2ARC_LOG_BLK_MAX_ENTRIES buffers.
+	 */
+	kstat_named_t arcstat_l2_rebuild_log_blks;
+	kstat_named_t arcstat_memory_throttle_count;
+	kstat_named_t arcstat_memory_direct_count;
+	kstat_named_t arcstat_memory_indirect_count;
+	kstat_named_t arcstat_memory_all_bytes;
+	kstat_named_t arcstat_memory_free_bytes;
+	kstat_named_t arcstat_memory_available_bytes;
+	kstat_named_t arcstat_no_grow;
+	kstat_named_t arcstat_tempreserve;
+	kstat_named_t arcstat_loaned_bytes;
+	kstat_named_t arcstat_prune;
+	kstat_named_t arcstat_meta_used;
+	kstat_named_t arcstat_meta_limit;
+	kstat_named_t arcstat_dnode_limit;
+	kstat_named_t arcstat_meta_max;
+	kstat_named_t arcstat_meta_min;
+	kstat_named_t arcstat_async_upgrade_sync;
+	kstat_named_t arcstat_demand_hit_predictive_prefetch;
+	kstat_named_t arcstat_demand_hit_prescient_prefetch;
+	kstat_named_t arcstat_need_free;
+	kstat_named_t arcstat_sys_free;
+	kstat_named_t arcstat_raw_size;
+	kstat_named_t arcstat_cached_only_in_progress;
+	kstat_named_t arcstat_abd_chunk_waste_size;
+} arc_stats_t_cache;
+
+	typedef struct zil_stats_cache {
+	/*
+	 * Number of times a ZIL commit (e.g. fsync) has been requested.
+	 */
+	kstat_named_t zil_commit_count;
+
+	/*
+	 * Number of times the ZIL has been flushed to stable storage.
+	 * This is less than zil_commit_count when commits are "merged"
+	 * (see the documentation above zil_commit()).
+	 */
+	kstat_named_t zil_commit_writer_count;
+
+	/*
+	 * Number of transactions (reads, writes, renames, etc.)
+	 * that have been committed.
+	 */
+	kstat_named_t zil_itx_count;
+
+	/*
+	 * See the documentation for itx_wr_state_t above.
+	 * Note that "bytes" accumulates the length of the transactions
+	 * (i.e. data), not the actual log record sizes.
+	 */
+	kstat_named_t zil_itx_indirect_count;
+	kstat_named_t zil_itx_indirect_bytes;
+	kstat_named_t zil_itx_copied_count;
+	kstat_named_t zil_itx_copied_bytes;
+	kstat_named_t zil_itx_needcopy_count;
+	kstat_named_t zil_itx_needcopy_bytes;
+
+	/*
+	 * Transactions which have been allocated to the "normal"
+	 * (i.e. not slog) storage pool. Note that "bytes" accumulate
+	 * the actual log record sizes - which do not include the actual
+	 * data in case of indirect writes.
+	 */
+	kstat_named_t zil_itx_metaslab_normal_count;
+	kstat_named_t zil_itx_metaslab_normal_bytes;
+
+	/*
+	 * Transactions which have been allocated to the "slog" storage pool.
+	 * If there are no separate log devices, this is the same as the
+	 * "normal" pool.
+	 */
+	kstat_named_t zil_itx_metaslab_slog_count;
+	kstat_named_t zil_itx_metaslab_slog_bytes;
+} zil_stats_t_cache;
+
+// Added comments inline referring to perl arcstat.pl
+void
+cache_counters_perfmon(cache_counters* perf)
+{
+	int rcdone = 0, wcdone = 0;
+	ekstat_t *ee;
+	mutex_enter(&kstat_chain_lock);
+	for (ee = avl_first(&kstat_avl_bykid); ee != NULL &&
+	    (!rcdone || !wcdone); ee = avl_walk(&kstat_avl_bykid,
+	    ee, AVL_AFTER)) {
+		kstat_t *curr = &ee->e_ks;
+		if (curr->ks_data && !(strcmp(curr->ks_module, "zfs")) && !
+		    (strcmp(curr->ks_name, "arcstats"))) {
+		arc_stats_t_cache* ptr = curr->ks_data;
+	// $v{ "hits" } = $d{ "hits" } / $int;
+	perf->arcstat_hits = ptr->arcstat_hits.value.ui64;
+
+	// $v{"miss"} = $d{"misses"}/$int;
+	perf->arcstat_misses = ptr->arcstat_misses.value.ui64;
+
+	// $v{"dhit"} = ($d{"demand_data_hits"} +
+	// $d{"demand_metadata_hits"})/$int;
+	perf->arcstat_total_demand_hits = ptr->
+	    arcstat_demand_data_hits.value.ui64 +
+	    ptr->arcstat_demand_metadata_hits.value.ui64;
+
+	// $v{"dmis"} = ($d{"demand_data_misses"}+
+	// $d{"demand_metadata_misses"})/$int;
+	perf->arcstat_total_demand_miss = ptr->
+	    arcstat_demand_data_misses.value.ui64 +
+	    ptr->arcstat_demand_metadata_misses.value.ui64;
+
+	// $v{"phit"}=($d{"prefetch_data_hits"} +
+	// $d{"prefetch_metadata_hits"})/$int;
+
+	perf->arcstat_perfetch_hits = ptr->
+	    arcstat_prefetch_data_hits.value.ui64 +
+	    ptr->arcstat_prefetch_metadata_hits.value.ui64;
+
+	// $v{ "pmis" } = ($d{ "prefetch_data_misses" } +
+	// $d{ "prefetch_metadata_misses" }) / $int;
+	perf->arcstat_perfetch_miss = ptr->
+	    arcstat_prefetch_data_misses.value.ui64 +
+	    ptr->arcstat_prefetch_metadata_misses.value.ui64;
+
+	// $v{"pread"} = $v{"phit"} + $v{"pmis"};
+	perf->arcstat_perfetch_ps = perf->arcstat_perfetch_hits +
+	    perf->arcstat_perfetch_miss;
+
+	// $v{"dread"} = $v{"dhit"} + $v{"dmis"};
+	perf->arcstat_demand_ps = perf->arcstat_total_demand_hits +
+	    perf->arcstat_total_demand_miss;
+
+	// $v{"size"} = $cur{"size"};
+	perf->arcstat_size = ptr->arcstat_size.value.ui64;
+
+	// $v{"tsize"} = $cur{"c"};
+	perf->arcstat_c = ptr->arcstat_c.value.ui64;
+
+	// $v{"mfu"} = $d{"hits"}/$int;
+	perf->arcstat_mfu_hits = ptr->arcstat_mfu_hits.value.ui64;
+
+	// $v{"mru"} = $d{"mru_hits"}/$int;
+	perf->arcstat_mru_hits = ptr->arcstat_mru_hits.value.ui64;
+
+	// $v{"mrug"} = $d{"mru_ghost_hits"}/$int;
+	perf->arcstat_mru_ghost_hits = ptr->arcstat_mru_ghost_hits.value.ui64;
+
+	// $v{"mfug"} = $d{"mfu_ghost_hits"}/$int;
+	perf->arcstat_mfu_ghost_hits = ptr->arcstat_mfu_ghost_hits.value.ui64;
+
+	// $v{"eskip"} = $d{"evict_skip"}/$int;
+	perf->arcstat_evict_skip = ptr->arcstat_evict_skip.value.ui64;
+
+	// $v{"mtxmis"} = $d{"mutex_miss"}/$int;
+	perf->arcstat_mutex_miss = ptr->arcstat_mutex_miss.value.ui64;
+
+	// $v{"comprs"} = $cur{"compressed_size"};
+	perf->arcstat_compressed_size = ptr->
+	    arcstat_compressed_size.value.ui64;
+
+	// $v{"uncomp"} = $cur{"uncompressed_size"};
+	perf->arcstat_uncompressed_size = ptr->arcstat_uncompressed_size
+	    .value.ui64;
+
+	// $v{"l2hits"} = $d{"l2_hits"}/$int;
+	perf->arcstat_l2_hits = ptr->arcstat_l2_hits.value.ui64;
+
+	// $v{ "l2miss" } = $d{ "l2_misses" } / $int;
+	perf->arcstat_l2_misses = ptr->arcstat_l2_misses.value.ui64;
+
+	// $v{"l2read"} = $d{"l2_read_bytes"}/$int;
+	perf->arcstat_l2_read_bytes = ptr->arcstat_l2_read_bytes.value.ui64;
+
+	// $v{"l2write"} = $d{"l2_write_bytes"}/$int;
+	perf->arcstat_l2_write_bytes = ptr->arcstat_l2_write_bytes.value.ui64;
+
+	// $v{l2 access per second} = $v{"l2hits"} + $v{ "l2miss" }
+	perf->arcstat_l2_access_ps = perf->arcstat_l2_hits +
+	    perf->arcstat_l2_misses;
+
+	// $v{ "read" } = $v{ "hits" } +$v{ "miss" };
+	perf->arcstat_read_ps = perf->arcstat_hits + perf->arcstat_misses;
+
+	// $v{"mhit"}=($d{"prefetch_metadata_hits"}+
+	// $d{"demand_metadata_hits"})/$int;
+	perf->arcstat_metadata_hit_ps = ptr->arcstat_prefetch_metadata_hits
+	    .value.ui64 + ptr->arcstat_demand_metadata_hits.value.ui64;
+
+	// $v{"mmis"}=($d{"prefetch_metadata_misses"} +
+	// $d{ "demand_metadata_misses" }) / $int;
+	perf->arcstat_metadata_miss_ps = ptr->
+	    arcstat_prefetch_metadata_misses.value.ui64 +
+	    ptr->arcstat_demand_metadata_misses.value.ui64;
+
+	// $v{"mread"} = $v{"mhit"} + $v{"mmis"};
+	perf->arcstat_metadata_accesses_ps = perf->arcstat_metadata_hit_ps
+	    + perf->arcstat_metadata_miss_ps;
+
+	// $v{"ovrhd"} = $cur{"overhead_size"};
+	perf->arcstat_overhead_size = ptr->arcstat_overhead_size.value.i64;
+
+	rcdone = 1;
+	} else if (curr->ks_data && !(strcmp(curr->ks_module, "zfs")) &&
+	    !(strcmp(curr->ks_name, "zil"))) {
+	zil_stats_t_cache* ptr = curr->ks_data;
+	perf->zil_commit_count = ptr->zil_commit_count.value.ui64;
+	perf->zil_commit_writer_count = ptr->
+	    zil_commit_writer_count.value.ui64;
+	perf->zil_itx_count = ptr->zil_itx_count.value.ui64;
+	perf->zil_itx_indirect_count = ptr->zil_itx_indirect_count.value.ui64;
+	perf->zil_itx_indirect_bytes = ptr->zil_itx_indirect_bytes.value.ui64;
+	perf->zil_itx_copied_count = ptr->zil_itx_copied_count.value.ui64;
+	perf->zil_itx_copied_bytes = ptr->zil_itx_copied_bytes.value.ui64;
+	perf->zil_itx_needcopy_count = ptr->zil_itx_needcopy_count.value.ui64;
+	perf->zil_itx_needcopy_bytes = ptr->zil_itx_needcopy_bytes.value.ui64;
+	perf->zil_itx_metaslab_normal_count = ptr->
+	    zil_itx_metaslab_normal_count
+	    .value.ui64;
+	perf->zil_itx_metaslab_normal_bytes = ptr->
+	    zil_itx_metaslab_normal_bytes
+	    .value.ui64;
+	perf->zil_itx_metaslab_slog_count = ptr->zil_itx_metaslab_slog_count
+	    .value.ui64;
+	perf->zil_itx_metaslab_slog_bytes = ptr->zil_itx_metaslab_slog_bytes
+	    .value.ui64;
+
+	wcdone = 1;
+	}
+	}
+	mutex_exit(&kstat_chain_lock);
 }

@@ -27,12 +27,12 @@ extern "C" {
 #include <getopt.h>
 #include <sys/types.h>
 #include <unistd.h>
-extern char *optarg;
-extern int optind;
+	extern char *optarg;
+	extern int optind;
 
 #include <sys/fs/zfs.h>
-// kernel header'
-// #include <sys/zfs_ioctl_compat.h>
+	// kernel header'
+	// #include <sys/zfs_ioctl_compat.h>
 #define	ZFSIOCTL_BASE 0x800
 }
 
@@ -40,6 +40,10 @@ extern int optind;
 
 #include <ctime>
 #include <string>
+#define	_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING 1
+#include <experimental\filesystem>
+namespace fs = std::experimental::filesystem;
+
 
 #define	MAX_PATH_LEN 1024
 
@@ -55,6 +59,13 @@ extern int optind;
 const unsigned char OPEN_ZFS_GUID[] = "c20c603c-afd4-467d-bf76-c0a4c10553df";
 const unsigned char LOGGER_SESSION[] = "autosession\\OpenZFS_trace";
 const std::string ETL_FILE("\\OpenZFS.etl");
+const std::string MANIFEST_FILE("\\OpenZFS.man");
+
+enum manifest_install_types
+{
+	MAN_INSTALL,
+	MAN_UNINSTALL,
+};
 
 int
 session_exists(void)
@@ -76,16 +87,17 @@ zfs_log_session_delete(void)
 
 	if (ret == 0) {  // Session exists
 		sprintf_s(command, "logman delete %s > nul",
-			LOGGER_SESSION);
+		    LOGGER_SESSION);
 		ret = system(command);
 		if (ret == 0)
 			fprintf(stderr, "Logman session %s deleted "
-				"successfully\n", LOGGER_SESSION);
+			    "successfully\n", LOGGER_SESSION);
 		else
 			fprintf(stderr, "Error while deleting session %s\n",
-				LOGGER_SESSION);
+			    LOGGER_SESSION);
 		return (ret);
-	} else
+	}
+	else
 		return (0); // Session does not exist ; We will pass success
 }
 
@@ -109,28 +121,29 @@ validate_flag_level(const char *str, size_t len)
 
 int
 validate_args(const char *flags, const char *levels,
-	int size_in_mb, const char *etl_file) {
+    int size_in_mb, const char *etl_file)
+{
 	if (validate_flag_level(flags, 8)) {
 		fprintf(stderr, "Valid input for flags should be in "
-			"interval [0x0, 0xffffffff]\n");
+		    "interval [0x0, 0xffffffff]\n");
 		return (1);
 	}
 
 	if (validate_flag_level(levels, 2)) {
 		fprintf(stderr, "Valid input for levels should be in "
-			"interval [0x0, 0xff]\n");
+		    "interval [0x0, 0xff]\n");
 		return (2);
 	}
 
 	if (etl_file) {
 		if (!strstr(etl_file, ".etl")) {
 			fprintf(stderr, "Etl file path/name %s is incorrect\n",
-				etl_file);
+			    etl_file);
 			return (3);
 		}
 	} else {
-			fprintf(stderr, "Etl file path/name is incorrect\n");
-			return (4);
+		fprintf(stderr, "Etl file path/name is incorrect\n");
+		return (4);
 	}
 
 	if (size_in_mb <= 0) {
@@ -163,7 +176,7 @@ move_file(const char *etl_file)
 	if (0 == rename(etl_file, move_etl)) {
 		fprintf(stderr, "%s already exists\n", etl_file);
 		fprintf(stderr, "%s has been renamed to %s\n",
-			etl_file, move_etl);
+		    etl_file, move_etl);
 		return (0);
 	} else {
 		fprintf(stderr, "Error while renaming the file %s\n", etl_file);
@@ -179,9 +192,15 @@ hex_modify(std::string& hex)
 	hex = std::string("0x") + hex;
 }
 
+std::string get_cwd() {
+	CHAR cwd_path[MAX_PATH_LEN] = { 0 };
+	DWORD len = GetCurrentDirectoryA(MAX_PATH_LEN, cwd_path);
+	return (std::string(cwd_path));
+}
+
 int
-arg_parser(int argc, char **argv, std::string &flags,
-	std::string &levels, int &size_in_mb, std::string &etl_file)
+arg_parser(int argc, char **argv, std::string& flags,
+    std::string& levels, int& size_in_mb, std::string& etl_file)
 {
 	int option_index = 0;
 	while ((option_index = getopt(argc, argv, "l:f:s:p:d")) != -1) {
@@ -202,7 +221,7 @@ arg_parser(int argc, char **argv, std::string &flags,
 			break;
 		case 'd':
 			fprintf(stderr, "-d cannot used with other "
-				"parameters\n");
+			    "parameters\n");
 			return (1);
 		default:
 			fprintf(stderr, "Incorrect argument provided\n");
@@ -221,15 +240,7 @@ arg_parser(int argc, char **argv, std::string &flags,
 	if (0 == levels.size())		levels = std::string("0x4");
 	if (-1 == size_in_mb)		size_in_mb = 250;
 	if (0 == etl_file.size()) {
-		TCHAR CurrentPath[MAX_PATH_LEN + 1] = L"";
-		DWORD len = GetCurrentDirectory(MAX_PATH_LEN, CurrentPath);
-		int size_needed = WideCharToMultiByte(CP_UTF8, 0,
-			&CurrentPath[0], MAX_PATH_LEN, NULL, 0, NULL, NULL);
-		std::string CwdPath(size_needed, 0);
-		WideCharToMultiByte(CP_UTF8, 0, &CurrentPath[0],
-			MAX_PATH_LEN, &CwdPath[0], size_needed, NULL, NULL);
-		CwdPath.erase(len);
-		etl_file = CwdPath + ETL_FILE;
+		etl_file = get_cwd() + ETL_FILE;
 	}
 	return (0);
 }
@@ -251,42 +262,84 @@ zfs_log_session_create(int argc, char **argv)
 	}
 
 	if (validate_args(flags.c_str(), levels.c_str(), size_in_mb,
-		etl_file.c_str())) {
+	    etl_file.c_str())) {
 		fprintf(stderr, "Please check the provided values for "
-			"the arguments\n");
+		    "the arguments\n");
 		printUsage();
 		return (1);
 	}
 
 	if (0 != session_exists()) { // If Session does not exist
 		if (GetFileAttributesA(etl_file.c_str()) !=
-			INVALID_FILE_ATTRIBUTES) { // ETL EXISTS
+		    INVALID_FILE_ATTRIBUTES) { // ETL EXISTS
 			ret = move_file(etl_file.c_str());
 			if (ret)
 				return (ret);
 		}
 
 		sprintf_s(command, "logman create trace %s -p {%s} %s %s"
-			" -nb 1 1 -bs 1 -mode Circular -max %d -o \"%s\" ",
-			LOGGER_SESSION, OPEN_ZFS_GUID, flags.c_str(),
-			levels.c_str(), size_in_mb, etl_file.c_str());
+		    " -nb 1 1 -bs 1 -mode Circular -max %d -o \"%s\" ",
+		    LOGGER_SESSION, OPEN_ZFS_GUID, flags.c_str(),
+		    levels.c_str(), size_in_mb, etl_file.c_str());
 
 		ret = system(command);
 		if (ret != 0)
 			fprintf(stderr, "There is an issue creating the "
-				"session %s\n", LOGGER_SESSION);
+			    "session %s\n", LOGGER_SESSION);
 		else
 			fprintf(stderr, "Logman Session %s successfully "
-				"created\n", LOGGER_SESSION);
+			    "created\n", LOGGER_SESSION);
 
 		return (ret);
-	} else
+	}
+	else
 		fprintf(stderr, "Logman Session %s already exists\n",
-			LOGGER_SESSION);
+		    LOGGER_SESSION);
 
 	return (0);
 }
 
+int perf_counters(char *inf_path, int type) {
+	int error = 0;
+	fs::path path = std::string(inf_path);
+	std::string final_path;
+
+	char driver_path[MAX_PATH_LEN] = { 0 };
+	strncpy_s(driver_path, inf_path, MAX_PATH_LEN);
+	char *slash = strrchr(driver_path, '\\');
+	*slash = '\0';
+
+	if (path.is_absolute())
+		final_path = std::string(driver_path) + MANIFEST_FILE;
+	else if (path.is_relative())
+		final_path = get_cwd() + std::string("\\") + std::string(
+		    driver_path) + MANIFEST_FILE;
+
+	char command[MAX_PATH_LEN] = { 0 };
+	switch (type)
+	{
+	case MAN_INSTALL:
+		sprintf_s(command, "lodctr /m:\"%s\"\n", final_path.c_str());
+		break;
+	case MAN_UNINSTALL:
+		sprintf_s(command, "unlodctr /m:\"%s\"\n", final_path.c_str());
+		break;
+	default:
+		break;
+	}
+
+	fprintf(stderr, "Executing %s\n", command);
+	return (system(command));
+}
+
+int perf_counters_install(char *inf_path) {
+	return (perf_counters(inf_path, MAN_INSTALL));
+}
+
+
+int perf_counters_uninstall(char *inf_path) {
+	return (perf_counters(inf_path, MAN_UNINSTALL));
+}
 
 int
 main(int argc, char *argv[])
@@ -336,7 +389,8 @@ main(int argc, char *argv[])
 }
 
 void
-printUsage() {
+printUsage()
+{
 	fprintf(stderr, "\nUsage:\n\n");
 	fprintf(stderr, "Install driver per INF DefaultInstall section:\n");
 	fprintf(stderr, "zfsinstaller install inf_path\n");
@@ -345,20 +399,20 @@ printUsage() {
 	fprintf(stderr, "zfsinstaller uninstall inf_path\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "zfsinstaller trace [-f Flags] | [-l Levels]"
-		" | [-s SizeOfETLInMB] | [-p AbsolutePathOfETL]\n");
+	    " | [-s SizeOfETLInMB] | [-p AbsolutePathOfETL]\n");
 	fprintf(stderr, "Valid inputs for above arguments are as follows:\n");
 	fprintf(stderr, "Flags (in hex)              "
-		"Should be in interval [0x0, 0xffffffff]      "
-		"Default (0xffffffff)\n");
+	    "Should be in interval [0x0, 0xffffffff]      "
+	    "Default (0xffffffff)\n");
 	fprintf(stderr, "Levels (in hex)             "
-		"Should be in interval [0x0, 0xff]            "
-		"Default (0x4)\n");
+	    "Should be in interval [0x0, 0xff]            "
+	    "Default (0x4)\n");
 	fprintf(stderr, "SizeOfETLInMB (in decimal)  "
-		"Should be greater than 0                     "
-		"Default (250)\n");
+	    "Should be greater than 0                     "
+	    "Default (250)\n");
 	fprintf(stderr, "AbsolutePathOfETL           "
-		"Absolute Path including the Etl file name    "
-		"Default ($CWD%s)\n", ETL_FILE.c_str());
+	    "Absolute Path including the Etl file name    "
+	    "Default ($CWD%s)\n", ETL_FILE.c_str());
 	fprintf(stderr, "\n");
 	fprintf(stderr, "zfsinstaller trace -d\n");
 	fprintf(stderr, "-d                 To delete the logman session\n");
@@ -374,7 +428,7 @@ DWORD zfs_install(char *inf_path) {
 		char cwd[1024];
 		_getcwd(cwd, sizeof (cwd));
 		fprintf(stderr, "Unable to locate '%s' we are at '%s'\r\n",
-			inf_path, cwd);
+		    inf_path, cwd);
 		return (-1);
 	}
 
@@ -386,10 +440,13 @@ DWORD zfs_install(char *inf_path) {
 		error = startService(serviceName);
 	else
 		fprintf(stderr, "Installation failed, skip "
-			"starting the service\r\n");
+		    "starting the service\r\n");
 
 	if (!error)
 		error = installRootDevice(inf_path);
+
+	if (!error)
+		perf_counters_install(inf_path);
 
 	return (error);
 }
@@ -407,16 +464,18 @@ zfs_uninstall(char *inf_path)
 	if (ret == 0)
 		ret = executeInfSection("DefaultUninstall 128 ", inf_path);
 
-	if (ret == 0)
+	if (ret == 0) {
 		ret = uninstallRootDevice(inf_path);
+		perf_counters_uninstall(inf_path);
+	}
 
 	return (ret);
 }
 
 
 DWORD
-executeInfSection(const char *cmd, char *inf_path) {
-
+executeInfSection(const char *cmd, char *inf_path)
+{
 #ifdef _DEBUG
 	system("sc query ZFSin");
 	fprintf(stderr, "\n\n");
@@ -435,11 +494,10 @@ executeInfSection(const char *cmd, char *inf_path) {
 	mbstowcs_s(&sz, wc_buf, len, buf, MAX_PATH);
 
 	InstallHinfSection(
-		NULL,
-		NULL,
-		wc_buf,
-		0
-	);
+	    NULL,
+	    NULL,
+	    wc_buf,
+	    0);
 
 
 #ifdef _DEBUG
@@ -500,17 +558,17 @@ startService(char *serviceName)
 
 	if (!servMgrHdl) {
 		fprintf(stderr, "OpenSCManager failed, error %d\n",
-			GetLastError());
+		    GetLastError());
 		error = GetLastError();
 		goto End;
 	}
 
 	zfsServHdl = OpenServiceA(servMgrHdl, serviceName,
-		GENERIC_READ | GENERIC_EXECUTE);
+	    GENERIC_READ | GENERIC_EXECUTE);
 
 	if (!zfsServHdl) {
 		fprintf(stderr, "OpenServiceA failed, error %d\n",
-			GetLastError());
+		    GetLastError());
 		error = GetLastError();
 		goto CloseMgr;
 	}
@@ -520,7 +578,7 @@ startService(char *serviceName)
 			fprintf(stderr, "Service is already running\n");
 		} else {
 			fprintf(stderr, "StartServiceA failed, error %d\n",
-				GetLastError());
+			    GetLastError());
 			// error = GetLastError();
 			goto CloseServ;
 		}
@@ -540,7 +598,7 @@ DWORD
 send_zfs_ioc_unregister_fs(void)
 {
 	HANDLE g_fd = CreateFile(L"\\\\.\\ZFS", GENERIC_READ | GENERIC_WRITE,
-		0, NULL, OPEN_EXISTING, 0, NULL);
+	    0, NULL, OPEN_EXISTING, 0, NULL);
 
 	DWORD bytesReturned;
 
@@ -551,15 +609,15 @@ send_zfs_ioc_unregister_fs(void)
 
 	// We use bytesReturned to hold "zfs_module_busy".
 	BOOL ret = DeviceIoControl(
-		g_fd,
-		CTL_CODE(ZFSIOCTL_TYPE, ZFSIOCTL_BASE + ZFS_IOC_UNREGISTER_FS,
-			METHOD_NEITHER, FILE_ANY_ACCESS),
-		NULL,
-		0,
-		NULL,
-		0,
-		&bytesReturned,
-		NULL);
+	    g_fd,
+	    CTL_CODE(ZFSIOCTL_TYPE, ZFSIOCTL_BASE + ZFS_IOC_UNREGISTER_FS,
+	    METHOD_NEITHER, FILE_ANY_ACCESS),
+	    NULL,
+	    0,
+	    NULL,
+	    0,
+	    &bytesReturned,
+	    NULL);
 
 	CloseHandle(g_fd);
 
@@ -568,7 +626,7 @@ send_zfs_ioc_unregister_fs(void)
 
 	if (bytesReturned != 0) {
 		fprintf(stderr, "ZFS: Unable to uninstall until all pools are "
-			"exported: %lu pool(s)\r\n", bytesReturned);
+		    "exported: %lu pool(s)\r\n", bytesReturned);
 		return (2);
 	}
 
@@ -597,7 +655,7 @@ openDeviceInfo(char *inf, GUID *ClassGUID, char *ClassName, int namemax)
 
 	// Use the INF File to extract the Class GUID.
 	if (!SetupDiGetINFClassA(InfPath, ClassGUID, ClassName,
-		sizeof (ClassName) / sizeof (ClassName[0]), 0)) {
+	    sizeof (ClassName) / sizeof (ClassName[0]), 0)) {
 		goto final;
 	}
 
@@ -630,7 +688,7 @@ installRootDevice(char *inf)
 	BOOL reboot = FALSE;
 
 	DeviceInfoSet = openDeviceInfo(inf, &ClassGUID, ClassName,
-		MAX_CLASS_NAME_LEN);
+	    MAX_CLASS_NAME_LEN);
 
 	ZeroMemory(hwIdList, sizeof (hwIdList));
 	if (FAILED(StringCchCopyA(hwIdList, LINE_LEN, ZFS_ROOTDEV))) {
@@ -641,29 +699,29 @@ installRootDevice(char *inf)
 	// Use the Class GUID and Name from the INF file.
 	DeviceInfoData.cbSize = sizeof (SP_DEVINFO_DATA);
 	if (!SetupDiCreateDeviceInfoA(DeviceInfoSet,
-		ClassName,
-		&ClassGUID,
-		NULL,
-		0,
-		DICD_GENERATE_ID,
-		&DeviceInfoData)) {
-		goto final;
+	    ClassName,
+	    &ClassGUID,
+	    NULL,
+	    0,
+	    DICD_GENERATE_ID,
+	    &DeviceInfoData)) {
+	goto final;
 	}
 
 	// Add the HardwareID to the Device's HardwareID property.
 	if (!SetupDiSetDeviceRegistryPropertyA(DeviceInfoSet,
-		&DeviceInfoData,
-		SPDRP_HARDWAREID,
-		(LPBYTE)hwIdList,
-		(DWORD) (strlen(hwIdList) + 1 + 1) * sizeof (char))) {
+	    &DeviceInfoData,
+	    SPDRP_HARDWAREID,
+	    (LPBYTE)hwIdList,
+	    (DWORD)(strlen(hwIdList) + 1 + 1) * sizeof (char))) {
 		goto final;
 	}
 
 	// Transform the registry element into an actual devnode
 	// in the PnP HW tree.
 	if (!SetupDiCallClassInstaller(DIF_REGISTERDEVICE,
-		DeviceInfoSet,
-		&DeviceInfoData)) {
+	    DeviceInfoSet,
+	    &DeviceInfoData)) {
 		goto final;
 	}
 
@@ -671,7 +729,7 @@ installRootDevice(char *inf)
 
 	// According to devcon we also have to Update now as well.
 	UpdateDriverForPlugAndPlayDevicesA(NULL, ZFS_ROOTDEV,
-		inf, flags, &reboot);
+	    inf, flags, &reboot);
 
 	if (reboot) printf("Windows indicated a Reboot is required.\n");
 
@@ -698,7 +756,7 @@ uninstallRootDevice(char *inf)
 	printf("%s: \n", __func__);
 
 	DeviceInfoSet = SetupDiGetClassDevs(NULL, // All Classes
-		0, 0, DIGCF_ALLCLASSES | DIGCF_PRESENT);
+	    0, 0, DIGCF_ALLCLASSES | DIGCF_PRESENT);
 	// All devices present on system
 	if (DeviceInfoSet == INVALID_HANDLE_VALUE)
 		goto final;
@@ -707,22 +765,22 @@ uninstallRootDevice(char *inf)
 
 	DeviceInfoData.cbSize = sizeof (SP_DEVINFO_DATA);
 	for (int i = 0; SetupDiEnumDeviceInfo(DeviceInfoSet, i,
-		&DeviceInfoData); i++) {
+	    &DeviceInfoData); i++) {
 		// Call once to get buffersize
 		while (!SetupDiGetDeviceRegistryPropertyA(
-			DeviceInfoSet,
-			&DeviceInfoData,
-			SPDRP_HARDWAREID,
-			&DataT,
-			(PBYTE)buffer,
-			buffersize,
-			&buffersize)) {
+		    DeviceInfoSet,
+		    &DeviceInfoData,
+		    SPDRP_HARDWAREID,
+		    &DataT,
+		    (PBYTE)buffer,
+		    buffersize,
+		    &buffersize)) {
 
 			if (GetLastError() == ERROR_INVALID_DATA) {
-			// May be a Legacy Device with no HardwareID. Continue.
+		// May be a Legacy Device with no HardwareID. Continue.
 				break;
 			} else if (GetLastError() ==
-				ERROR_INSUFFICIENT_BUFFER) {
+			    ERROR_INSUFFICIENT_BUFFER) {
 				// We need to change the buffer size.
 				if (buffer)
 					free(buffer);
@@ -740,20 +798,20 @@ uninstallRootDevice(char *inf)
 		// Compare each entry in the buffer multi-sz list
 		// with our HardwareID.
 		for (p = buffer; *p && (p < &buffer[buffersize]);
-			p += strlen(p) + sizeof (char)) {
+		    p += strlen(p) + sizeof (char)) {
 			// printf("%s: comparing '%s' with '%s'\n",
 			//	 __func__, "ROOT\\ZFSin", p);
 			if (!_stricmp(ZFS_ROOTDEV, p)) {
 
 				printf("%s: device found, removing ... \n",
-					__func__);
+				    __func__);
 
 				// Worker function to remove device.
 				if (SetupDiCallClassInstaller(DIF_REMOVE,
-					DeviceInfoSet, &DeviceInfoData)) {
-						failcode = 0;
-					}
-					break;
+				    DeviceInfoSet, &DeviceInfoData)) {
+					failcode = 0;
+				}
+				break;
 			}
 		}
 
@@ -777,49 +835,50 @@ final:
 
 
 
-	ZeroMemory(hwIdList, sizeof (hwIdList));
-	if (FAILED(StringCchCopyA(hwIdList, LINE_LEN, "ROOT\\ZFSin"))) {
-			goto final;
-	}
+ZeroMemory(hwIdList, sizeof (hwIdList));
+if (FAILED(StringCchCopyA(hwIdList, LINE_LEN, "ROOT\\ZFSin"))) {
+	goto final;
+}
 
-	printf("%s: CchCopy\n", __func__);
+printf("%s: CchCopy\n", __func__);
 
-	// Now create the element.
-	// Use the Class GUID and Name from the INF file.
-	DeviceInfoData.cbSize = sizeof (SP_DEVINFO_DATA);
-	if (!SetupDiCreateDeviceInfoA(DeviceInfoSet,
-		ClassName,
-		&ClassGUID,
-		NULL,
-		0,
-		DICD_GENERATE_ID,
-		&DeviceInfoData)) {
-		goto final;
-	}
+// Now create the element.
+// Use the Class GUID and Name from the INF file.
+DeviceInfoData.cbSize = sizeof (SP_DEVINFO_DATA);
+if (!SetupDiCreateDeviceInfoA(DeviceInfoSet,
+		    ClassName,
+		    &ClassGUID,
+		    NULL,
+		    0,
+		    DICD_GENERATE_ID,
+		    &DeviceInfoData)) {
+	goto final;
+}
 
-	printf("%s: SetupDiCreateDeviceInfoA\n", __func__);
+printf("%s: SetupDiCreateDeviceInfoA\n", __func__);
 
-	rmdParams.ClassInstallHeader.cbSize = sizeof (SP_CLASSINSTALL_HEADER);
-	rmdParams.ClassInstallHeader.InstallFunction = DIF_REMOVE;
-	rmdParams.Scope = DI_REMOVEDEVICE_GLOBAL;
-	rmdParams.HwProfile = 0;
-	if (!SetupDiSetClassInstallParamsA(DeviceInfoSet, &DeviceInfoData,
-		&rmdParams.ClassInstallHeader, sizeof (rmdParams)) ||
-		!SetupDiCallClassInstaller(DIF_REMOVE, DeviceInfoSet,
-			&DeviceInfoData)) {
+rmdParams.ClassInstallHeader.cbSize = sizeof (SP_CLASSINSTALL_HEADER);
+rmdParams.ClassInstallHeader.InstallFunction = DIF_REMOVE;
+rmdParams.Scope = DI_REMOVEDEVICE_GLOBAL;
+rmdParams.HwProfile = 0;
+if (!SetupDiSetClassInstallParamsA(DeviceInfoSet, &DeviceInfoData,
+		    &rmdParams.ClassInstallHeader,
+	    sizeof (rmdParams)) ||
+		    !SetupDiCallClassInstaller(DIF_REMOVE, DeviceInfoSet,
+		    &DeviceInfoData)) {
 
-		// failed to invoke DIF_REMOVE
-		failcode = 14;
-		goto final;
-	}
+	// failed to invoke DIF_REMOVE
+	failcode = 14;
+	goto final;
+}
 
-	failcode = 0;
+failcode = 0;
 
 final:
-	if (DeviceInfoSet != INVALID_HANDLE_VALUE) {
-		SetupDiDestroyDeviceInfoList(DeviceInfoSet);
-	}
-	printf("%s: exit %d:0x%x\n", __func__, failcode, failcode);
-	return (failcode);
+if (DeviceInfoSet != INVALID_HANDLE_VALUE) {
+	SetupDiDestroyDeviceInfoList(DeviceInfoSet);
+}
+printf("%s: exit %d:0x%x\n", __func__, failcode, failcode);
+return (failcode);
 }
 #endif
