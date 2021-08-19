@@ -583,6 +583,8 @@ spa_lookup(const char *name)
 
 	ASSERT(MUTEX_HELD(&spa_namespace_lock));
 
+	TraceEvent(5, "%s:%d: name = %s\n", __func__, __LINE__,
+	    (name ? name : "NULL"));
 	(void) strlcpy(search.spa_name, name, sizeof (search.spa_name));
 
 	/*
@@ -595,6 +597,7 @@ spa_lookup(const char *name)
 
 	spa = avl_find(&spa_namespace_avl, &search, &where);
 
+	TraceEvent(5, "%s:%d: Returning 0x%p\n", __func__, __LINE__, spa);
 	return (spa);
 }
 
@@ -996,6 +999,8 @@ spa_aux_exists(uint64_t guid, uint64_t *pool, int *refcnt, avl_tree_t *avl)
 {
 	spa_aux_t search, *found;
 
+	dprintf("%s:%d: guid = %llu, pool = 0x%p, refcnt = 0x%p, avl = 0x%p\n",
+	    __func__, __LINE__, guid, pool, refcnt, avl);
 	search.aux_guid = guid;
 	found = avl_find(avl, &search, NULL);
 
@@ -1013,6 +1018,7 @@ spa_aux_exists(uint64_t guid, uint64_t *pool, int *refcnt, avl_tree_t *avl)
 			*refcnt = 0;
 	}
 
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, found != NULL);
 	return (found != NULL);
 }
 
@@ -1083,10 +1089,13 @@ spa_spare_exists(uint64_t guid, uint64_t *pool, int *refcnt)
 {
 	boolean_t found;
 
+	dprintf("%s:%d guid = %llu, pool = 0x%p, refcnt = 0x%p\n",
+	    __func__, __LINE__, guid, pool, refcnt);
 	mutex_enter(&spa_spare_lock);
 	found = spa_aux_exists(guid, pool, refcnt, &spa_spare_avl);
 	mutex_exit(&spa_spare_lock);
 
+	dprintf("%s:%d Returning %d\n", __func__, __LINE__, found);
 	return (found);
 }
 
@@ -1136,10 +1145,13 @@ spa_l2cache_exists(uint64_t guid, uint64_t *pool)
 {
 	boolean_t found;
 
+	dprintf("%s:%d: guid = %llu, pool = 0x%p\n", __func__, __LINE__,
+	    guid, pool);
 	mutex_enter(&spa_l2cache_lock);
 	found = spa_aux_exists(guid, pool, NULL, &spa_l2cache_avl);
 	mutex_exit(&spa_l2cache_lock);
 
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, found);
 	return (found);
 }
 
@@ -1311,6 +1323,7 @@ spa_vdev_exit(spa_t *spa, vdev_t *vd, uint64_t txg, int error)
 	mutex_exit(&spa_namespace_lock);
 	mutex_exit(&spa->spa_vdev_top_lock);
 
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -1435,6 +1448,8 @@ spa_by_guid(uint64_t pool_guid, uint64_t device_guid)
 	spa_t *spa;
 	avl_tree_t *t = &spa_namespace_avl;
 
+	dprintf("%s:%d: pool_guid = %llu, device_guid = %llu\n", __func__,
+	    __LINE__, pool_guid, device_guid);
 	ASSERT(MUTEX_HELD(&spa_namespace_lock));
 
 	for (spa = avl_first(t); spa != NULL; spa = AVL_NEXT(t, spa)) {
@@ -1461,6 +1476,7 @@ spa_by_guid(uint64_t pool_guid, uint64_t device_guid)
 		}
 	}
 
+	dprintf("%s:%d: Returning 0x%p\n", __func__, __LINE__, spa);
 	return (spa);
 }
 

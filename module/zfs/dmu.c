@@ -168,10 +168,13 @@ dmu_buf_hold_noread_by_dnode(dnode_t *dn, uint64_t offset,
 
 	if (db == NULL) {
 		*dbp = NULL;
+		dprintf("%s:%d: Returning EIO = %d\n", __func__,
+		    __LINE__, EIO);
 		return (SET_ERROR(EIO));
 	}
 
 	*dbp = &db->db;
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 int
@@ -184,8 +187,10 @@ dmu_buf_hold_noread(objset_t *os, uint64_t object, uint64_t offset,
 	int err;
 
 	err = dnode_hold(os, object, FTAG, &dn);
-	if (err)
+	if (err) {
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
 		return (err);
+	}
 	rw_enter(&dn->dn_struct_rwlock, RW_READER);
 	blkid = dbuf_whichblock(dn, 0, offset);
 	db = dbuf_hold(dn, blkid, tag);
@@ -194,10 +199,18 @@ dmu_buf_hold_noread(objset_t *os, uint64_t object, uint64_t offset,
 
 	if (db == NULL) {
 		*dbp = NULL;
+		dprintf("%s:%d: Returning EIO = %d\n", __func__,
+		    __LINE__, EIO);
 		return (SET_ERROR(EIO));
 	}
 
 	*dbp = &db->db;
+
+	if (err)
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
+	else
+		TraceEvent(8, "%s:%d: Returning %d\n", __func__,
+		    __LINE__, err);
 	return (err);
 }
 
@@ -208,6 +221,9 @@ dmu_buf_hold_by_dnode(dnode_t *dn, uint64_t offset,
 	int err;
 	int db_flags = DB_RF_CANFAIL;
 
+	TraceEvent(8, "%s:%d: dn = 0x%p, offset = %llu, tag = 0x%p, "
+	    "dbp = 0x%p, flags = %d\n", __func__, __LINE__,
+	    dn, offset, tag, dbp, flags);
 	if (flags & DMU_READ_NO_PREFETCH)
 		db_flags |= DB_RF_NOPREFETCH;
 	if (flags & DMU_READ_NO_DECRYPT)
@@ -222,6 +238,12 @@ dmu_buf_hold_by_dnode(dnode_t *dn, uint64_t offset,
 			*dbp = NULL;
 		}
 	}
+
+	if (err)
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
+	else
+		TraceEvent(8, "%s:%d: Returning %d\n", __func__,
+		    __LINE__, err);
 
 	return (err);
 }
@@ -247,6 +269,12 @@ dmu_buf_hold(objset_t *os, uint64_t object, uint64_t offset,
 			*dbp = NULL;
 		}
 	}
+
+	if (err)
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
+	else
+		TraceEvent(8, "%s:%d: Returning %d\n", __func__,
+		    __LINE__, err);
 
 	return (err);
 }
@@ -377,10 +405,13 @@ int dmu_bonus_hold_by_dnode(dnode_t *dn, void *tag, dmu_buf_t **dbp,
 		dnode_evict_bonus(dn);
 		dbuf_rele(db, tag);
 		*dbp = NULL;
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 		return (error);
 	}
 
 	*dbp = &db->db;
+
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -391,12 +422,16 @@ dmu_bonus_hold(objset_t *os, uint64_t object, void *tag, dmu_buf_t **dbp)
 	int error;
 
 	error = dnode_hold(os, object, FTAG, &dn);
-	if (error)
+	if (error) {
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 		return (error);
+	}
 
 	error = dmu_bonus_hold_by_dnode(dn, tag, dbp, DMU_READ_NO_PREFETCH);
 	dnode_rele(dn, FTAG);
 
+	if (error)
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -1870,10 +1905,15 @@ dmu_object_set_blocksize(objset_t *os, uint64_t object, uint64_t size, int ibs,
 	int err;
 
 	err = dnode_hold(os, object, FTAG, &dn);
-	if (err)
+	if (err) {
+		dprintf("%s:%d: Returning error %d\n", __func__, __LINE__,
+		    err);
 		return (err);
+	}
 	err = dnode_set_blksz(dn, size, ibs, tx);
 	dnode_rele(dn, FTAG);
+
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
 	return (err);
 }
 

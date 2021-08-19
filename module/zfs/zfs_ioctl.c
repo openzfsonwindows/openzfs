@@ -1281,28 +1281,38 @@ get_nvlist(uint64_t nvl, uint64_t size, int iflag, nvlist_t **nvp)
 	int error;
 	nvlist_t *list = NULL;
 
+	TraceEvent(5, "%s:%d: nvl = %lu, size = %lu, iflag = %d, nvp = 0x%p\n",
+	    __func__, __LINE__, nvl, size, iflag, nvp);
 	/*
 	 * Read in and unpack the user-supplied nvlist.
 	 */
-	if (size == 0)
+	if (size == 0) {
+		dprintf("%s:%d: size is 0, returning error %d\n", __func__,
+		    __LINE__, EINVAL);
 		return (SET_ERROR(EINVAL));
+	}
 
 	packed = vmem_alloc(size, KM_SLEEP);
 
 	if ((error = ddi_copyin((void *)(uintptr_t)nvl, packed, size,
 	    iflag)) != 0) {
 		vmem_free(packed, size);
+		dprintf("%s:%d: Returning error %d\n", __func__, __LINE__,
+		    EFAULT);
 		return (SET_ERROR(EFAULT));
 	}
 
 	if ((error = nvlist_unpack(packed, size, &list, 0)) != 0) {
 		vmem_free(packed, size);
+		dprintf("%s:%d: Returning error %d\n", __func__, __LINE__,
+		    error);
 		return (error);
 	}
 
 	vmem_free(packed, size);
 
 	*nvp = list;
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -1317,14 +1327,19 @@ nvlist_smush(nvlist_t *errors, size_t max)
 {
 	size_t size;
 
+	dprintf("%s:%d: errors = 0x%p, max = %llu\n", __func__, __LINE__,
+	    errors, max);
 	size = fnvlist_size(errors);
 
 	if (size > max) {
 		nvpair_t *more_errors;
 		int n = 0;
 
-		if (max < 1024)
+		if (max < 1024) {
+			dprintf("%s:%d: max is less than 1024. Returning "
+			    "ENOMEM error %d\n", __func__, __LINE__, ENOMEM);
 			return (SET_ERROR(ENOMEM));
+		}
 
 		fnvlist_add_int32(errors, ZPROP_N_MORE_ERRORS, 0);
 		more_errors = nvlist_prev_nvpair(errors, NULL);
@@ -1341,7 +1356,7 @@ nvlist_smush(nvlist_t *errors, size_t max)
 		fnvlist_add_int32(errors, ZPROP_N_MORE_ERRORS, n);
 		ASSERT3U(fnvlist_size(errors), <=, max);
 	}
-
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -1354,18 +1369,26 @@ put_nvlist(zfs_cmd_t *zc, nvlist_t *nvl)
 
 	size = fnvlist_size(nvl);
 
+	TraceEvent(8, "ZFS: %s trying copyout %p:%d (max)\n", __func__,
+	    zc->zc_nvlist_dst, zc->zc_nvlist_dst_size);
 	if (size > zc->zc_nvlist_dst_size) {
+		dprintf("%s:%d: Setting error ENOMEM = %d\n", __func__,
+		    __LINE__, ENOMEM);
 		error = SET_ERROR(ENOMEM);
 	} else {
 		packed = fnvlist_pack(nvl, &size);
-		if (ddi_copyout(packed, (void *)(uintptr_t)zc->zc_nvlist_dst,
-		    size, zc->zc_iflags) != 0)
+		if (ddi_copyout(packed, (void*)(uintptr_t)zc->zc_nvlist_dst,
+		    size, zc->zc_iflags) != 0) {
+			dprintf("%s:%d: Setting error EFAULT = %d\n", __func__,
+			    __LINE__, EFAULT);
 			error = SET_ERROR(EFAULT);
+		}
 		fnvlist_pack_free(packed, size);
 	}
 
 	zc->zc_nvlist_dst_size = size;
 	zc->zc_nvlist_dst_filled = B_TRUE;
+	TraceEvent(8, "%s:%d: Returning %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -1455,6 +1478,8 @@ zfs_ioc_pool_create(zfs_cmd_t *zc)
 	const char *spa_name = zc->zc_name;
 	boolean_t unload_wkey = B_TRUE;
 
+	dprintf("%s:%d: zc = 0x%p\n", __func__, __LINE__, zc);
+
 	if ((error = get_nvlist(zc->zc_nvlist_conf, zc->zc_nvlist_conf_size,
 	    zc->zc_iflags, &config)))
 		return (error);
@@ -1463,6 +1488,8 @@ zfs_ioc_pool_create(zfs_cmd_t *zc)
 	    get_nvlist(zc->zc_nvlist_src, zc->zc_nvlist_src_size,
 	    zc->zc_iflags, &props))) {
 		nvlist_free(config);
+		dprintf("%s:%d: Returning with %d\n", __func__, __LINE__,
+		    error);
 		return (error);
 	}
 
@@ -1475,14 +1502,19 @@ zfs_ioc_pool_create(zfs_cmd_t *zc)
 		(void) nvlist_lookup_uint64(props,
 		    zpool_prop_to_name(ZPOOL_PROP_VERSION), &version);
 		if (!SPA_VERSION_IS_SUPPORTED(version)) {
+			dprintf("%s:%d: Setting error (EINVAL) = %d\n",
+			    __func__, __LINE__, error);
 			error = SET_ERROR(EINVAL);
 			goto pool_props_bad;
 		}
 		(void) nvlist_lookup_nvlist(props, ZPOOL_ROOTFS_PROPS, &nvl);
 		if (nvl) {
 			error = nvlist_dup(nvl, &rootprops, KM_SLEEP);
-			if (error != 0)
+			if (error != 0) {
+				dprintf("%s:%d: Returning with %d\n", __func__,
+				    __LINE__, error);
 				goto pool_props_bad;
+			}
 			(void) nvlist_remove_all(props, ZPOOL_ROOTFS_PROPS);
 		}
 
@@ -1490,15 +1522,21 @@ zfs_ioc_pool_create(zfs_cmd_t *zc)
 		    &hidden_args);
 		error = dsl_crypto_params_create_nvlist(DCP_CMD_NONE,
 		    rootprops, hidden_args, &dcp);
-		if (error != 0)
+		if (error != 0) {
+			dprintf("%s:%d: Returning with %d\n", __func__,
+			    __LINE__, error);
 			goto pool_props_bad;
+		}
 		(void) nvlist_remove_all(props, ZPOOL_HIDDEN_ARGS);
 
 		VERIFY(nvlist_alloc(&zplprops, NV_UNIQUE_NAME, KM_SLEEP) == 0);
 		error = zfs_fill_zplprops_root(version, rootprops,
 		    zplprops, NULL);
-		if (error != 0)
+		if (error != 0) {
+			dprintf("%s:%d: Setting error = %d\n", __func__,
+			    __LINE__, error);
 			goto pool_props_bad;
+		}
 
 		if (nvlist_lookup_string(props,
 		    zpool_prop_to_name(ZPOOL_PROP_TNAME), &tname) == 0)
@@ -1512,6 +1550,9 @@ zfs_ioc_pool_create(zfs_cmd_t *zc)
 	 */
 	if (!error && (error = zfs_set_prop_nvlist(spa_name,
 	    ZPROP_SRC_LOCAL, rootprops, NULL)) != 0) {
+		dprintf("%s:%d: zfs_set_prop_nvlist returned with %d\n",
+		    __func__, __LINE__, error);
+		(void) spa_destroy(zc->zc_name);
 		(void) spa_destroy(spa_name);
 		unload_wkey = B_FALSE; /* spa_destroy() unloads wrapping keys */
 	}
@@ -1523,6 +1564,7 @@ pool_props_bad:
 	nvlist_free(props);
 	dsl_crypto_params_free(dcp, unload_wkey && !!error);
 
+	dprintf("%s:%d: Returning with %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -1533,6 +1575,7 @@ zfs_ioc_pool_destroy(zfs_cmd_t *zc)
 	zfs_log_history(zc);
 	error = spa_destroy(zc->zc_name);
 
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -1543,21 +1586,28 @@ zfs_ioc_pool_import(zfs_cmd_t *zc)
 	uint64_t guid;
 	int error;
 
+	dprintf("%s:%d: zc = 0x%p\n", __func__, __LINE__, zc);
 	if ((error = get_nvlist(zc->zc_nvlist_conf, zc->zc_nvlist_conf_size,
-	    zc->zc_iflags, &config)) != 0)
+	    zc->zc_iflags, &config)) != 0) {
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 		return (error);
+	}
 
 	if (zc->zc_nvlist_src_size != 0 && (error =
 	    get_nvlist(zc->zc_nvlist_src, zc->zc_nvlist_src_size,
 	    zc->zc_iflags, &props))) {
 		nvlist_free(config);
+		dprintf("%s:%d: zc->zc_nvlist_src_size = %llu. Returning %d\n",
+		    __func__, __LINE__, zc->zc_nvlist_src_size, error);
 		return (error);
 	}
 
 	if (nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_GUID, &guid) != 0 ||
-	    guid != zc->zc_guid)
+	    guid != zc->zc_guid) {
+		dprintf("%s:%d: guid = %llu, zc->zc_guid = %llu. Returning "
+		    "%d\n", __func__, __LINE__, guid, zc->zc_guid, error);
 		error = SET_ERROR(EINVAL);
-	else
+	} else
 		error = spa_import(zc->zc_name, config, props, zc->zc_cookie);
 
 	if (zc->zc_nvlist_dst != 0) {
@@ -1570,6 +1620,7 @@ zfs_ioc_pool_import(zfs_cmd_t *zc)
 	nvlist_free(config);
 	nvlist_free(props);
 
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -1583,6 +1634,7 @@ zfs_ioc_pool_export(zfs_cmd_t *zc)
 	zfs_log_history(zc);
 	error = spa_export(zc->zc_name, NULL, force, hardforce);
 
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -1859,6 +1911,7 @@ zfs_ioc_vdev_add(zfs_cmd_t *zc)
 		nvlist_free(config);
 	}
 	spa_close(spa, FTAG);
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -1875,14 +1928,17 @@ zfs_ioc_vdev_remove(zfs_cmd_t *zc)
 	int error;
 
 	error = spa_open(zc->zc_name, &spa, FTAG);
-	if (error != 0)
+	if (error != 0) {
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 		return (error);
+	}
 	if (zc->zc_cookie != 0) {
 		error = spa_vdev_remove_cancel(spa);
 	} else {
 		error = spa_vdev_remove(spa, zc->zc_guid, B_FALSE);
 	}
 	spa_close(spa, FTAG);
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -2577,30 +2633,48 @@ retry:
 			nvlist_t *attrs;
 			attrs = fnvpair_value_nvlist(pair);
 			if (nvlist_lookup_nvpair(attrs, ZPROP_VALUE,
-			    &propval) != 0)
+			    &propval) != 0) {
+				dprintf("%s:%d: Setting err = %d\n", __func__,
+				    __LINE__, err);
 				err = SET_ERROR(EINVAL);
+			}
 		}
 
 		/* Validate value type */
 		if (err == 0 && source == ZPROP_SRC_INHERITED) {
 			/* inherited properties are expected to be booleans */
-			if (nvpair_type(propval) != DATA_TYPE_BOOLEAN)
+			if (nvpair_type(propval) != DATA_TYPE_BOOLEAN) {
+				dprintf("%s:%d: Setting err = %d\n", __func__,
+				    __LINE__, err);
 				err = SET_ERROR(EINVAL);
+			}
 		} else if (err == 0 && prop == ZPROP_INVAL) {
 			if (zfs_prop_user(propname)) {
-				if (nvpair_type(propval) != DATA_TYPE_STRING)
+				if (nvpair_type(propval) != DATA_TYPE_STRING) {
+					dprintf("%s:%d: Setting err = %d\n",
+					    __func__, __LINE__, err);
 					err = SET_ERROR(EINVAL);
+				}
 			} else if (zfs_prop_userquota(propname)) {
 				if (nvpair_type(propval) !=
-				    DATA_TYPE_UINT64_ARRAY)
+				    DATA_TYPE_UINT64_ARRAY) {
+					dprintf("%s:%d: Setting err = %d\n",
+					    __func__, __LINE__, err);
 					err = SET_ERROR(EINVAL);
+				}
 			} else {
+				dprintf("%s:%d: Setting err = %d\n", __func__,
+				    __LINE__, err);
 				err = SET_ERROR(EINVAL);
 			}
 		} else if (err == 0) {
 			if (nvpair_type(propval) == DATA_TYPE_STRING) {
-				if (zfs_prop_get_type(prop) != PROP_TYPE_STRING)
+				if (zfs_prop_get_type(prop) !=
+				    PROP_TYPE_STRING) {
+					dprintf("%s:%d: Setting err = %d\n",
+					    __func__, __LINE__, err);
 					err = SET_ERROR(EINVAL);
+				}
 			} else if (nvpair_type(propval) == DATA_TYPE_UINT64) {
 				const char *unused;
 
@@ -2610,19 +2684,27 @@ retry:
 				case PROP_TYPE_NUMBER:
 					break;
 				case PROP_TYPE_STRING:
+					dprintf("%s:%d: Setting err = %d\n",
+					    __func__, __LINE__, err);
 					err = SET_ERROR(EINVAL);
 					break;
 				case PROP_TYPE_INDEX:
 					if (zfs_prop_index_to_string(prop,
-					    intval, &unused) != 0)
+					    intval, &unused) != 0) {
+						dprintf("%s:%d: Setting err = "
+						    "%d\n", __func__, __LINE__,
+						    err);
 						err =
 						    SET_ERROR(ZFS_ERR_BADPROP);
+					}
 					break;
 				default:
 					cmn_err(CE_PANIC,
 					    "unknown property type");
 				}
 			} else {
+				dprintf("%s:%d: Setting err = %d\n", __func__,
+				    __LINE__, err);
 				err = SET_ERROR(EINVAL);
 			}
 		}
@@ -2656,6 +2738,8 @@ retry:
 		if (err != 0) {
 			if (errlist != NULL)
 				fnvlist_add_int32(errlist, propname, err);
+			dprintf("%s:%d: Setting rv = %d\n", __func__, __LINE__,
+			    rv);
 			rv = err;
 		}
 
@@ -2715,6 +2799,7 @@ retry:
 	nvlist_free(genericnvl);
 	nvlist_free(retrynvl);
 
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, rv);
 	return (rv);
 }
 
@@ -2824,6 +2909,7 @@ zfs_ioc_set_prop(zfs_cmd_t *zc)
 
 	nvlist_free(errors);
 	nvlist_free(nvl);
+	dprintf("%s:%d: zfs set Returning %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -3096,8 +3182,11 @@ zfs_fill_zplprops_impl(objset_t *os, uint64_t zplver,
 	ASSERT(zplprops != NULL);
 
 	/* parent dataset must be a filesystem */
-	if (os != NULL && os->os_phys->os_type != DMU_OST_ZFS)
+	if (os != NULL && os->os_phys->os_type != DMU_OST_ZFS) {
+		dprintf("%s:%d: Returning error %d \n", __func__, __LINE__,
+		    ZFS_ERR_WRONG_PARENT);
 		return (SET_ERROR(ZFS_ERR_WRONG_PARENT));
+	}
 
 	/*
 	 * Pull out creator prop choices, if any.
@@ -3130,8 +3219,11 @@ zfs_fill_zplprops_impl(objset_t *os, uint64_t zplver,
 	    (zplver >= ZPL_VERSION_SA && !sa_ok) ||
 	    (zplver < ZPL_VERSION_NORMALIZATION &&
 	    (norm != ZFS_PROP_UNDEFINED || u8 != ZFS_PROP_UNDEFINED ||
-	    sense != ZFS_PROP_UNDEFINED)))
+	    sense != ZFS_PROP_UNDEFINED))) {
+		dprintf("%s:%d: Returning error %d \n", __func__, __LINE__,
+		    ENOTSUP);
 		return (SET_ERROR(ENOTSUP));
+	}
 
 	/*
 	 * Put the version in the zplprops
@@ -3140,8 +3232,11 @@ zfs_fill_zplprops_impl(objset_t *os, uint64_t zplver,
 	    zfs_prop_to_name(ZFS_PROP_VERSION), zplver) == 0);
 
 	if (norm == ZFS_PROP_UNDEFINED &&
-	    (error = zfs_get_zplprop(os, ZFS_PROP_NORMALIZE, &norm)) != 0)
+	    (error = zfs_get_zplprop(os, ZFS_PROP_NORMALIZE, &norm)) != 0) {
+		dprintf("%s:%d: Returning error %d \n", __func__, __LINE__,
+		    error);
 		return (error);
+	}
 	VERIFY(nvlist_add_uint64(zplprops,
 	    zfs_prop_to_name(ZFS_PROP_NORMALIZE), norm) == 0);
 
@@ -3151,14 +3246,20 @@ zfs_fill_zplprops_impl(objset_t *os, uint64_t zplver,
 	if (norm)
 		u8 = 1;
 	if (u8 == ZFS_PROP_UNDEFINED &&
-	    (error = zfs_get_zplprop(os, ZFS_PROP_UTF8ONLY, &u8)) != 0)
+	    (error = zfs_get_zplprop(os, ZFS_PROP_UTF8ONLY, &u8)) != 0) {
+		dprintf("%s:%d: Returning error %d \n", __func__, __LINE__,
+		    error);
 		return (error);
+	}
 	VERIFY(nvlist_add_uint64(zplprops,
 	    zfs_prop_to_name(ZFS_PROP_UTF8ONLY), u8) == 0);
 
 	if (sense == ZFS_PROP_UNDEFINED &&
-	    (error = zfs_get_zplprop(os, ZFS_PROP_CASE, &sense)) != 0)
+	    (error = zfs_get_zplprop(os, ZFS_PROP_CASE, &sense)) != 0) {
+		dprintf("%s:%d: Returning error %d \n", __func__, __LINE__,
+		    error);
 		return (error);
+	}
 	VERIFY(nvlist_add_uint64(zplprops,
 	    zfs_prop_to_name(ZFS_PROP_CASE), sense) == 0);
 
@@ -3269,27 +3370,42 @@ zfs_ioc_create(const char *fsname, nvlist_t *innvl, nvlist_t *outnvl)
 		break;
 	}
 	if (strchr(fsname, '@') ||
-	    strchr(fsname, '%'))
+	    strchr(fsname, '%')) {
+		dprintf("%s:%d: fsname:%s, Returning error = %d\n", __func__,
+		    __LINE__, fsname, EINVAL);
 		return (SET_ERROR(EINVAL));
+	}
 
 	zct.zct_props = nvprops;
 
-	if (cbfunc == NULL)
+	if (cbfunc == NULL) {
+		dprintf("%s:%d: Returning error = %d\n", __func__, __LINE__,
+		    EINVAL);
 		return (SET_ERROR(EINVAL));
+	}
 
 	if (type == DMU_OST_ZVOL) {
 		uint64_t volsize, volblocksize;
 
-		if (nvprops == NULL)
+		if (nvprops == NULL) {
+			dprintf("%s:%d: Returning error = %d\n", __func__,
+			    __LINE__, EINVAL);
 			return (SET_ERROR(EINVAL));
+		}
 		if (nvlist_lookup_uint64(nvprops,
-		    zfs_prop_to_name(ZFS_PROP_VOLSIZE), &volsize) != 0)
+		    zfs_prop_to_name(ZFS_PROP_VOLSIZE), &volsize) != 0) {
+			dprintf("%s:%d: Returning error = %d\n", __func__,
+			    __LINE__, EINVAL);
 			return (SET_ERROR(EINVAL));
+		}
 
 		if ((error = nvlist_lookup_uint64(nvprops,
 		    zfs_prop_to_name(ZFS_PROP_VOLBLOCKSIZE),
-		    &volblocksize)) != 0 && error != ENOENT)
+		    &volblocksize)) != 0 && error != ENOENT) {
+			dprintf("%s:%d: Returning error = %d\n", __func__,
+			    __LINE__, EINVAL);
 			return (SET_ERROR(EINVAL));
+		}
 
 		if (error != 0)
 			volblocksize = zfs_prop_default_numeric(
@@ -3359,6 +3475,7 @@ zfs_ioc_create(const char *fsname, nvlist_t *innvl, nvlist_t *outnvl)
 			}
 		}
 	}
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -3523,8 +3640,11 @@ zfs_ioc_log_history(const char *unused, nvlist_t *innvl, nvlist_t *outnvl)
 	 * we clear the TSD here.
 	 */
 	poolname = tsd_get(zfs_allow_log_key);
-	if (poolname == NULL)
+	if (poolname == NULL) {
+		dprintf("%s:%d: Setting error EINVAL = %d\n", __func__,
+		    __LINE__, EINVAL);
 		return (SET_ERROR(EINVAL));
+	}
 	(void) tsd_set(zfs_allow_log_key, NULL);
 	error = spa_open(poolname, &spa, FTAG);
 	kmem_strfree(poolname);
@@ -3535,6 +3655,8 @@ zfs_ioc_log_history(const char *unused, nvlist_t *innvl, nvlist_t *outnvl)
 
 	if (spa_version(spa) < SPA_VERSION_ZPOOL_HISTORY) {
 		spa_close(spa, FTAG);
+		dprintf("%s:%d: Setting error ENOTSUP = %d\n", __func__,
+		    __LINE__, ENOTSUP);
 		return (SET_ERROR(ENOTSUP));
 	}
 
@@ -3911,7 +4033,7 @@ zfs_ioc_destroy(zfs_cmd_t *zc)
 	if (ost == DMU_OST_ZVOL)
 		zvol_os_detach(zc->zc_name);
 #endif
-	
+
 	if (strchr(zc->zc_name, '@')) {
 		err = dsl_destroy_snapshot(zc->zc_name, zc->zc_defer_destroy);
 	} else {
@@ -3951,6 +4073,7 @@ zfs_ioc_destroy(zfs_cmd_t *zc)
 		zvol_os_attach(zc->zc_name);
 #endif
 
+	dprintf("%s:%d: Returning %d \n", __func__, __LINE__, err);
 	return (err);
 }
 
@@ -7271,6 +7394,8 @@ zfs_check_input_nvpairs(nvlist_t *innvl, const zfs_ioc_vec_t *vec)
 	const zfs_ioc_key_t *nvl_keys = vec->zvec_nvl_keys;
 	boolean_t required_keys_found = B_FALSE;
 
+	dprintf("%s:%d: innvl = 0x%p, vec = 0x%p\n", __func__, __LINE__, innvl,
+	    vec);
 	/*
 	 * examine each input pair
 	 */
@@ -7293,6 +7418,9 @@ zfs_check_input_nvpairs(nvlist_t *innvl, const zfs_ioc_vec_t *vec)
 
 			if (nvl_keys[k].zkey_type != DATA_TYPE_ANY &&
 			    nvl_keys[k].zkey_type != type) {
+				dprintf("%s:%d: Returning with error "
+				    "(ZFS_ERR_IOC_ARG_BADTYPE) %d\n", __func__,
+				    __LINE__, ZFS_ERR_IOC_ARG_BADTYPE);
 				return (SET_ERROR(ZFS_ERR_IOC_ARG_BADTYPE));
 			}
 
@@ -7307,6 +7435,9 @@ zfs_check_input_nvpairs(nvlist_t *innvl, const zfs_ioc_vec_t *vec)
 		if (!identified &&
 		    (strcmp(name, "optional") != 0 ||
 		    type != DATA_TYPE_NVLIST)) {
+			dprintf("%s:%d: Returning with error "
+			    "(ZFS_ERR_IOC_ARG_UNAVAIL) %d\n",
+			    __func__, __LINE__, ZFS_ERR_IOC_ARG_UNAVAIL);
 			return (SET_ERROR(ZFS_ERR_IOC_ARG_UNAVAIL));
 		}
 	}
@@ -7318,15 +7449,25 @@ zfs_check_input_nvpairs(nvlist_t *innvl, const zfs_ioc_vec_t *vec)
 
 		if (nvl_keys[k].zkey_flags & ZK_WILDCARDLIST) {
 			/* at least one non-optional key is expected here */
-			if (!required_keys_found)
+			if (!required_keys_found) {
+				dprintf("%s:%d: Returning with error "
+				    "(ZFS_ERR_IOC_ARG_REQUIRED) %d\n",
+				    __func__, __LINE__,
+				    ZFS_ERR_IOC_ARG_REQUIRED);
 				return (SET_ERROR(ZFS_ERR_IOC_ARG_REQUIRED));
+			}
 			continue;
 		}
 
-		if (!nvlist_exists(innvl, nvl_keys[k].zkey_name))
+		if (!nvlist_exists(innvl, nvl_keys[k].zkey_name)) {
+			dprintf("%s:%d: Returning with error "
+			    "(ZFS_ERR_IOC_ARG_REQUIRED) %d\n",
+			    __func__, __LINE__, ZFS_ERR_IOC_ARG_REQUIRED);
 			return (SET_ERROR(ZFS_ERR_IOC_ARG_REQUIRED));
+		}
 	}
 
+	TraceEvent(8, "%s:%d: Returning with 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -7337,11 +7478,16 @@ pool_status_check(const char *name, zfs_ioc_namecheck_t type,
 	spa_t *spa;
 	int error;
 
+	TraceEvent(5, "%s:%d: name = %s, type = %d, check = %d\n", __func__,
+	    __LINE__, (name ? name : "NULL"), type, check);
 	ASSERT(type == POOL_NAME || type == DATASET_NAME ||
 	    type == ENTITY_NAME);
 
-	if (check & POOL_CHECK_NONE)
+	if (check & POOL_CHECK_NONE) {
+		TraceEvent(8, "%s:%d: check = %d. Returning 0\n", __func__,
+		    __LINE__, check);
 		return (0);
+	}
 
 	error = spa_open(name, &spa, FTAG);
 	if (error == 0) {
@@ -7351,6 +7497,13 @@ pool_status_check(const char *name, zfs_ioc_namecheck_t type,
 			error = SET_ERROR(EROFS);
 		spa_close(spa, FTAG);
 	}
+
+	if (error)
+		dprintf("%s:%d: Returning with error %d\n", __func__, __LINE__,
+		    error);
+	else
+		TraceEvent(8, "%s:%d: Returning with error %d\n", __func__,
+		    __LINE__, error);
 	return (error);
 }
 

@@ -3346,8 +3346,11 @@ zil_suspend(const char *osname, void **cookiep)
 	int error;
 
 	error = dmu_objset_hold(osname, suspend_tag, &os);
-	if (error != 0)
+	if (error != 0) {
+		dprintf("%s:%d: dmu_objset_hold returned %d\n", __func__,
+		    __LINE__, error);
 		return (error);
+	}
 	zilog = dmu_objset_zil(os);
 
 	mutex_enter(&zilog->zl_lock);
@@ -3356,6 +3359,8 @@ zil_suspend(const char *osname, void **cookiep)
 	if (zh->zh_flags & ZIL_REPLAY_NEEDED) {		/* unplayed log */
 		mutex_exit(&zilog->zl_lock);
 		dmu_objset_rele(os, suspend_tag);
+		dprintf("%s:%d: zh->zh_flags = %llu. Returning %d\n", __func__,
+		    __LINE__, zh->zh_flags, EBUSY);
 		return (SET_ERROR(EBUSY));
 	}
 
@@ -3369,6 +3374,7 @@ zil_suspend(const char *osname, void **cookiep)
 	    (zilog->zl_suspend > 0 || BP_IS_HOLE(&zh->zh_log))) {
 		mutex_exit(&zilog->zl_lock);
 		dmu_objset_rele(os, suspend_tag);
+		TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 		return (0);
 	}
 
@@ -3391,6 +3397,7 @@ zil_suspend(const char *osname, void **cookiep)
 			zil_resume(os);
 		else
 			*cookiep = os;
+		TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 		return (0);
 	}
 
@@ -3404,6 +3411,7 @@ zil_suspend(const char *osname, void **cookiep)
 
 		*cookiep = os;
 		mutex_exit(&zilog->zl_lock);
+		TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 		return (0);
 	}
 
@@ -3419,6 +3427,8 @@ zil_suspend(const char *osname, void **cookiep)
 		mutex_exit(&zilog->zl_lock);
 		dsl_dataset_long_rele(dmu_objset_ds(os), suspend_tag);
 		dsl_dataset_rele(dmu_objset_ds(os), suspend_tag);
+		dprintf("%s:%d: os->os_encrypted = %d. Returning %d\n",
+		    __func__, __LINE__, os->os_encrypted, EACCES);
 		return (SET_ERROR(EACCES));
 	}
 
@@ -3651,10 +3661,17 @@ zil_reset(const char *osname, void *arg)
 
 	error = zil_suspend(osname, NULL);
 	/* EACCES means crypto key not loaded */
-	if ((error == EACCES) || (error == EBUSY))
+	if ((error == EACCES) || (error == EBUSY)) {
+		dprintf("%s:%d: zil_suspend returned %d\n", __func__, __LINE__,
+		    error);
 		return (SET_ERROR(error));
-	if (error != 0)
+	}
+	if (error != 0) {
+		dprintf("%s:%d: zil_suspend returned %d. Returning %d\n",
+		    __func__, __LINE__, error, EEXIST);
 		return (SET_ERROR(EEXIST));
+	}
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 

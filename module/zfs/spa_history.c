@@ -376,8 +376,14 @@ spa_history_log_nvl(spa_t *spa, nvlist_t *nvl)
 	dmu_tx_t *tx;
 	nvlist_t *nvarg, *in_nvl = NULL;
 
-	if (spa_version(spa) < SPA_VERSION_ZPOOL_HISTORY || !spa_writeable(spa))
+	dprintf("%s: spa = 0x%p, nvl = 0x%p\n", __func__, spa, nvl);
+	if (spa_version(spa) < SPA_VERSION_ZPOOL_HISTORY ||
+	    !spa_writeable(spa)) {
+		dprintf("%s:%d: spa_version(spa) %llu. Returning error value "
+		    "(EINVAL) %d\n", __func__, __LINE__,
+		    (spa->spa_ubsync.ub_version), EINVAL);
 		return (SET_ERROR(EINVAL));
+	}
 
 	err = nvlist_lookup_nvlist(nvl, ZPOOL_HIST_INPUT_NVL, &in_nvl);
 	if (err == 0) {
@@ -388,6 +394,8 @@ spa_history_log_nvl(spa_t *spa, nvlist_t *nvl)
 	err = dmu_tx_assign(tx, TXG_WAIT);
 	if (err) {
 		dmu_tx_abort(tx);
+		dprintf("%s:%d: Returning error %d\n", __func__, __LINE__,
+		    err);
 		return (err);
 	}
 
@@ -409,6 +417,7 @@ spa_history_log_nvl(spa_t *spa, nvlist_t *nvl)
 	dmu_tx_commit(tx);
 
 	/* spa_history_log_sync will free nvl */
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
 	return (err);
 }
 

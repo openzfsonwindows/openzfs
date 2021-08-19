@@ -1425,8 +1425,11 @@ dbuf_read_verify_dnode_crypt(dmu_buf_impl_t *db, uint32_t flags)
 	ASSERT(MUTEX_HELD(&db->db_mtx));
 
 	if (!os->os_encrypted || os->os_raw_receive ||
-	    (flags & DB_RF_NO_DECRYPT) != 0)
+	    (flags & DB_RF_NO_DECRYPT) != 0) {
+		TraceEvent(8, "%s:%d: Returning 0\n",
+		    __func__, __LINE__);
 		return (0);
+	}
 
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);
@@ -1434,12 +1437,16 @@ dbuf_read_verify_dnode_crypt(dmu_buf_impl_t *db, uint32_t flags)
 
 	if (dnode_abuf == NULL || !arc_is_encrypted(dnode_abuf)) {
 		DB_DNODE_EXIT(db);
+		TraceEvent(8, "%s:%d: Returning 0\n",
+		    __func__, __LINE__);
 		return (0);
 	}
 
 	SET_BOOKMARK(&zb, dmu_objset_id(os),
 	    DMU_META_DNODE_OBJECT, 0, dn->dn_dbuf->db_blkid);
 	err = arc_untransform(dnode_abuf, os->os_spa, &zb, B_TRUE);
+	dprintf("%s:%d: Setting err = %d from arc_untransform\n",
+	    __func__, __LINE__, err);
 
 	/*
 	 * An error code of EACCES tells us that the key is still not
@@ -1453,6 +1460,12 @@ dbuf_read_verify_dnode_crypt(dmu_buf_impl_t *db, uint32_t flags)
 		err = 0;
 
 	DB_DNODE_EXIT(db);
+
+	if (err)
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
+	else
+		TraceEvent(8, "%s:%d: Returning %d\n",
+		    __func__, __LINE__, err);
 
 	return (err);
 }
@@ -1554,6 +1567,13 @@ early_unlock:
 	DB_DNODE_EXIT(db);
 	mutex_exit(&db->db_mtx);
 	dmu_buf_unlock_parent(db, dblt, tag);
+
+	if (err)
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
+	else
+		TraceEvent(8, "%s:%d: Returning %d\n", __func__, __LINE__,
+		    err);
+
 	return (err);
 }
 
@@ -1642,14 +1662,20 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 	boolean_t prefetch;
 	dnode_t *dn;
 
+	TraceEvent(8, "%s:%d: db = 0x%p, zio = 0x%p, flags = %d\n",
+	    __func__, __LINE__, db, zio, flags);
+
 	/*
 	 * We don't have to hold the mutex to check db_state because it
 	 * can't be freed while we have a hold on the buffer.
 	 */
 	ASSERT(!zfs_refcount_is_zero(&db->db_holds));
 
-	if (db->db_state == DB_NOFILL)
+	if (db->db_state == DB_NOFILL) {
+		dprintf("%s:%d: Returning EIO = %d\n",
+		    __func__, __LINE__, EIO);
 		return (SET_ERROR(EIO));
+	}
 
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);
@@ -1686,6 +1712,8 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 			    db->db.db_object, db->db_level, db->db_blkid);
 			dbuf_fix_old_data(db, spa_syncing_txg(spa));
 			err = arc_untransform(db->db_buf, spa, &zb, B_FALSE);
+			dprintf("%s:%d: Setting err = %d from "
+			    "arc_untransform\n", __func__, __LINE__, err);
 			dbuf_set_data(db, db->db_buf);
 		}
 		mutex_exit(&db->db_mtx);
@@ -1759,11 +1787,20 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 				    db, zio_t *, zio);
 				cv_wait(&db->db_changed, &db->db_mtx);
 			}
-			if (db->db_state == DB_UNCACHED)
+			if (db->db_state == DB_UNCACHED) {
+				dprintf("%s:%d: Returning EIO = %d\n",
+				    __func__, __LINE__, EIO);
 				err = SET_ERROR(EIO);
+			}
 			mutex_exit(&db->db_mtx);
 		}
 	}
+
+	if (err)
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
+	else
+		TraceEvent(8, "%s:%d: Returning %d\n",
+		    __func__, __LINE__, err);
 
 	return (err);
 }
@@ -2909,6 +2946,10 @@ dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
 	*parentp = NULL;
 	*bpp = NULL;
 
+	TraceEvent(8, "%s:%d: dn = 0x%p, level = %d, blkid = %llu,"
+	    " fail_sparse = %d\n", __func__, __LINE__,
+	    dn, level, blkid, fail_sparse);
+
 	ASSERT(blkid != DMU_BONUS_BLKID);
 
 	if (blkid == DMU_SPILL_BLKID) {
@@ -2921,6 +2962,7 @@ dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
 		dbuf_add_ref(dn->dn_dbuf, NULL);
 		*parentp = dn->dn_dbuf;
 		mutex_exit(&dn->dn_mtx);
+		TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 		return (0);
 	}
 
@@ -2954,6 +2996,8 @@ dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
 	    (fail_sparse &&
 	    blkid > (dn->dn_phys->dn_maxblkid >> (level * epbs)))) {
 		/* the buffer has no parent yet */
+		TraceEvent(5, "%s:%d: Returning ENOENT = %d\n",
+		    __func__, __LINE__, ENOENT);
 		return (SET_ERROR(ENOENT));
 	} else if (level < nlevels-1) {
 		/* this block is referenced from an indirect block */
@@ -2962,13 +3006,18 @@ dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
 		err = dbuf_hold_impl(dn, level + 1,
 		    blkid >> epbs, fail_sparse, FALSE, NULL, parentp);
 
-		if (err)
+		if (err) {
+			dprintf("%s:%d: Returning %d\n",
+			    __func__, __LINE__, err);
 			return (err);
+		}
 		err = dbuf_read(*parentp, NULL,
 		    (DB_RF_HAVESTRUCT | DB_RF_NOPREFETCH | DB_RF_CANFAIL));
 		if (err) {
 			dbuf_rele(*parentp, NULL);
 			*parentp = NULL;
+			dprintf("%s:%d: Returning %d\n", __func__,
+			    __LINE__, err);
 			return (err);
 		}
 		rw_enter(&(*parentp)->db_rwlock, RW_READER);
@@ -2977,6 +3026,8 @@ dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
 		if (blkid > (dn->dn_phys->dn_maxblkid >> (level * epbs)))
 			ASSERT(BP_IS_HOLE(*bpp));
 		rw_exit(&(*parentp)->db_rwlock);
+		TraceEvent(8, "%s:%d: Returning 0\n",
+		    __func__, __LINE__);
 		return (0);
 	} else {
 		/* the block is referenced from the dnode */
@@ -2988,6 +3039,7 @@ dbuf_findbp(dnode_t *dn, int level, uint64_t blkid, int fail_sparse,
 			*parentp = dn->dn_dbuf;
 		}
 		*bpp = &dn->dn_phys->dn_blkptr[blkid];
+		TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 		return (0);
 	}
 }
@@ -3490,8 +3542,12 @@ dbuf_hold_impl(dnode_t *dn, uint8_t level, uint64_t blkid,
 		blkptr_t *bp = NULL;
 		int err;
 
-		if (fail_uncached)
+		if (fail_uncached) {
+			TraceEvent(5, "%s:%d: ail_uncached = %d."
+			    " Returning ENOENT = %d\n",
+			    __func__, __LINE__, fail_uncached, ENOENT);
 			return (SET_ERROR(ENOENT));
+		}
 
 		ASSERT3P(parent, ==, NULL);
 		err = dbuf_findbp(dn, level, blkid, fail_sparse, &parent, &bp);
@@ -3501,16 +3557,24 @@ dbuf_hold_impl(dnode_t *dn, uint8_t level, uint64_t blkid,
 			if (err) {
 				if (parent)
 					dbuf_rele(parent, NULL);
+				dprintf("%s:%d: Returning %d\n",
+				    __func__, __LINE__, err);
 				return (err);
 			}
 		}
-		if (err && err != ENOENT)
+		if (err && err != ENOENT) {
+			dprintf("%s:%d: Returning %d\n", __func__,
+			    __LINE__, err);
 			return (err);
+		}
 		db = dbuf_create(dn, level, blkid, parent, bp);
 	}
 
 	if (fail_uncached && db->db_state != DB_CACHED) {
 		mutex_exit(&db->db_mtx);
+		dprintf("%s:%d: dh->dh_db->db_state = %d. "
+		    "Returning ENOENT = %d\n", __func__, __LINE__,
+		    db->db_state, ENOENT);
 		return (SET_ERROR(ENOENT));
 	}
 
@@ -3567,6 +3631,7 @@ dbuf_hold_impl(dnode_t *dn, uint8_t level, uint64_t blkid,
 	ASSERT3U(db->db_level, ==, level);
 	*dbp = db;
 
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 

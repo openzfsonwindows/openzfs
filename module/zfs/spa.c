@@ -534,6 +534,8 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 	uint64_t objnum = 0;
 	boolean_t has_feature = B_FALSE;
 
+	dprintf("%s:%d: spa = 0x%p, props = 0x%p\n", __func__, __LINE__, spa,
+	    props);
 	elem = NULL;
 	while ((elem = nvlist_next_nvpair(props, elem)) != NULL) {
 		uint64_t intval;
@@ -544,6 +546,8 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 		switch (prop) {
 		case ZPOOL_PROP_INVAL:
 			if (!zpool_prop_feature(propname)) {
+				dprintf("%s:%d: Setting error = EINVAL %d\n",
+				    __func__, __LINE__, EINVAL);
 				error = SET_ERROR(EINVAL);
 				break;
 			}
@@ -552,22 +556,31 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 			 * Sanitize the input.
 			 */
 			if (nvpair_type(elem) != DATA_TYPE_UINT64) {
+				dprintf("%s:%d: Setting error = EINVAL %d\n",
+				    __func__, __LINE__, EINVAL);
 				error = SET_ERROR(EINVAL);
 				break;
 			}
 
 			if (nvpair_value_uint64(elem, &intval) != 0) {
+				dprintf("%s:%d: Setting error = EINVAL %d\n",
+				    __func__, __LINE__, EINVAL);
 				error = SET_ERROR(EINVAL);
 				break;
 			}
 
 			if (intval != 0) {
+				dprintf("%s:%d: intval = %llu. Setting error = "
+				    "EINVAL %d\n", __func__, __LINE__,
+				    intval, EINVAL);
 				error = SET_ERROR(EINVAL);
 				break;
 			}
 
 			fname = strchr(propname, '@') + 1;
 			if (zfeature_lookup_name(fname, NULL) != 0) {
+				dprintf("%s:%d: Setting error = EINVAL %d\n",
+				    __func__, __LINE__, EINVAL);
 				error = SET_ERROR(EINVAL);
 				break;
 			}
@@ -580,8 +593,13 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 			if (!error &&
 			    (intval < spa_version(spa) ||
 			    intval > SPA_VERSION_BEFORE_FEATURES ||
-			    has_feature))
+			    has_feature)) {
+				dprintf("%s:%d: error = %d, intval = %llu, "
+				    "spa_version(spa) = %llu. Setting error = "
+				    "EINVAL %d\n", __func__, __LINE__, error,
+				    intval, spa_version(spa), EINVAL);
 				error = SET_ERROR(EINVAL);
+			}
 			break;
 
 		case ZPOOL_PROP_DELEGATION:
@@ -590,21 +608,33 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 		case ZPOOL_PROP_AUTOEXPAND:
 		case ZPOOL_PROP_AUTOTRIM:
 			error = nvpair_value_uint64(elem, &intval);
-			if (!error && intval > 1)
+			if (!error && intval > 1) {
+				dprintf("%s:%d: previous error = %d, intval = "
+				    "%llu. Setting error = EINVAL %d\n",
+				    __func__, __LINE__, error, intval, EINVAL);
 				error = SET_ERROR(EINVAL);
+			}
 			break;
 
 		case ZPOOL_PROP_MULTIHOST:
 			error = nvpair_value_uint64(elem, &intval);
-			if (!error && intval > 1)
+			if (!error && intval > 1) {
+				dprintf("%s:%d: previous error = %d, intval = "
+				    "%llu. Setting error = EINVAL %d\n",
+				    __func__, __LINE__, error, intval, EINVAL);
 				error = SET_ERROR(EINVAL);
-
+			}
 			if (!error) {
 				uint32_t hostid = zone_get_hostid(NULL);
 				if (hostid)
 					spa->spa_hostid = hostid;
-				else
+				else {
+					dprintf("%s:%d: previous error = %d. "
+					    "Setting error = ENOTSUP %d\n",
+					    __func__, __LINE__, error,
+					    ENOTSUP);
 					error = SET_ERROR(ENOTSUP);
+				}
 			}
 
 			break;
@@ -616,6 +646,9 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 			 * the bootfs property cannot be set.
 			 */
 			if (spa_version(spa) < SPA_VERSION_BOOTFS) {
+				dprintf("%s:%d: spa_version(spa) = %llu. "
+				    "Setting error = ENOTSUP %d\n", __func__,
+				    __LINE__, spa_version(spa), ENOTSUP);
 				error = SET_ERROR(ENOTSUP);
 				break;
 			}
@@ -624,6 +657,8 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 			 * Make sure the vdev config is bootable
 			 */
 			if (!vdev_is_bootable(spa->spa_root_vdev)) {
+				dprintf("%s:%d: Setting error = ENOTSUP %d\n",
+				    __func__, __LINE__, ENOTSUP);
 				error = SET_ERROR(ENOTSUP);
 				break;
 			}
@@ -631,6 +666,8 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 			reset_bootfs = 1;
 
 			error = nvpair_value_string(elem, &strval);
+			dprintf("%s:%d: error = %d\n", __func__, __LINE__,
+			    error);
 
 			if (!error) {
 				objset_t *os;
@@ -642,11 +679,17 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 				}
 
 				error = dmu_objset_hold(strval, FTAG, &os);
-				if (error != 0)
+				if (error != 0) {
+					dprintf("%s:%d: Setting error = %d\n",
+					    __func__, __LINE__, error);
 					break;
+				}
 
 				/* Must be ZPL. */
 				if (dmu_objset_type(os) != DMU_OST_ZFS) {
+					dprintf("%s:%d: Setting error = ENOTSUP"
+					    " %d\n", __func__, __LINE__,
+					    ENOTSUP);
 					error = SET_ERROR(ENOTSUP);
 				} else {
 					objnum = dmu_objset_id(os);
@@ -657,8 +700,11 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 
 		case ZPOOL_PROP_FAILUREMODE:
 			error = nvpair_value_uint64(elem, &intval);
-			if (!error && intval > ZIO_FAILURE_MODE_PANIC)
+			if (!error && intval > ZIO_FAILURE_MODE_PANIC) {
+				dprintf("%s:%d: intval = %d. Setting error = "
+				    "%d\n", __func__, __LINE__, intval, error);
 				error = SET_ERROR(EINVAL);
+			}
 
 			/*
 			 * This is a special case which only occurs when
@@ -672,6 +718,8 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 			 */
 			if (!error && spa_suspended(spa)) {
 				spa->spa_failmode = intval;
+				dprintf("%s:%d: error = %d. Setting error = "
+				    "%d\n", __func__, __LINE__, error, EIO);
 				error = SET_ERROR(EIO);
 			}
 			break;
@@ -695,8 +743,11 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 			ASSERT(slash != NULL);
 
 			if (slash[1] == '\0' || strcmp(slash, "/.") == 0 ||
-			    strcmp(slash, "/..") == 0)
+			    strcmp(slash, "/..") == 0) {
+				dprintf("%s:%d: slash = %s. Setting error = "
+				    "%d\n", __func__, __LINE__, slash, EINVAL);
 				error = SET_ERROR(EINVAL);
+			}
 			break;
 
 		case ZPOOL_PROP_COMMENT:
@@ -704,12 +755,18 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 				break;
 			for (check = strval; *check != '\0'; check++) {
 				if (!isprint(*check)) {
+					dprintf("%s:%d: check = %x, Setting "
+					    "error = %d\n", __func__,
+					    __LINE__, check, error);
 					error = SET_ERROR(EINVAL);
 					break;
 				}
 			}
-			if (strlen(strval) > ZPROP_MAX_COMMENT)
+			if (strlen(strval) > ZPROP_MAX_COMMENT) {
+				dprintf("%s:%d: strval = %s. Setting error = "
+				    "%d\n", __func__, __LINE__, strval, E2BIG);
 				error = SET_ERROR(E2BIG);
+			}
 			break;
 
 		default:
@@ -727,12 +784,16 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 		error = nvlist_remove(props,
 		    zpool_prop_to_name(ZPOOL_PROP_BOOTFS), DATA_TYPE_STRING);
 
+		dprintf("%s:%d: nvlist_remove returned with %d\n", __func__,
+		    __LINE__, error);
+
 		if (!error) {
 			error = nvlist_add_uint64(props,
 			    zpool_prop_to_name(ZPOOL_PROP_BOOTFS), objnum);
 		}
 	}
 
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -768,8 +829,10 @@ spa_prop_set(spa_t *spa, nvlist_t *nvp)
 	nvpair_t *elem = NULL;
 	boolean_t need_sync = B_FALSE;
 
-	if ((error = spa_prop_validate(spa, nvp)) != 0)
+	if ((error = spa_prop_validate(spa, nvp)) != 0) {
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 		return (error);
+	}
 
 	while ((elem = nvlist_next_nvpair(nvp, elem)) != NULL) {
 		zpool_prop_t prop = zpool_name_to_prop(nvpair_name(elem));
@@ -817,6 +880,7 @@ spa_prop_set(spa_t *spa, nvlist_t *nvp)
 		    nvp, 6, ZFS_SPACE_CHECK_RESERVED));
 	}
 
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -1468,21 +1532,28 @@ spa_config_parse(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent,
 	uint_t children;
 	int error;
 
-	if ((error = vdev_alloc(spa, vdp, nv, parent, id, atype)) != 0)
+	if ((error = vdev_alloc(spa, vdp, nv, parent, id, atype)) != 0) {
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 		return (error);
+	}
 
-	if ((*vdp)->vdev_ops->vdev_op_leaf)
+	if ((*vdp)->vdev_ops->vdev_op_leaf) {
+		dprintf("%s:%d: Returning 0\n", __func__, __LINE__);
 		return (0);
+	}
 
 	error = nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN,
 	    &child, &children);
 
-	if (error == ENOENT)
+	if (error == ENOENT) {
+		dprintf("%s:%d: Returning 0\n", __func__, __LINE__);
 		return (0);
+	}
 
 	if (error) {
 		vdev_free(*vdp);
 		*vdp = NULL;
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, EINVAL);
 		return (SET_ERROR(EINVAL));
 	}
 
@@ -1492,12 +1563,15 @@ spa_config_parse(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent,
 		    atype)) != 0) {
 			vdev_free(*vdp);
 			*vdp = NULL;
+			dprintf("%s:%d: Returning %d\n", __func__, __LINE__,
+			    error);
 			return (error);
 		}
 	}
 
 	ASSERT(*vdp != NULL);
 
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -5014,6 +5088,10 @@ spa_load_best(spa_t *spa, spa_load_state_t state, uint64_t max_request,
 	uint64_t safe_rewind_txg;
 	uint64_t min_txg;
 
+	dprintf("%s:%d: spa = 0x%p, state = %d, max_request = %llu, "
+	    "rewind_flags = %d\n", __func__, __LINE__, spa, state,
+	    max_request, rewind_flags);
+
 	if (spa->spa_load_txg && state == SPA_LOAD_RECOVER) {
 		spa->spa_load_max_txg = spa->spa_load_txg;
 		spa_set_log_state(spa, SPA_LOG_CLEAR);
@@ -5024,8 +5102,10 @@ spa_load_best(spa_t *spa, spa_load_state_t state, uint64_t max_request,
 	}
 
 	load_error = rewind_error = spa_load(spa, state, SPA_IMPORT_EXISTING);
-	if (load_error == 0)
+	if (load_error == 0) {
+		dprintf("%s:%d: Returning 0\n", __func__, __LINE__);
 		return (0);
+	}
 	if (load_error == ZFS_ERR_NO_CHECKPOINT) {
 		/*
 		 * When attempting checkpoint-rewind on a pool with no
@@ -5034,6 +5114,8 @@ spa_load_best(spa_t *spa, spa_load_state_t state, uint64_t max_request,
 		 */
 		ASSERT(spa->spa_import_flags & ZFS_IMPORT_CHECKPOINT);
 		spa_import_progress_remove(spa_guid(spa));
+		dprintf("%s:%d: Returning (ZFS_ERR_NO_CHECKPOINT) %d\n",
+		    __func__, __LINE__, load_error);
 		return (load_error);
 	}
 
@@ -5046,6 +5128,8 @@ spa_load_best(spa_t *spa, spa_load_state_t state, uint64_t max_request,
 	if (rewind_flags & ZPOOL_NEVER_REWIND) {
 		nvlist_free(config);
 		spa_import_progress_remove(spa_guid(spa));
+		dprintf("%s:%d: rewind_flags = %d. Returning %d\n", __func__,
+		    __LINE__, rewind_flags, load_error);
 		return (load_error);
 	}
 
@@ -5089,6 +5173,8 @@ spa_load_best(spa_t *spa, spa_load_state_t state, uint64_t max_request,
 	if (state == SPA_LOAD_RECOVER) {
 		ASSERT3P(loadinfo, ==, NULL);
 		spa_import_progress_remove(spa_guid(spa));
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__,
+		    rewind_error);
 		return (rewind_error);
 	} else {
 		/* Store the rewind info as part of the initial load info */
@@ -5100,6 +5186,8 @@ spa_load_best(spa_t *spa, spa_load_state_t state, uint64_t max_request,
 		spa->spa_load_info = loadinfo;
 
 		spa_import_progress_remove(spa_guid(spa));
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__,
+		    load_error);
 		return (load_error);
 	}
 }
@@ -5128,6 +5216,9 @@ spa_open_common(const char *pool, spa_t **spapp, void *tag, nvlist_t *nvpolicy,
 
 	*spapp = NULL;
 
+	TraceEvent(8, "%s:%d: pool = %s\n", __func__, __LINE__,
+	    (pool ? pool : "NULL"));
+
 	/*
 	 * As disgusting as this is, we need to support recursive calls to this
 	 * function because dsl_dir_open() is called during spa_load(), and ends
@@ -5142,6 +5233,7 @@ spa_open_common(const char *pool, spa_t **spapp, void *tag, nvlist_t *nvpolicy,
 	if ((spa = spa_lookup(pool)) == NULL) {
 		if (locked)
 			mutex_exit(&spa_namespace_lock);
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, ENOENT);
 		return (SET_ERROR(ENOENT));
 	}
 
@@ -5179,6 +5271,8 @@ spa_open_common(const char *pool, spa_t **spapp, void *tag, nvlist_t *nvpolicy,
 			spa_remove(spa);
 			if (locked)
 				mutex_exit(&spa_namespace_lock);
+			dprintf("%s:%d: Returning %d\n", __func__, __LINE__,
+			    ENOENT);
 			return (SET_ERROR(ENOENT));
 		}
 
@@ -5201,6 +5295,8 @@ spa_open_common(const char *pool, spa_t **spapp, void *tag, nvlist_t *nvpolicy,
 			if (locked)
 				mutex_exit(&spa_namespace_lock);
 			*spapp = NULL;
+			dprintf("%s:%d: Returning %d\n", __func__, __LINE__,
+			    error);
 			return (error);
 		}
 	}
@@ -5231,6 +5327,7 @@ spa_open_common(const char *pool, spa_t **spapp, void *tag, nvlist_t *nvpolicy,
 
 	*spapp = spa;
 
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -5555,21 +5652,34 @@ spa_validate_aux_devs(spa_t *spa, nvlist_t *nvroot, uint64_t crtxg, int mode,
 
 	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL);
 
+	dprintf("%s:%d: spa = 0x%p, nvroot = 0x%p, crtxg = %llu, mode = %d, "
+	    "sav = 0x%p, config = 0x%p, version = %llu, label = %d\n",
+	    __func__, __LINE__, spa, nvroot, crtxg, mode, sav, config, version,
+	    label);
 	/*
 	 * It's acceptable to have no devs specified.
 	 */
-	if (nvlist_lookup_nvlist_array(nvroot, config, &dev, &ndev) != 0)
+	if (nvlist_lookup_nvlist_array(nvroot, config, &dev, &ndev) != 0) {
+		dprintf("%s:%d: Returning 0\n", __func__, __LINE__);
 		return (0);
+	}
 
-	if (ndev == 0)
+	if (ndev == 0) {
+		dprintf("%s:%d: Returning EINVAL = %d\n", __func__, __LINE__,
+		    EINVAL);
 		return (SET_ERROR(EINVAL));
+	}
 
 	/*
 	 * Make sure the pool is formatted with a version that supports this
 	 * device type.
 	 */
-	if (spa_version(spa) < version)
+	if (spa_version(spa) < version) {
+		dprintf("%s:%d: version = %llu, spa_version(spa) = %llu. "
+		    "Returning ENOTSUP = %d\n", __func__, __LINE__,
+		    version, spa_version(spa), ENOTSUP);
 		return (SET_ERROR(ENOTSUP));
+	}
 
 	/*
 	 * Set the pending device list so we correctly handle device in-use
@@ -5580,12 +5690,18 @@ spa_validate_aux_devs(spa_t *spa, nvlist_t *nvroot, uint64_t crtxg, int mode,
 
 	for (i = 0; i < ndev; i++) {
 		if ((error = spa_config_parse(spa, &vd, dev[i], NULL, 0,
-		    mode)) != 0)
+		    mode)) != 0) {
+			dprintf("%s:%d: error = %d. Jumping to out label\n",
+			    __func__, __LINE__, error);
 			goto out;
+		}
 
 		if (!vd->vdev_ops->vdev_op_leaf) {
 			vdev_free(vd);
 			error = SET_ERROR(EINVAL);
+			dprintf("%s:%d: error = %d. vd->vdev_ops->vdev_op_leaf"
+			    " = %d.Jumping to out label\n", __func__, __LINE__,
+			    error, vd->vdev_ops->vdev_op_leaf);
 			goto out;
 		}
 
@@ -5600,15 +5716,21 @@ spa_validate_aux_devs(spa_t *spa, nvlist_t *nvroot, uint64_t crtxg, int mode,
 		vdev_free(vd);
 
 		if (error &&
-		    (mode != VDEV_ALLOC_SPARE && mode != VDEV_ALLOC_L2CACHE))
+		    (mode != VDEV_ALLOC_SPARE && mode != VDEV_ALLOC_L2CACHE)) {
+			dprintf("%s:%d: error = %d. mode = %d. Jumping to out "
+			    "label\n", __func__, __LINE__, error, mode);
 			goto out;
-		else
+		} else {
 			error = 0;
+			dprintf("%s:%d: Setting error = %d\n", __func__,
+			    __LINE__, error);
+		}
 	}
 
 out:
 	sav->sav_pending = NULL;
 	sav->sav_npending = 0;
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 	return (error);
 }
 
@@ -5622,6 +5744,7 @@ spa_validate_aux(spa_t *spa, nvlist_t *nvroot, uint64_t crtxg, int mode)
 	if ((error = spa_validate_aux_devs(spa, nvroot, crtxg, mode,
 	    &spa->spa_spares, ZPOOL_CONFIG_SPARES, SPA_VERSION_SPARES,
 	    VDEV_LABEL_SPARE)) != 0) {
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 		return (error);
 	}
 
@@ -5708,8 +5831,12 @@ spa_create_check_encryption_params(dsl_crypto_params_t *dcp,
 {
 	if (dcp->cp_crypt != ZIO_CRYPT_OFF &&
 	    dcp->cp_crypt != ZIO_CRYPT_INHERIT &&
-	    !has_encryption)
+	    !has_encryption) {
+		dprintf("%s:%d: dcp->cp_crypt = %d, has_encryption = %d. "
+		    "Returning ENOTSUP\n", __func__, __LINE__, dcp->cp_crypt,
+		    has_encryption);
 		return (SET_ERROR(ENOTSUP));
+	}
 
 	return (dmu_objset_create_crypt_check(NULL, dcp, NULL));
 }
@@ -5739,6 +5866,10 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	char *poolname;
 	nvlist_t *nvl;
 
+	dprintf("%s:%d: pool = 0x%p, nvroot = 0x%p, props = 0x%p, zplprops = "
+	    "0x%p, dcp = 0x%p\n", __func__, __LINE__, pool, nvroot, props,
+	    zplprops, dcp);
+
 	if (props == NULL ||
 	    nvlist_lookup_string(props, "tname", &poolname) != 0)
 		poolname = (char *)pool;
@@ -5749,6 +5880,8 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	mutex_enter(&spa_namespace_lock);
 	if (spa_lookup(poolname) != NULL) {
 		mutex_exit(&spa_namespace_lock);
+		dprintf("%s:%d: Returning (EEXIST) %d\n", __func__, __LINE__,
+		    EEXIST);
 		return (SET_ERROR(EEXIST));
 	}
 
@@ -5767,6 +5900,8 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 		spa_deactivate(spa);
 		spa_remove(spa);
 		mutex_exit(&spa_namespace_lock);
+		dprintf("%s:%d: props = 0x%p. Returning %d\n", __func__,
+		    __LINE__, props, error);
 		return (error);
 	}
 
@@ -5800,6 +5935,8 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 			spa_deactivate(spa);
 			spa_remove(spa);
 			mutex_exit(&spa_namespace_lock);
+			dprintf("%s:%d: Returning %d\n", __func__, __LINE__,
+			    error);
 			return (error);
 		}
 	}
@@ -5807,6 +5944,8 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 		spa_deactivate(spa);
 		spa_remove(spa);
 		mutex_exit(&spa_namespace_lock);
+		dprintf("%s:%d: Returning (ENOTSUP) %d\n", __func__, __LINE__,
+		    ENOTSUP);
 		return (ENOTSUP);
 	}
 
@@ -5847,8 +5986,11 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	ASSERT(error != 0 || rvd != NULL);
 	ASSERT(error != 0 || spa->spa_root_vdev == rvd);
 
-	if (error == 0 && !zfs_allocatable_devs(nvroot))
+	if (error == 0 && !zfs_allocatable_devs(nvroot)) {
+		dprintf("%s:%d: Setting error = %d\n", __func__, __LINE__,
+		    error);
 		error = SET_ERROR(EINVAL);
+	}
 
 	if (error == 0 &&
 	    (error = vdev_create(rvd, txg, B_FALSE)) == 0 &&
@@ -6017,7 +6159,7 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	spa->spa_load_state = SPA_LOAD_NONE;
 
 	mutex_exit(&spa_namespace_lock);
-
+	dprintf("%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -6038,12 +6180,16 @@ spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 	nvlist_t **spares, **l2cache;
 	uint_t nspares, nl2cache;
 
+	dprintf("%s:%d: pool = %s, config = 0x%p, props = 0x%p, "
+	    "flags = %llu\n", __func__, __LINE__, pool, config, props, flags);
 	/*
 	 * If a pool with this name exists, return failure.
 	 */
 	mutex_enter(&spa_namespace_lock);
 	if (spa_lookup(pool) != NULL) {
 		mutex_exit(&spa_namespace_lock);
+		dprintf("%s:%d: Returning EEXIST = %d\n", __func__, __LINE__,
+		    EEXIST);
 		return (SET_ERROR(EEXIST));
 	}
 
@@ -6071,6 +6217,7 @@ spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 		spa_event_notify(spa, NULL, NULL, ESC_ZFS_POOL_IMPORT);
 		zfs_dbgmsg("spa_import: verbatim import of %s", pool);
 		mutex_exit(&spa_namespace_lock);
+		dprintf("%s:%d: Returning 0\n", __func__, __LINE__);
 		return (0);
 	}
 
@@ -6132,6 +6279,8 @@ spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 		spa_deactivate(spa);
 		spa_remove(spa);
 		mutex_exit(&spa_namespace_lock);
+		dprintf("%s:%d: Returing %d\n",
+		    __func__, __LINE__, error);
 		return (error);
 	}
 
@@ -6201,6 +6350,7 @@ spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 
 	zvol_create_minors_recursive(pool);
 
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -6333,15 +6483,24 @@ spa_export_common(const char *pool, int new_state, nvlist_t **oldconfig,
 	int error;
 	spa_t *spa;
 
+	dprintf("%s:%d: pool = %s, new_state = %d, force = %d, hardforce = "
+	    "%d\n", __func__, __LINE__, (pool ? pool : "NULL"),
+	    new_state, force, hardforce);
+
 	if (oldconfig)
 		*oldconfig = NULL;
 
-	if (!(spa_mode_global & SPA_MODE_WRITE))
+	if (!(spa_mode_global & SPA_MODE_WRITE)) {
+		dprintf("%s:%d: Returning EROFS =%d\n", __func__, __LINE__,
+		    EROFS);
 		return (SET_ERROR(EROFS));
+	}
 
 	mutex_enter(&spa_namespace_lock);
 	if ((spa = spa_lookup(pool)) == NULL) {
 		mutex_exit(&spa_namespace_lock);
+		dprintf("%s:%d: Returning ENOENT =%d\n", __func__, __LINE__,
+		    ENOENT);
 		return (SET_ERROR(ENOENT));
 	}
 
@@ -6384,6 +6543,10 @@ spa_export_common(const char *pool, int new_state, nvlist_t **oldconfig,
 	 * fault injection handlers.
 	 */
 	if (!spa_refcount_zero(spa) || (spa->spa_inject_ref != 0)) {
+		dprintf("%s:%d: spa_refcount_zero(spa) = %d, "
+		    "spa->spa_inject_ref = %d, Returning EBUSY = %d\n",
+		    __func__, __LINE__, spa_refcount_zero(spa),
+		    spa->spa_inject_ref, EBUSY);
 		error = SET_ERROR(EBUSY);
 		goto fail;
 	}
@@ -6397,6 +6560,9 @@ spa_export_common(const char *pool, int new_state, nvlist_t **oldconfig,
 		 */
 		if (!force && new_state == POOL_STATE_EXPORTED &&
 		    spa_has_active_shared_spare(spa)) {
+			dprintf("%s:%d: force = %d, new_state = %d. Returning"
+			    " EXDEV = %d\n", __func__, __LINE__, force,
+			    new_state, EXDEV);
 			error = SET_ERROR(EXDEV);
 			goto fail;
 		}
@@ -6459,6 +6625,7 @@ export_spa:
 	}
 
 	mutex_exit(&spa_namespace_lock);
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 
 fail:
@@ -6550,11 +6717,17 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 	    &nl2cache) != 0)
 		nl2cache = 0;
 
-	if (vd->vdev_children == 0 && nspares == 0 && nl2cache == 0)
+	if (vd->vdev_children == 0 && nspares == 0 && nl2cache == 0) {
+		dprintf("%s:%d: vd->vdev_children = %llu, spares = 0x%p, "
+		    "nl2cache = = %u", __func__, __LINE__, vd->vdev_children,
+		    spares, nl2cache);
 		return (spa_vdev_exit(spa, vd, txg, EINVAL));
+	}
 
 	if (vd->vdev_children != 0 &&
 	    (error = vdev_create(vd, txg, B_FALSE)) != 0) {
+		dprintf("%s:%d: vd->vdev_children = %llu, error = = %d",
+		    __func__, __LINE__, vd->vdev_children, error);
 		return (spa_vdev_exit(spa, vd, txg, error));
 	}
 
@@ -6569,6 +6742,7 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 		    ZPOOL_CONFIG_SPARES, &spares, &nspares) != 0)
 			nspares = 0;
 	} else {
+		dprintf("%s:%d: error = = %d", __func__, __LINE__, error);
 		return (spa_vdev_exit(spa, vd, txg, error));
 	}
 
@@ -6591,11 +6765,18 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 			tvd = vd->vdev_child[c];
 			if (spa->spa_vdev_removal != NULL &&
 			    tvd->vdev_ashift != spa->spa_max_ashift) {
+				dprintf("%s:%d: tvd->vdev_ashift = = %llu, "
+				    "spa->spa_max_ashift = %d\n", __func__,
+				    __LINE__, tvd->vdev_ashift,
+				    spa->spa_max_ashift);
 				return (spa_vdev_exit(spa, vd, txg, EINVAL));
 			}
 			/* Fail if top level vdev is raidz or a dRAID */
-			if (vdev_get_nparity(tvd) != 0)
+			if (vdev_get_nparity(tvd) != 0) {
+				dprintf("%s:%d: vdev_get_nparity(tvd) = %d\n",
+				    __func__, __LINE__, vdev_get_nparity(tvd));
 				return (spa_vdev_exit(spa, vd, txg, EINVAL));
+			}
 
 			/*
 			 * Need the top level mirror to be
@@ -6606,6 +6787,11 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 				    cid < tvd->vdev_children; cid++) {
 					vdev_t *cvd = tvd->vdev_child[cid];
 					if (!cvd->vdev_ops->vdev_op_leaf) {
+						dprintf("%s:%d: cvd->"
+						    "vdev_ops->vdev_op_leaf = "
+						    "%d\n", __func__, __LINE__,
+						    cvd->vdev_ops->
+						    vdev_op_leaf);
 						return (spa_vdev_exit(spa, vd,
 						    txg, EINVAL));
 					}
@@ -6669,6 +6855,7 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 	spa_event_notify(spa, NULL, NULL, ESC_ZFS_VDEV_ADD);
 	mutex_exit(&spa_namespace_lock);
 
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -9437,23 +9624,34 @@ spa_lookup_by_guid(spa_t *spa, uint64_t guid, boolean_t aux)
 	vdev_t *vd;
 	int i;
 
-	if ((vd = vdev_lookup_by_guid(spa->spa_root_vdev, guid)) != NULL)
+	if ((vd = vdev_lookup_by_guid(spa->spa_root_vdev, guid)) != NULL) {
+		dprintf("%s:%d: Returning 0x%p\n", __func__, __LINE__, vd);
 		return (vd);
+	}
 
 	if (aux) {
 		for (i = 0; i < spa->spa_l2cache.sav_count; i++) {
 			vd = spa->spa_l2cache.sav_vdevs[i];
-			if (vd->vdev_guid == guid)
+			if (vd->vdev_guid == guid) {
+				dprintf("%s:%d: vd->vdev_guid = %llu. "
+				    "Returning 0x%p\n", __func__,
+				    __LINE__, vd->vdev_guid, vd);
 				return (vd);
+			}
 		}
 
 		for (i = 0; i < spa->spa_spares.sav_count; i++) {
 			vd = spa->spa_spares.sav_vdevs[i];
-			if (vd->vdev_guid == guid)
+			if (vd->vdev_guid == guid) {
+				dprintf("%s:%d: vd->vdev_guid = %llu. "
+				    "Returning 0x%p\n", __func__, __LINE__,
+				    vd->vdev_guid, vd);
 				return (vd);
+			}
 		}
 	}
 
+	dprintf("%s:%d: Returning NULL\n", __func__, __LINE__);
 	return (NULL);
 }
 
@@ -9518,6 +9716,7 @@ spa_has_active_shared_spare(spa_t *spa)
 			return (B_TRUE);
 	}
 
+	dprintf("%s:%d: Returning FALSE\n", __func__, __LINE__);
 	return (B_FALSE);
 }
 

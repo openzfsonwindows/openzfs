@@ -217,6 +217,7 @@ zfsdev_ioctl(PDEVICE_OBJECT DeviceObject, PIRP Irp, int flag)
 
 out:
 	kmem_free(zc, sizeof (zfs_cmd_t));
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, error);
 	return (error);
 
 }
@@ -250,7 +251,7 @@ int zfs_windows_unmount(zfs_cmd_t *zc); // move me to headers
 static int
 zfs_ioc_unmount(zfs_cmd_t *zc)
 {
-	dprintf("%s: enter\n", __func__);
+	dprintf("%s:%d: enter\n", __func__, __LINE__);
 	return (zfs_windows_unmount(zc));
 }
 
@@ -289,7 +290,8 @@ DriverNotificationRoutine(_In_ struct _DEVICE_OBJECT *DeviceObject,
 	status = ObQueryNameString(DeviceObject, name_info,
 	    sizeof (nibuf), &ret_len);
 	if (NT_SUCCESS(status)) {
-		dprintf("Filesystem %p: '%wZ'\n", DeviceObject, name_info);
+		dprintf("Filesystem %p: '%wZ'\n", DeviceObject,
+		    &name_info->Name);
 	} else {
 		dprintf("Filesystem %p: '%wZ'\n", DeviceObject,
 		    &DeviceObject->DriverObject->DriverName);
@@ -302,8 +304,8 @@ zfs_ioc_unregister_fs(void)
 {
 	dprintf("%s\n", __func__);
 	if (zfs_module_busy != 0) {
-		dprintf("%s: datasets still busy: %llu pool(s)\n",
-		    __func__, zfs_module_busy);
+		dprintf("%s:%d: datasets still busy: %llu pool(s)\n", __func__,
+		    __LINE__, zfs_module_busy);
 		return (zfs_module_busy);
 	}
 	if (fsDiskDeviceObject != NULL) {

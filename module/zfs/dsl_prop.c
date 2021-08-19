@@ -51,21 +51,31 @@ dodefault(zfs_prop_t prop, int intsz, int numints, void *buf)
 	 * value.
 	 */
 	if (prop == ZPROP_INVAL ||
-	    (zfs_prop_readonly(prop) && !zfs_prop_setonce(prop)))
+	    (zfs_prop_readonly(prop) && !zfs_prop_setonce(prop))) {
+		TraceEvent(8, "%s:%d: prop = %d. Returning %d\n", __func__,
+		    __LINE__, prop, ENOENT);
 		return (SET_ERROR(ENOENT));
+	}
 
 	if (zfs_prop_get_type(prop) == PROP_TYPE_STRING) {
-		if (intsz != 1)
+		if (intsz != 1) {
+			dprintf("%s:%d: intsz = %d. Returning %d\n", __func__,
+			    __LINE__, intsz, EOVERFLOW);
 			return (SET_ERROR(EOVERFLOW));
+		}
 		(void) strncpy(buf, zfs_prop_default_string(prop),
 		    numints);
 	} else {
-		if (intsz != 8 || numints < 1)
+		if (intsz != 8 || numints < 1) {
+			dprintf("%s:%d: intsz = %d, numints = %d. Returning "
+			    "%d\n", __func__, __LINE__, intsz,
+			    numints, EOVERFLOW);
 			return (SET_ERROR(EOVERFLOW));
-
+		}
 		*(uint64_t *)buf = zfs_prop_default_numeric(prop);
 	}
 
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -182,6 +192,8 @@ dsl_prop_get_ds(dsl_dataset_t *ds, const char *propname,
 		if (err != ENOENT) {
 			if (setpoint != NULL && err == 0)
 				dsl_dataset_name(ds, setpoint);
+			dprintf("%s:%d: Returning %d\n", __func__, __LINE__,
+			    err);
 			return (err);
 		}
 
@@ -194,8 +206,11 @@ dsl_prop_get_ds(dsl_dataset_t *ds, const char *propname,
 			    ZPROP_INHERIT_SUFFIX);
 			err = zap_contains(mos, zapobj, inheritstr);
 			kmem_strfree(inheritstr);
-			if (err != 0 && err != ENOENT)
+			if (err != 0 && err != ENOENT) {
+				dprintf("%s:%d: Returning %d\n", __func__,
+				    __LINE__, err);
 				return (err);
+			}
 		}
 
 		if (err == ENOENT) {
@@ -210,6 +225,8 @@ dsl_prop_get_ds(dsl_dataset_t *ds, const char *propname,
 					(void) strlcpy(setpoint,
 					    ZPROP_SOURCE_VAL_RECVD,
 					    MAXNAMELEN);
+				dprintf("%s:%d: Returning %d\n", __func__,
+				    __LINE__, err);
 				return (err);
 			}
 		}
@@ -878,6 +895,9 @@ dsl_props_set_check(void *arg, dmu_tx_t *tx)
 	while ((elem = nvlist_next_nvpair(dpsa->dpsa_props, elem)) != NULL) {
 		if (strlen(nvpair_name(elem)) >= ZAP_MAXNAMELEN) {
 			dsl_dataset_rele(ds, FTAG);
+			dprintf("%s:%d: nvpair_name(elem) = %s. Returning "
+			    "ENAMETOOLONG = %d\n", __func__, __LINE__,
+			    NVP_NAME(elem), ENAMETOOLONG);
 			return (SET_ERROR(ENAMETOOLONG));
 		}
 		if (nvpair_type(elem) == DATA_TYPE_STRING) {
@@ -886,6 +906,10 @@ dsl_props_set_check(void *arg, dmu_tx_t *tx)
 			    SPA_VERSION_STMF_PROP ?
 			    ZAP_OLDMAXVALUELEN : ZAP_MAXVALUELEN)) {
 				dsl_dataset_rele(ds, FTAG);
+				dprintf("%s:%d: valstr = %s, version = %llu\n",
+				    __func__, __LINE__, valstr, version);
+				dprintf("%s:%d: Returning E2BIG = %d\n",
+				    __func__, __LINE__, E2BIG);
 				return (SET_ERROR(E2BIG));
 			}
 		}
@@ -896,6 +920,7 @@ dsl_props_set_check(void *arg, dmu_tx_t *tx)
 		return (SET_ERROR(ENOTSUP));
 	}
 	dsl_dataset_rele(ds, FTAG);
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 

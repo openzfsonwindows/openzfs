@@ -205,6 +205,8 @@ zap_name_alloc(zap_t *zap, const char *key, matchtype_t mt)
 	} else {
 		if (mt != 0) {
 			zap_name_free(zn);
+			dprintf("%s:%d: Returning null mt:%d\n", __func__,
+			    __LINE__, mt);
 			return (NULL);
 		}
 		zn->zn_key_norm = zn->zn_key_orig;
@@ -515,10 +517,16 @@ zap_lockdir_impl(dmu_buf_t *db, void *tag, dmu_tx_t *tx,
 
 	*zapp = NULL;
 
+	TraceEvent(8, "%s:%d: db = 0x%p, tag = 0x%p, tx = 0x%p, lti = %d, "
+	    "fatreader = %d, adding = %d, zapp = 0x%p\n",
+	    __func__, __LINE__, db, tag, tx, lti, fatreader, adding, zapp);
 	dmu_object_info_from_db(db, &doi);
-	if (DMU_OT_BYTESWAP(doi.doi_type) != DMU_BSWAP_ZAP)
+	if (DMU_OT_BYTESWAP(doi.doi_type) != DMU_BSWAP_ZAP) {
+		dprintf("%s:%d: DMU_OT_BYTESWAP(doi.doi_type) = %d. Returning "
+		    "EINVAL\n", __func__, __LINE__,
+		    DMU_OT_BYTESWAP(doi.doi_type));
 		return (SET_ERROR(EINVAL));
-
+	}
 	zap_t *zap = dmu_buf_get_user(db);
 	if (zap == NULL) {
 		zap = mzap_open(os, obj, db);
@@ -527,6 +535,8 @@ zap_lockdir_impl(dmu_buf_t *db, void *tag, dmu_tx_t *tx,
 			 * mzap_open() didn't like what it saw on-disk.
 			 * Check for corruption!
 			 */
+			dprintf("%s:%d: zap = NULL. Returning EIO = %d\n",
+			    __func__, __LINE__, EIO);
 			return (SET_ERROR(EIO));
 		}
 	}
@@ -568,6 +578,8 @@ zap_lockdir_impl(dmu_buf_t *db, void *tag, dmu_tx_t *tx,
 			int err = mzap_upgrade(zapp, tag, tx, 0);
 			if (err != 0)
 				rw_exit(&zap->zap_rwlock);
+			dprintf("%s:%d: Returning %d\n", __func__, __LINE__,
+			    err);
 			return (err);
 		}
 		VERIFY0(dmu_object_set_blocksize(os, obj, newsz, 0, tx));
@@ -576,6 +588,7 @@ zap_lockdir_impl(dmu_buf_t *db, void *tag, dmu_tx_t *tx,
 	}
 
 	*zapp = zap;
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -587,6 +600,7 @@ zap_lockdir_by_dnode(dnode_t *dn, dmu_tx_t *tx,
 
 	int err = dmu_buf_hold_by_dnode(dn, 0, tag, &db, DMU_READ_NO_PREFETCH);
 	if (err != 0) {
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
 		return (err);
 	}
 #ifdef ZFS_DEBUG
@@ -601,6 +615,12 @@ zap_lockdir_by_dnode(dnode_t *dn, dmu_tx_t *tx,
 	if (err != 0) {
 		dmu_buf_rele(db, tag);
 	}
+
+	if (err)
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
+	else
+		TraceEvent(8, "%s:%d: Returning %d\n", __func__, __LINE__,
+		    err);
 	return (err);
 }
 
@@ -611,8 +631,11 @@ zap_lockdir(objset_t *os, uint64_t obj, dmu_tx_t *tx,
 	dmu_buf_t *db;
 
 	int err = dmu_buf_hold(os, obj, 0, tag, &db, DMU_READ_NO_PREFETCH);
-	if (err != 0)
+	if (err != 0) {
+		TraceEvent(5, "%s:%d: Returning %d\n", __func__, __LINE__,
+		    err);
 		return (err);
+	}
 #ifndef _WIN32
 	// Triggers under Windows, so until we can figure it out...
 #ifdef ZFS_DEBUG
@@ -658,8 +681,8 @@ mzap_upgrade(zap_t **zapp, void *tag, dmu_tx_t *tx, zap_flags_t flags)
 		}
 	}
 
-	dprintf("upgrading obj=%llu with %u chunks\n",
-	    (u_longlong_t)zap->zap_object, nchunks);
+	dprintf("%s:%d upgrading obj=%llu with %u chunks\n", __func__,
+	    __LINE__, (u_longlong_t)zap->zap_object, nchunks);
 	/* XXX destroy the avl later, so we can use the stored hash value */
 	mze_destroy(zap);
 
@@ -669,7 +692,7 @@ mzap_upgrade(zap_t **zapp, void *tag, dmu_tx_t *tx, zap_flags_t flags)
 		mzap_ent_phys_t *mze = &mzp->mz_chunk[i];
 		if (mze->mze_name[0] == 0)
 			continue;
-		dprintf("adding %s=%llu\n",
+		dprintf("%s:%d adding %s=%llu\n", __func__, __LINE__,
 		    mze->mze_name, (u_longlong_t)mze->mze_value);
 		zap_name_t *zn = zap_name_alloc(zap, mze->mze_name, 0);
 		/* If we fail here, we would end up losing entries */
@@ -789,9 +812,11 @@ zap_create_claim_norm_dnsize(objset_t *os, uint64_t obj, int normflags,
 	ASSERT3U(DMU_OT_BYTESWAP(ot), ==, DMU_BSWAP_ZAP);
 	error = dmu_object_claim_dnsize(os, obj, ot, 0, bonustype, bonuslen,
 	    dnodesize, tx);
-	if (error != 0)
+	if (error != 0) {
+		dprintf("%s:%d:  Returning error %d\n", __func__, __LINE__,
+		    error);
 		return (error);
-
+	}
 	error = dnode_hold(os, obj, FTAG, &dn);
 	if (error != 0)
 		return (error);
@@ -903,8 +928,11 @@ zap_count(objset_t *os, uint64_t zapobj, uint64_t *count)
 
 	int err =
 	    zap_lockdir(os, zapobj, NULL, RW_READER, TRUE, FALSE, FTAG, &zap);
-	if (err != 0)
+	if (err != 0) {
+		dprintf("%s:%d: zap_lockdir returned with %d\n", __func__,
+		    __LINE__, err);
 		return (err);
+	}
 	if (!zap->zap_ismicro) {
 		err = fzap_count(zap, count);
 	} else {
@@ -975,8 +1003,11 @@ zap_lookup_impl(zap_t *zap, const char *name,
 	int err = 0;
 
 	zap_name_t *zn = zap_name_alloc(zap, name, mt);
-	if (zn == NULL)
+	if (zn == NULL) {
+		dprintf("%s:%d: Returning with ENOTSUP = %d\n", __func__,
+		    __LINE__, ENOTSUP);
 		return (SET_ERROR(ENOTSUP));
+	}
 
 	if (!zap->zap_ismicro) {
 		err = fzap_lookup(zn, integer_size, num_integers, buf,
@@ -985,10 +1016,17 @@ zap_lookup_impl(zap_t *zap, const char *name,
 		mzap_ent_t *mze = mze_find(zn);
 		if (mze == NULL) {
 			err = SET_ERROR(ENOENT);
+			TraceEvent(5, "%s:%d: Setting err to ENOENT = %d\n",
+			    __func__, __LINE__, ENOENT);
 		} else {
 			if (num_integers < 1) {
 				err = SET_ERROR(EOVERFLOW);
+				dprintf("%s:%d: num_integers = %llu. Setting"
+				    " err to EOVERFLOW = %d\n", __func__,
+				    __LINE__, num_integers, EOVERFLOW);
 			} else if (integer_size != 8) {
+				dprintf("%s:%d: Setting err to EINVAL = %d\n",
+				    __func__, __LINE__, EINVAL);
 				err = SET_ERROR(EINVAL);
 			} else {
 				*(uint64_t *)buf =
@@ -1003,6 +1041,7 @@ zap_lookup_impl(zap_t *zap, const char *name,
 		}
 	}
 	zap_name_free(zn);
+	TraceEvent(8, "%s:%d: Returning %d\n", __func__, __LINE__, err);
 	return (err);
 }
 
@@ -1016,11 +1055,14 @@ zap_lookup_norm(objset_t *os, uint64_t zapobj, const char *name,
 
 	int err =
 	    zap_lockdir(os, zapobj, NULL, RW_READER, TRUE, FALSE, FTAG, &zap);
-	if (err != 0)
+	if (err != 0) {
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
 		return (err);
+	}
 	err = zap_lookup_impl(zap, name, integer_size,
 	    num_integers, buf, mt, realname, rn_len, ncp);
 	zap_unlockdir(zap, FTAG);
+	TraceEvent(8, "%s:%d: Returning %d\n", __func__, __LINE__, err);
 	return (err);
 }
 
@@ -1124,6 +1166,8 @@ zap_contains(objset_t *os, uint64_t zapobj, const char *name)
 	    0, NULL, 0, NULL, 0, NULL);
 	if (err == EOVERFLOW || err == EINVAL)
 		err = 0; /* found, but skipped reading the value */
+
+	TraceEvent(8, "%s:%d: Returning %d\n", __func__, __LINE__, err);
 	return (err);
 }
 
@@ -1558,15 +1602,21 @@ zap_cursor_retrieve(zap_cursor_t *zc, zap_attribute_t *za)
 {
 	int err;
 
-	if (zc->zc_hash == -1ULL)
+	if (zc->zc_hash == -1ULL) {
+		dprintf("%s:%d: Returning ENOENT = %d\n", __func__,
+		    __LINE__, ENOENT);
 		return (SET_ERROR(ENOENT));
+	}
 
 	if (zc->zc_zap == NULL) {
 		int hb;
 		err = zap_lockdir(zc->zc_objset, zc->zc_zapobj, NULL,
 		    RW_READER, TRUE, FALSE, NULL, &zc->zc_zap);
-		if (err != 0)
+		if (err != 0) {
+			dprintf("%s:%d: zap_lockdir returned %d\n", __func__,
+			    __LINE__, err);
 			return (err);
+		}
 
 		/*
 		 * To support zap_cursor_init_serialized, advance, retrieve,
@@ -1609,13 +1659,19 @@ zap_cursor_retrieve(zap_cursor_t *zc, zap_attribute_t *za)
 			    sizeof (za->za_name));
 			zc->zc_hash = mze->mze_hash;
 			zc->zc_cd = mze->mze_cd;
+			TraceEvent(8, "%s:%d: Setting err = 0\n", __func__,
+			    __LINE__);
 			err = 0;
 		} else {
 			zc->zc_hash = -1ULL;
+			TraceEvent(5, "%s:%d: Setting err ENOENT = %d\n",
+			    __func__, __LINE__, ENOENT);
 			err = SET_ERROR(ENOENT);
+
 		}
 	}
 	rw_exit(&zc->zc_zap->zap_rwlock);
+	TraceEvent(8, "%s:%d: Returning %d\n", __func__, __LINE__, err);
 	return (err);
 }
 

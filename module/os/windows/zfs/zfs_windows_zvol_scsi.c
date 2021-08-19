@@ -285,7 +285,7 @@ ScsiExecuteMain(
 {
 	UCHAR status = SRB_STATUS_INVALID_REQUEST;
 
-	TraceEvent(TRACE_VERBOSE, "%s:%d: ScsiExecute: pSrb = 0x%p, CDB = 0x%x"
+	TraceEvent(8, "%s:%d: ScsiExecute: pSrb = 0x%p, CDB = 0x%x"
 	    " Path: %x TID: %x Lun: %x\n", __func__, __LINE__, pSrb,
 	    pSrb->Cdb[0], pSrb->PathId, pSrb->TargetId, pSrb->Lun);
 	*pResult = ResultDone;
@@ -681,8 +681,11 @@ ScsiOpReadCapacity16(
 	blockSize = MP_BLOCK_SIZE;
 	maxBlocks = (zv->zv_volsize / blockSize) - 1;
 
-	dprintf("Block Size: 0x%x Total Blocks: 0x%llx\n", blockSize,
-	    maxBlocks);
+	dprintf("%s:%d Block Size: 0x%x Total Blocks: 0x%llx targetid:%d "
+	    "lun:%d, volname:%s, zv_volsize=%llu\n", __func__, __LINE__,
+	    blockSize, maxBlocks, pSrb->TargetId, pSrb->Lun, zv->zv_name,
+	    zv->zv_volsize);
+
 	REVERSE_BYTES(&readCapacity->BytesPerBlock, &blockSize);
 	REVERSE_BYTES_QUAD(&readCapacity->LogicalBlockAddress.QuadPart,
 	    &maxBlocks);
@@ -944,15 +947,16 @@ wzvol_WkRtn(__in PVOID pWkParms)
 
 	sectorOffset = startingSector * MP_BLOCK_SIZE;
 
-	TraceEvent(TRACE_VERBOSE, "%s:%d: MpWkRtn Action: %X, starting sector:"
+	TraceEvent(8, "%s:%d: MpWkRtn Action: %X, starting sector:"
 	    " 0x%llX, sector offset: 0x%llX\n", __func__, __LINE__,
 	    pWkRtnParms->Action, startingSector, sectorOffset);
-	TraceEvent(TRACE_VERBOSE, "%s:%d: MpWkRtn pSrb: 0x%p, pSrb->DataBuffer"
+	TraceEvent(8, "%s:%d: MpWkRtn pSrb: 0x%p, pSrb->DataBuffer"
 	    ": 0x%p\n", __func__, __LINE__, pSrb, pSrb->DataBuffer);
 
 	if (sectorOffset >= zv->zv_volsize) {
-		dprintf("%s: invalid starting sector: %d\n", __func__,
-		    startingSector);
+		dprintf("%s:%d invalid starting sector: %d for zvol:%s, "
+		    "volsize=%llu\n", __func__, __LINE__, startingSector,
+		    zv->zv_name, zv->zv_volsize);
 		status = SRB_STATUS_INVALID_REQUEST;
 		goto Done;
 	}

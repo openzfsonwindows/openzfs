@@ -363,6 +363,8 @@ zio_handle_device_injection_impl(vdev_t *vd, zio_t *zio, int err1, int err2)
 	inject_handler_t *handler;
 	int ret = 0;
 
+	dprintf("%s:%d: vd = 0x%p, zio = 0x%p, err1 = %d, err2 = %d\n",
+	    __func__, __LINE__, vd, zio, err1, err2);
 	/*
 	 * We skip over faults in the labels unless it's during
 	 * device open (i.e. zio == NULL).
@@ -371,8 +373,12 @@ zio_handle_device_injection_impl(vdev_t *vd, zio_t *zio, int err1, int err2)
 		uint64_t offset = zio->io_offset;
 
 		if (offset < VDEV_LABEL_START_SIZE ||
-		    offset >= vd->vdev_psize - VDEV_LABEL_END_SIZE)
+		    offset >= vd->vdev_psize - VDEV_LABEL_END_SIZE) {
+			dprintf("%s:%d: offset = %llu, vd->vdev_psize = %llu. "
+			    "Returning 0\n", __func__, __LINE__,
+			    offset, vd->vdev_psize);
 			return (0);
+		}
 	}
 
 	rw_enter(&inject_lock, RW_READER);
@@ -447,6 +453,7 @@ zio_handle_device_injection_impl(vdev_t *vd, zio_t *zio, int err1, int err2)
 
 	rw_exit(&inject_lock);
 
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, ret);
 	return (ret);
 }
 

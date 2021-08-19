@@ -256,11 +256,16 @@ zap_table_store(zap_t *zap, zap_table_phys_t *tbl, uint64_t idx, uint64_t val,
 	uint64_t blk = idx >> (bs-3);
 	uint64_t off = idx & ((1<<(bs-3))-1);
 
+	TraceEvent(8, "%s:%d:zap = 0x%p, tbl = 0x%p, idx = %llu, val = %llu\n",
+	    __func__, __LINE__, zap, tbl, idx, val);
+
 	dmu_buf_t *db;
 	int err = dmu_buf_hold(zap->zap_objset, zap->zap_object,
 	    (tbl->zt_blk + blk) << bs, FTAG, &db, DMU_READ_NO_PREFETCH);
-	if (err != 0)
+	if (err != 0) {
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
 		return (err);
+	}
 	dmu_buf_will_dirty(db, tx);
 
 	if (tbl->zt_nextblk != 0) {
@@ -274,6 +279,8 @@ zap_table_store(zap_t *zap, zap_table_phys_t *tbl, uint64_t idx, uint64_t val,
 		    DMU_READ_NO_PREFETCH);
 		if (err != 0) {
 			dmu_buf_rele(db, FTAG);
+			dprintf("%s:%d: Returning %d\n", __func__, __LINE__,
+			    err);
 			return (err);
 		}
 		dmu_buf_will_dirty(db2, tx);
@@ -522,6 +529,9 @@ zap_get_leaf_byblk(zap_t *zap, uint64_t blkid, dmu_tx_t *tx, krw_t lt,
 {
 	dmu_buf_t *db;
 
+	TraceEvent(8, "%s:%d: zap = 0x%p, blkid = %llu, tx = 0x%p, lt = %d, "
+	    "lp = 0x%p\n", __func__, __LINE__, zap, blkid, tx, lt, lp);
+
 	ASSERT(RW_LOCK_HELD(&zap->zap_rwlock));
 
 	/*
@@ -539,8 +549,10 @@ zap_get_leaf_byblk(zap_t *zap, uint64_t blkid, dmu_tx_t *tx, krw_t lt,
 	int err = dmu_buf_hold_by_dnode(dn,
 	    blkid << bs, NULL, &db, DMU_READ_NO_PREFETCH);
 	dmu_buf_dnode_exit(zap->zap_dbuf);
-	if (err != 0)
+	if (err != 0) {
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
 		return (err);
+	}
 
 	ASSERT3U(db->db_object, ==, zap->zap_object);
 	ASSERT3U(db->db_offset, ==, blkid << bs);
@@ -565,6 +577,7 @@ zap_get_leaf_byblk(zap_t *zap, uint64_t blkid, dmu_tx_t *tx, krw_t lt,
 	ASSERT3U(zap_leaf_phys(l)->l_hdr.lh_magic, ==, ZAP_LEAF_MAGIC);
 
 	*lp = l;
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -577,6 +590,7 @@ zap_idx_to_blk(zap_t *zap, uint64_t idx, uint64_t *valp)
 		ASSERT3U(idx, <,
 		    (1ULL << zap_f_phys(zap)->zap_ptrtbl.zt_shift));
 		*valp = ZAP_EMBEDDED_PTRTBL_ENT(zap, idx);
+		TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 		return (0);
 	} else {
 		return (zap_table_load(zap, &zap_f_phys(zap)->zap_ptrtbl,
@@ -611,18 +625,28 @@ zap_deref_leaf(zap_t *zap, uint64_t h, dmu_tx_t *tx, krw_t lt, zap_leaf_t **lp)
 	if ((zap_f_phys(zap)->zap_block_type != ZBT_LEAF &&
 	    zap_f_phys(zap)->zap_block_type != ZBT_HEADER) ||
 	    zap_f_phys(zap)->zap_magic != ZAP_MAGIC) {
+		dprintf("%s:%d: Returning EIO = %d\n", __func__, __LINE__,
+		    EIO);
 		return (SET_ERROR(EIO));
 	}
 
 	uint64_t idx = ZAP_HASH_IDX(h, zap_f_phys(zap)->zap_ptrtbl.zt_shift);
 	int err = zap_idx_to_blk(zap, idx, &blk);
-	if (err != 0)
+	if (err != 0) {
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
 		return (err);
+	}
 	err = zap_get_leaf_byblk(zap, blk, tx, lt, lp);
 
 	ASSERT(err ||
 	    ZAP_HASH_IDX(h, zap_leaf_phys(*lp)->l_hdr.lh_prefix_len) ==
 	    zap_leaf_phys(*lp)->l_hdr.lh_prefix);
+
+	if (err)
+		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
+	else
+		TraceEvent(8, "%s:%d: Returning %d\n", __func__, __LINE__,
+		    err);
 	return (err);
 }
 
@@ -752,8 +776,14 @@ zap_put_leaf_maybe_grow_ptrtbl(zap_name_t *zn, zap_leaf_t *l,
 static int
 fzap_checkname(zap_name_t *zn)
 {
-	if (zn->zn_key_orig_numints * zn->zn_key_intlen > ZAP_MAXNAMELEN)
+	if (zn->zn_key_orig_numints * zn->zn_key_intlen > ZAP_MAXNAMELEN) {
+		dprintf("%s:%d: zn->zn_key_orig_numints = %d, "
+		    "zn->zn_key_intlen = %d. Returning ENAMETOOLONG = %d\n",
+		    __func__, __LINE__, zn->zn_key_orig_numints,
+		    zn->zn_key_intlen, ENAMETOOLONG);
 		return (SET_ERROR(ENAMETOOLONG));
+	}
+	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
 
@@ -768,11 +798,18 @@ fzap_checksize(uint64_t integer_size, uint64_t num_integers)
 	case 8:
 		break;
 	default:
+		TraceEvent(5, "%s:%d: Returning error %d\n", __func__,
+		    __LINE__, EINVAL);
 		return (SET_ERROR(EINVAL));
 	}
 
-	if (integer_size * num_integers > ZAP_MAXVALUELEN)
+	if (integer_size * num_integers > ZAP_MAXVALUELEN) {
+		dprintf("%s:%d: Integer_size:%llu, num_integer:%llu, Returning"
+		    " %d \n", __func__, __LINE__, integer_size, num_integers,
+		    E2BIG);
 		return (SET_ERROR(E2BIG));
+	}
+
 
 	return (0);
 }
@@ -798,12 +835,18 @@ fzap_lookup(zap_name_t *zn,
 	zap_entry_handle_t zeh;
 
 	int err = fzap_checkname(zn);
-	if (err != 0)
+	if (err != 0) {
+		dprintf("%s:%d: Returning err = %d\n", __func__, __LINE__,
+		    err);
 		return (err);
+	}
 
 	err = zap_deref_leaf(zn->zn_zap, zn->zn_hash, NULL, RW_READER, &l);
-	if (err != 0)
+	if (err != 0) {
+		dprintf("%s:%d: Returning err = %d\n", __func__, __LINE__,
+		    err);
 		return (err);
+	}
 	err = zap_leaf_lookup(l, zn, &zeh);
 	if (err == 0) {
 		if ((err = fzap_checksize(integer_size, num_integers)) != 0) {
@@ -820,6 +863,8 @@ fzap_lookup(zap_name_t *zn,
 	}
 
 	zap_put_leaf(l);
+
+	TraceEvent(5, "%s:%d: Returning err = %d\n", __func__, __LINE__, err);
 	return (err);
 }
 
@@ -1037,6 +1082,7 @@ zap_value_search(objset_t *os, uint64_t zapobj, uint64_t value, uint64_t mask,
 	}
 	zap_cursor_fini(&zc);
 	kmem_free(za, sizeof (*za));
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
 	return (err);
 }
 
@@ -1248,8 +1294,11 @@ again:
 	if (zc->zc_leaf == NULL) {
 		err = zap_deref_leaf(zap, zc->zc_hash, NULL, RW_READER,
 		    &zc->zc_leaf);
-		if (err != 0)
+		if (err != 0) {
+			dprintf("%s:%d: zap_deref_leaf returning %d\n",
+			    __func__, __LINE__, err);
 			return (err);
+		}
 	} else {
 		rw_enter(&zc->zc_leaf->l_rwlock, RW_READER);
 	}
@@ -1298,6 +1347,7 @@ again:
 		    NULL, za->za_name, zap);
 	}
 	rw_exit(&zc->zc_leaf->l_rwlock);
+	dprintf("%s:%d: Returning %d\n", __func__, __LINE__, err);
 	return (err);
 }
 
