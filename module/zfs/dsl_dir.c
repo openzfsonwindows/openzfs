@@ -413,18 +413,13 @@ getcomponent(const char *path, char *component, const char **nextp)
 
 	TraceEvent(8, "%s:%d: path = %s\n", __func__, __LINE__,
 	    (path ? path : "NULL"));
-	if ((path == NULL) || (path[0] == '\0')) {
-		dprintf("%s:%d: Returning ENOENT = %d\n", __func__,
-		    __LINE__, ENOENT);
+	if ((path == NULL) || (path[0] == '\0'))
 		return (SET_ERROR(ENOENT));
-	}
 
 	/* This would be a good place to reserve some namespace... */
 	p = strpbrk(path, "/@");
 	if (p && (p[1] == '/' || p[1] == '@')) {
 		/* two separators in a row */
-		dprintf("%s:%d: Returning EINVAL = %d\n", __func__,
-		    __LINE__, EINVAL);
 		return (SET_ERROR(EINVAL));
 	}
 	if (p == NULL || p == path) {
@@ -434,24 +429,18 @@ getcomponent(const char *path, char *component, const char **nextp)
 		 * and it had better have something after the @.
 		 */
 		if (p != NULL &&
-		    (p[0] != '@' || strpbrk(path + 1, "/@") || p[1] == '\0')) {
-			dprintf("%s:%d: Returning EINVAL = %d\n", __func__,
-			    __LINE__, EINVAL);
+		    (p[0] != '@' || strpbrk(path + 1, "/@") || p[1] == '\0'))
 			return (SET_ERROR(EINVAL));
-		}
-		if (strlen(path) >= ZFS_MAX_DATASET_NAME_LEN) {
-			dprintf("%s:%d: Returning ENAMETOOLONG = %d\n",
-			    __func__, __LINE__, ENAMETOOLONG);
+
+		if (strlen(path) >= ZFS_MAX_DATASET_NAME_LEN)
 			return (SET_ERROR(ENAMETOOLONG));
-		}
+
 		(void) strlcpy(component, path, ZFS_MAX_DATASET_NAME_LEN);
 		p = NULL;
 	} else if (p[0] == '/') {
-		if (p - path >= ZFS_MAX_DATASET_NAME_LEN) {
-			dprintf("%s:%d: Returning ENAMETOOLONG = %d\n",
-			    __func__, __LINE__, ENAMETOOLONG);
+		if (p - path >= ZFS_MAX_DATASET_NAME_LEN)
 			return (SET_ERROR(ENAMETOOLONG));
-		}
+
 		(void) strncpy(component, path, p - path);
 		component[p - path] = '\0';
 		p++;
@@ -460,16 +449,12 @@ getcomponent(const char *path, char *component, const char **nextp)
 		 * if the next separator is an @, there better not be
 		 * any more slashes.
 		 */
-		if (strchr(path, '/')) {
-			dprintf("%s:%d: Returning EINVAL = %d\n", __func__,
-			    __LINE__, EINVAL);
+		if (strchr(path, '/'))
 			return (SET_ERROR(EINVAL));
-		}
-		if (p - path >= ZFS_MAX_DATASET_NAME_LEN) {
-			dprintf("%s:%d: Returning ENAMETOOLONG = %d\n",
-			    __func__, __LINE__, ENAMETOOLONG);
+
+		if (p - path >= ZFS_MAX_DATASET_NAME_LEN)
 			return (SET_ERROR(ENAMETOOLONG));
-		}
+
 		(void) strncpy(component, path, p - path);
 		component[p - path] = '\0';
 	} else {
@@ -506,9 +491,6 @@ dsl_dir_hold(dsl_pool_t *dp, const char *name, void *tag,
 	spaname = spa_name(dp->dp_spa);
 	if (strcmp(buf, spaname) != 0) {
 		err = SET_ERROR(EXDEV);
-		dprintf("%s:%d: buf = %s, spaname = %s. Setting error = %d\n",
-		    __func__, __LINE__, (buf ? buf : "NULL"),
-		    (spaname ? spaname : "NULL"), EXDEV);
 		goto error;
 	}
 
@@ -561,10 +543,6 @@ dsl_dir_hold(dsl_pool_t *dp, const char *name, void *tag,
 	    (tailp == NULL || (nextnext && nextnext[0] != '\0'))) {
 		/* bad path name */
 		dsl_dir_rele(dd, tag);
-		dprintf("%s:%d: next=%p (%s) tail=%p\n", __func__, __LINE__,
-		    next, next ? next : "", tailp);
-		dprintf("%s:%d: Setting error = %d\n", __func__, __LINE__,
-		    ENOENT);
 		err = SET_ERROR(ENOENT);
 	}
 	if (tailp != NULL)
@@ -1394,11 +1372,7 @@ top_of_function:
 		    (u_longlong_t)quota>>10, (u_longlong_t)asize>>10, retval);
 		mutex_exit(&dd->dd_lock);
 		DMU_TX_STAT_BUMP(dmu_tx_quota);
-		if (retval == ENOSPC)
-			dprintf("%s:%d: used_on_disk = %llu, est_inflight = "
-			    "%llu, quota = %llu. No space. Returning %d\n",
-			    __func__, __LINE__, used_on_disk, est_inflight,
-			    quota, ENOSPC);
+
 		return (SET_ERROR(retval));
 	}
 

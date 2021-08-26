@@ -1031,20 +1031,15 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 	/*
 	 * Dead vdevs cannot be initialized.
 	 */
-	if (vdev_is_dead(vd)) {
-		dprintf("%s:%d: Returning EIO = %d\n", __func__, __LINE__,
-		    EIO);
+	if (vdev_is_dead(vd))
 		return (SET_ERROR(EIO));
-	}
+
 	/*
 	 * Determine if the vdev is in use.
 	 */
 	if (reason != VDEV_LABEL_REMOVE && reason != VDEV_LABEL_SPLIT &&
-	    vdev_inuse(vd, crtxg, reason, &spare_guid, &l2cache_guid)) {
-		dprintf("%s:%d: reason = %d. Returning EBUSY = %d\n", __func__,
-		    __LINE__, reason, EBUSY);
+	    vdev_inuse(vd, crtxg, reason, &spare_guid, &l2cache_guid))
 		return (SET_ERROR(EBUSY));
-	}
 
 	/*
 	 * If this is a request to add or replace a spare or l2cache device
@@ -1160,8 +1155,6 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 		nvlist_free(label);
 		abd_free(vp_abd);
 		/* EFAULT means nvlist_pack ran out of room */
-		dprintf("%s:%d: Returning %d\n", __func__, __LINE__,
-		    error == EFAULT ? ENAMETOOLONG : EINVAL);
 		return (SET_ERROR(error == EFAULT ? ENAMETOOLONG : EINVAL));
 	}
 

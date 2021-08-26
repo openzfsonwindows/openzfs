@@ -378,12 +378,8 @@ spa_history_log_nvl(spa_t *spa, nvlist_t *nvl)
 
 	dprintf("%s: spa = 0x%p, nvl = 0x%p\n", __func__, spa, nvl);
 	if (spa_version(spa) < SPA_VERSION_ZPOOL_HISTORY ||
-	    !spa_writeable(spa)) {
-		dprintf("%s:%d: spa_version(spa) %llu. Returning error value "
-		    "(EINVAL) %d\n", __func__, __LINE__,
-		    (spa->spa_ubsync.ub_version), EINVAL);
+	    !spa_writeable(spa))
 		return (SET_ERROR(EINVAL));
-	}
 
 	err = nvlist_lookup_nvlist(nvl, ZPOOL_HIST_INPUT_NVL, &in_nvl);
 	if (err == 0) {

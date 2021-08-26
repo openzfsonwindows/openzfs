@@ -1625,11 +1625,9 @@ spa_vdev_remove_cancel_check(void *arg, dmu_tx_t *tx)
 {
 	spa_t *spa = dmu_tx_pool(tx)->dp_spa;
 
-	if (spa->spa_vdev_removal == NULL) {
-		dprintf("%s:%d: Returning ENOTACTIVE = %d\n", __func__,
-		    __LINE__, ENOTACTIVE);
+	if (spa->spa_vdev_removal == NULL)
 		return (ENOTACTIVE);
-	}
+
 	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
@@ -1801,11 +1799,8 @@ spa_vdev_remove_cancel(spa_t *spa)
 {
 	spa_vdev_remove_suspend(spa);
 
-	if (spa->spa_vdev_removal == NULL) {
-		dprintf("%s:%d: Returning ENOTACTIVE = %d\n", __func__,
-		    __LINE__, ENOTACTIVE);
+	if (spa->spa_vdev_removal == NULL)
 		return (ENOTACTIVE);
-	}
 
 	return (spa_vdev_remove_cancel_impl(spa));
 }
@@ -1984,15 +1979,11 @@ spa_vdev_remove_top_check(vdev_t *vd)
 {
 	spa_t *spa = vd->vdev_spa;
 
-	if (vd != vd->vdev_top) {
-		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, ENOTSUP);
+	if (vd != vd->vdev_top)
 		return (SET_ERROR(ENOTSUP));
-	}
 
-	if (!vdev_is_concrete(vd)) {
-		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, ENOTSUP);
+	if (!vdev_is_concrete(vd))
 		return (SET_ERROR(ENOTSUP));
-	}
 
 	if (!spa_feature_is_enabled(spa, SPA_FEATURE_DEVICE_REMOVAL))
 		return (SET_ERROR(ENOTSUP));
@@ -2027,12 +2018,6 @@ spa_vdev_remove_top_check(vdev_t *vd)
 			 * "slop" space (i.e. we must leave at least 3% of the
 			 * pool free, in addition to the normal slop space).
 			 */
-
-			dprintf("%s:%d: available = %llu, "
-			    "vd->vdev_stat.vs_dspace = %llu, spa_dspace = "
-			    "%llu. Returning %d\n", __func__, __LINE__,
-			    available, vd->vdev_stat.vs_dspace,
-			    spa->spa_dspace, ENOSPC);
 			return (SET_ERROR(ENOSPC));
 		}
 	}
@@ -2040,39 +2025,27 @@ spa_vdev_remove_top_check(vdev_t *vd)
 	/*
 	 * There can not be a removal in progress.
 	 */
-	if (spa->spa_removing_phys.sr_state == DSS_SCANNING) {
-		dprintf("%s:%d: spa->spa_removing_phys.sr_state = %d. "
-		    "Returning %d\n", __func__, __LINE__,
-		    spa->spa_removing_phys.sr_state, EBUSY);
+	if (spa->spa_removing_phys.sr_state == DSS_SCANNING)
 		return (SET_ERROR(EBUSY));
-	}
 
 	/*
 	 * The device must have all its data.
 	 */
 	if (!vdev_dtl_empty(vd, DTL_MISSING) ||
-	    !vdev_dtl_empty(vd, DTL_OUTAGE)) {
-		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, EBUSY);
+	    !vdev_dtl_empty(vd, DTL_OUTAGE))
 		return (SET_ERROR(EBUSY));
-	}
 
 	/*
 	 * The device must be healthy.
 	 */
-	if (!vdev_readable(vd)) {
-		dprintf("%s:%d: Returning %d\n", __func__, __LINE__, EIO);
+	if (!vdev_readable(vd))
 		return (SET_ERROR(EIO));
-	}
 
 	/*
 	 * All vdevs in normal class must have the same ashift.
 	 */
-	if (spa->spa_max_ashift != spa->spa_min_ashift) {
-		dprintf("%s:%d: spa->spa_max_ashift = %d, spa->spa_min_ashift "
-		    "= %d. Returning %d\n", __func__, __LINE__,
-		    spa->spa_max_ashift, spa->spa_min_ashift, EINVAL);
+	if (spa->spa_max_ashift != spa->spa_min_ashift)
 		return (SET_ERROR(EINVAL));
-	}
 
 	/*
 	 * A removed special/dedup vdev must have same ashift as normal class.
@@ -2099,8 +2072,6 @@ spa_vdev_remove_top_check(vdev_t *vd)
 		if (vd->vdev_alloc_bias != VDEV_BIAS_NONE &&
 		    cvd->vdev_alloc_bias == vd->vdev_alloc_bias &&
 		    cvd->vdev_ashift != vd->vdev_ashift) {
-			dprintf("%s:%d: Returning %d\n", __func__, __LINE__,
-			    EINVAL);
 			return (SET_ERROR(EINVAL));
 		}
 		if (cvd->vdev_ashift != 0 &&
@@ -2120,8 +2091,6 @@ spa_vdev_remove_top_check(vdev_t *vd)
 			    cid < cvd->vdev_children; cid++) {
 				if (!cvd->vdev_child[cid]->vdev_ops->
 				    vdev_op_leaf) {
-					dprintf("%s:%d: Returning %d\n",
-					    __func__, __LINE__, EINVAL);
 					return (SET_ERROR(EINVAL));
 				}
 			}
@@ -2303,8 +2272,6 @@ spa_vdev_remove(spa_t *spa, uint64_t guid, boolean_t unspare)
 				spa->spa_spares.sav_sync = B_TRUE;
 			}
 		} else {
-			dprintf("%s:%d: Setting error EBUSY = %d\n", __func__,
-			    __LINE__, EBUSY);
 			error = SET_ERROR(EBUSY);
 		}
 	} else if (spa->spa_l2cache.sav_vdevs != NULL &&
@@ -2350,8 +2317,6 @@ spa_vdev_remove(spa_t *spa, uint64_t guid, boolean_t unspare)
 		/*
 		 * There is no vdev of any kind with the specified guid.
 		 */
-		dprintf("%s:%d: No vdev with specified guid. Returning %d\n",
-		    __func__, __LINE__, ENOENT);
 		error = SET_ERROR(ENOENT);
 	}
 

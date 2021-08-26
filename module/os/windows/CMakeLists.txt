@@ -82,7 +82,7 @@ install(FILES
 
 file(GLOB CSOURCES CONFIGURE_DEPENDS "*.c")
 
-function(set_file_properties)
+function(add_macro_property)
         foreach (I ${CSOURCES})
                 get_filename_component(OUTPUT_FILE_WE ${I} NAME_WE)
                 set_source_files_properties(${I} PROPERTIES COMPILE_FLAGS -DWPPFILE=${CMAKE_SOURCE_DIR}/out/build/${OUTPUT_FILE_WE}.tmh)
@@ -90,7 +90,7 @@ function(set_file_properties)
         endforeach()
 endfunction()
 
-function(tracewpp OUTPUT_VAR OUTPUT_DIR SOURCE)
+function(tracewpp OUTPUT_DIR SOURCE)
         # [mlr] list of .tmh files to be generated -> TMH
         set(WPP_DIR "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.19041.0")
         get_filename_component(FILEN ${SOURCE} NAME)
@@ -112,7 +112,6 @@ function(tracewpp OUTPUT_VAR OUTPUT_DIR SOURCE)
         set(DPRINT "dprintf{FLAGS=MYDRIVER_ALL_INFO, LEVEL=TRACE_INFO}(MSG, ...)")
         set(CFGDIR "C:/Program Files (x86)/Windows Kits/10/bin/10.0.19041.0/wppconfig/rev1")
         set(SCAN "C:/Program Files (x86)/Windows Kits/10/Include/wdf/kmdf/1.9/WdfTraceEnums.h")
-        set(CFGDIR1 "C:/Users/rsoni/Desktop/Desktop/openzfs/module/os/windows")
         set(IC "C:/Users/rsoni/Desktop/Desktop/openzfs/include/os/windows/")
         set(WPP_MACRO "WPP_INLINE __inline")
 
@@ -121,26 +120,20 @@ function(tracewpp OUTPUT_VAR OUTPUT_DIR SOURCE)
  -cfgdir:${CFGDIR} -I${IC} -odir:${NATIVE_OUTPUT_DIR} -km -func:${TRACE}
  -func:${DPRINT} -gen:{km-default.tpl}*.tmh ${NATIVE_SOURCE})
 
-        # [mlr] export the value of TMH into OUTPUT_VAR.
-        set(${OUTPUT_VAR} ${TMH} PARENT_SCOPE)
 endfunction()
 
 
-function(wpp OUTPUT_VAR OUTPUT_DIR)
+function(wpp OUTPUT_DIR)
 
+        add_macro_property()
         # [mlr] invoke tracewpp() for each source file, adding the resulting file to a list
         # named TMH.
         message(STATUS "OUTPUT_DIR ======: ${OUTPUT_DIR}")
+
         foreach ( I ${CSOURCES} )
-                tracewpp(J ${OUTPUT_DIR} ${I})
-                list(APPEND TMH ${J})
+                tracewpp(${OUTPUT_DIR} ${I})
         endforeach()
 
-        source_group("WPP Files (generated)" REGULAR_EXPRESSION ".+\\.tmh$")
-
-        # [mlr] export the value of TMH into OUTPUT_VAR.
-        set(${OUTPUT_VAR} ${TMH} PARENT_SCOPE)
 endfunction()
 
-set_file_properties()
-wpp(OUTPUT_VAR "${CMAKE_SOURCE_DIR}/out/build")
+wpp("${CMAKE_SOURCE_DIR}/out/build")

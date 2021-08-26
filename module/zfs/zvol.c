@@ -257,16 +257,11 @@ zvol_get_stats(objset_t *os, nvlist_t *nv)
 int
 zvol_check_volsize(uint64_t volsize, uint64_t blocksize)
 {
-	if (volsize == 0) {
-		dprintf("%s:%d: Returning error %d\n", __func__, __LINE__,
-		    EINVAL);
+	if (volsize == 0)
 		return (SET_ERROR(EINVAL));
-	}
-	if (volsize % blocksize != 0) {
-		dprintf("%s:%d: volsize: %llu blocksize: %llu, Returning error"
-		    " %d\n", __func__, __LINE__, volsize, blocksize, EINVAL);
+
+	if (volsize % blocksize != 0)
 		return (SET_ERROR(EINVAL));
-	}
 
 #ifdef _ILP32
 	if (volsize - 1 > SPEC_MAXOFFSET_T)
@@ -402,11 +397,9 @@ zvol_check_volblocksize(const char *name, uint64_t volblocksize)
 		 * We don't allow setting the property above 1MB,
 		 * unless the tunable has been changed.
 		 */
-		if (volblocksize > zfs_max_recordsize) {
-			dprintf("%s:%d: volblocksize: %llu, Returning %d \n",
-			    __func__, __LINE__, volblocksize, EDOM);
+		if (volblocksize > zfs_max_recordsize)
 			return (SET_ERROR(EDOM));
-		}
+
 		spa_close(spa, FTAG);
 	}
 

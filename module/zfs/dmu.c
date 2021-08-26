@@ -168,8 +168,6 @@ dmu_buf_hold_noread_by_dnode(dnode_t *dn, uint64_t offset,
 
 	if (db == NULL) {
 		*dbp = NULL;
-		dprintf("%s:%d: Returning EIO = %d\n", __func__,
-		    __LINE__, EIO);
 		return (SET_ERROR(EIO));
 	}
 
@@ -199,8 +197,6 @@ dmu_buf_hold_noread(objset_t *os, uint64_t object, uint64_t offset,
 
 	if (db == NULL) {
 		*dbp = NULL;
-		dprintf("%s:%d: Returning EIO = %d\n", __func__,
-		    __LINE__, EIO);
 		return (SET_ERROR(EIO));
 	}
 

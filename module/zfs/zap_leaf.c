@@ -468,12 +468,6 @@ zap_leaf_lookup_closest(zap_leaf_t *l,
 		}
 	}
 
-	if (bestcd == -1U)
-		dprintf("%s:%d: Returning ENOENT %d\n", __func__, __LINE__,
-		    ENOENT);
-	else
-		TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
-
 	return (bestcd == -1U ? SET_ERROR(ENOENT) : 0);
 }
 
@@ -485,21 +479,16 @@ zap_entry_read(const zap_entry_handle_t *zeh,
 	    ZAP_LEAF_ENTRY(zeh->zeh_leaf, *zeh->zeh_chunkp);
 	ASSERT3U(le->le_type, ==, ZAP_CHUNK_ENTRY);
 
-	if (le->le_value_intlen > integer_size) {
-		dprintf("%s:%d: Returning EINVAL = %d\n", __func__, __LINE__,
-		    EINVAL);
+	if (le->le_value_intlen > integer_size)
 		return (SET_ERROR(EINVAL));
-	}
 
 	zap_leaf_array_read(zeh->zeh_leaf, le->le_value_chunk,
 	    le->le_value_intlen, le->le_value_numints,
 	    integer_size, num_integers, buf);
 
-	if (zeh->zeh_num_integers > num_integers) {
-		dprintf("%s:%d: Returning EOVERFLOW = %d\n", __func__,
-		    __LINE__, EOVERFLOW);
+	if (zeh->zeh_num_integers > num_integers)
 		return (SET_ERROR(EOVERFLOW));
-	}
+
 	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 
@@ -584,11 +573,8 @@ zap_entry_create(zap_leaf_t *l, zap_name_t *zn, uint32_t cd,
 
 	int numchunks = 1 + ZAP_LEAF_ARRAY_NCHUNKS(zn->zn_key_orig_numints *
 	    zn->zn_key_intlen) + ZAP_LEAF_ARRAY_NCHUNKS(valuelen);
-	if (numchunks > ZAP_LEAF_NUMCHUNKS(l)) {
-		dprintf("%s:%d: Returning error %d numchunks %d\n", __func__,
-		    __LINE__, E2BIG, numchunks);
+	if (numchunks > ZAP_LEAF_NUMCHUNKS(l))
 		return (SET_ERROR(E2BIG));
-	}
 
 	if (cd == ZAP_NEED_CD) {
 		/* find the lowest unused cd */

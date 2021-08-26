@@ -521,12 +521,9 @@ zap_lockdir_impl(dmu_buf_t *db, void *tag, dmu_tx_t *tx,
 	    "fatreader = %d, adding = %d, zapp = 0x%p\n",
 	    __func__, __LINE__, db, tag, tx, lti, fatreader, adding, zapp);
 	dmu_object_info_from_db(db, &doi);
-	if (DMU_OT_BYTESWAP(doi.doi_type) != DMU_BSWAP_ZAP) {
-		dprintf("%s:%d: DMU_OT_BYTESWAP(doi.doi_type) = %d. Returning "
-		    "EINVAL\n", __func__, __LINE__,
-		    DMU_OT_BYTESWAP(doi.doi_type));
+	if (DMU_OT_BYTESWAP(doi.doi_type) != DMU_BSWAP_ZAP)
 		return (SET_ERROR(EINVAL));
-	}
+
 	zap_t *zap = dmu_buf_get_user(db);
 	if (zap == NULL) {
 		zap = mzap_open(os, obj, db);
@@ -535,8 +532,6 @@ zap_lockdir_impl(dmu_buf_t *db, void *tag, dmu_tx_t *tx,
 			 * mzap_open() didn't like what it saw on-disk.
 			 * Check for corruption!
 			 */
-			dprintf("%s:%d: zap = NULL. Returning EIO = %d\n",
-			    __func__, __LINE__, EIO);
 			return (SET_ERROR(EIO));
 		}
 	}
@@ -1003,11 +998,8 @@ zap_lookup_impl(zap_t *zap, const char *name,
 	int err = 0;
 
 	zap_name_t *zn = zap_name_alloc(zap, name, mt);
-	if (zn == NULL) {
-		dprintf("%s:%d: Returning with ENOTSUP = %d\n", __func__,
-		    __LINE__, ENOTSUP);
+	if (zn == NULL)
 		return (SET_ERROR(ENOTSUP));
-	}
 
 	if (!zap->zap_ismicro) {
 		err = fzap_lookup(zn, integer_size, num_integers, buf,
@@ -1016,17 +1008,10 @@ zap_lookup_impl(zap_t *zap, const char *name,
 		mzap_ent_t *mze = mze_find(zn);
 		if (mze == NULL) {
 			err = SET_ERROR(ENOENT);
-			TraceEvent(5, "%s:%d: Setting err to ENOENT = %d\n",
-			    __func__, __LINE__, ENOENT);
 		} else {
 			if (num_integers < 1) {
 				err = SET_ERROR(EOVERFLOW);
-				dprintf("%s:%d: num_integers = %llu. Setting"
-				    " err to EOVERFLOW = %d\n", __func__,
-				    __LINE__, num_integers, EOVERFLOW);
 			} else if (integer_size != 8) {
-				dprintf("%s:%d: Setting err to EINVAL = %d\n",
-				    __func__, __LINE__, EINVAL);
 				err = SET_ERROR(EINVAL);
 			} else {
 				*(uint64_t *)buf =
@@ -1602,11 +1587,8 @@ zap_cursor_retrieve(zap_cursor_t *zc, zap_attribute_t *za)
 {
 	int err;
 
-	if (zc->zc_hash == -1ULL) {
-		dprintf("%s:%d: Returning ENOENT = %d\n", __func__,
-		    __LINE__, ENOENT);
+	if (zc->zc_hash == -1ULL)
 		return (SET_ERROR(ENOENT));
-	}
 
 	if (zc->zc_zap == NULL) {
 		int hb;

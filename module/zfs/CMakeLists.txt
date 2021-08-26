@@ -139,7 +139,7 @@ function(add_macro_property)
         endforeach()
 endfunction()
 
-function(tracewpp OUTPUT_VAR OUTPUT_DIR SOURCE)
+function(tracewpp OUTPUT_DIR SOURCE)
         # [mlr] list of .tmh files to be generated -> TMH
         set(WPP_DIR "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.19041.0")
         get_filename_component(FILEN ${SOURCE} NAME)
@@ -172,19 +172,19 @@ function(tracewpp OUTPUT_VAR OUTPUT_DIR SOURCE)
 endfunction()
 
 
-function(wpp OUTPUT_VAR OUTPUT_DIR)
+function(wpp OUTPUT_DIR)
 
+        add_macro_property()
         # [mlr] invoke tracewpp() for each source file, adding the resulting file to a list
         # named TMH.
         message(STATUS "OUTPUT_DIR ======: ${OUTPUT_DIR}")
 
         foreach ( I ${CSOURCES} )
-                tracewpp(J ${OUTPUT_DIR} ${I})
+                tracewpp(${OUTPUT_DIR} ${I})
         endforeach()
 
 endfunction()
 
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_macro_property()
-    wpp(OUTPUT_VAR "${CMAKE_SOURCE_DIR}/out/build")
+    wpp("${CMAKE_SOURCE_DIR}/out/build")
 endif()

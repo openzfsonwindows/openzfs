@@ -590,9 +590,6 @@ dsl_dataset_hold_obj(dsl_pool_t *dp, uint64_t dsobj, void *tag,
 	dmu_object_info_from_db(dbuf, &doi);
 	if (doi.doi_bonus_type != DMU_OT_DSL_DATASET) {
 		dmu_buf_rele(dbuf, tag);
-		dprintf("%s:%d: doi.doi_bonus_type = %d. Returning error "
-		    "EINVAL = %d\n", __func__, __LINE__,
-		    doi.doi_bonus_type, EINVAL);
 		return (SET_ERROR(EINVAL));
 	}
 
@@ -812,7 +809,6 @@ dsl_dataset_hold_flags(dsl_pool_t *dp, const char *name, ds_hold_flags_t flags,
 			dprintf("%s:%d: err = %d\n", __func__, __LINE__, err);
 	} else {
 		err = SET_ERROR(ENOENT);
-		dprintf("%s:%d: Setting err = %d\n", __func__, __LINE__, err);
 	}
 
 	/* we may be looking for a snapshot */
@@ -822,8 +818,6 @@ dsl_dataset_hold_flags(dsl_pool_t *dp, const char *name, ds_hold_flags_t flags,
 		if (*snapname++ != '@') {
 			dsl_dataset_rele_flags(ds, flags, tag);
 			dsl_dir_rele(dd, FTAG);
-			TraceEvent(5, "%s:%d: Returning ENOENT = %d\n",
-			    __func__, __LINE__, ENOENT);
 			return (SET_ERROR(ENOENT));
 		}
 

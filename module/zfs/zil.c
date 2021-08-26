@@ -3359,8 +3359,6 @@ zil_suspend(const char *osname, void **cookiep)
 	if (zh->zh_flags & ZIL_REPLAY_NEEDED) {		/* unplayed log */
 		mutex_exit(&zilog->zl_lock);
 		dmu_objset_rele(os, suspend_tag);
-		dprintf("%s:%d: zh->zh_flags = %llu. Returning %d\n", __func__,
-		    __LINE__, zh->zh_flags, EBUSY);
 		return (SET_ERROR(EBUSY));
 	}
 
@@ -3427,8 +3425,6 @@ zil_suspend(const char *osname, void **cookiep)
 		mutex_exit(&zilog->zl_lock);
 		dsl_dataset_long_rele(dmu_objset_ds(os), suspend_tag);
 		dsl_dataset_rele(dmu_objset_ds(os), suspend_tag);
-		dprintf("%s:%d: os->os_encrypted = %d. Returning %d\n",
-		    __func__, __LINE__, os->os_encrypted, EACCES);
 		return (SET_ERROR(EACCES));
 	}
 
@@ -3661,16 +3657,12 @@ zil_reset(const char *osname, void *arg)
 
 	error = zil_suspend(osname, NULL);
 	/* EACCES means crypto key not loaded */
-	if ((error == EACCES) || (error == EBUSY)) {
-		dprintf("%s:%d: zil_suspend returned %d\n", __func__, __LINE__,
-		    error);
+	if ((error == EACCES) || (error == EBUSY))
 		return (SET_ERROR(error));
-	}
-	if (error != 0) {
-		dprintf("%s:%d: zil_suspend returned %d. Returning %d\n",
-		    __func__, __LINE__, error, EEXIST);
+
+	if (error != 0)
 		return (SET_ERROR(EEXIST));
-	}
+
 	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }

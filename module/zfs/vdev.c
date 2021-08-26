@@ -1928,15 +1928,10 @@ vdev_open(vdev_t *vd)
 		    vd->vdev_label_aux == VDEV_AUX_EXTERNAL);
 		vdev_set_state(vd, B_TRUE, VDEV_STATE_FAULTED,
 		    vd->vdev_label_aux);
-		dprintf("%s:%d: vd->vdev_removed = %llu, vd->vdev_faulted = "
-		    "%llu. Returning ENXIO = %d\n", __func__, __LINE__,
-		    vd->vdev_removed, vd->vdev_faulted, ENXIO);
 		return (SET_ERROR(ENXIO));
 	} else if (vd->vdev_offline) {
 		ASSERT(vd->vdev_children == 0);
 		vdev_set_state(vd, B_TRUE, VDEV_STATE_OFFLINE, VDEV_AUX_NONE);
-		dprintf("%s:%d: vd->vdev_offline = %llu. Returning ENXIO = "
-		    "%d\n", __func__, __LINE__, vd->vdev_offline, ENXIO);
 		return (SET_ERROR(ENXIO));
 	}
 
@@ -1990,8 +1985,6 @@ vdev_open(vdev_t *vd)
 		    vd->vdev_label_aux == VDEV_AUX_EXTERNAL);
 		vdev_set_state(vd, B_TRUE, VDEV_STATE_FAULTED,
 		    vd->vdev_label_aux);
-		dprintf("%s:%d: vd->vdev_faulted = %llu. Returning %d\n",
-		    __func__, __LINE__, vd->vdev_faulted, ENXIO);
 		return (SET_ERROR(ENXIO));
 	}
 
@@ -2026,8 +2019,6 @@ vdev_open(vdev_t *vd)
 		if (osize < SPA_MINDEVSIZE) {
 			vdev_set_state(vd, B_TRUE, VDEV_STATE_CANT_OPEN,
 			    VDEV_AUX_TOO_SMALL);
-			dprintf("%s:%d: osize = %llu. Returning %d\n",
-			    __func__, __LINE__, osize, EOVERFLOW);
 			return (SET_ERROR(EOVERFLOW));
 		}
 		psize = osize;
@@ -2039,8 +2030,6 @@ vdev_open(vdev_t *vd)
 		    (VDEV_LABEL_START_SIZE + VDEV_LABEL_END_SIZE)) {
 			vdev_set_state(vd, B_TRUE, VDEV_STATE_CANT_OPEN,
 			    VDEV_AUX_TOO_SMALL);
-			dprintf("%s:%d: osize = %llu. Returning %d\n",
-			    __func__, __LINE__, osize, EOVERFLOW);
 			return (SET_ERROR(EOVERFLOW));
 		}
 		psize = 0;
@@ -2063,9 +2052,6 @@ vdev_open(vdev_t *vd)
 	if (asize < vd->vdev_min_asize) {
 		vdev_set_state(vd, B_TRUE, VDEV_STATE_CANT_OPEN,
 		    VDEV_AUX_BAD_LABEL);
-		dprintf("%s:%d: asize = %llu, vd->vdev_min_asize = %llu. "
-		    "Returning %d\n", __func__, __LINE__, asize,
-		    vd->vdev_min_asize, EINVAL);
 		return (SET_ERROR(EINVAL));
 	}
 
@@ -2652,9 +2638,6 @@ vdev_create(vdev_t *vd, uint64_t txg, boolean_t isreplacing)
 
 	if (error || vd->vdev_state != VDEV_STATE_HEALTHY) {
 		vdev_close(vd);
-		dprintf("%s:%d: vd->vdev_state = %llu. Returning %d\n",
-		    __func__, __LINE__, vd->vdev_state,
-		    (error ? error : ENXIO));
 		return (error ? error : SET_ERROR(ENXIO));
 	}
 

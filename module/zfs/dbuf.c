@@ -1671,11 +1671,8 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 	 */
 	ASSERT(!zfs_refcount_is_zero(&db->db_holds));
 
-	if (db->db_state == DB_NOFILL) {
-		dprintf("%s:%d: Returning EIO = %d\n",
-		    __func__, __LINE__, EIO);
+	if (db->db_state == DB_NOFILL)
 		return (SET_ERROR(EIO));
-	}
 
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);
@@ -1787,11 +1784,9 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 				    db, zio_t *, zio);
 				cv_wait(&db->db_changed, &db->db_mtx);
 			}
-			if (db->db_state == DB_UNCACHED) {
-				dprintf("%s:%d: Returning EIO = %d\n",
-				    __func__, __LINE__, EIO);
+			if (db->db_state == DB_UNCACHED)
 				err = SET_ERROR(EIO);
-			}
+
 			mutex_exit(&db->db_mtx);
 		}
 	}
@@ -3572,9 +3567,6 @@ dbuf_hold_impl(dnode_t *dn, uint8_t level, uint64_t blkid,
 
 	if (fail_uncached && db->db_state != DB_CACHED) {
 		mutex_exit(&db->db_mtx);
-		dprintf("%s:%d: dh->dh_db->db_state = %d. "
-		    "Returning ENOENT = %d\n", __func__, __LINE__,
-		    db->db_state, ENOENT);
 		return (SET_ERROR(ENOENT));
 	}
 

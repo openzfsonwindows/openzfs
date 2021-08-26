@@ -585,8 +585,6 @@ zcp_nvpair_value_to_lua(lua_State *state, nvpair_t *pair,
 			    "Unhandled nvpair type %d for key '%s'",
 			    nvpair_type(pair), nvpair_name(pair));
 		}
-		dprintf("%s:%d Returning error %d", __func__, __LINE__,
-		    EINVAL);
 		return (SET_ERROR(EINVAL));
 	}
 	}
@@ -1046,16 +1044,11 @@ zcp_eval(const char *poolname, const char *program, boolean_t sync,
 	lua_State *state;
 	zcp_run_info_t runinfo;
 
-	if (instrlimit > zfs_lua_max_instrlimit) {
-		dprintf("%s:%d: instrlimit:%llu, Returning error %d\n",
-		    __func__, __LINE__, instrlimit, EINVAL);
+	if (instrlimit > zfs_lua_max_instrlimit)
 		return (SET_ERROR(EINVAL));
-	}
-	if (memlimit == 0 || memlimit > zfs_lua_max_memlimit) {
-		dprintf("%s:%d: memlimit:%llu, Returning error %d\n", __func__,
-		    __LINE__, memlimit, EINVAL);
+
+	if (memlimit == 0 || memlimit > zfs_lua_max_memlimit)
 		return (SET_ERROR(EINVAL));
-	}
 
 	zcp_alloc_arg_t allocargs = {
 		.aa_must_succeed = B_TRUE,
@@ -1131,8 +1124,6 @@ zcp_eval(const char *poolname, const char *program, boolean_t sync,
 		fnvlist_add_string(outnvl, ZCP_RET_ERROR,
 		    lua_tostring(state, -1));
 		lua_close(state);
-		dprintf("%s:%d Returning error %d", __func__, __LINE__,
-		    EINVAL);
 		return (SET_ERROR(EINVAL));
 	}
 	VERIFY0(err);

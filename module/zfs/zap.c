@@ -625,8 +625,6 @@ zap_deref_leaf(zap_t *zap, uint64_t h, dmu_tx_t *tx, krw_t lt, zap_leaf_t **lp)
 	if ((zap_f_phys(zap)->zap_block_type != ZBT_LEAF &&
 	    zap_f_phys(zap)->zap_block_type != ZBT_HEADER) ||
 	    zap_f_phys(zap)->zap_magic != ZAP_MAGIC) {
-		dprintf("%s:%d: Returning EIO = %d\n", __func__, __LINE__,
-		    EIO);
 		return (SET_ERROR(EIO));
 	}
 
@@ -776,13 +774,9 @@ zap_put_leaf_maybe_grow_ptrtbl(zap_name_t *zn, zap_leaf_t *l,
 static int
 fzap_checkname(zap_name_t *zn)
 {
-	if (zn->zn_key_orig_numints * zn->zn_key_intlen > ZAP_MAXNAMELEN) {
-		dprintf("%s:%d: zn->zn_key_orig_numints = %d, "
-		    "zn->zn_key_intlen = %d. Returning ENAMETOOLONG = %d\n",
-		    __func__, __LINE__, zn->zn_key_orig_numints,
-		    zn->zn_key_intlen, ENAMETOOLONG);
+	if (zn->zn_key_orig_numints * zn->zn_key_intlen > ZAP_MAXNAMELEN)
 		return (SET_ERROR(ENAMETOOLONG));
-	}
+
 	TraceEvent(8, "%s:%d: Returning 0\n", __func__, __LINE__);
 	return (0);
 }
@@ -798,18 +792,11 @@ fzap_checksize(uint64_t integer_size, uint64_t num_integers)
 	case 8:
 		break;
 	default:
-		TraceEvent(5, "%s:%d: Returning error %d\n", __func__,
-		    __LINE__, EINVAL);
 		return (SET_ERROR(EINVAL));
 	}
 
-	if (integer_size * num_integers > ZAP_MAXVALUELEN) {
-		dprintf("%s:%d: Integer_size:%llu, num_integer:%llu, Returning"
-		    " %d \n", __func__, __LINE__, integer_size, num_integers,
-		    E2BIG);
+	if (integer_size * num_integers > ZAP_MAXVALUELEN)
 		return (SET_ERROR(E2BIG));
-	}
-
 
 	return (0);
 }
