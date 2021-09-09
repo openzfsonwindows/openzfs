@@ -3267,7 +3267,7 @@ kmem_cache_stat(kmem_cache_t *cp, char *name)
 
 // TRUE if we have more than a critical minimum of memory
 // used in arc_memory_throttle; if FALSE, we throttle
-static inline bool
+bool
 spl_minimal_physmem_p_logic()
 {
 	// do we have enough memory to avoid throttling?
