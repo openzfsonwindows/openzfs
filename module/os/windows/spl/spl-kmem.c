@@ -5368,7 +5368,7 @@ spl_kmem_thread_fini(void)
 	cv_destroy(&spl_free_thread_cv);
 	mutex_destroy(&spl_free_thread_lock);
 
-	bsd_untimeout(kmem_update,  0);
+	bsd_untimeout(kmem_update, &kmem_update_timer);
 	bsd_untimeout(kmem_reap_timeout, &kmem_reaping);
 	bsd_untimeout(kmem_reap_timeout, &kmem_reaping_idspace);
 
@@ -5384,7 +5384,7 @@ spl_kmem_thread_fini(void)
 void
 spl_kmem_mp_init(void)
 {
-	kmem_update_timeout(NULL);
+	kmem_update_timeout(&kmem_update_timer);
 }
 
 /*
