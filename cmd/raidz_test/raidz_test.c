@@ -986,6 +986,7 @@ main(int argc, char **argv)
 	/* init gdb pid string early */
 	(void) sprintf(pid_s, "%d", getpid());
 
+#ifndef WIN32
 	action.sa_handler = sig_handler;
 	sigemptyset(&action.sa_mask);
 	action.sa_flags = 0;
@@ -996,6 +997,7 @@ main(int argc, char **argv)
 	}
 
 	(void) setvbuf(stdout, NULL, _IOLBF, 0);
+#endif
 
 	dprintf_setup(&argc, argv);
 
@@ -1022,5 +1024,6 @@ main(int argc, char **argv)
 	umem_free(rand_data, SPA_MAXBLOCKSIZE);
 	kernel_fini();
 
+	printf("Application exit code = %d\n", err);
 	return (err);
 }
