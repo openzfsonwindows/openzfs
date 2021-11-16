@@ -5,6 +5,7 @@ um_add_executable(raidz_test
 	raidz_test.c
 	raidz_test.h
 	raidz_bench.c
+	os/windows/resource.rc
 )
 # https://github.com/openzfsonwindows/openzfs/issues/31
 target_compile_definitions(raidz_test PRIVATE ZFS_DEBUG)
