@@ -417,10 +417,10 @@ boolean_t arc_warm;
 /*
  * These tunables are for performance analysis.
  */
-unsigned long zfs_arc_max = 0;
-unsigned long zfs_arc_min = 0;
-unsigned long zfs_arc_meta_limit = 0;
-unsigned long zfs_arc_meta_min = 0;
+uint64_t zfs_arc_max = 0;
+uint64_t zfs_arc_min = 0;
+uint64_t zfs_arc_meta_limit = 0;
+uint64_t zfs_arc_meta_min = 0;
 unsigned long zfs_arc_dnode_limit = 0;
 unsigned long zfs_arc_dnode_reduce_percent = 10;
 int zfs_arc_grow_retry = 0;
@@ -7480,7 +7480,7 @@ void
 arc_tuning_update(boolean_t verbose)
 {
 	uint64_t allmem = arc_all_memory();
-	unsigned long limit;
+	uint64_t limit;
 
 	/* Valid range: 32M - <arc_c_max> */
 	if ((zfs_arc_min) && (zfs_arc_min != arc_c_min) &&
