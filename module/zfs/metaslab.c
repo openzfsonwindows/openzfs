@@ -51,7 +51,7 @@
  * operation, we will try to write this amount of data to a top-level vdev
  * before moving on to the next one.
  */
-unsigned long metaslab_aliquot = 512 << 10;
+uint64_t metaslab_aliquot = 512 << 10;
 
 /*
  * For testing, make some blocks above a certain size be gang blocks.

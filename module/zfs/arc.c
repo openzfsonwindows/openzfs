@@ -421,8 +421,8 @@ uint64_t zfs_arc_max = 0;
 uint64_t zfs_arc_min = 0;
 uint64_t zfs_arc_meta_limit = 0;
 uint64_t zfs_arc_meta_min = 0;
-unsigned long zfs_arc_dnode_limit = 0;
-unsigned long zfs_arc_dnode_reduce_percent = 10;
+uint64_t zfs_arc_dnode_limit = 0;
+uint64_t zfs_arc_dnode_reduce_percent = 10;
 int zfs_arc_grow_retry = 0;
 int zfs_arc_shrink_shift = 0;
 int zfs_arc_p_min_shift = 0;
@@ -444,7 +444,7 @@ int zfs_compressed_arc_enabled = B_TRUE;
  * ARC will evict meta buffers that exceed arc_meta_limit. This
  * tunable make arc_meta_limit adjustable for different workloads.
  */
-unsigned long zfs_arc_meta_limit_percent = 75;
+uint64_t zfs_arc_meta_limit_percent = 75;
 
 /*
  * Percentage that can be consumed by dnodes of ARC meta buffers.
@@ -790,12 +790,12 @@ uint64_t zfs_crc64_table[256];
 #define	L2ARC_FEED_TYPES	4
 
 /* L2ARC Performance Tunables */
-unsigned long l2arc_write_max = L2ARC_WRITE_SIZE;	/* def max write size */
-unsigned long l2arc_write_boost = L2ARC_WRITE_SIZE;	/* extra warmup write */
-unsigned long l2arc_headroom = L2ARC_HEADROOM;		/* # of dev writes */
-unsigned long l2arc_headroom_boost = L2ARC_HEADROOM_BOOST;
-unsigned long l2arc_feed_secs = L2ARC_FEED_SECS;	/* interval seconds */
-unsigned long l2arc_feed_min_ms = L2ARC_FEED_MIN_MS;	/* min interval msecs */
+uint64_t l2arc_write_max = L2ARC_WRITE_SIZE;	/* def max write size */
+uint64_t l2arc_write_boost = L2ARC_WRITE_SIZE;	/* extra warmup write */
+uint64_t l2arc_headroom = L2ARC_HEADROOM;		/* # of dev writes */
+uint64_t l2arc_headroom_boost = L2ARC_HEADROOM_BOOST;
+uint64_t l2arc_feed_secs = L2ARC_FEED_SECS;	/* interval seconds */
+uint64_t l2arc_feed_min_ms = L2ARC_FEED_MIN_MS;	/* min interval msecs */
 int l2arc_noprefetch = B_TRUE;			/* don't cache prefetch bufs */
 int l2arc_feed_again = B_TRUE;			/* turbo warmup */
 int l2arc_norw = B_FALSE;			/* no reads during writes */
@@ -918,7 +918,7 @@ unsigned long l2arc_trim_ahead = 0;
  * 		not to waste space.
  */
 int l2arc_rebuild_enabled = B_TRUE;
-unsigned long l2arc_rebuild_blocks_min_l2size = 1024 * 1024 * 1024;
+uint64_t l2arc_rebuild_blocks_min_l2size = 1024 * 1024 * 1024;
 
 /* L2ARC persistence rebuild control routines. */
 void l2arc_rebuild_vdev(vdev_t *vd, boolean_t reopen);

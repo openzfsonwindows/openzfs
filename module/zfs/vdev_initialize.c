@@ -39,7 +39,7 @@
 #ifdef _ILP32
 unsigned long zfs_initialize_value = 0xdeadbeefUL;
 #else
-unsigned long zfs_initialize_value = 0xdeadbeefdeadbeeeULL;
+uint64_t zfs_initialize_value = 0xdeadbeefdeadbeeeULL;
 #endif
 
 /* maximum number of I/Os outstanding per leaf vdev */
