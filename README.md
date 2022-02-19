@@ -2,7 +2,7 @@
 
 OpenZFS is an advanced file system and volume manager which was originally
 developed for Solaris and is now maintained by the OpenZFS community.
-This repository contains the code for running OpenZFS on Linux and FreeBSD.
+This repository contains the code for running OpenZFS on Windows.
 
 [![codecov](https://codecov.io/gh/openzfs/zfs/branch/master/graph/badge.svg)](https://codecov.io/gh/openzfs/zfs)
 [![coverity](https://scan.coverity.com/projects/1973/badge.svg)](https://scan.coverity.com/projects/openzfs-zfs)
