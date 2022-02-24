@@ -441,6 +441,7 @@ printUsage() {
 DWORD zfs_install(char *inf_path) {
 
 	DWORD error = 0;
+	bool IsServiceRunning = false;
 	// 128+4	If a reboot of the computer is necessary,
 	// ask the user for permission before rebooting.
 
@@ -462,8 +463,13 @@ DWORD zfs_install(char *inf_path) {
 		fprintf(stderr, "Installation failed, skip "
 			"starting the service\r\n");
 
-	if (!error)
-		error = installRootDevice(inf_path);
+	if (error == ERROR_SERVICE_ALREADY_RUNNING) {
+		IsServiceRunning = true;
+		error = 0;
+	}
+
+	if(!error)
+		error = installRootDevice(inf_path, IsServiceRunning);
 
 	if (!error)
 		perf_counters_install(inf_path);
@@ -597,6 +603,7 @@ startService(char *serviceName)
 	if (!StartServiceA(zfsServHdl, NULL, NULL)) {
 		if (GetLastError() == ERROR_SERVICE_ALREADY_RUNNING) {
 			fprintf(stderr, "Service is already running\n");
+			error = GetLastError();
 		} else {
 			fprintf(stderr, "StartServiceA failed, error %d\n",
 				GetLastError());
@@ -696,7 +703,7 @@ final:
 
 
 DWORD
-installRootDevice(char *inf)
+installRootDevice(char *inf, bool IsServiceRunning)
 {
 	HDEVINFO DeviceInfoSet = INVALID_HANDLE_VALUE;
 	SP_DEVINFO_DATA DeviceInfoData;
@@ -738,12 +745,15 @@ installRootDevice(char *inf)
 		goto final;
 	}
 
-	// Transform the registry element into an actual devnode
-	// in the PnP HW tree.
-	if (!SetupDiCallClassInstaller(DIF_REGISTERDEVICE,
-		DeviceInfoSet,
-		&DeviceInfoData)) {
-		goto final;
+	// If service is running.
+	if (!IsServiceRunning) {
+		 //Transform the registry element into an actual devnode
+		 //in the PnP HW tree.
+		if (!SetupDiCallClassInstaller(DIF_REGISTERDEVICE,
+			DeviceInfoSet,
+			&DeviceInfoData)) {
+			goto final;
+		}
 	}
 
 	failcode = 0;
