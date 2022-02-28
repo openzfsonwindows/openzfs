@@ -84,7 +84,7 @@ libshare_init(void)
 
 int
 sa_enable_share(const char *zfsname, const char *mountpoint,
-    const char *shareopts, char *protocol)
+    const char *shareopts, const char *protocol)
 {
 	int rc, ret = SA_OK;
 	boolean_t found_protocol = B_FALSE;
@@ -118,7 +118,7 @@ sa_enable_share(const char *zfsname, const char *mountpoint,
 }
 
 int
-sa_disable_share(const char *mountpoint, char *protocol)
+sa_disable_share(const char *mountpoint, const char *protocol)
 {
 	int rc, ret = SA_OK;
 	boolean_t found_protocol = B_FALSE;
@@ -147,7 +147,7 @@ sa_disable_share(const char *mountpoint, char *protocol)
 }
 
 boolean_t
-sa_is_shared(const char *mountpoint, char *protocol)
+sa_is_shared(const char *mountpoint, const char *protocol)
 {
 	sa_fstype_t *fstype;
 	boolean_t ret = B_FALSE;
@@ -184,7 +184,7 @@ sa_commit_shares(const char *protocol)
  *
  * convert an error value to an error string
  */
-char *
+const char *
 sa_errorstr(int err)
 {
 	static char errstr[32];
@@ -302,7 +302,7 @@ sa_errorstr(int err)
 }
 
 int
-sa_validate_shareopts(char *options, char *proto)
+sa_validate_shareopts(const char *options, const char *proto)
 {
 	sa_fstype_t *fstype;
 
