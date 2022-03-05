@@ -28,11 +28,6 @@
 #define	_SYS_FEATURE_TESTS_H
 
 #define	____cacheline_aligned
-#ifdef _MSC_VER
-#define	__NORETURN
-#else
-#define	__NORETURN		__attribute__((__noreturn__))
-#endif
 
 #if !defined(zfs_fallthrough) && !defined(_LIBCPP_VERSION)
 #if defined(HAVE_IMPLICIT_FALLTHROUGH)
