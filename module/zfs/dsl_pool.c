@@ -109,7 +109,7 @@ int zfs_dirty_data_max_max_percent = 25;
  * when approaching the limit until log data is cleared out after txg sync.
  * It only counts TX_WRITE log with WR_COPIED or WR_NEED_COPY.
  */
-unsigned long zfs_wrlog_data_max = 0;
+uint64_t zfs_wrlog_data_max = 0;
 
 /*
  * If there's at least this much dirty data (as a percentage of
