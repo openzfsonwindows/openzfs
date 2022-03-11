@@ -7,6 +7,7 @@ um_add_executable(zdb
 	zdb_il.c
 	os/windows/resource.rc
 )
+target_compile_definitions(zdb PRIVATE ZFS_DEBUG)
 target_link_libraries(zdb PRIVATE
 	libnvpair
 	libuutil
