@@ -9,6 +9,7 @@ qat.c
 qat_compress.c
 qat_crypt.c
 spa_misc_os.c
+sysctl_os.c
 vdev_disk.c
 vdev_file.c
 zfs_acl.c

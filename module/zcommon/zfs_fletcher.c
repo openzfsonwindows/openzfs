@@ -892,7 +892,7 @@ zio_abd_checksum_func_t fletcher_4_abd_ops = {
 
 #define	IMPL_FMT(impl, i)	(((impl) == (i)) ? "[%s] " : "%s ")
 
-#if defined(__linux__) || defined(_WIN32)
+#if defined(__linux__) 
 
 static int
 fletcher_4_param_get(char *buffer, zfs_kernel_param_t *unused)
@@ -919,6 +919,20 @@ static int
 fletcher_4_param_set(const char *val, zfs_kernel_param_t *unused)
 {
 	return (fletcher_4_impl_set(val));
+}
+
+#elif defined (_WIN32)
+
+static uint32_t zfs_fletcher_4_impl = 0;
+
+static int
+fletcher_4_param_set(ZFS_MODULE_PARAM_ARGS)
+{
+	*ptr = zt->zt_ptr;
+	*len = sizeof(uint32_t);
+	*type = ZT_TYPE_INT;
+
+	return (0);
 }
 
 #else
