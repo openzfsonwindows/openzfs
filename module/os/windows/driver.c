@@ -44,8 +44,12 @@ extern void zfs_stop(void);
 extern void windows_delay(int ticks);
 extern int zfs_vfsops_init(void);
 extern int zfs_vfsops_fini(void);
-int zfs_kmod_init(void);
-void zfs_kmod_fini(void);
+extern int zfs_kmod_init(void);
+extern void zfs_kmod_fini(void);
+
+extern void sysctl_os_init(PUNICODE_STRING RegistryPath);
+extern void sysctl_os_fini(void);
+
 
 #ifdef __clang__
 #error "This file should be compiled with MSVC not Clang"
@@ -58,6 +62,11 @@ PDRIVER_DISPATCH STOR_MajorFunction[IRP_MJ_MAXIMUM_FUNCTION + 1];
 wzvolDriverInfo STOR_wzvolDriverInfo;
 
 DRIVER_UNLOAD OpenZFS_Fini;
+
+extern _Function_class_(WORKER_THREAD_ROUTINE)
+void __stdcall
+sysctl_os_registry_change(PVOID Parameter);
+
 
 void
 OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
@@ -75,6 +84,7 @@ OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
 
 	system_taskq_fini();
 
+	sysctl_os_fini();
 	kstat_windows_fini();
 	spl_stop();
 	finiDbgCircularBuffer();
@@ -119,6 +129,8 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 
 	kstat_windows_init(pRegistryPath);
 
+	sysctl_os_init(pRegistryPath);
+
 	system_taskq_init();
 
 	/*
@@ -150,6 +162,9 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 
 	/* Register fs with Win */
 	zfs_vfsops_init();
+
+	/* Start monitoring Registry for changes */
+	sysctl_os_registry_change(pRegistryPath);
 
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
 	    "OpenZFS: Started\n"));
