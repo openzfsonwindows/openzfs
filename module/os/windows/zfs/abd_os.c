@@ -270,7 +270,8 @@ abd_free_zero_scatter(void)
 void
 abd_init(void)
 {
-	abd_chunk_cache = lookasidelist_cache_create(zfs_abd_chunk_size);
+	abd_chunk_cache = lookasidelist_cache_create("abd_chunk",
+	    zfs_abd_chunk_size);
 
 	abd_ksp = kstat_create("zfs", 0, "abdstats", "misc", KSTAT_TYPE_NAMED,
 	    sizeof (abd_stats) / sizeof (kstat_named_t), KSTAT_FLAG_VIRTUAL);
