@@ -194,6 +194,7 @@
     <Link>
       <AdditionalLibraryDirectories>$(SolutionDir)..\..\..\out\build\x64-Debug\module\os\windows\spl;$(SolutionDir)..\..\..\out\build\x64-Debug\module\os\windows\zfs;$(SolutionDir)..\..\..\out\build\x64-Debug\module\icp;$(SolutionDir)..\..\..\out\build\x64-Debug\module\lua;$(SolutionDir)..\..\..\out\build\x64-Debug\module\nvpair;$(SolutionDir)..\..\..\out\build\x64-Debug\module\unicode;$(SolutionDir)..\..\..\out\build\x64-Debug\module\zcommon;$(SolutionDir)..\..\..\out\build\x64-Debug\module\zfs;$(SolutionDir)..\..\..\out\build\x64-Debug\module\zstd;$(SolutionDir)..\..\..\out\build\x64-Debug\lib\os\windows\zlib-1.2.3;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>wdmsec.lib;Storport.lib;scsiwmi.lib;splkern.lib;icpkern.lib;luakern.lib;nvpairkern.lib;unicodekern.lib;zcommonkern.lib;zlibkern.lib;zstdkern.lib;zfskern.lib;zfskern_os.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfLdr.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfDriverEntry.lib</AdditionalDependencies>
+      <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
     </Link>
     <DriverSign>
       <AdditionalOptions>/tr http://timestamp.digicert.com /td sha256 /fd sha256 %(AdditionalOptions)</AdditionalOptions>
@@ -209,6 +210,7 @@
     <Link>
       <AdditionalLibraryDirectories>$(SolutionDir)..\..\..\out\build\x64-Debug\module\os\windows\spl;$(SolutionDir)..\..\..\out\build\x64-Debug\module\os\windows\zfs;$(SolutionDir)..\..\..\out\build\x64-Debug\module\icp;$(SolutionDir)..\..\..\out\build\x64-Debug\module\lua;$(SolutionDir)..\..\..\out\build\x64-Debug\module\nvpair;$(SolutionDir)..\..\..\out\build\x64-Debug\module\unicode;$(SolutionDir)..\..\..\out\build\x64-Debug\module\zcommon;$(SolutionDir)..\..\..\out\build\x64-Debug\module\zfs;$(SolutionDir)..\..\..\out\build\x64-Debug\module\zstd;$(SolutionDir)..\..\..\out\build\x64-Debug\lib\os\windows\zlib-1.2.3;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>wdmsec.lib;Storport.lib;scsiwmi.lib;splkern.lib;icpkern.lib;luakern.lib;nvpairkern.lib;unicodekern.lib;zcommonkern.lib;zlibkern.lib;zstdkern.lib;zfskern.lib;zfskern_os.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfLdr.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfDriverEntry.lib</AdditionalDependencies>
+      <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
     </Link>
     <DriverSign>
       <AdditionalOptions>/tr http://timestamp.digicert.com /td sha256 /fd sha256 %(AdditionalOptions)</AdditionalOptions>
