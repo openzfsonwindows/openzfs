@@ -198,17 +198,30 @@ CACHE_MANAGER_CALLBACKS CacheManagerCallbacks =
 	.ReleaseFromReadAhead = zfs_ReleaseFromReadAhead
 };
 
-void
+int
 zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp)
 {
-	CcInitializeCacheMap(fo,
-	    (PCC_FILE_SIZES)&vp->FileHeader.AllocationSize,
-	    FALSE,
-	    &CacheManagerCallbacks, vp);
-	dprintf("CcInitializeCacheMap called on vp %p\n", vp);
-	CcSetAdditionalCacheAttributes(fo, TRUE, TRUE); // FIXME: for now
-	fo->Flags |= FO_CACHE_SUPPORTED;
-	dprintf("%s: CcInitializeCacheMap\n", __func__);
+        zfs_dirlist_t *zccb = fo->FsContext2;
+
+	try {
+		if (fo->PrivateCacheMap == NULL) {
+
+			VERIFY3U(zccb->cacheinit, ==, 0);
+			atomic_inc_64(&zccb->cacheinit);
+
+			CcInitializeCacheMap(fo,
+			    (PCC_FILE_SIZES)&vp->FileHeader.AllocationSize,
+			    FALSE,
+			    &CacheManagerCallbacks, vp);
+			dprintf("CcInitializeCacheMap called on vp %p\n", vp);
+			CcSetAdditionalCacheAttributes(fo, TRUE, TRUE); // FIXME: for now
+			fo->Flags |= FO_CACHE_SUPPORTED;
+			dprintf("%s: CcInitializeCacheMap\n", __func__);
+		}
+	} except (EXCEPTION_EXECUTE_HANDLER) {
+		return (GetExceptionCode());
+	}
+	return (0);
 }
 
 
@@ -3436,6 +3449,14 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	}
 
 	struct vnode *vp = fileObject->FsContext;
+	zfs_dirlist_t *zccb = fileObject->FsContext2;
+
+#if 0
+	if (Irp->RequestorMode == UserMode && !(zccb->access & FILE_READ_DATA)) {
+		return (STATUS_ACCESS_DENIED);
+	}
+#endif
+
 	VN_HOLD(vp);
 	znode_t *zp = VTOZ(vp);
 
@@ -3461,17 +3482,25 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		bufferLength = filesize - byteOffset.QuadPart;
 
 	// nocache transfer, make sure we flush first.
-	if (!pagingio && nocache && fileObject->SectionObjectPointer &&
+	if (!pagingio && !nocache && fileObject->SectionObjectPointer &&
 	    (fileObject->SectionObjectPointer->DataSectionObject != NULL)) {
 		IO_STATUS_BLOCK IoStatus = { 0 };
+
+		// Sadly this BSODs and I'm not sure why
+#if 0
 		ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource,
 		    TRUE);
+		VERIFY3U(zccb->cacheinit, != , 0);
+
+		IoSetTopLevelIrp((PIRP)FSRTL_FSP_TOP_LEVEL_IRP);
 		CcFlushCache(fileObject->SectionObjectPointer,
-		    &byteOffset,
-		    bufferLength,
+		    &IrpSp->Parameters.Read.ByteOffset,
+		    IrpSp->Parameters.Read.Length,
 		    &IoStatus);
+		IoSetTopLevelIrp(NULL);
 		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
 		VERIFY0(IoStatus.Status);
+#endif
 	}
 	// Grab lock if paging
 	if (pagingio) {
@@ -3486,21 +3515,14 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	} else {
 		// Cached
+		
 #if 1
-		if (fileObject->PrivateCacheMap == NULL) {
-			CC_FILE_SIZES ccfs;
-			vp->FileHeader.FileSize.QuadPart = zp->z_size;
-			vp->FileHeader.ValidDataLength.QuadPart = zp->z_size;
-			ccfs.AllocationSize = vp->FileHeader.AllocationSize;
-			ccfs.FileSize = vp->FileHeader.FileSize;
-			ccfs.ValidDataLength = vp->FileHeader.ValidDataLength;
-
-			zfs_init_cache(fileObject, vp);
-		}
+		zfs_init_cache(fileObject, vp);
 #endif
 
 		// DO A NORMAL CACHED READ, if the MDL bit is not set,
 		if (!FlagOn(IrpSp->MinorFunction, IRP_MN_MDL)) {
+			VERIFY3U(zccb->cacheinit, != , 0);
 
 			vnode_pager_setsize(vp, zp->z_size);
 			CcSetFileSizes(IrpSp->FileObject,
@@ -3531,6 +3553,8 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 			goto out;
 
 		} else {
+			VERIFY3U(zccb->cacheinit, != , 0);
+
 
 			// MDL read
 			CcMdlRead(fileObject,
@@ -3634,6 +3658,8 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	}
 
 	struct vnode *vp = fileObject->FsContext;
+	zfs_dirlist_t *zccb = fileObject->FsContext2;
+
 	VN_HOLD(vp);
 	znode_t *zp = VTOZ(vp);
 	ASSERT(ZTOV(zp) == vp);
@@ -3675,6 +3701,7 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 		ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource,
 		    TRUE);
+		VERIFY3U(zccb->cacheinit, != , 0);
 
 		CcFlushCache(fileObject->SectionObjectPointer, &byteOffset,
 		    bufferLength, &iosb);
@@ -3739,6 +3766,7 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 		// DO A NORMAL CACHED WRITE, if the MDL bit is not set,
 		if (!FlagOn(IrpSp->MinorFunction, IRP_MN_MDL)) {
+			VERIFY3U(zccb->cacheinit, != , 0);
 
 // Since we may have grown the filesize, we need to give CcMgr a head's up.
 			vnode_pager_setsize(vp, zp->z_size);
@@ -3773,6 +3801,8 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 			Status = STATUS_SUCCESS;
 			goto out;
 		} else {
+			VERIFY3U(zccb->cacheinit, != , 0);
+
 			//  DO AN MDL WRITE
 			CcPrepareMdlWrite(fileObject,
 			    &byteOffset,
@@ -4339,6 +4369,8 @@ zfs_fileobject_close(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 // released right here, but marked to be released upon
 // reaching 0 count
 			vnode_t *vp = IrpSp->FileObject->FsContext;
+			zfs_dirlist_t *zccb = IrpSp->FileObject->FsContext2;
+
 			znode_t *zp = (VTOZ(vp));
 
 			int isdir = vnode_isdir(vp);
@@ -4351,12 +4383,15 @@ zfs_fileobject_close(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			// FileObject should/could no longer point to vp.
 			zfs_decouplefileobject(vp, IrpSp->FileObject);
 			// vnode_fileobject_remove(vp, IrpSp->FileObject);
+//			if (isdir) {
 
-			if (isdir) {
-				CcUninitializeCacheMap(IrpSp->FileObject,
+			CcUninitializeCacheMap(IrpSp->FileObject,
 				    NULL, NULL);
-// fastfat also flushes while(parent) dir here, if !iocount
-			}
+			zccb->cacheinit = 0;
+
+
+			// fastfat also flushes while(parent) dir here, if !iocount
+//			}
 
 /*
  * If we can release now, do so.

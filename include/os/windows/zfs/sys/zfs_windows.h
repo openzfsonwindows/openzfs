@@ -48,6 +48,8 @@ struct zfs_dirlist {
 	uint32_t deleteonclose;		// Marked for deletion
 	uint32_t ContainsWildCards;	// searchname has wildcards
 	UNICODE_STRING searchname;	// Search pattern
+
+	uint64_t cacheinit;
 };
 
 typedef struct zfs_dirlist zfs_dirlist_t;
