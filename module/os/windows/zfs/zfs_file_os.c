@@ -19,6 +19,10 @@
  * CDDL HEADER END
  */
 
+/*
+ * Copyright(c) 2021 Jorgen Lundman <lundman@lundman.net>
+ */
+
 #include <sys/zfs_context.h>
 #include <sys/zfs_file.h>
 #include <sys/stat.h>
