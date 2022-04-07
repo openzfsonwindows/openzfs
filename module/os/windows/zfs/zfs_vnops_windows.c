@@ -926,7 +926,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			return (STATUS_OBJECT_NAME_NOT_FOUND);
 		}
 		VN_RELE(vp);
-		if (dvp_no_rele)
+		if (dvp && !dvp_no_rele)
 			VN_RELE(dvp);
 		vp = NULL;
 		dvp = ZTOV(dzp);
