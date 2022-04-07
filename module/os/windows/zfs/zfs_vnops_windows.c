@@ -3699,8 +3699,8 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	if (nocache && !pagingio && fileObject->SectionObjectPointer &&
 	    fileObject->SectionObjectPointer->DataSectionObject) {
-		IO_STATUS_BLOCK iosb;
-
+#if 0
+	    IO_STATUS_BLOCK iosb;
 		ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource,
 		    TRUE);
 		VERIFY3U(zccb->cacheinit, != , 0);
@@ -3717,6 +3717,7 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		CcPurgeCacheSection(fileObject->SectionObjectPointer,
 		    &byteOffset, bufferLength, FALSE);
 		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
+#endif
 	}
 
 	void *SystemBuffer = MapUserBuffer(Irp);
