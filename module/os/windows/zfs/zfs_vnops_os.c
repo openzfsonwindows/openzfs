@@ -1331,6 +1331,9 @@ zfs_readdir(vnode_t *vp, zfs_uio_t *uio, cred_t *cr, zfs_dirlist_t *zccb,
 	case FileDirectoryInformation:
 	case FileNamesInformation:
 	case FileIdFullDirectoryInformation:
+	case FileObjectIdInformation:
+	case FileIdExtdDirectoryInformation:
+	case FileIdExtdBothDirectoryInformation:
 		break;
 	default:
 		dprintf("%s: ** Directory type %d not handled!\n",
@@ -1730,7 +1733,6 @@ zfs_readdir(vnode_t *vp, zfs_uio_t *uio, cred_t *cr, zfs_dirlist_t *zccb,
 					fdi->FileIndex = offset;
 					nameptr = fdi->FileName;
 					fdi->FileNameLength = namelenholder;
-
 					break;
 
 				case FileNamesInformation:
@@ -1787,8 +1789,94 @@ zfs_readdir(vnode_t *vp, zfs_uio_t *uio, cred_t *cr, zfs_dirlist_t *zccb,
 					fifdi->FileId.QuadPart = zp->z_id;
 					nameptr = fifdi->FileName;
 					fifdi->FileNameLength = namelenholder;
-				}
+					break;
 
+				case FileIdExtdDirectoryInformation:
+					structsize = FIELD_OFFSET(
+					    FILE_ID_EXTD_DIR_INFORMATION,
+					    FileName[0]);
+					if (outcount + structsize +
+					    namelenholder > bufsize)
+						break;
+
+					eodp =
+					    (FILE_FULL_DIR_INFORMATION *)bufptr;
+					FILE_ID_EXTD_DIR_INFORMATION *fiedi;
+					fiedi = (FILE_ID_EXTD_DIR_INFORMATION *)
+					    bufptr;
+					fiedi->FileIndex = offset;
+					fiedi->AllocationSize.QuadPart =
+					    S_ISDIR(tzp->z_mode) ? 0 :
+					    P2ROUNDUP(tzp->z_size,
+					    zfs_blksz(tzp));
+					fiedi->EndOfFile.QuadPart =
+					    S_ISDIR(tzp->z_mode) ? 0 :
+					    tzp->z_size;
+					TIME_UNIX_TO_WINDOWS(mtime,
+					    fiedi->LastWriteTime.QuadPart);
+					TIME_UNIX_TO_WINDOWS(ctime,
+					    fiedi->ChangeTime.QuadPart);
+					TIME_UNIX_TO_WINDOWS(crtime,
+					    fiedi->CreationTime.QuadPart);
+					TIME_UNIX_TO_WINDOWS(tzp->z_atime,
+					    fiedi->LastAccessTime.QuadPart);
+					fiedi->EaSize =
+					    tzp->z_pflags & ZFS_REPARSE ?
+					    0xa0000003 :
+					    xattr_getsize(ZTOV(tzp));
+					fiedi->FileAttributes =
+					    zfs_getwinflags(tzp);
+					memset(&fiedi->FileId.Identifier[0], 0, sizeof(fiedi->FileId));
+					memcpy(&fiedi->FileId.Identifier[0], &zp->z_id, sizeof(zp->z_id));
+					nameptr = fiedi->FileName;
+					fiedi->FileNameLength = namelenholder;
+					break;
+
+				case FileIdExtdBothDirectoryInformation:
+					structsize = FIELD_OFFSET(
+					    FILE_ID_EXTD_BOTH_DIR_INFORMATION,
+					    FileName[0]);
+					if (outcount + structsize +
+					    namelenholder > bufsize)
+						break;
+
+					eodp =
+					    (FILE_FULL_DIR_INFORMATION *)bufptr;
+					FILE_ID_EXTD_BOTH_DIR_INFORMATION *fiebdi;
+					fiebdi = (FILE_ID_EXTD_BOTH_DIR_INFORMATION *)
+					    bufptr;
+					fiebdi->FileIndex = offset;
+					fiebdi->AllocationSize.QuadPart =
+					    S_ISDIR(tzp->z_mode) ? 0 :
+					    P2ROUNDUP(tzp->z_size,
+					    zfs_blksz(tzp));
+					fiebdi->EndOfFile.QuadPart =
+					    S_ISDIR(tzp->z_mode) ? 0 :
+					    tzp->z_size;
+					TIME_UNIX_TO_WINDOWS(mtime,
+					    fiebdi->LastWriteTime.QuadPart);
+					TIME_UNIX_TO_WINDOWS(ctime,
+					    fiebdi->ChangeTime.QuadPart);
+					TIME_UNIX_TO_WINDOWS(crtime,
+					    fiebdi->CreationTime.QuadPart);
+					TIME_UNIX_TO_WINDOWS(tzp->z_atime,
+					    fiebdi->LastAccessTime.QuadPart);
+					fiebdi->EaSize =
+					    xattr_getsize(ZTOV(tzp));
+					fiebdi->ReparsePointTag =
+					    tzp->z_pflags & ZFS_REPARSE ?
+					    0xa0000003 : 0;
+					fiebdi->FileAttributes =
+					    zfs_getwinflags(tzp);
+					fiebdi->ShortNameLength = 0;
+					memset(&fiebdi->FileId.Identifier[0], 0, sizeof(fiebdi->FileId));
+					memcpy(&fiebdi->FileId.Identifier[0], &zp->z_id, sizeof(zp->z_id));
+					nameptr = fiebdi->FileName;
+					fiebdi->FileNameLength = namelenholder;
+					break;
+
+				}
+				
 				// Release the zp
 #if 1
 				if (get_zp == 0 && tzp != NULL) {
