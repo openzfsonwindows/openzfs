@@ -3216,7 +3216,9 @@ query_directory(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	case FileIdBothDirectoryInformation: // ***
 	case FileIdFullDirectoryInformation:
 	case FileNamesInformation:
-	case FileObjectIdInformation:
+	// case FileObjectIdInformation:  // Do we need this one?
+	case FileIdExtdDirectoryInformation:
+	case FileIdExtdBothDirectoryInformation:
 		Status =
 		    query_directory_FileFullDirectoryInformation(DeviceObject,
 		    Irp, IrpSp);
