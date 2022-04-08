@@ -44,7 +44,7 @@ static uint32_t zvol_major = ZVOL_MAJOR;
 unsigned int zvol_request_sync = 0;
 unsigned int zvol_prefetch_bytes = (128 * 1024);
 unsigned long zvol_max_discard_blocks = 16384;
-unsigned int zvol_threads = 8;
+unsigned int zvol_threads = 32;
 
 taskq_t *zvol_taskq;
 
