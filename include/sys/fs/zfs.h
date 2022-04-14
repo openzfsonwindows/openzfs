@@ -1313,6 +1313,7 @@ typedef struct ddt_histogram {
 #else
 #define	ZFS_DEV		"/dev/zfs"
 #endif
+#define	ZFS_DEVDIR	"/dev"
 
 #define	ZFS_SUPER_MAGIC	0x2fc12fc1
 
