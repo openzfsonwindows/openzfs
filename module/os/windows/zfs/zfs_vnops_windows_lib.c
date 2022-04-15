@@ -594,7 +594,8 @@ vnode_apply_single_ea(struct vnode *vp, struct vnode *xdvp,
 		    VTOZ(vp)->z_mode, NULL, &xzp, 0);
 		if (error)
 			goto out;
-
+		if (xzp->z_sa_hdl == NULL)
+			goto out;
 		/* Truncate, if it was existing */
 		error = zfs_freesp(xzp, 0, 0, VTOZ(vp)->z_mode, TRUE);
 
@@ -2148,6 +2149,11 @@ file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	ZFS_ENTER(zfsvfs);
 
+	if (VN_HOLD(vp) != 0) {
+		ZFS_EXIT(zfsvfs);
+		return (STATUS_INVALID_PARAMETER);
+	}
+
 	// From FASTFAT
 	//  This is kinda gross, but if the file is not cached, but there is
 	//  a data section, we have to cache the file to avoid a bunch of
@@ -2157,16 +2163,18 @@ file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    (FileObject->SectionObjectPointer->DataSectionObject != NULL) &&
 	    (FileObject->SectionObjectPointer->SharedCacheMap == NULL) &&
 	    !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
-		vnode_pager_setsize(vp, zp->z_size);
-		CcInitializeCacheMap(FileObject,
+
+	    vnode_pager_setsize(NULL, vp, zp->z_size, TRUE);
+
+	    CcInitializeCacheMap(FileObject,
 		    (PCC_FILE_SIZES)&vp->FileHeader.AllocationSize,
 		    FALSE,
 		    &CacheManagerCallbacks, vp);
-		CcSetAdditionalCacheAttributes(FileObject, TRUE, TRUE);
+
+	    // CcSetAdditionalCacheAttributes(FileObject, FALSE, FALSE);
 		CacheMapInitialized = TRUE;
 	}
 
-	VN_HOLD(vp);
 	if (!zfsvfs->z_unmounted) {
 
 		// Can't be done on DeleteOnClose
@@ -2176,7 +2184,8 @@ file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		// Advance only?
 		if (IrpSp->Parameters.SetFile.AdvanceOnly) {
 			if (feofi->EndOfFile.QuadPart > zp->z_size) {
-				Status = zfs_freesp(zp,
+
+			    Status = zfs_freesp(zp,
 				    feofi->EndOfFile.QuadPart,
 				    0, 0, TRUE);
 				changed = 1;
@@ -2204,8 +2213,6 @@ file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 out:
-	ZFS_EXIT(zfsvfs);
-	VN_RELE(vp);
 
 	if (NT_SUCCESS(Status) && changed) {
 
@@ -2214,8 +2221,7 @@ out:
 		// zfs_freesp() calls vnode_paget_setsize(), but we need
 		// xto update it here.
 		if (FileObject->SectionObjectPointer)
-			CcSetFileSizes(FileObject,
-			    (PCC_FILE_SIZES)&vp->FileHeader.AllocationSize);
+			vnode_pager_setsize(FileObject, vp, zp->z_size, FALSE);
 
 		// No notify for XATTR/Stream for now
 		if (!(zp->z_pflags & ZFS_XATTR)) {
@@ -2227,14 +2233,14 @@ out:
 	}
 
 	if (CacheMapInitialized) {
-		dprintf("other uninit\n");
 		CcUninitializeCacheMap(FileObject, NULL, NULL);
-		dprintf("done uninit\n");
 	}
 
 	// We handled setsize in here.
 	vnode_setsizechange(vp, 0);
 
+	VN_RELE(vp);
+	ZFS_EXIT(zfsvfs);
 	return (Status);
 }
 
@@ -2627,7 +2633,23 @@ out:
 
 
 /* IRP_MJ_QUERY_INFORMATION helpers */
+ULONG
+get_reparse_tag(znode_t *zp)
+{
+	if (zp->z_pflags & ZFS_REPARSE) {
+		int err;
+		REPARSE_DATA_BUFFER tagdata;
+		struct iovec iov;
+		iov.iov_base = (void *)&tagdata;
+		iov.iov_len = sizeof(tagdata);
 
+		zfs_uio_t uio;
+		zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE, sizeof(tagdata), 0);
+		err = zfs_readlink(ZTOV(zp), &uio, NULL);
+		return (tagdata.ReparseTag);
+	}
+	return (0);
+}
 
 NTSTATUS
 file_attribute_tag_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
@@ -2646,19 +2668,7 @@ file_attribute_tag_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
 		tag->FileAttributes = zfs_getwinflags(zp);
-		if (zp->z_pflags & ZFS_REPARSE) {
-			int err;
-			REPARSE_DATA_BUFFER tagdata;
-			struct iovec iov;
-			iov.iov_base = (void *)&tagdata;
-			iov.iov_len = sizeof (tagdata);
-
-			zfs_uio_t uio;
-			zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE, sizeof (tagdata), 0);
-			err = zfs_readlink(vp, &uio, NULL);
-			tag->ReparseTag = tagdata.ReparseTag;
-			dprintf("Returning tag 0x%x\n", tag->ReparseTag);
-		}
+		tag->ReparseTag = get_reparse_tag(zp);
 		Irp->IoStatus.Information =
 		    sizeof (FILE_ATTRIBUTE_TAG_INFORMATION);
 		ASSERT(tag->FileAttributes != 0);
@@ -2727,7 +2737,10 @@ file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			TIME_UNIX_TO_WINDOWS(zp->z_atime,
 			    basic->LastAccessTime.QuadPart);
 
+			// FileAttributes == 0 means don't set - undocumented, but seen in fastfat
+			//if (basic->FileAttributes != 0) 
 			basic->FileAttributes = zfs_getwinflags(zp);
+			
 			VN_RELE(vp);
 		}
 		Irp->IoStatus.Information = sizeof (FILE_BASIC_INFORMATION);
@@ -3038,7 +3051,7 @@ file_stat_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    P2ROUNDUP(zp->z_size, zfs_blksz(zp));
 		fsi->EndOfFile.QuadPart = zp->z_size;
 		fsi->FileAttributes = zfs_getwinflags(zp);
-		fsi->ReparseTag = 0;
+		fsi->ReparseTag = get_reparse_tag(zp);
 		fsi->NumberOfLinks = zp->z_links;
 		fsi->EffectiveAccess = GENERIC_ALL;
 	}
@@ -3111,7 +3124,7 @@ file_stat_lx_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    P2ROUNDUP(zp->z_size, zfs_blksz(zp));
 		fsli->EndOfFile.QuadPart = zp->z_size;
 		fsli->FileAttributes = zfs_getwinflags(zp);
-		fsli->ReparseTag = 0;
+		fsli->ReparseTag = get_reparse_tag(zp);
 		fsli->NumberOfLinks = zp->z_links;
 		fsli->EffectiveAccess =
 		    SPECIFIC_RIGHTS_ALL | ACCESS_SYSTEM_SECURITY;
