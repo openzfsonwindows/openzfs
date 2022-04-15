@@ -5510,6 +5510,11 @@ _Function_class_(DRIVER_DISPATCH)
 	    major2str(IrpSp->MajorFunction, IrpSp->MinorFunction),
 	    Irp->Type, IrpSp->FileObject);
 
+
+	KIRQL saveIRQL;
+	saveIRQL = KeGetCurrentIrql();
+
+
 	AtIrqlPassiveLevel = (KeGetCurrentIrql() == PASSIVE_LEVEL);
 	if (AtIrqlPassiveLevel) {
 		FsRtlEnterFileSystem();
@@ -5584,6 +5589,10 @@ _Function_class_(DRIVER_DISPATCH)
 			KeBugCheckEx(INCONSISTENT_IRP, (ULONG_PTR)Irp, 0, 0, 0);
 		}
 	}
+
+	VERIFY3U(saveIRQL, == , KeGetCurrentIrql());
+
+
 	return (Status);
 }
 
