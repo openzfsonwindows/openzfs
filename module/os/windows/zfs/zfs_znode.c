@@ -1334,7 +1334,7 @@ zfs_rezget(znode_t *zp)
 	if (vp != NULL) {
 		vn_pages_remove(vp, 0, 0);
 		if (zp->z_size != size)
-			vnode_pager_setsize(vp, zp->z_size);
+			vnode_pager_setsize(NULL, vp, zp->z_size, TRUE);
 	}
 
 	/*
@@ -1629,7 +1629,7 @@ zfs_extend(znode_t *zp, uint64_t end)
 	    &zp->z_size,
 	    sizeof (zp->z_size), tx));
 
-	vnode_pager_setsize(ZTOV(zp), end);
+	vnode_pager_setsize(NULL, ZTOV(zp), end, TRUE);
 
 	zfs_rangelock_exit(lr);
 
@@ -1679,7 +1679,7 @@ zfs_free_range(znode_t *zp, uint64_t off, uint64_t len)
 		 * but only at the end of a file, so this code path should
 		 * never happen.
 		 */
-		vnode_pager_setsize(ZTOV(zp), off);
+		vnode_pager_setsize(NULL, ZTOV(zp), off, TRUE);
 	}
 
 #ifdef _LINUX
@@ -1798,7 +1798,7 @@ zfs_trunc(znode_t *zp, uint64_t end)
 	 * a deadlock with someone trying to push a page that we are
 	 * about to invalidate.
 	 */
-	vnode_pager_setsize(vp, end);
+	vnode_pager_setsize(NULL, vp, end, TRUE);
 
 	zfs_rangelock_exit(lr);
 
@@ -2054,7 +2054,7 @@ zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *zplprops, dmu_tx_t *tx)
 void
 zfs_znode_update_vfs(znode_t *zp)
 {
-	vnode_pager_setsize(ZTOV(zp), zp->z_size);
+	vnode_pager_setsize(NULL, ZTOV(zp), zp->z_size, TRUE);
 }
 
 #endif /* _KERNEL */
