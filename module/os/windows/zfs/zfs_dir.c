@@ -74,7 +74,7 @@ zfs_match_find(zfsvfs_t *zfsvfs, znode_t *dzp, char *name, matchtype_t mt,
 
 		if (rpnp) {
 			buf = rpnp->cn_nameptr;
-			bufsz = rpnp->cn_namelen;
+			bufsz = rpnp->cn_pnlen;
 		}
 
 		/*
