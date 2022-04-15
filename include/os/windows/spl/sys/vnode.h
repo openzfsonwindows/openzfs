@@ -428,13 +428,6 @@ win_has_cached_data(struct vnode *vp)
 	return (ret);
 }
 
-#define	vnode_pager_setsize(vp, sz)  do { \
-		vp->FileHeader.AllocationSize.QuadPart = \
-			P2ROUNDUP((sz), PAGE_SIZE);	\
-		vp->FileHeader.FileSize.QuadPart = (sz); \
-		vp->FileHeader.ValidDataLength.QuadPart = (sz); \
-		vnode_setsizechange(vp, 1); \
-	} while (0)
 
 #define	vn_ismntpt(vp)   (vnode_mountedhere(vp) != NULL)
 
@@ -507,6 +500,7 @@ void cache_purge(vnode_t *vp);
 void cache_purge_negatives(vnode_t *vp);
 int vnode_removefsref(vnode_t *vp);
 int vnode_iocount(vnode_t *vp);
+void vnode_pager_setsize(void *fo, vnode_t *vp, uint64_t size, boolean_t delay);
 
 #define	VNODE_READDIR_EXTENDED 1
 
@@ -522,6 +516,7 @@ int vflush(struct mount *mp, struct vnode *skipvp, int flags);
 int vnode_fileobject_add(vnode_t *vp, void *fo);
 int vnode_fileobject_remove(vnode_t *vp, void *fo);
 int vnode_fileobject_empty(vnode_t *vp, int locked);
+int vnode_fileobject_member(vnode_t *vp, void *fo);
 
 void vnode_lock(vnode_t *vp);
 void vnode_unlock(vnode_t *vp);
