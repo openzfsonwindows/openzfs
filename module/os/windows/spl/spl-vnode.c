@@ -1455,6 +1455,7 @@ vflush(struct mount *mp, struct vnode *skipvp, int flags)
 	int reclaims = 0;
 	vnode_fileobjects_t *node;
 	struct vnode *rvp;
+	int Status;
 
 	dprintf("vflush start\n");
 
@@ -1498,12 +1499,18 @@ repeat:
 			// while has to start from the top each time. We release
 			// the node at end of this while.
 
+				try {
+					Status = ObReferenceObjectByPointer(
+					    fileobject,  // fixme, keep this in dvd
+					    0,
+					    *IoFileObjectType,
+					    KernelMode);
+				} except(EXCEPTION_EXECUTE_HANDLER) {
+					Status = GetExceptionCode();
+				}
+			    
 			// Try to lock fileobject before we use it.
-				if (NT_SUCCESS(ObReferenceObjectByPointer(
-				    fileobject,  // fixme, keep this in dvd
-				    0,
-				    *IoFileObjectType,
-				    KernelMode))) {
+				if (NT_SUCCESS(Status)) {
 					int ok;
 
 				// Let go of mutex, as flushcache will re-enter
@@ -1633,6 +1640,9 @@ vnode_couplefileobject(vnode_t *vp, FILE_OBJECT *fileobject, uint64_t size)
 		fileobject->FsContext = vp;
 
 		// Make sure it is pointing to the right vp.
+		if (fileobject->SectionObjectPointer != NULL)
+		    VERIFY3P(vnode_sectionpointer(vp), ==, fileobject->SectionObjectPointer);
+
 		if (fileobject->SectionObjectPointer !=
 		    vnode_sectionpointer(vp)) {
 			fileobject->SectionObjectPointer =
@@ -1651,8 +1661,8 @@ vnode_couplefileobject(vnode_t *vp, FILE_OBJECT *fileobject, uint64_t size)
 		if (vnode_isvroot(vp))
 			return;
 
-		vnode_pager_setsize(vp, size);
-		vnode_setsizechange(vp, 0);
+		vnode_pager_setsize(fileobject, vp, size, FALSE);
+
 	}
 }
 
@@ -1762,7 +1772,8 @@ vnode_flushcache(vnode_t *vp, FILE_OBJECT *fileobject, boolean_t hard)
 		dprintf("vp %p: Non^NULL entires so saying failed\n", vp);
 	}
 
-
+	// if (ret)
+	//  fileobject->SectionObjectPointer = NULL;
 // out:
 	// Remove usecount lock held above.
 	atomic_dec_32(&vp->v_usecount);
@@ -1825,6 +1836,22 @@ void
 vnode_unlock(vnode_t *vp)
 {
 	mutex_exit(&vp->v_mutex);
+}
+
+int
+vnode_fileobject_member(vnode_t *vp, void *fo)
+{
+	avl_index_t idx;
+	mutex_enter(&vp->v_mutex);
+	// Early out to avoid memory alloc
+	vnode_fileobjects_t search;
+	search.fileobject = fo;
+	if (avl_find(&vp->v_fileobjects, &search, &idx) != NULL) {
+		mutex_exit(&vp->v_mutex);
+		return (1);
+	}
+	mutex_exit(&vp->v_mutex);
+	return (0);
 }
 
 /*
@@ -1954,3 +1981,31 @@ vnode_check_iocount(void)
 	mutex_exit(&vnode_all_list_lock);
 }
 #endif
+
+// Call CcSetFileSizes() either directly, or delayed
+// if delay=false, uses FileObject
+// if we fail to set, remember it with setsizechange
+void
+vnode_pager_setsize(void *fo, vnode_t *vp, uint64_t size, boolean_t delay)
+{
+	FILE_OBJECT *fileObject = fo;
+	vp->FileHeader.AllocationSize.QuadPart = 
+	    P2ROUNDUP(size, PAGE_SIZE);
+	vp->FileHeader.FileSize.QuadPart = size;
+	vp->FileHeader.ValidDataLength.QuadPart = size;
+	vnode_setsizechange(vp, 1); 
+	if (!delay && fileObject && fileObject->SectionObjectPointer && fileObject->SectionObjectPointer->SharedCacheMap) {
+		DWORD __status = STATUS_SUCCESS; 
+
+		try {
+			CcSetFileSizes(fileObject, (PCC_FILE_SIZES) &vp->FileHeader.AllocationSize);
+		}  except (FsRtlIsNtstatusExpected(GetExceptionCode()) ?
+			EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH ) {
+		    __status = STATUS_UNEXPECTED_IO_ERROR;
+		}
+
+		if (NT_SUCCESS(__status)) 
+			vnode_setsizechange(vp, 0); 
+	}
+
+}

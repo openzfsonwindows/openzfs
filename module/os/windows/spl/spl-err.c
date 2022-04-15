@@ -65,3 +65,15 @@ cmn_err(int ce, const char *fmt, ...)
 	vcmn_err(ce, fmt, ap);
 	va_end(ap);
 } /* cmn_err() */
+
+int
+spl_panic(const char *file, const char *func, int line, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	PANIC(fmt, ap);
+	va_end(ap);
+}
+
+
