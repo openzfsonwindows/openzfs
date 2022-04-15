@@ -350,6 +350,7 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 	char *brkt = NULL;
 	struct componentname cn;
 	int fullstrlen;
+	char namebuffer[MAXNAMELEN];
 
 	// Iterate from dvp if given, otherwise root
 	dvp = *dvpp;
@@ -387,18 +388,18 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 			VN_RELE(dvp);
 			return (STATUS_OBJECT_NAME_INVALID);
 		}
-
+		strlcpy(namebuffer, word, sizeof (namebuffer));
 		// Dont forget zfs_lookup() modifies
 		// "cn" here, so size needs to be max, if
 		// formD is in effect.
 		cn.cn_nameiop = LOOKUP;
 		cn.cn_flags = ISLASTCN;
-		cn.cn_namelen = strlen(word);
-		cn.cn_nameptr = word;
+		cn.cn_namelen = strlen(namebuffer);
+		cn.cn_nameptr = namebuffer;
 		cn.cn_pnlen = PATH_MAX - cn.cn_namelen;
-		cn.cn_pnbuf = word;
+		cn.cn_pnbuf = namebuffer;
 
-		error = zfs_lookup(VTOZ(dvp), word,
+		error = zfs_lookup(VTOZ(dvp), namebuffer,
 		    &zp, flags, NULL, &direntflags, &cn);
 
 		if (error != 0) {
