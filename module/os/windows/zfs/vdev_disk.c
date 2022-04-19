@@ -578,6 +578,9 @@ vdev_disk_io_start_done(__in PVOID pDummy, __in PVOID pWkParms)
 	NTSTATUS status = zio->windows.IoStatus.Status;
 	zio->io_error = (!NT_SUCCESS(status) ? EIO : 0);
 
+	UnlockAndFreeMdl(zio->windows.irp->MdlAddress);
+	IoFreeIrp(zio->windows.irp);
+
 	// Return abd buf
 	if (zio->io_type == ZIO_TYPE_READ) {
 		VERIFY3S(zio->io_abd->abd_size, >=, zio->io_size);
@@ -589,8 +592,6 @@ vdev_disk_io_start_done(__in PVOID pDummy, __in PVOID pWkParms)
 		    zio->io_size);
 	}
 
-	UnlockAndFreeMdl(zio->windows.irp->MdlAddress);
-	IoFreeIrp(zio->windows.irp);
 	zio_delay_interrupt(zio);
 }
 
