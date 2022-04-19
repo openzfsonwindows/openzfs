@@ -461,7 +461,7 @@ spa_config_lock_destroy(spa_t *spa)
 }
 
 int
-spa_config_tryenter(spa_t *spa, int locks, void *tag, krw_t rw)
+spa_config_tryenter(spa_t *spa, int locks, const void *tag, krw_t rw)
 {
 	for (int i = 0; i < SCL_LOCKS; i++) {
 		spa_config_lock_t *scl = &spa->spa_config_lock[i];
@@ -876,7 +876,7 @@ spa_next(spa_t *prev)
  * have the namespace lock held.
  */
 void
-spa_open_ref(spa_t *spa, void *tag)
+spa_open_ref(spa_t *spa, const void *tag)
 {
 	ASSERT(zfs_refcount_count(&spa->spa_refcount) >= spa->spa_minref ||
 	    MUTEX_HELD(&spa_namespace_lock));
@@ -888,7 +888,7 @@ spa_open_ref(spa_t *spa, void *tag)
  * have the namespace lock held.
  */
 void
-spa_close(spa_t *spa, void *tag)
+spa_close(spa_t *spa, const void *tag)
 {
 	ASSERT(zfs_refcount_count(&spa->spa_refcount) > spa->spa_minref ||
 	    MUTEX_HELD(&spa_namespace_lock));
@@ -904,7 +904,7 @@ spa_close(spa_t *spa, void *tag)
  * so the asserts in spa_close() do not apply.
  */
 void
-spa_async_close(spa_t *spa, void *tag)
+spa_async_close(spa_t *spa, const void *tag)
 {
 	(void) zfs_refcount_remove(&spa->spa_refcount, tag);
 }
@@ -1512,8 +1512,8 @@ void
 snprintf_blkptr(char *buf, size_t buflen, const blkptr_t *bp)
 {
 	char type[256];
-	char *checksum = NULL;
-	char *compress = NULL;
+	const char *checksum = NULL;
+	const char *compress = NULL;
 
 	if (bp != NULL) {
 		if (BP_GET_TYPE(bp) & DMU_OT_NEWTYPE) {
