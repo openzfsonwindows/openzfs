@@ -396,7 +396,7 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 		cn.cn_flags = ISLASTCN;
 		cn.cn_namelen = strlen(namebuffer);
 		cn.cn_nameptr = namebuffer;
-		cn.cn_pnlen = PATH_MAX - cn.cn_namelen;
+		cn.cn_pnlen = MAXNAMELEN;
 		cn.cn_pnbuf = namebuffer;
 
 		error = zfs_lookup(VTOZ(dvp), namebuffer,
@@ -956,16 +956,18 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		int direntflags = 0; // To detect ED_CASE_CONFLICT
 		error = zfs_dirlook(dzp, stream_name, &zp, 0 /* FIGNORECASE */,
 		    &direntflags, NULL);
-		if (error) {
+		if (!CreateFile && error) {
 			Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
 			return (STATUS_OBJECT_NAME_NOT_FOUND);
 		}
-
 		// Here, it may not exist, as we are to create it.
-		finalname = stream_name;
-		vp = ZTOV(zp);
-	}
+		// If it exists, keep vp, otherwise, it is NULL
+		if (!error) {
+			vp = ZTOV(zp);
+		} // else vp is NULL from above
 
+		finalname = stream_name;
+	}
 
 	if (OpenTargetDirectory) {
 		if (dvp) {
@@ -1281,7 +1283,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 		vap->va_type = VREG;
 		if (!(vap->va_mask & ATTR_MODE))
-			vap->va_mode = 0777;
+			vap->va_mode = 0777 | S_IFREG;
 		vap->va_mask = (ATTR_MODE | ATTR_TYPE);
 
 		// If O_TRUNC:
