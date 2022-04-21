@@ -635,7 +635,7 @@ getf(uint64_t fd)
 
 	sfp->f_vnode	= sfp;
 
-	sfp->f_fd	= fd;
+	sfp->f_handle	= fd;
 	sfp->f_offset	= 0;
 	sfp->f_proc	= current_proc();
 	sfp->f_fp	= (void *)fp;
@@ -1500,11 +1500,12 @@ repeat:
 			// the node at end of this while.
 
 				try {
-					Status = ObReferenceObjectByPointer(
-					    fileobject,  // fixme, keep this in dvd
-					    0,
-					    *IoFileObjectType,
-					    KernelMode);
+					Status = ObReferenceObject(fileobject);
+			//		Status = ObReferenceObjectByPointer(
+			//		    fileobject,  // fixme, keep this in dvd
+			//		    0,
+			//		    *IoFileObjectType,
+			//		    KernelMode);
 				} except(EXCEPTION_EXECUTE_HANDLER) {
 					Status = GetExceptionCode();
 				}
