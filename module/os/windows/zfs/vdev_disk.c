@@ -575,7 +575,7 @@ vdev_disk_io_start_done(__in PVOID pDummy, __in PVOID pWkParms)
 	IoFreeWorkItem(zio->windows.work_item);
 	zio->windows.work_item = NULL;
 
-	NTSTATUS status = zio->windows.IoStatus.Status;
+	NTSTATUS status = zio->windows.irp->IoStatus.Status;
 	zio->io_error = (!NT_SUCCESS(status) ? EIO : 0);
 
 	UnlockAndFreeMdl(zio->windows.irp->MdlAddress);
