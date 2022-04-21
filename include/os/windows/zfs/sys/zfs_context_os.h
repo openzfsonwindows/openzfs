@@ -88,6 +88,14 @@ typedef	int	fstrans_cookie_t;
 #define	spl_fstrans_mark()		(0)
 #define	spl_fstrans_unmark(x)	(x = 0)
 
+// "zfs send" will try to use a new thread to send, which is
+// not allowed (thread can't use HANDLE from userland unless
+// it is exactly the same process). Set this here, to call
+// "zfs send" directly.
+#define	HAVE_LARGE_STACKS   1
+
+
+
 #ifdef _KERNEL
 
 struct hlist_node {
