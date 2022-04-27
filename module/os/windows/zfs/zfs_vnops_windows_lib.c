@@ -578,7 +578,7 @@ vnode_apply_single_ea(struct vnode *vp, struct vnode *xdvp,
 {
 	int error;
 	znode_t *xzp = NULL;
-
+	vnode_t *xvp = NULL;
 	dprintf("%s: xattr '%.*s' valuelen %u\n", __func__,
 	    ea->EaNameLength, ea->EaName, ea->EaValueLength);
 
@@ -591,11 +591,12 @@ vnode_apply_single_ea(struct vnode *vp, struct vnode *xdvp,
 		// Add replace EA
 
 		error = zfs_obtain_xattr(VTOZ(xdvp), ea->EaName,
-		    VTOZ(vp)->z_mode, NULL, &xzp, 0);
+		    VTOZ(vp)->z_mode, NULL, &xvp, 0);
 		if (error)
 			goto out;
-		if (xzp->z_sa_hdl == NULL)
-			goto out;
+		xzp = VTOZ(xvp);
+		if (xzp->z_sa_hdl == NULL || ZTOV(xzp) == NULL)
+		    goto out;
 		/* Truncate, if it was existing */
 		error = zfs_freesp(xzp, 0, 0, VTOZ(vp)->z_mode, TRUE);
 
