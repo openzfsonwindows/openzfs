@@ -2860,12 +2860,11 @@ delete_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 top:
 	tx = dmu_tx_create(zfsvfs->z_os);
 	fuid_dirtied = zfsvfs->z_fuid_dirty;
-	dmu_tx_hold_write(tx, DMU_NEW_OBJECT, 0, MAX(1, inlen));
-	dmu_tx_hold_zap(tx, dzp->z_id, TRUE, NULL);
-	dmu_tx_hold_sa_create(tx, inlen);
+
+	dmu_tx_hold_zap(tx, dzp->z_id, FALSE, NULL); // name
 	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
-	if (fuid_dirtied)
-		zfs_fuid_txhold(zfsvfs, tx);
+	zfs_sa_upgrade_txholds(tx, zp);
+	zfs_sa_upgrade_txholds(tx, dzp);
 
 	error = dmu_tx_assign(tx, TXG_WAIT);
 	if (error) {
@@ -2875,20 +2874,22 @@ top:
 		goto out;
 	}
 
+	mutex_enter(&zp->z_lock);
+
 	(void) sa_update(zp->z_sa_hdl, SA_ZPL_FLAGS(zfsvfs),
 	    &zp->z_pflags, sizeof (zp->z_pflags), tx);
 
-	mutex_enter(&zp->z_lock);
 	if (zp->z_is_sa)
 		error = sa_remove(zp->z_sa_hdl, SA_ZPL_SYMLINK(zfsvfs),
 		    tx);
 	else
 		zfs_sa_symlink(zp, buffer, 0, tx);
-	mutex_exit(&zp->z_lock);
 
 	zp->z_size = 0;	// If dir size > 2 -> ENOTEMPTY
 	(void) sa_update(zp->z_sa_hdl, SA_ZPL_SIZE(zfsvfs),
 	    &zp->z_size, sizeof (zp->z_size), tx);
+
+	mutex_exit(&zp->z_lock);
 
 	dmu_tx_commit(tx);
 
