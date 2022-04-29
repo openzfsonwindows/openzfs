@@ -554,6 +554,15 @@ spl_stop(void)
 		IOLog("SPL: active threads %d\n", zfs_threads);
 		delay(hz << 2);
 	}
+
+	/*
+	 * At this point, all threads waiting on bsd_timers in
+	 * bsd_timeout_handler() are exited and timer can be cancelled. If the
+	 * timer is still loaded,it could fire after driver unload and bugcheck
+	 */
+	spl_kmem_timer_fini();
+	vmem_timer_fini();
+
 	return (STATUS_SUCCESS);
 }
 
