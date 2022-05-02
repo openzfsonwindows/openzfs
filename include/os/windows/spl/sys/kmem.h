@@ -78,6 +78,7 @@ void spl_kmem_init(uint64_t);
 void spl_kmem_thread_init();
 void spl_kmem_mp_init();
 void spl_kmem_thread_fini();
+void spl_kmem_timer_fini();
 void spl_kmem_fini();
 
 uint64_t kmem_size(void);

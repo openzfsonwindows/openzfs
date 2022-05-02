@@ -5402,6 +5402,14 @@ spl_kmem_thread_fini(void)
 }
 
 void
+spl_kmem_timer_fini(void)
+{
+	bsd_timeout_cancel(&kmem_update_timer);
+	bsd_timeout_cancel(&kmem_reaping);
+	bsd_timeout_cancel(&kmem_reaping_idspace);
+}
+
+void
 spl_kmem_mp_init(void)
 {
 	kmem_update_timeout(&kmem_update_timer);
