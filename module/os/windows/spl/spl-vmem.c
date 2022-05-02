@@ -3574,6 +3574,12 @@ vmem_fini_void(void *vmp, void *start, size_t size)
 }
 
 void
+vmem_timer_fini()
+{
+	bsd_timeout_cancel(&vmem_update_timer);
+}
+
+void
 vmem_fini(vmem_t *heap)
 {
 	struct free_slab *fs;
