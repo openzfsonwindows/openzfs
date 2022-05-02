@@ -135,13 +135,14 @@ lookasidelist_cache_destroy(lookasidelist_cache_t *pLookasidelist_cache)
 	if (pLookasidelist_cache != NULL) {
 		ExFlushLookasideListEx(&pLookasidelist_cache->lookasideField);
 		ExDeleteLookasideListEx(&pLookasidelist_cache->lookasideField);
-		ExFreePoolWithTag(pLookasidelist_cache,
-		    ZFS_LookAsideList_DRV_TAG);
 
 		if (pLookasidelist_cache->cache_kstat != NULL) {
 			kstat_delete(pLookasidelist_cache->cache_kstat);
 			pLookasidelist_cache->cache_kstat = NULL;
 		}
+
+		ExFreePoolWithTag(pLookasidelist_cache,
+		    ZFS_LookAsideList_DRV_TAG);
 	}
 }
 
