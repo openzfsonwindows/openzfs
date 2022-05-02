@@ -52,7 +52,7 @@ static inline void bsd_timeout_handler(void *arg)
 static inline void bsd_untimeout(void(*func)(void *), void *ID)
 {
 /*
- * Unfortunately, calling KeSetTimer() does not Signal (or abort) any thread
+ * Unfortunately, calling KeCancelTimer() does not Signal (or abort) any thread
  * sitting in KeWaitForSingleObject() so they would wait forever. Instead we
  * change the timeout to be now, so that the threads can exit.
  */
@@ -90,6 +90,31 @@ static inline void bsd_timeout(void *FUNC, void *ID, struct timespec *TIM)
 		/* Another option would have been to use taskq, it can cancel */
 		thread_create(NULL, 0, bsd_timeout_handler, ID, 0, NULL,
 		    TS_RUN, minclsyspri);
+	}
+}
+
+/*
+ * Unfortunately, calling KeCancelTimer() does not Signal (or abort) any thread
+ * sitting in KeWaitForSingleObject() so they would wait forever. Call this
+ * function only when there are no threads waiting in bsd_timeout_handler().
+ * Unloading the driver with loaded timer object can cause bugcheck when the
+ * timer fires.
+ */
+static inline void bsd_timeout_cancel(void *ID)
+{
+	struct bsd_timeout_wrapper *btw = (struct bsd_timeout_wrapper *)ID;
+
+	if (btw == NULL) {
+		dprintf("%s NULL ID is not implemented\n", __func__);
+		return;
+	}
+
+	if (btw->func != NULL) {
+		if (KeCancelTimer(&btw->timer)) {
+			dprintf("timer object was loaded.Cancelled it.\n");
+		} else {
+			dprintf("timer object is not loaded.\n");
+		}
 	}
 }
 
