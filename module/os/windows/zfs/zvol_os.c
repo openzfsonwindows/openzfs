@@ -671,6 +671,7 @@ zvol_os_detach_zv(zvol_state_t *zv)
 				rw_exit(&zv->zv_suspend_lock);
 			}
 		}
+		wzvol_announce_buschange();
 	}
 }
 
