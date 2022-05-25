@@ -587,7 +587,10 @@ efi_ioctl(int fd, int cmd, dk_efi_t *dk_ioc)
 			return (error);
 
 		/* Ensure any local disk cache is also flushed */
-
+#if defined(__linux__)
+		if (ioctl(fd, BLKFLSBUF, 0) == -1)
+			return (error);
+#endif
 		error = 0;
 		break;
 
@@ -609,13 +612,20 @@ efi_ioctl(int fd, int cmd, dk_efi_t *dk_ioc)
 int
 efi_rescan(int fd)
 {
-	DWORD size = 0;
+#if defined(__linux__)
+	int retry = 10;
+	int error;
+
 	/* Notify the kernel a devices partition table has been updated */
-	if (!DeviceIoControl(fd, IOCTL_DISK_UPDATE_PROPERTIES, NULL, 0, NULL, 0, &size, NULL)) {
-		(void)fprintf(stderr, "the kernel failed to rescan "
-		    "the partition table: %d\n", GetLastError());
-		return (-1);
+	while ((error = ioctl(fd, BLKRRPART)) != 0) {
+		if ((--retry == 0) || (errno != EBUSY)) {
+			(void) fprintf(stderr, "the kernel failed to rescan "
+			    "the partition table: %d\n", errno);
+			return (-1);
+		}
+		usleep(50000);
 	}
+#endif
 
 	return (0);
 }
@@ -936,55 +946,6 @@ efi_read(int fd, struct dk_gpt *vtoc)
 	return (dki_info.dki_partition);
 }
 
-static void
-init_disk(int fd)
-{
-	SET_DISK_ATTRIBUTES diskAttrs = { 0 };
-	CREATE_DISK createDisk;
-	ULONG signature = 0;
-	// "track0" is the first 64+ sectors reserved for MBR, partition table, etc.
-	// NOTE: using CHS-style 63 sectors causes an issue with Windows 10 format utility
-	// (BIOS reports a maximum of 63 sectors/track but this isn't the true value)
-	DWORD firstTrackSectors = 64;
-	DWORD firstTrackOffset;
-	DWORD requiredSize;
-
-	random_get_bytes((uint8_t *)&signature, sizeof(signature));
-
-	// Set disk attributes.
-	diskAttrs.Version = sizeof(diskAttrs);
-	diskAttrs.AttributesMask = DISK_ATTRIBUTE_OFFLINE | DISK_ATTRIBUTE_READ_ONLY;
-	diskAttrs.Attributes = 0; // clear
-	diskAttrs.Persist = TRUE;
-
-	if (!DeviceIoControl(fd, IOCTL_DISK_SET_DISK_ATTRIBUTES, &diskAttrs, sizeof(diskAttrs), NULL, 0, &requiredSize, NULL)) {
-		(void)fprintf(stderr,
-		    "IOCTL_DISK_SET_DISK_ATTRIBUTES");
-		return;
-	}
-
-	// Tell the system that the disk was changed.
-	if (!DeviceIoControl(fd, IOCTL_DISK_UPDATE_PROPERTIES, NULL, 0, NULL, 0, &requiredSize, NULL)) {
-		(void)fprintf(stderr,
-		    "IOCTL_DISK_UPDATE_PROPERTIES");
-		return;
-	}
-
-	// Initialize the disk.
-	createDisk.PartitionStyle = PARTITION_STYLE_MBR;
-	// We assign a random MBR signature because they need to be unique for a given Windows installation.
-	// Although private disk's signature collision is not a problem on a single system,
-	// it prevents offline mounting of a HVM private image in another HVM with Windows Tools.
-	// More info: http://blogs.technet.com/b/markrussinovich/archive/2011/11/08/3463572.aspx
-	createDisk.Mbr.Signature = signature;
-
-	if (!DeviceIoControl(fd, IOCTL_DISK_CREATE_DISK, &createDisk, sizeof(createDisk), NULL, 0, &requiredSize, NULL)) {
-		(void)fprintf(stderr,
-		    "IOCTL_DISK_CREATE_DISK");
-		return;
-	}
-}
-
 /* writes a "protective" MBR */
 static int
 write_pmbr(int fd, struct dk_gpt *vtoc)
@@ -999,9 +960,6 @@ write_pmbr(int fd, struct dk_gpt *vtoc)
 	len = (vtoc->efi_lbasize == 0) ? sizeof (mb) : vtoc->efi_lbasize;
 	if (posix_memalign((void **)&buf, len, len))
 		return (VT_ERROR);
-
-	/* Warm Windoes to the new disk */
-	init_disk(fd);
 
 	/*
 	 * Preserve any boot code and disk signature if the first block is
@@ -1062,45 +1020,6 @@ write_pmbr(int fd, struct dk_gpt *vtoc)
 	dk_ioc.dki_data = (efi_gpt_t *)buf;
 	dk_ioc.dki_lba = 0;
 	dk_ioc.dki_length = len;
-
-	BYTE partitionBuffer[sizeof(DRIVE_LAYOUT_INFORMATION_EX) + 4 * sizeof(PARTITION_INFORMATION_EX)] = { 0 };
-	DRIVE_LAYOUT_INFORMATION_EX* driveLayout = (DRIVE_LAYOUT_INFORMATION_EX*)partitionBuffer;
-	DWORD size;
-	DISK_GEOMETRY_EX diskGeometry = { 0 };
-	DWORD firstTrackSectors = 64;
-	DWORD firstTrackOffset;
-
-	if (!DeviceIoControl(fd, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, NULL, 0, &diskGeometry, sizeof(diskGeometry), &size, NULL)) {
-		perror("IOCTL_DISK_GET_DRIVE_GEOMETRY_EX");
-		return (-1);
-	}
-
-	firstTrackOffset = firstTrackSectors * diskGeometry.Geometry.BytesPerSector;
-    
-	driveLayout->PartitionStyle = PARTITION_STYLE_MBR;
-	driveLayout->PartitionCount = 4;
-	driveLayout->Mbr.Signature = LE_16(MBB_MAGIC);
-
-	driveLayout->PartitionEntry[0].PartitionStyle = PARTITION_STYLE_MBR;
-	driveLayout->PartitionEntry[0].StartingOffset.QuadPart = firstTrackOffset;
-	driveLayout->PartitionEntry[0].PartitionLength.QuadPart = diskGeometry.DiskSize.QuadPart - firstTrackOffset;
-	driveLayout->PartitionEntry[0].PartitionNumber = 1; // 1-based
-	driveLayout->PartitionEntry[0].RewritePartition = TRUE;
-
-	driveLayout->PartitionEntry[0].Mbr.PartitionType = EFI_PMBR;
-	driveLayout->PartitionEntry[0].Mbr.RecognizedPartition = FALSE; 
-	driveLayout->PartitionEntry[0].Mbr.BootIndicator = FALSE;
-	driveLayout->PartitionEntry[0].Mbr.HiddenSectors = firstTrackSectors;
-
-	driveLayout->PartitionEntry[1].RewritePartition = TRUE;
-	driveLayout->PartitionEntry[2].RewritePartition = TRUE;
-	driveLayout->PartitionEntry[3].RewritePartition = TRUE;
-
-	if (!DeviceIoControl(fd, IOCTL_DISK_SET_DRIVE_LAYOUT_EX, partitionBuffer, sizeof(partitionBuffer), NULL, 0, &size, NULL)) {
-		perror("failed to partition");
-	}
-
-
 	if (efi_ioctl(fd, DKIOCSETEFI, &dk_ioc) == -1) {
 		posix_memalign_free(buf);
 		switch (errno) {
@@ -1297,6 +1216,7 @@ efi_use_whole_disk(int fd)
 	return (0);
 }
 
+
 /*
  * write EFI label and backup label
  */
@@ -1331,9 +1251,6 @@ efi_write(int fd, struct dk_gpt *vtoc)
 			return (VT_EINVAL);
 		}
 	}
-
-	/* write the PMBR */
-	(void)write_pmbr(fd, vtoc);
 
 	dk_ioc.dki_lba = 1;
 	if (NBLOCKS(vtoc->efi_nparts, vtoc->efi_lbasize) < 34) {
@@ -1499,6 +1416,8 @@ efi_write(int fd, struct dk_gpt *vtoc)
 			    errno);
 		}
 	}
+	/* write the PMBR */
+	(void) write_pmbr(fd, vtoc);
 	posix_memalign_free(dk_ioc.dki_data);
 
 	return (0);
