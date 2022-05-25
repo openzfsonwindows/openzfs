@@ -1784,11 +1784,19 @@ zfs_set_security(struct vnode *vp, struct vnode *dvp)
 				goto err;
 			}
 			dvp = ZTOV(dzp);
+
 		} // What to do if no sa_hdl ?
 	} else {
 		VN_HOLD(dvp);
 		dzp = VTOZ(dvp);
 	}
+
+        if (vnode_security(dvp) == NULL)
+		zfs_set_security(dvp, NULL);
+
+	// We can fail here, if we are processing unlinked-list
+	if (vnode_security(dvp) == NULL)
+		goto err;
 
 	ASSERT(dvp != NULL);
 	ASSERT(dzp != NULL);
@@ -1812,7 +1820,8 @@ zfs_set_security(struct vnode *vp, struct vnode *dvp)
 	RtlSetGroupSecurityDescriptor(&sd, groupsid, FALSE);
 
 err:
-	if (dvp) VN_RELE(dvp);
+	if (dvp)
+		VN_RELE(dvp);
 	ZFS_EXIT(zfsvfs);
 
 	if (usersid != NULL)
