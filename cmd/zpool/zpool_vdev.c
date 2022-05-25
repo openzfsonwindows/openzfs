@@ -1030,6 +1030,10 @@ make_disks(zpool_handle_t *zhp, nvlist_t *nv)
 		} else {
 			(void) close(fd);
 		}
+#ifdef _WIN32
+		/* Dont really have partitions yet, so dont zero_label() */
+		is_exclusive = 1;
+#endif
 
 		/*
 		 * If the partition exists, contains a valid spare label,
