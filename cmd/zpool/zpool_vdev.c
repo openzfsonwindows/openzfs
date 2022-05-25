@@ -1077,10 +1077,11 @@ make_disks(zpool_handle_t *zhp, nvlist_t *nv)
 				return (ret);
 			}
 
+#ifndef _WIN32
 			ret = zero_label(udevpath);
 			if (ret)
 				return (ret);
-#ifdef _WIN32
+#else
 			/*
 			 * Append_partition will only work once label_disk has
 			 * been called (To find offset+length).
