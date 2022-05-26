@@ -520,7 +520,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 {
 	int error;
 	cred_t *cr = NULL;
-	char *finalname;
+	char *finalname = NULL;
 	char *brkt = NULL;
 	char *word = NULL;
 	PFILE_OBJECT FileObject;
@@ -1738,7 +1738,7 @@ zfs_znode_getvnode(znode_t *zp, znode_t *dzp, zfsvfs_t *zfsvfs)
 		dprintf("%s: failed to build fullpath\n", __func__);
 
 	// Assign security here. But, if we are XATTR, we do not? In Windows,
-	// it refers to Streams and they do not have Scurity?
+	// it refers to Streams and they do not have Security?
 	if (zp->z_pflags & ZFS_XATTR)
 		;
 	else
@@ -2699,7 +2699,7 @@ NTSTATUS
 set_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
 {
-	NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
+	NTSTATUS Status = STATUS_SUCCESS;
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	DWORD inlen = IrpSp->Parameters.DeviceIoControl.InputBufferLength;
 	void *buffer = Irp->AssociatedIrp.SystemBuffer;
@@ -2721,7 +2721,7 @@ set_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (!NT_SUCCESS(Status)) {
 		dprintf("FsRtlValidateReparsePointBuffer returned %08x\n",
 		    Status);
-		goto out;
+		return (Status);
 	}
 
 	RtlCopyMemory(&tag, buffer, sizeof (ULONG));
@@ -2743,6 +2743,9 @@ set_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		goto out;
 	}
 
+	if (zp->z_pflags & ZFS_REPARSE) {
+		DbgBreakPoint();
+	}
 	// error = zfs_symlink(dzp, , vattr_t * vap, char *link,
 	//     znode_t * *zpp, cred_t * cr, int flags)
 
@@ -2795,6 +2798,8 @@ top:
 		zil_commit(zfsvfs->z_log, 0);
 
 out:
+	if (dzp)
+		zrele(dzp);
 	VN_RELE(vp);
 
 	dprintf("%s: returning 0x%x\n", __func__, Status);
@@ -2806,7 +2811,7 @@ NTSTATUS
 delete_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
 {
-	NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
+	NTSTATUS Status = STATUS_SUCCESS;
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	DWORD inlen = IrpSp->Parameters.DeviceIoControl.InputBufferLength;
 	void *buffer = Irp->AssociatedIrp.SystemBuffer;
@@ -2830,7 +2835,9 @@ delete_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (rdb->ReparseDataLength > 0) 
 		return (STATUS_INVALID_PARAMETER);
 
-	VN_HOLD(vp);
+	if (VN_HOLD(vp) != 0)
+		return (STATUS_INVALID_PARAMETER);
+
 	znode_t *zp = VTOZ(vp);
 
 	// Like zfs_symlink, write the data as SA attribute.
@@ -2897,6 +2904,8 @@ top:
 		zil_commit(zfsvfs->z_log, 0);
 
 out:
+	if (dzp != NULL)
+	    zrele(dzp);
 	VN_RELE(vp);
 
 	dprintf("%s: returning 0x%x\n", __func__, Status);
