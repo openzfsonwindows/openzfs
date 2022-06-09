@@ -80,6 +80,8 @@ struct vnode {
 	// mmap file access struct
 	SECTION_OBJECT_POINTERS SectionObjectPointers;
 
+	OPLOCK oplock;
+
 	// Our implementation data fields
 	// KSPIN_LOCK v_spinlock;
 	kmutex_t v_mutex;
@@ -535,5 +537,7 @@ int blk_queue_discard_secure(PDEVICE_OBJECT dev);
 int blk_queue_nonrot(PDEVICE_OBJECT dev);
 int blkdev_issue_discard_bytes(PDEVICE_OBJECT dev, uint64_t offset,
     uint64_t size, uint32_t flags);
+
+POPLOCK vp_oplock(struct vnode *vp);
 
 #endif /* SPL_VNODE_H */
