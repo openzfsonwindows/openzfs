@@ -1200,6 +1200,28 @@ vnode_recycle(vnode_t *vp)
 	return (vnode_recycle_int(vp, 0));
 }
 
+typedef struct {
+    FSRTL_COMMON_FCB_HEADER Header;
+    PFAST_MUTEX FastMutex;
+    LIST_ENTRY FilterContexts;
+    EX_PUSH_LOCK PushLock;
+    PVOID *FileContextSupportPointer;
+    union {
+	OPLOCK Oplock;
+	PVOID ReservedForRemote;
+    };
+    PVOID ReservedContext;
+} FSRTL_ADVANCED_FCB_HEADER_NEW;
+
+POPLOCK vp_oplock(struct vnode *vp)
+{
+    // The oplock in header starts with Win8
+    if (vp->FileHeader.Version >= FSRTL_FCB_HEADER_V2)
+		return &((FSRTL_ADVANCED_FCB_HEADER_NEW *)&vp->FileHeader)->Oplock;
+	else
+		return &vp->oplock;
+}
+
 void
 vnode_create(mount_t *mp, void *v_data, int type, int flags,
     struct vnode **vpp)
@@ -1234,6 +1256,8 @@ vnode_create(mount_t *mp, void *v_data, int type, int flags,
 	FsRtlSetupAdvancedHeader(&vp->FileHeader, &vp->AdvancedFcbHeaderMutex);
 
 	FsRtlInitializeFileLock(&vp->lock, NULL, NULL);
+	FsRtlInitializeOplock(vp_oplock(vp));
+
 	vp->FileHeader.Resource = &vp->resource;
 	vp->FileHeader.PagingIoResource = &vp->pageio_resource;
 
