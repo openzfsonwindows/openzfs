@@ -2743,6 +2743,8 @@ set_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		goto out;
 	}
 
+	// winbtrfs' test/exe will trigger this, add code here.
+	// (asked to create reparse point on already reparse point)
 	if (zp->z_pflags & ZFS_REPARSE) {
 		DbgBreakPoint();
 	}
@@ -2950,11 +2952,156 @@ create_or_get_object_id(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (Status);
 }
 
+typedef BOOLEAN(__stdcall *tFsRtlCheckLockForOplockRequest)(PFILE_LOCK FileLock, PLARGE_INTEGER AllocationSize);
+typedef BOOLEAN(__stdcall *tFsRtlAreThereCurrentOrInProgressFileLocks)(PFILE_LOCK FileLock);
+tFsRtlCheckLockForOplockRequest fFsRtlCheckLockForOplockRequest = NULL;
+tFsRtlAreThereCurrentOrInProgressFileLocks fFsRtlAreThereCurrentOrInProgressFileLocks = NULL;
+
 NTSTATUS
-user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	NTSTATUS Status = 0;
+	uint32_t fsctl = IrpSp->Parameters.FileSystemControl.FsControlCode;
+	PFILE_OBJECT FileObject = IrpSp->FileObject;
+	PREQUEST_OPLOCK_INPUT_BUFFER buf = NULL;
+	boolean_t oplock_request = FALSE, oplock_ack = FALSE;
+	ULONG oplock_count = 0;
+	PIRP Irp = *PIrp;
+
+	if (FileObject == NULL) 
+		return STATUS_INVALID_PARAMETER;
+
+	struct vnode *vp = IrpSp->FileObject->FsContext;
+
+	if (vp == NULL)
+		return STATUS_INVALID_PARAMETER;
+
+	znode_t *zp = VTOZ(vp);
+	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+
+	ZFS_ENTER(zfsvfs);  // This returns EIO if fail
+	/* HOLD count, no returns from here. */
+
+	if (VN_HOLD(vp) != 0) {
+		Status = STATUS_INVALID_PARAMETER;
+		goto out;
+	}
+
+	if (!vnode_isreg(vp) && !vnode_isdir(vp)) {
+		Status = STATUS_INVALID_PARAMETER;
+		goto out;
+	}
+
+	if (fsctl == FSCTL_REQUEST_OPLOCK) {
+		if (IrpSp->Parameters.FileSystemControl.InputBufferLength < sizeof(REQUEST_OPLOCK_INPUT_BUFFER)) {
+			Status = STATUS_BUFFER_TOO_SMALL;
+			goto out;
+		}
+		if (IrpSp->Parameters.FileSystemControl.OutputBufferLength < sizeof(REQUEST_OPLOCK_OUTPUT_BUFFER)) {
+			Status = STATUS_BUFFER_TOO_SMALL;
+			goto out;
+		}
+		buf = Irp->AssociatedIrp.SystemBuffer;
+
+		// flags are mutually exclusive
+		if (buf->Flags & REQUEST_OPLOCK_INPUT_FLAG_REQUEST && buf->Flags & REQUEST_OPLOCK_INPUT_FLAG_ACK) {
+			Status = STATUS_INVALID_PARAMETER;
+			goto out;
+		}
+
+		oplock_request = buf->Flags & REQUEST_OPLOCK_INPUT_FLAG_REQUEST;
+		oplock_ack = buf->Flags & REQUEST_OPLOCK_INPUT_FLAG_ACK;
+
+		if (!oplock_request && !oplock_ack) {
+			Status = STATUS_INVALID_PARAMETER;
+			goto out;
+		}
+	}
+
+	boolean_t shared_request = (fsctl == FSCTL_REQUEST_OPLOCK_LEVEL_2) || (fsctl == FSCTL_REQUEST_OPLOCK && !(buf->RequestedOplockLevel & OPLOCK_LEVEL_CACHE_WRITE));
+
+	if (vnode_isdir(vp) && (fsctl != FSCTL_REQUEST_OPLOCK || !shared_request)) {
+		dprintf("oplock requests on directories can only be for read or read-handle oplocks\n");
+		Status = STATUS_INVALID_PARAMETER;
+		goto out;
+	}
+
+	// research this
+	// ExAcquireResourceSharedLite(&Vcb->tree_lock, true);
+
+	ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, TRUE);
+
+	// Does windows have something like "attribute availability (function)" for dynamic checks?
+	// FastFat example uses #ifdef NTDDI-VERSION which is compile time, we should look into
+	// winbtrfs:
+	// RtlInitUnicodeString(&name, L"FsRtlCheckLockForOplockRequest");
+	// fFsRtlCheckLockForOplockRequest = (tFsRtlCheckLockForOplockRequest)MmGetSystemRoutineAddress(&name);
+	// move me to init place
+	static int firstrun = 1;
+	if (firstrun) {
+		UNICODE_STRING name;
+		RtlInitUnicodeString(&name, L"FsRtlCheckLockForOplockRequest");
+		fFsRtlCheckLockForOplockRequest = (tFsRtlCheckLockForOplockRequest)MmGetSystemRoutineAddress(&name);
+		RtlInitUnicodeString(&name, L"FsRtlAreThereCurrentOrInProgressFileLocks");
+		fFsRtlAreThereCurrentOrInProgressFileLocks = (tFsRtlAreThereCurrentOrInProgressFileLocks)MmGetSystemRoutineAddress(&name);
+		firstrun = 0;
+	}
+
+	if (fsctl == FSCTL_REQUEST_OPLOCK_LEVEL_1 || fsctl == FSCTL_REQUEST_BATCH_OPLOCK || fsctl == FSCTL_REQUEST_FILTER_OPLOCK ||
+	    fsctl == FSCTL_REQUEST_OPLOCK_LEVEL_2 || oplock_request) {
+	    if (shared_request) {
+		if (vnode_isreg(vp)) {
+		    if (fFsRtlCheckLockForOplockRequest)
+			oplock_count = !fFsRtlCheckLockForOplockRequest(&vp->lock, &vp->FileHeader.AllocationSize);
+		    else if (fFsRtlAreThereCurrentOrInProgressFileLocks)
+			oplock_count = fFsRtlAreThereCurrentOrInProgressFileLocks(&vp->lock);
+		    else
+			oplock_count = FsRtlAreThereCurrentFileLocks(&vp->lock);
+		}
+	    } else
+		oplock_count = vnode_iocount(vp);
+	}
+
+	zfs_dirlist_t *zccb = FileObject->FsContext2;
+
+	if (zccb != NULL &&
+	    zccb->magic == ZFS_DIRLIST_MAGIC &&
+	    zccb->deleteonclose) {
+
+		if ((fsctl == FSCTL_REQUEST_FILTER_OPLOCK || fsctl == FSCTL_REQUEST_BATCH_OPLOCK ||
+		    (fsctl == FSCTL_REQUEST_OPLOCK && buf->RequestedOplockLevel & OPLOCK_LEVEL_CACHE_HANDLE))) {
+			ExReleaseResourceLite(vp->FileHeader.Resource);
+			// ExReleaseResourceLite(&Vcb->tree_lock);
+			Status = STATUS_DELETE_PENDING;
+			goto out;
+		}
+	}
+
+	// This will complete the IRP as well. How to stop dispatcher from completing?
+	Status = FsRtlOplockFsctrl(vp_oplock(vp), Irp, oplock_count);
+	*PIrp = NULL; // Don't complete.
+
+	// *Pirp = NULL;
+
+	// fcb->Header.IsFastIoPossible = fast_io_possible(fcb);
+
+	ExReleaseResourceLite(vp->FileHeader.Resource);
+	// ExReleaseResourceLite(&Vcb->tree_lock);
+
+out:
+	VN_RELE(vp);
+	ZFS_EXIT(zfsvfs);
+
+	return Status;
+}
+
+NTSTATUS
+user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
     PIO_STACK_LOCATION IrpSp)
 {
 	NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
+	PIRP Irp = *PIrp;
 
 	switch (IrpSp->Parameters.FileSystemControl.FsControlCode) {
 	case FSCTL_LOCK_VOLUME:
@@ -3036,24 +3183,7 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 	case FSCTL_REQUEST_OPLOCK:
 		dprintf("    FSCTL_REQUEST_OPLOCK: \n");
-#if 0 // not yet, store oplock in znode, init on open etc.
-		PREQUEST_OPLOCK_INPUT_BUFFER *req =
-		    Irp->AssociatedIrp.SystemBuffer;
-		int InputBufferLength =
-		    IrpSp->Parameters.FileSystemControl.InputBufferLength;
-		int OutputBufferLength =
-		    IrpSp->Parameters.FileSystemControl.OutputBufferLength;
-
-		if ((InputBufferLength <
-		    sizeof (REQUEST_OPLOCK_INPUT_BUFFER)) ||
-		    (OutputBufferLength <
-		    sizeof (REQUEST_OPLOCK_OUTPUT_BUFFER))) {
-			return (STATUS_BUFFER_TOO_SMALL);
-		}
-		OPLOCK oplock;
-		FsRtlInitializeOplock(&oplock);
-		Status = FsRtlOplockFsctrl(&oplock, Irp, 0);
-#endif
+		Status = request_oplock(DeviceObject, PIrp, IrpSp);
 		break;
 	case FSCTL_FILESYSTEM_GET_STATISTICS:
 		dprintf("    FSCTL_FILESYSTEM_GET_STATISTICS: \n");
@@ -4655,10 +4785,11 @@ NTSTATUS pnp_query_di(PDEVICE_OBJECT DeviceObject, PIRP Irp,
  */
 _Function_class_(DRIVER_DISPATCH)
     static NTSTATUS
-    ioctlDispatcher(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp,
+    ioctlDispatcher(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP *PIrp,
     PIO_STACK_LOCATION IrpSp)
 {
 	NTSTATUS Status;
+	PIRP Irp = *PIrp;
 
 	PAGED_CODE();
 
@@ -4864,10 +4995,11 @@ _Function_class_(DRIVER_DISPATCH)
     static NTSTATUS
     diskDispatcher(
     _In_ PDEVICE_OBJECT DeviceObject,
-    _Inout_ PIRP Irp,
+    _Inout_ PIRP *PIrp,
     PIO_STACK_LOCATION IrpSp)
 {
 	NTSTATUS Status;
+	PIRP Irp = *PIrp;
 
 	PAGED_CODE();
 
@@ -5046,7 +5178,7 @@ _Function_class_(DRIVER_DISPATCH)
 		case IRP_MN_USER_FS_REQUEST:
 			dprintf("IRP_MN_USER_FS_REQUEST: FsControlCode 0x%x\n",
 			    IrpSp->Parameters.FileSystemControl.FsControlCode);
-			Status = user_fs_request(DeviceObject, Irp, IrpSp);
+			Status = user_fs_request(DeviceObject, PIrp, IrpSp);
 			break;
 		default:
 			dprintf("IRP_MN_unknown: 0x%x\n", IrpSp->MinorFunction);
@@ -5107,11 +5239,12 @@ _Function_class_(DRIVER_DISPATCH)
     static NTSTATUS
     fsDispatcher(
     _In_ PDEVICE_OBJECT DeviceObject,
-    _Inout_ PIRP Irp,
+    _Inout_ PIRP *PIrp,
     PIO_STACK_LOCATION IrpSp)
 {
 	NTSTATUS Status;
 	struct vnode *hold_vp = NULL;
+	PIRP Irp = *PIrp;
 
 	PAGED_CODE();
 
@@ -5399,7 +5532,7 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = zfs_vnop_mount(DeviceObject, Irp, IrpSp);
 			break;
 		case IRP_MN_USER_FS_REQUEST:
-			Status = user_fs_request(DeviceObject, Irp, IrpSp);
+			Status = user_fs_request(DeviceObject, PIrp, IrpSp);
 			break;
 			// FSCTL_QUERY_VOLUME_CONTAINER_STATE 0x90930
 		case IRP_MN_KERNEL_CALL:
@@ -5589,7 +5722,6 @@ _Function_class_(DRIVER_DISPATCH)
 	BOOLEAN AtIrqlPassiveLevel;
 	PIO_STACK_LOCATION IrpSp;
 	NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
-	uint64_t validity_check;
 
 	// Storport can call itself (and hence, ourselves) so this isn't
 	// always true.
@@ -5608,14 +5740,12 @@ _Function_class_(DRIVER_DISPATCH)
 		return (STATUS_SUCCESS);
 	}
 #endif
-	validity_check = *((uint64_t *)Irp);
 	IrpSp = IoGetCurrentIrpStackLocation(Irp);
 
 	dprintf("%s: enter: major %d: minor %d: %s: type 0x%x: fo %p\n",
 	    __func__, IrpSp->MajorFunction, IrpSp->MinorFunction,
 	    major2str(IrpSp->MajorFunction, IrpSp->MinorFunction),
 	    Irp->Type, IrpSp->FileObject);
-
 
 	KIRQL saveIRQL;
 	saveIRQL = KeGetCurrentIrql();
@@ -5631,13 +5761,13 @@ _Function_class_(DRIVER_DISPATCH)
 	}
 
 	if (DeviceObject == ioctlDeviceObject)
-		Status = ioctlDispatcher(DeviceObject, Irp, IrpSp);
+		Status = ioctlDispatcher(DeviceObject, &Irp, IrpSp);
 	else {
 		mount_t *zmo = DeviceObject->DeviceExtension;
 		if (zmo && zmo->type == MOUNT_TYPE_DCB)
-			Status = diskDispatcher(DeviceObject, Irp, IrpSp);
+			Status = diskDispatcher(DeviceObject, &Irp, IrpSp);
 		else if (zmo && zmo->type == MOUNT_TYPE_VCB)
-			Status = fsDispatcher(DeviceObject, Irp, IrpSp);
+			Status = fsDispatcher(DeviceObject, &Irp, IrpSp);
 		else {
 			extern PDRIVER_DISPATCH
 			    STOR_MajorFunction[IRP_MJ_MAXIMUM_FUNCTION + 1];
@@ -5672,28 +5802,24 @@ _Function_class_(DRIVER_DISPATCH)
 	case STATUS_PENDING:
 		break;
 	default:
-		ASSERT(validity_check == *((uint64_t *)Irp));
 		dprintf("%s: exit: 0x%x %s Information 0x%x : %s\n",
 		    __func__, Status,
 		    common_status_str(Status),
-		    Irp->IoStatus.Information,
+		    Irp ? Irp->IoStatus.Information : 0,
 		    major2str(IrpSp->MajorFunction, IrpSp->MinorFunction));
 	}
 
 	// Complete the request if it isn't pending (ie, we
 	// called zfsdev_async())
-	if (Status != STATUS_PENDING) {
-		if (validity_check == *((uint64_t *)Irp)) {
-			// IOCTL_STORAGE_GET_HOTPLUG_INFO
-			// IOCTL_DISK_CHECK_VERIFY
-			// IOCTL_STORAGE_QUERY_PROPERTY
-			Irp->IoStatus.Status = Status;
-			IoCompleteRequest(Irp,
-			    Status == STATUS_SUCCESS ? IO_DISK_INCREMENT :
-			    IO_NO_INCREMENT);
-		} else {
-			KeBugCheckEx(INCONSISTENT_IRP, (ULONG_PTR)Irp, 0, 0, 0);
-		}
+	if (Status != STATUS_PENDING && Irp != NULL) {
+		// IOCTL_STORAGE_GET_HOTPLUG_INFO
+		// IOCTL_DISK_CHECK_VERIFY
+		// IOCTL_STORAGE_QUERY_PROPERTY
+		Irp->IoStatus.Status = Status;
+
+		IoCompleteRequest(Irp,
+		    Status == STATUS_SUCCESS ? IO_DISK_INCREMENT :
+		    IO_NO_INCREMENT);
 	}
 
 	VERIFY3U(saveIRQL, == , KeGetCurrentIrql());
