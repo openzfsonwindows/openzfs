@@ -697,13 +697,16 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			    IrpSp->Flags&SL_CASE_SENSITIVE ? "CaseSensitive" :
 			    "CaseInsensitive");
 
+			if ((!IrpSp->Flags & SL_CASE_SENSITIVE) &&
+			    (zfsvfs->z_case != ZFS_CASE_SENSITIVE))
+				flags |= FIGNORECASE;
+
 #if 0
 			if (strcmp(
 			    "\\System Volume Information\\WPSettings.dat",
 			    filename) == 0)
 				return (STATUS_OBJECT_NAME_INVALID);
 #endif
-
 
 			if (Irp->Overlay.AllocationSize.QuadPart > 0)
 				dprintf("AllocationSize requested %llu\n",
@@ -2142,7 +2145,15 @@ query_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			all->ModeInformation.Mode =
 			    vnode_unlink(vp) ? FILE_DELETE_ON_CLOSE : 0;
 #endif
-		all->AlignmentInformation.AlignmentRequirement = 0;
+		Status = file_alignment_information(DeviceObject, Irp, IrpSp,
+		    &all->AlignmentInformation);
+		if (Status != STATUS_SUCCESS)
+			break;
+
+		Status = file_internal_information(DeviceObject, Irp, IrpSp,
+		    &all->InternalInformation);
+		if (Status != STATUS_SUCCESS)
+			break;
 
 		// First get the Name, to make sure we have room
 		IrpSp->Parameters.QueryFile.Length -=
@@ -2178,8 +2189,8 @@ query_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    Irp->AssociatedIrp.SystemBuffer);
 		break;
 	case FileCompressionInformation:
-		dprintf("* %s: FileCompressionInformation NOT IMPLEMENTED\n",
-		    __func__);
+		Status = file_compression_information(DeviceObject, Irp, IrpSp,
+		    Irp->AssociatedIrp.SystemBuffer);
 		break;
 	case FileEaInformation:
 		Status = file_ea_information(DeviceObject, Irp, IrpSp,
@@ -2217,6 +2228,10 @@ query_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 	case FileStandardInformation:
 		Status = file_standard_information(DeviceObject, Irp, IrpSp,
+		    Irp->AssociatedIrp.SystemBuffer);
+		break;
+	case FileAlignmentInformation:
+		Status = file_alignment_information(DeviceObject, Irp, IrpSp,
 		    Irp->AssociatedIrp.SystemBuffer);
 		break;
 	case FileStreamInformation:
@@ -2746,7 +2761,7 @@ set_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	// winbtrfs' test/exe will trigger this, add code here.
 	// (asked to create reparse point on already reparse point)
 	if (zp->z_pflags & ZFS_REPARSE) {
-		DbgBreakPoint();
+//		DbgBreakPoint();
 	}
 	// error = zfs_symlink(dzp, , vattr_t * vap, char *link,
 	//     znode_t * *zpp, cred_t * cr, int flags)
