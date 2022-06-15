@@ -25,8 +25,8 @@
  * Copyright 2016 Nexenta Systems, Inc. All rights reserved.
  */
 
-#ifndef	_MACOS_ZFS_SYS_ZNODE_IMPL_H
-#define	_MACOS_ZFS_SYS_ZNODE_IMPL_H
+#ifndef	_WIN_ZFS_SYS_ZNODE_IMPL_H
+#define	_WIN_ZFS_SYS_ZNODE_IMPL_H
 
 #include <sys/list.h>
 #include <sys/dmu.h>
