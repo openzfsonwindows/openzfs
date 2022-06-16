@@ -347,10 +347,6 @@ sysctl_os_init(PUNICODE_STRING RegistryPath)
 			count++;
 		}
 	}
-
-	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-	    "tunable: processed %d item(s)\n",
-	    count));
 }
 
 void
