@@ -67,7 +67,7 @@ highbit64(uint64_t i)
 }
 #endif
 
-static void *
+void *
 safe_calloc(size_t n)
 {
 	void *rv = calloc(1, n);
@@ -83,7 +83,7 @@ safe_calloc(size_t n)
 /*
  * Safe version of fread(), exits on error.
  */
-static int
+int
 sfread(void *buf, size_t size, FILE *fp)
 {
 	int rv = fread(buf, size, 1, fp);
