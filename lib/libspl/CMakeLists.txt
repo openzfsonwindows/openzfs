@@ -19,7 +19,7 @@ add_library(libspl
     #os/windows/getoptl.c
     os/windows/gethostid.c
 	os/windows/page.c
-    os/windows/regex.c
+    #os/windows/regex.c
     os/windows/signal.c
     #crc32.c
     os/windows/weakpragma.c
@@ -32,4 +32,4 @@ add_library(libspl
     os/windows/zone.c
 )
 
-target_link_libraries(libspl PUBLIC libpthread PRIVATE advapi32 shell32)
+target_link_libraries(libspl PUBLIC libpthread libregex PRIVATE advapi32 shell32)
