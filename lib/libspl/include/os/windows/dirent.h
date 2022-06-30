@@ -38,15 +38,16 @@ extern "C" {
 #include <sys/stat.h>
 
 #if defined(_MSC_VER)
-#define	S_IRUSR  S_IREAD	/* read, user */
-#define	S_IWUSR  S_IWRITE	/* write, user */
-#define	S_IXUSR  0		/* execute, user */
-#define	S_IRGRP  0		/* read, group */
-#define	S_IWGRP  0		/* write, group */
-#define	S_IXGRP  0		/* execute, group */
-#define	S_IROTH  0		/* read, others */
-#define	S_IWOTH  0		/* write, others */
-#define	S_IXOTH  0		/* execute, others */
+    // These are now defined in stat.h
+// #define	S_IRUSR  S_IREAD	/* read, user */
+// #define	S_IWUSR  S_IWRITE	/* write, user */
+// #define	S_IXUSR  0		/* execute, user */
+// #define	S_IRGRP  0		/* read, group */
+// #define	S_IWGRP  0		/* write, group */
+// #define	S_IXGRP  0		/* execute, group */
+// #define	S_IROTH  0		/* read, others */
+// #define	S_IWOTH  0		/* write, others */
+// #define	S_IXOTH  0		/* execute, others */
 #endif
 
 
