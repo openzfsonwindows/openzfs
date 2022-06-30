@@ -57,8 +57,8 @@ typedef short wctype_t;
 #define towlower(a) tolower(a)
 extern wctype_t __regex_wctype(const char *);
 extern int __regex_iswctype(wint_t, wctype_t);
-#define wctype(s) __regex_wctype(s)
-#define iswctype(c, t) __regex_iswctype((c), (t))
+// #define wctype(s) __regex_wctype(s)
+// #define iswctype(c, t) __regex_iswctype((c), (t))
 #endif
 
 /* utility definitions */
