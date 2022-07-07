@@ -204,13 +204,6 @@ __dprintf(boolean_t dprint, const char *file, const char *func,
 	const char *newfile;
 
 	/*
-	 * Skip everything if we can't write to the debug log due to
-	 * being in a DPC.
-	 */
-	if (KeGetCurrentIrql() >= DISPATCH_LEVEL)
-		return;
-
-	/*
 	 * Get rid of annoying prefix to filename.
 	 */
 	newfile = strrchr(file, '/');
@@ -259,7 +252,12 @@ __dprintf(boolean_t dprint, const char *file, const char *func,
 
 	DTRACE_PROBE1(zfs__dbgmsg, char *, zdm->zdm_msg);
 
-	__zfs_dbgmsg(buf);
+	/*
+	 * Skip __zfs_dbgmsg if we can't write to the debug log due to
+	 * being in a DPC.
+	 */
+	if (KeGetCurrentIrql() < DISPATCH_LEVEL)
+		__zfs_dbgmsg(buf);
 
 	/* Also emit string to log/console */
 	printBuffer("%s\n", buf);
