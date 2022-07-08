@@ -204,6 +204,13 @@ __dprintf(boolean_t dprint, const char *file, const char *func,
 	const char *newfile;
 
 	/*
+	 * Skip everything if we can't write to the debug log due to
+	 * being in a DPC.
+	 */
+	if (KeGetCurrentIrql() >= DISPATCH_LEVEL)
+		return;
+
+	/*
 	 * Get rid of annoying prefix to filename.
 	 */
 	newfile = strrchr(file, '/');
