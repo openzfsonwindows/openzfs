@@ -58,6 +58,7 @@
 #include "../OpenZFS_perf.h"
 #include "../OpenZFS_counters.h"
 #include <sys/vdev_impl.h>
+#include <sys/arc_impl.h>
 
 // extern void zfs_windows_vnops_callback(PDEVICE_OBJECT deviceObject);
 
@@ -89,6 +90,7 @@ zfs_vfs_ref(zfsvfs_t **zfvp)
 }
 
 extern kstat_t* perf_arc_ksp;
+extern uint64_t getL2ArcAllocSize(arc_stats_t* arc_ptr);
 NTSTATUS zpool_zfs_get_metrics(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 {
     if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength < sizeof(zpool_zfs_metrics)) {

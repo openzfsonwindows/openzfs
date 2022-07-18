@@ -2262,7 +2262,8 @@ int spl_kstat_write(PDEVICE_OBJECT DiskDevice, PIRP Irp,
 }
 
 uint64_t
-getL2ArcAllocSize(arc_stats_t* arc_ptr) {
+getL2ArcAllocSize(arc_stats_t* arc_ptr)
+{
     return arc_ptr->arcstat_l2_psize.value.ui64;
 }
 
