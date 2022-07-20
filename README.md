@@ -1,3 +1,7 @@
+# ⚠️WARNING: OpenZFS for Windows is in a pre-release state.⚠️
+## ⛔ Do *not* use it for writing *or* reading critical data! ⛔
+## ⛔ Doing so may corrupt your zpool and cause permanent data loss! ⛔
+
 ![img](https://openzfs.github.io/openzfs-docs/_static/img/logo/480px-Open-ZFS-Secondary-Logo-Colour-halfsize.png)
 
 OpenZFS is an advanced file system and volume manager which was originally
