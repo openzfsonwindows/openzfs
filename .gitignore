@@ -49,6 +49,12 @@ Makefile.in
 /autom4te.cache
 
 #
+# OpenZFSonWindows MS Visual Studio top level generated files specific to this top level dir
+#
+/.vs
+/out
+
+#
 # Top level generic files
 #
 !.gitignore
