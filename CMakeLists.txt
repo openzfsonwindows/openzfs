@@ -63,6 +63,7 @@ add_compile_options(
 	-Wno-missing-field-initializers
 	#-fms-extensions
 	-Wno-unused-function
+	-Wno-unused-label
 )
 endfunction()
 
