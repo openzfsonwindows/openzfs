@@ -156,6 +156,9 @@ typedef uintptr_t pc_t;
 #define	strtok_r strtok_s
 #define	strcasecmp _stricmp
 
+#define	srandom(x) srand(x)
+#define	random() rand()
+
 struct mount;
 typedef struct mount mount_t;
 
