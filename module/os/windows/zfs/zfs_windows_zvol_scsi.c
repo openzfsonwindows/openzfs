@@ -885,8 +885,13 @@ ScsiOpReportLuns(
 		}
 	}
 
-	*((ULONG*)&pLunList->LunListLength) =
-	    RtlUlongByteSwap(totalLun * sizeof (pLunList->Lun[0]));
+	if (pSrb->DataTransferLength >=
+	    FIELD_OFFSET(LUN_LIST, LunListLength) +
+	    sizeof (pLunList->LunListLength)) {
+		*((ULONG*)&pLunList->LunListLength) =
+		    RtlUlongByteSwap(totalLun * sizeof (pLunList->Lun[0]));
+	}
+
 	pSrb->DataTransferLength = FIELD_OFFSET(LUN_LIST, Lun) +
 	    (GoodLunIdx * sizeof (pLunList->Lun[0]));
 
