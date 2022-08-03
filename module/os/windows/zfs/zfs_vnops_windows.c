@@ -4825,6 +4825,18 @@ _Function_class_(DRIVER_DISPATCH)
 		break;
 	case IRP_MJ_CLOSE:
 		Status = zfsdev_release((dev_t)IrpSp->FileObject, Irp);
+
+		// uninstall
+		extern kmutex_t zfsdev_state_lock;
+		if (fsDiskDeviceObject == NULL) {
+		    mutex_enter(&zfsdev_state_lock);
+		    if (ioctlDeviceObject != NULL) {
+			ObDereferenceObject(ioctlDeviceObject);
+			IoDeleteDevice(ioctlDeviceObject);
+			ioctlDeviceObject = NULL;
+		    }
+		    mutex_exit(&zfsdev_state_lock);
+		}
 		break;
 	case IRP_MJ_DEVICE_CONTROL:
 		{
