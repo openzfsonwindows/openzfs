@@ -903,9 +903,6 @@ zfs_ioc_unregister_fs(void)
 		IoDeleteSymbolicLink(&ntWin32NameString);
 		IoDeleteDevice(fsDiskDeviceObject);
 		fsDiskDeviceObject = NULL;
-		ObDereferenceObject(ioctlDeviceObject);
-		IoDeleteDevice(ioctlDeviceObject);
-		ioctlDeviceObject = NULL;
 	}
 #if 0
 	// Do not unload these, so that the zfsinstaller uninstall can
