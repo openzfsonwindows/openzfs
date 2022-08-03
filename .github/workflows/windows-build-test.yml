@@ -1,0 +1,83 @@
+name: windows-build-test
+
+on:
+  push:
+  pull_request:
+
+env:
+  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
+  BUILD_TYPE: Debug
+
+jobs:
+  build:
+    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
+    # You can convert this to a matrix build if you need cross-platform coverage.
+    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    runs-on: windows-latest
+
+    steps:
+    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: actions/checkout@v3
+
+    - name: Import signing certificate
+      run: |
+        $plaintextpwd = 'password1234'
+        $pwd = ConvertTo-SecureString -String $plaintextpwd -Force -AsPlainText
+        Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pwd -Exportable
+
+    #- name: Remove provided ssl
+    #  run:  Remove-Item -Path "C:\Strawberry\" -Recurse -Force
+
+    #- name: Install openssl
+    #  run: git clone https://github.com/andrewc12/openssl.git
+
+    - name: Checkout openssl
+      uses: actions/checkout@v3
+      with:
+        repository: andrewc12/openssl # optional, default is ${{ github.repository }}
+        path: openssl # optional
+
+    - name: Configure CMake
+      # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
+      # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
+      run: cmake -G "Ninja" -B ${{github.workspace}}/out/build/x64-Debug ${{github.workspace}}  -DOPENSSL_ROOT_DIR=${{github.workspace}}/openssl/ -DCRYPTO_STATIC_TEST=${{github.workspace}}/openssl/lib/VC/static/libcrypto64MTd.lib -DLIB_EAY_DEBUG=${{github.workspace}}/openssl/lib/VC/static/libcrypto64MTd.lib -DLIB_EAY_RELEASE=${{github.workspace}}/openssl/lib/VC/static/libcrypto64MT.lib -DOPENSSL_INCLUDE_DIR=${{github.workspace}}/openssl/include -DSSL_EAY_DEBUG=${{github.workspace}}/openssl/lib/VC/static/libssl64MTd.lib -DSSL_EAY_RELEASE=${{github.workspace}}/openssl/lib/VC/static/libssl64MT.lib
+
+    - name: Build
+      working-directory: ${{github.workspace}}/out/build/x64-Debug
+      # Build your program with the given configuration
+      run: cmake --build ${{github.workspace}}/out/build/x64-Debug
+
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v3.1.0
+      with:
+    # Artifact name
+        name: build_output # optional, default is artifact
+    # A file, directory or wildcard pattern that describes what to upload
+        path: ${{github.workspace}}/out
+    # The desired behavior if no files are found using the provided path.
+
+    - name: Collect dev build
+      run: |
+        mkdir ${{github.workspace}}/zfs_collect
+        copy ${{github.workspace}}/out/build/x64-Debug/module/os/windows/driver/* ${{github.workspace}}/zfs_collect
+        copy ${{github.workspace}}/out/build/x64-Debug/cmd/os/windows/kstat/kstat.exe ${{github.workspace}}/zfs_collect/kstat.exe
+        copy ${{github.workspace}}/out/build/x64-Debug/cmd/os/windows/zfsinstaller/zfsinstaller.exe ${{github.workspace}}/zfs_collect/zfsinstaller.exe
+        copy ${{github.workspace}}/out/build/x64-Debug/cmd/zdb/zdb.exe ${{github.workspace}}/zfs_collect/zdb.exe
+        copy ${{github.workspace}}/out/build/x64-Debug/cmd/zfs/zfs.exe ${{github.workspace}}/zfs_collect/zfs.exe
+        copy ${{github.workspace}}/out/build/x64-Debug/cmd/zpool/zpool.exe ${{github.workspace}}/zfs_collect/zpool.exe
+        copy ${{github.workspace}}/out/build/x64-Debug/cmd/zstream/zstreamdump.exe ${{github.workspace}}/zfs_collect/zstreamdump.exe
+
+    - name: Upload dev build
+      uses: actions/upload-artifact@v3.1.0
+      with:
+    # Artifact name
+        name: dev_build # optional, default is artifact
+    # A file, directory or wildcard pattern that describes what to upload
+        path: ${{github.workspace}}/zfs_collect/*
+
+    #- name: Test
+    #  working-directory: ${{github.workspace}}/out/build/x64-Debug
+      # Execute tests defined by the CMake configuration.
+      # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
+    #  run: ctest -C ${{env.BUILD_TYPE}}
+
