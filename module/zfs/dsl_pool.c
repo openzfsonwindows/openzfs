@@ -117,7 +117,7 @@ ZFS_MODULE_ULONG zfs_wrlog_data_max = 0;
  * zfs_dirty_data_max), push out a txg.  This should be less than
  * zfs_vdev_async_write_active_min_dirty_percent.
  */
-static int zfs_dirty_data_sync_percent = 20;
+int zfs_dirty_data_sync_percent = 20;
 
 /*
  * Once there is this amount of dirty data, the dmu_tx_delay() will kick in
