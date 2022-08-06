@@ -1740,6 +1740,9 @@ zvol_fini_impl(void)
 }
 
 /* ZFS ZVOLDI */
+// HACK FIXME
+#ifdef _WIN32
+
 _Function_class_(PINTERFACE_REFERENCE)
     void
     IncZvolRef(PVOID Context)
@@ -1771,3 +1774,4 @@ zvol_name2zvolState(const char *name, uint32_t *openCount)
 	mutex_exit(&zv->zv_state_lock);
 	return (zv);
 }
+#endif
