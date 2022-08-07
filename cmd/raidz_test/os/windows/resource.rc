@@ -38,6 +38,7 @@ BEGIN
 END
 
 3 TEXTINCLUDE 
+3 TEXTINCLUDE
 BEGIN
     "\r\n"
     "\0"
@@ -78,11 +79,11 @@ BEGIN
     BEGIN
         BLOCK "400904b0"
         BEGIN
-            VALUE "CompanyName", "DataCore Software Corporation"
+            VALUE "CompanyName", "TODO: <Company name>"
             VALUE "FileDescription", "raidz_test.exe"
             VALUE "FileVersion", "1.0.0.1"
-            VALUE "LegalCopyright", "Copyright (C) 2021 DataCore Software Corporation"
-            VALUE "OriginalFilename", "raidz_test.exe"
+            VALUE "LegalCopyright", "Copyright (C) 2021"
+            VALUE "OriginalFilename", "resource.rc"
             VALUE "ProductName", "raidz_test.exe"
             VALUE "ProductVersion", "1.0.0.1"
         END
