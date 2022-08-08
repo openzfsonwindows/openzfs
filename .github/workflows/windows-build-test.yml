@@ -17,7 +17,20 @@ jobs:
 
     steps:
     - uses: ilammy/msvc-dev-cmd@v1
+
     - uses: actions/checkout@v3
+      with:
+        #repository: openzfsonwindows/openzfs
+        fetch-depth: 0
+
+    - name: debug - git status
+      run: git status
+
+    #https://stackoverflow.com/a/60883893
+    #  "C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --progress --no-recurse-submodules --depth=1 origin +90acd8f20e6d0c14b83241cc7dcd17df27d5a95b:refs/remotes/origin/andrew_workflows-7
+    #- name: checkout again
+    #  run: git fetch --prune --unshallow
+
 
     - name: Import signing certificate
       run: |
@@ -47,14 +60,63 @@ jobs:
       # Build your program with the given configuration
       run: cmake --build ${{github.workspace}}/out/build/x64-Debug
 
+    - name: debug - get git rev
+      run: git describe --always --long --dirty
+
+    - name: Download Inno Setup istaller
+      uses: suisei-cn/actions-download-file@v1.0.1
+      id: innoinstaller
+      with:
+        url: 'https://jrsoftware.org/download.php/is.exe'
+        target: ${{github.workspace}}/
+
+    - name: debug - echo filename
+      run: echo ${{ steps.innoinstaller.outputs.filename }}
+
+    - name: debug - list
+      run: ls ${{github.workspace}}\
+
+    - name: debug - list
+      run: ls ${{github.workspace}}\${{ steps.innoinstaller.outputs.filename }}
+
+    - name: install inno
+      run: 'Start-Process -FilePath "${{github.workspace}}\${{ steps.innoinstaller.outputs.filename }}" -Wait -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Install.log`""'
+
+    #- name: Wait for install to finish
+    #  run: Start-Sleep -Seconds 30
+    #  uses: iFaxity/wait-on-action@v1
+    #  with:
+    #    resource: 'C:\Program Files\OpenZFS On Windows\zpool.exe'
+
+    - name: debug - print log
+      run: cat "${{github.workspace}}\InnoSetup-Install.log"
+
+    - name: run ISCC.exe to construct OpenZFS installer
+      run: '&"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\ZFSInstall-debug.iss | Tee-Object -FilePath "${{github.workspace}}\iscc.log"'
+      working-directory: ${{github.workspace}}\contrib\windows\Inno.Setup
+
+    #- name: debug - get exe name
+    # https://stackoverflow.com/questions/4426442/unix-tail-equivalent-command-in-windows-powershell
+    #  run: Get-Content "${{github.workspace}}\iscc.log" -Tail 1
+
+    - name: get installer exe name
+      id: innoout
+    # https://stackoverflow.com/questions/4426442/unix-tail-equivalent-command-in-windows-powershell
+      run: |
+        $p = Get-Content "${{github.workspace}}\iscc.log" -Tail 1
+        echo $p
+        $f = (Get-Item $p ).Name
+        echo $f
+        echo "::set-output name=name::$($f)"
+
+    - name: debug - echo
+      run: echo ${{ steps.innoout.outputs.name }}
+
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v3.1.0
       with:
-    # Artifact name
-        name: build_output # optional, default is artifact
-    # A file, directory or wildcard pattern that describes what to upload
+        name: build_output
         path: ${{github.workspace}}/out
-    # The desired behavior if no files are found using the provided path.
 
     - name: Collect dev build
       run: |
@@ -70,14 +132,11 @@ jobs:
     - name: Upload dev build
       uses: actions/upload-artifact@v3.1.0
       with:
-    # Artifact name
-        name: dev_build # optional, default is artifact
-    # A file, directory or wildcard pattern that describes what to upload
+        name: dev_build
         path: ${{github.workspace}}/zfs_collect/*
 
-    #- name: Test
-    #  working-directory: ${{github.workspace}}/out/build/x64-Debug
-      # Execute tests defined by the CMake configuration.
-      # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
-    #  run: ctest -C ${{env.BUILD_TYPE}}
-
+    - name: Upload dev build with Inno Setup
+      uses: actions/upload-artifact@v3.1.0
+      with:
+        name: dev_build_inno
+        path: ${{github.workspace}}\contrib\windows\${{ steps.innoout.outputs.name }}
