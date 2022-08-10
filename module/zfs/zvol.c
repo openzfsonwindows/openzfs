@@ -174,7 +174,7 @@ zvol_find_by_name_hash(const char *name, uint64_t hash, int mode)
  * before zv_state_lock. The mode argument indicates the mode (including none)
  * for zv_suspend_lock to be taken.
  */
-static zvol_state_t *
+zvol_state_t *
 zvol_find_by_name(const char *name, int mode)
 {
 	return (zvol_find_by_name_hash(name, zvol_name_hash(name), mode));
