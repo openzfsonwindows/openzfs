@@ -114,7 +114,8 @@ extern void vdev_xlate_walk(vdev_t *vd, const range_seg64_t *logical_rs,
     vdev_xlate_func_t *func, void *arg);
 
 extern void vdev_get_stats_ex(vdev_t *vd, vdev_stat_t *vs, vdev_stat_ex_t *vsx);
-extern uint64_t getMirrorSlogUsedSize(vdev_t* vd);
+extern void getMirrorSlogSizeDetails(vdev_t *vd, unsigned __int64
+	*mirror_slog_alloc_size, unsigned __int64 *mirror_slog_space);
 extern metaslab_group_t *vdev_get_mg(vdev_t *vd, metaslab_class_t *mc);
 
 extern void vdev_get_stats(vdev_t *vd, vdev_stat_t *vs);

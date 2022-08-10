@@ -115,7 +115,9 @@ NTSTATUS zpool_zfs_get_metrics(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_
     perf->zfs_volSize = 0;
     strncpy(perf->zpoolHealthState, "", sizeof(perf->zpoolHealthState));
     perf->l2arc_alloc_size = 0;
+    perf->l2arc_space = 0;
     perf->mirror_slog_alloc_size = 0;
+    perf->mirror_slog_space = 0;
     perf->used = getUsedData(perf->name);
     perf->compress_ratio = getCompressRatio(perf->name);
     perf->available = getAvail(perf->name);
@@ -130,7 +132,16 @@ NTSTATUS zpool_zfs_get_metrics(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_
 
 	vdev_stat_t vs = { 0 };
 	spa_config_enter(spa_perf, SCL_ALL, FTAG, RW_READER);
-	perf->mirror_slog_alloc_size = getMirrorSlogUsedSize(spa_perf->spa_root_vdev);
+
+	for (int i = 0; i < spa_perf->spa_l2cache.sav_count; i++) {
+	    if (spa_perf->spa_l2cache.sav_vdevs[i]->vdev_isl2cache)
+		perf->l2arc_space += spa_perf->spa_l2cache.sav_vdevs[i]->
+		vdev_stat.vs_space;
+	}
+
+	getMirrorSlogSizeDetails(spa_perf->spa_root_vdev, &perf->mirror_slog_alloc_size,
+	    &perf->mirror_slog_space);
+
 	vdev_get_stats(spa_perf->spa_root_vdev, &vs);
 	perf->zpool_dedup_ratio = ddt_get_pool_dedup_ratio(spa_perf);
 	const char* healthState = spa_state_to_name(spa_perf);
