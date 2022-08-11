@@ -20,7 +20,6 @@ zfs_dir.c
 zfs_file_os.c
 zfs_fuid_os.c
 zfs_ioctl_os.c
-zfs_kstat_windows.c
 zfs_vfsops.c
 zfs_vnops_os.c
 zfs_vnops_windows.c
