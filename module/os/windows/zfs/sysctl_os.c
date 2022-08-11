@@ -43,6 +43,8 @@ static UNICODE_STRING sysctl_os_RegistryPath;
 
 void sysctl_os_init(PUNICODE_STRING RegistryPath);
 
+extern uint32_t spl_hostid;
+
 HANDLE
 sysctl_os_open_registry(PUNICODE_STRING pRegistryPath)
 {
@@ -132,7 +134,7 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 	// Open registry
 	regfd = sysctl_os_open_registry(&entry);
 	if (regfd == 0)
-	    return;
+		return;
 
 	// create key entry name
 	Status = RtlUTF8ToUnicodeN(entry.Buffer, LINUX_MAX_MODULE_PARAM_LEN,
@@ -142,7 +144,7 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 	// If we failed to convert it, just skip it.
 	if (Status != STATUS_SUCCESS &&
 	    Status != STATUS_SOME_NOT_MAPPED)
-	    return;
+		return;
 
 	// Do we have key?
 	Status = ZwQueryValueKey(
@@ -157,7 +159,7 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 		void *val = NULL;
 		ULONG len = 0;
 		ULONG type = 0; // Registry type
-		DECLARE_UNICODE_STRING_SIZE(str, 20); // Max string, macro me?
+		UNICODE_STRING str = { 0 };
 
 		ZT_GET_VALUE(zt, &val, &len, &type);
 
@@ -165,7 +167,22 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 		ASSERT3U(len, > , 0);
 
 		if (type == ZT_TYPE_STRING) {
-			// We need to ascii -> utf8 any string.
+
+			/*
+			 * STRINGS: from zfs/ZT struct to write out to Registry
+			 * Check how much space convert will need, allocate buffer
+			 * Convert ascii -> utf8 the string 
+			 * Assign to Registry update.
+			 */
+			Status = RtlUTF8ToUnicodeN(NULL, 0,
+			    &length, val, len);
+			if (!NT_SUCCESS(Status))
+				goto skip;
+			str.Length = str.MaximumLength = length;
+			str.Buffer = ExAllocatePoolWithTag(PagedPool, length, 'ZTST');
+			if (str.Buffer == NULL)
+				goto skip;
+
 			Status = RtlUTF8ToUnicodeN(str.Buffer, str.MaximumLength,
 			    &length, val, len);
 			str.Length = length;
@@ -173,9 +190,8 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 			len = length;
 			val = str.Buffer;
 
-			if (Status != STATUS_SUCCESS &&
-			    Status != STATUS_SOME_NOT_MAPPED)
-				return;
+			if (!NT_SUCCESS(Status))
+				goto skip;
 		}
 
 		// No entry, add it
@@ -187,21 +203,18 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 		    val,
 		    len);
 
-#if 0
-		if (NT_SUCCESS(Status))
-			KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-			    "tunable: created Registry entry\n",
-			    zt->zt_prefix, zt->zt_name,
-			    zt->zt_type,
-			    zt->zt_ptr));
-#endif
+skip:
+		if ((type == ZT_TYPE_STRING) &&
+		    str.Buffer != NULL)
+			ExFreePool(str.Buffer);
+
 	} else {
 		// Has entry in Registry, read it, and update tunable
 		// Biggest value we store at the moment is uint64_t
 		uchar_t *buffer;
 		buffer = ExAllocatePoolWithTag(PagedPool, length, '!SFZ');
 		if (buffer == NULL)
-			return;
+			goto failed;
 
 		Status = ZwQueryValueKey(
 		    regfd,
@@ -212,7 +225,7 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 		    &length);
 
 		if (NT_SUCCESS(Status)) {
-			char strval[20]; //  macro?
+    			char *strval = NULL;
 			KEY_VALUE_FULL_INFORMATION *kv = (KEY_VALUE_FULL_INFORMATION *)buffer;
 			void *val = NULL;
 			ULONG len = 0;
@@ -220,7 +233,8 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 
 			// _CALL style has to 'type', so look it up first.
 			if (zt->zt_perm == ZT_ZMOD_RW) {
-				ZT_GET_VALUE(zt, &val, &len, &type);
+				char **maybestr = NULL;
+				ZT_GET_VALUE(zt, &maybestr, &len, &type);
 
 				// Set up buffers to SET value.
 				val = &buffer[kv->DataOffset];
@@ -228,32 +242,56 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 
 				// If string, make ascii
 				if (type == ZT_TYPE_STRING) {
+					/*
+					 * STRINGS:
+					 *
+					 * Static? Convert into buffer assuming static MAX.
+					 * Dynamic?
+					 * First if it has a value and ALLOCATED, then free().
+					 * Check string kength needed, allocate
+					 * Then convert ascii -> utf8 the string 
+					 */
+					/* Already set? free it */
+					if (!(zt->zt_flag & ZT_FLAG_STATIC)) {
 
-					Status = RtlUnicodeToUTF8N(strval, sizeof (strval), &length,
+						if (maybestr != NULL && *maybestr != NULL)
+							ExFreePool(*maybestr);
+
+						*maybestr = NULL;
+					}
+					/* How much space needed? */
+					Status = RtlUnicodeToUTF8N(NULL, 0, &length,
 					    val, len);
+					if (!NT_SUCCESS(Status))
+						goto failed;
 
-					if (Status != STATUS_SUCCESS &&
-					    Status != STATUS_SOME_NOT_MAPPED)
-						return;
+					/* Get space */
+					strval = ExAllocatePoolWithTag(PagedPool, length, 'ZTST');
+					if (strval == NULL)
+						goto failed;
+
+					/* Convert to ascii */
+					Status = RtlUnicodeToUTF8N(strval, length, &length,
+					    val, len);
+					if (!NT_SUCCESS(Status))
+						goto failed;
 
 					strval[length] = 0;
 					val = strval;
+					
 				}
 
 				ZT_SET_VALUE(zt, &val, &len, &type);
+
+				if ((zt->zt_flag & ZT_FLAG_STATIC) && strval != NULL) {
+					ExFreePoolWithTag(strval, '!SFZ');
+				}
 			} // RD vs RW
 		}
 
-		ExFreePoolWithTag(buffer, '!SFZ');
-
-		if (Status == STATUS_BUFFER_OVERFLOW ||
-		    Status == STATUS_BUFFER_TOO_SMALL) {
-			dprintf(
-			    "tunable: buffer too small %d < %d\n",
-			    sizeof(buffer), length);
-
-		}
-
+failed:
+		if (buffer != NULL)
+			ExFreePoolWithTag(buffer, '!SFZ');
 	}
 
 	// Close registry
@@ -669,3 +707,4 @@ param_set_multihost_interval(ZFS_MODULE_PARAM_ARGS)
 
 	return (0);
 }
+

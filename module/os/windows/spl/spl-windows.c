@@ -36,6 +36,8 @@
 #include <sys/taskq.h>
 #include <sys/systeminfo.h>
 #include <sys/sunddi.h>
+#include <sys/mod_os.h>
+#include <zfs_gitrev.h>
 
 #define	DEBUG 1  // for backtrace debugging info
 
@@ -61,8 +63,25 @@ extern uint64_t	segkmem_total_mem_allocated;
 #define	MAXHOSTNAMELEN 64
 extern char hostname[MAXHOSTNAMELEN];
 
-uint32_t spl_hostid = 0;
 #define	    ZFS_MIN_MEMORY_LIMIT	2ULL * 1024ULL * 1024ULL * 1024ULL
+
+/*
+ * Windows internal tunables, we use the RAW method when
+ * we want more control over "name" and "variable" used.
+ * First argument is the "subfolder" wanted in the Registry,
+ * and most will most likely be in "root".
+ */
+uint32_t spl_hostid = 0;
+ZFS_MODULE_RAW(, hostid, spl_hostid,
+    UINT, ZMOD_RW, 0, "The system hostid.");
+
+extern uchar_t zfs_vdev_protection_filter[ZFS_MODULE_STRMAX];
+ZFS_MODULE_RAW(, zfs_vdev_protection_filter, zfs_vdev_protection_filter,
+    STRING, ZMOD_RW, ZT_FLAG_STATIC, "vdev_protection_filter");
+
+static uchar_t zfs_version[] = ZFS_META_GITREV;
+ZFS_MODULE_RAW(, zfs_version, zfs_version,
+    STRING, ZMOD_RD, ZT_FLAG_STATIC, "OpenZFS Windows Driver Version");
 
 #if defined(__clang__)
 /*
@@ -510,6 +529,10 @@ spl_start(PUNICODE_STRING RegistryPath)
 	// pressure.
 	vm_page_free_count = (unsigned int)(physmem / 2ULL);
 	vm_page_speculative_count = vm_page_free_count;
+
+	// Set hostid here, it will be overwritten if it is in registry
+	if (spl_hostid == 0) 
+		random_get_bytes(&spl_hostid, sizeof(spl_hostid));
 
 	/*
 	 * For some reason, (CTLFLAG_KERN is not set) looking up hostname
