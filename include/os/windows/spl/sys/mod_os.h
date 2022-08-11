@@ -108,6 +108,19 @@ typedef enum {
 } ztunable_perm;
 
 /*
+ * STRING is a bit awkward, Linux kernel use it as
+ * "char *s = NULL", so it is allocated elsewhere.
+ * But we also like to be able to use it with static
+ * areas, like *version = "openzfs-2.1.8", so we
+ * internally add a flag member, so we can know what to
+ * free.
+ */
+typedef enum {
+	ZT_FLAG_ALLOCATED = 0,
+	ZT_FLAG_STATIC = (1<<0),
+} ztunable_flag;
+
+/*
  * ZFS_MODULE_CALL() and VIRTUAL do not define a type (like ULONG) in the
  * MACRO so, they are set to ZT_TYPE_NOTSET. The call ZT_GET_VALUE( ..., &type)
  * is used to fetch the real type from each handler function.
@@ -125,6 +138,9 @@ typedef enum {
 	ZT_TYPE_STRING,	// Linux STRING
 	ZT_TYPE_U64,	// Future expansion
 } ztunable_type;
+
+// Enhance this to dynamic one day?
+#define ZFS_MODULE_STRMAX 64
 
 static inline uint64_t ZT_TYPE_REGISTRY(ztunable_type t)
 {
@@ -182,6 +198,7 @@ typedef struct ztunable_s {
 	const char *zt_desc;
 	ztunable_perm zt_perm;
 	ztunable_type zt_type;
+	ztunable_flag zt_flag;
 } ztunable_t;
 
 static inline void
@@ -205,8 +222,11 @@ ZT_SET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 	    *(uint64_t *)zt->zt_ptr = *(uint64_t *)*ptr;
 	    return;
 	case ZT_TYPE_STRING:
-	    ASSERT3U(*len, >= , sizeof(char *));
-	    *(char *)zt->zt_ptr = *(char *)*ptr;
+	    if (zt->zt_flag & ZT_FLAG_STATIC) {
+		    strlcpy(zt->zt_ptr, *ptr, ZFS_MODULE_STRMAX);
+		    return;
+	    }
+	    zt->zt_ptr = (void *)*ptr;
 	    return;
 	case ZT_TYPE_U64:
 	    ASSERT3U(*len, >= , sizeof(uint64_t));
@@ -237,9 +257,13 @@ ZT_GET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 	case ZT_TYPE_UINT:
 	case ZT_TYPE_LONG:
 	case ZT_TYPE_ULONG:
-	case ZT_TYPE_STRING:
 	case ZT_TYPE_U64:
 	    *ptr = zt->zt_ptr;
+	    return;
+	case ZT_TYPE_STRING:
+	    *ptr = zt->zt_ptr;
+	    if (zt->zt_ptr != NULL)
+		    *len = strlen(zt->zt_ptr);
 	    return;
 	case ZT_TYPE_NOTSET:
 	    /* not reached */
@@ -256,9 +280,24 @@ ZT_GET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 		.zt_prefix = #scope_prefix, \
 		.zt_desc = #desc, \
 		.zt_perm = __CONCAT(ZT_, perm), \
-		.zt_type = ZT_TYPE_ ## type \
+		.zt_type = ZT_TYPE_ ## type, \
+		.zt_flag = ZT_FLAG_STATIC \
 	}; \
 	SET_ENTRY(zt, zt_ ## name_prefix ## name)
+
+/* Used only internally in Windows port */
+#define	ZFS_MODULE_RAW(scope_prefix, name, variable, type, perm, flag, desc) \
+	static ztunable_t zt_ ## variable = { \
+		.zt_ptr = &variable, \
+		.zt_func = NULL, \
+		.zt_name = #name, \
+		.zt_prefix = #scope_prefix, \
+		.zt_desc = #desc, \
+		.zt_perm = __CONCAT(ZT_, perm), \
+		.zt_type = ZT_TYPE_ ## type, \
+		.zt_flag = flag \
+	}; \
+	SET_ENTRY(zt, zt_ ## variable)
 
 
 #define	ZFS_MODULE_PARAM_CALL_IMPL(scope_prefix, name_prefix, name, perm, args, desc) \
@@ -269,7 +308,8 @@ ZT_GET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 		.zt_prefix = #scope_prefix, \
 		.zt_desc = #desc, \
 		.zt_perm = __CONCAT(ZT_, perm), \
-		.zt_type = ZT_TYPE_NOTSET \
+		.zt_type = ZT_TYPE_NOTSET, \
+		.zt_flag = ZT_FLAG_STATIC \
 	}; \
 	SET_ENTRY(zt, zt_ ## name_prefix ## name)
 

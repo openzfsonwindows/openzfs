@@ -42,7 +42,7 @@
  */
 
 
-wchar_t zfs_vdev_protection_filter[64] = { L"\0" };
+wchar_t zfs_vdev_protection_filter[ZFS_MODULE_STRMAX] = { L"\0" };
 
 static void vdev_disk_close(vdev_t *);
 
