@@ -48,7 +48,6 @@
 #include <sys/zfs_ioctl_impl.h>
 #include <sys/zfs_ioctl_compat.h>
 #include <sys/zvol_os.h>
-#include <sys/kstat_windows.h>
 
 #include <zfs_gitrev.h>
 

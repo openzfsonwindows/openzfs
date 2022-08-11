@@ -447,6 +447,10 @@ int
 AsciiStringToUnicodeString(char *in, PUNICODE_STRING out)
 {
 	ANSI_STRING conv;
+	if (in == NULL) {
+		memset(out, 0, sizeof(UNICODE_STRING));
+		return (0);
+	}
 	conv.Buffer = in;
 	conv.Length = strlen(in);
 	conv.MaximumLength = PATH_MAX;
