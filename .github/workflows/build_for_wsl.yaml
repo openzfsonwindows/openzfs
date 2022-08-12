@@ -1,4 +1,4 @@
-name: build_for_wsl.yaml
+name: build_for_wsl
 
 on:
   push:
