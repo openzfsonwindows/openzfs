@@ -241,9 +241,9 @@ zvol_os_read_zv(zvol_state_t *zv, zfs_uio_t *uio, int flags)
 	const ULONG_PTR r = IoGetRemainingStackSize();
 
 	if (spl_lowest_zvol_stack_remaining == 0) {
-	    spl_lowest_zvol_stack_remaining = r;
+		spl_lowest_zvol_stack_remaining = r;
 	} else if (spl_lowest_zvol_stack_remaining > r) {
-	    spl_lowest_zvol_stack_remaining = r;
+		spl_lowest_zvol_stack_remaining = r;
 	}
 
 	if (zv == NULL || zv->zv_dn == NULL)

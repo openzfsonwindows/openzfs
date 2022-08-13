@@ -28,12 +28,12 @@
 
 #include <sys/types.h>
 
-#define LIO_NOWAIT      0
-#define LIO_WAIT        1
+#define	LIO_NOWAIT	0
+#define	LIO_WAIT	1
 
-#define LIO_NOP         0
-#define LIO_READ        0x01    /* Must match value of FREAD in sys/file.h */
-#define LIO_WRITE       0x02    /* Must match value of FWRITE in sys/file.h */
+#define	LIO_NOP		0
+#define	LIO_READ	0x01    /* Must match value of FREAD in sys/file.h */
+#define	LIO_WRITE	0x02    /* Must match value of FWRITE in sys/file.h */
 
 typedef struct aiocb {
 	int	aio_fildes;
@@ -49,7 +49,7 @@ typedef struct aiocb {
 } aiocb_t;
 
 
-static inline int lio_listio(int mode, struct aiocb * aiocb_list[],
+static inline int lio_listio(int mode, struct aiocb *aiocb_list[],
     int nitems, void * sevp)
 {
 	errno = EIO;

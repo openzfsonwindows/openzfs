@@ -170,7 +170,7 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 			/*
 			 * STRINGS: from zfs/ZT struct to write out to Registry
 			 * Check how much space convert will need, allocate buffer
-			 * Convert ascii -> utf8 the string 
+			 * Convert ascii -> utf8 the string
 			 * Assign to Registry update.
 			 */
 			Status = RtlUTF8ToUnicodeN(NULL, 0,
@@ -224,7 +224,7 @@ skip:
 		    &length);
 
 		if (NT_SUCCESS(Status)) {
-    			char *strval = NULL;
+			char *strval = NULL;
 			KEY_VALUE_FULL_INFORMATION *kv = (KEY_VALUE_FULL_INFORMATION *)buffer;
 			void *val = NULL;
 			ULONG len = 0;
@@ -248,7 +248,7 @@ skip:
 					 * Dynamic?
 					 * First if it has a value and ALLOCATED, then free().
 					 * Check string kength needed, allocate
-					 * Then convert ascii -> utf8 the string 
+					 * Then convert ascii -> utf8 the string
 					 */
 					/* Already set? free it */
 					if (!(zt->zt_flag & ZT_FLAG_STATIC)) {
@@ -277,7 +277,7 @@ skip:
 
 					strval[length] = 0;
 					val = strval;
-					
+
 				}
 
 				ZT_SET_VALUE(zt, &val, &len, &type);
@@ -326,8 +326,7 @@ sysctl_os_fix(void)
 
 }
 
-_Function_class_(WORKER_THREAD_ROUTINE)
-void __stdcall
+_Function_class_(WORKER_THREAD_ROUTINE) void __stdcall
 sysctl_os_registry_change(PVOID Parameter)
 {
 	PUNICODE_STRING RegistryPath = Parameter;
@@ -410,11 +409,11 @@ param_set_arc_max(ZFS_MODULE_PARAM_ARGS)
 
 	if (set == B_FALSE) {
 		*ptr = &zfs_arc_max;
-		*len = sizeof(zfs_arc_max);
+		*len = sizeof (zfs_arc_max);
 		return (0);
 	}
 
-	ASSERT3U(*len, >= , sizeof(zfs_arc_max));
+	ASSERT3U(*len, >=, sizeof (zfs_arc_max));
 
 	val = *(uint64_t *)(*ptr);
 
@@ -440,12 +439,12 @@ param_set_arc_min(ZFS_MODULE_PARAM_ARGS)
 	*type = ZT_TYPE_U64;
 
 	if (set == B_FALSE) {
-	    *ptr = &zfs_arc_min;
-	    *len = sizeof(zfs_arc_min);
-	    return (0);
+		*ptr = &zfs_arc_min;
+		*len = sizeof (zfs_arc_min);
+		return (0);
 	}
 
-	ASSERT3U(*len, >= , sizeof(zfs_arc_min));
+	ASSERT3U(*len, >=, sizeof (zfs_arc_min));
 
 	val = *(uint64_t *)(*ptr);
 
@@ -469,12 +468,12 @@ sysctl_vfs_zfs_arc_no_grow_shift(ZFS_MODULE_PARAM_ARGS)
 	*type = ZT_TYPE_INT;
 
 	if (set == B_FALSE) {
-	    *ptr = &arc_no_grow_shift;
-	    *len = sizeof(arc_no_grow_shift);
-	    return (0);
+		*ptr = &arc_no_grow_shift;
+		*len = sizeof (arc_no_grow_shift);
+		return (0);
 	}
 
-	ASSERT3U(*len, >= , sizeof(arc_no_grow_shift));
+	ASSERT3U(*len, >=, sizeof (arc_no_grow_shift));
 
 	val = *(int *)(*ptr);
 
@@ -533,12 +532,12 @@ sysctl_vfs_zfs_debug_flags(ZFS_MODULE_PARAM_ARGS)
 	*type = ZT_TYPE_INT;
 
 	if (set == B_FALSE) {
-	    *ptr = &zfs_flags;
-	    *len = sizeof(zfs_flags);
-	    return (0);
+		*ptr = &zfs_flags;
+		*len = sizeof (zfs_flags);
+		return (0);
 	}
 
-	ASSERT3U(*len, >= , sizeof(zfs_flags));
+	ASSERT3U(*len, >=, sizeof (zfs_flags));
 
 	val = *(int *)(*ptr);
 
@@ -563,12 +562,12 @@ param_set_deadman_synctime(ZFS_MODULE_PARAM_ARGS)
 	*type = ZT_TYPE_U64;
 
 	if (set == B_FALSE) {
-	    *ptr = &zfs_deadman_synctime_ms;
-	    *len = sizeof(zfs_deadman_synctime_ms);
-	    return (0);
+		*ptr = &zfs_deadman_synctime_ms;
+		*len = sizeof (zfs_deadman_synctime_ms);
+		return (0);
 	}
 
-	ASSERT3U(*len, >= , sizeof(zfs_deadman_synctime_ms));
+	ASSERT3U(*len, >=, sizeof (zfs_deadman_synctime_ms));
 
 	val = *(uint64_t *)(*ptr);
 
@@ -587,12 +586,12 @@ param_set_deadman_ziotime(ZFS_MODULE_PARAM_ARGS)
 	*type = ZT_TYPE_U64;
 
 	if (set == B_FALSE) {
-	    *ptr = &zfs_deadman_ziotime_ms;
-	    *len = sizeof(zfs_deadman_ziotime_ms);
-	    return (0);
+		*ptr = &zfs_deadman_ziotime_ms;
+		*len = sizeof (zfs_deadman_ziotime_ms);
+		return (0);
 	}
 
-	ASSERT3U(*len, >= , sizeof(zfs_deadman_ziotime_ms));
+	ASSERT3U(*len, >=, sizeof (zfs_deadman_ziotime_ms));
 
 	val = *(uint64_t *)(*ptr);
 
@@ -611,12 +610,12 @@ param_set_deadman_failmode(ZFS_MODULE_PARAM_ARGS)
 	*type = ZT_TYPE_STRING;
 
 	if (set == B_FALSE) {
-	    *ptr = (void *)zfs_deadman_failmode;
-	    *len = strlen(zfs_deadman_failmode) + 1;
-	    return (0);
+		*ptr = (void *)zfs_deadman_failmode;
+		*len = strlen(zfs_deadman_failmode) + 1;
+		return (0);
 	}
 
-	strlcpy(buf, *ptr, sizeof(buf));
+	strlcpy(buf, *ptr, sizeof (buf));
 
 	if (strcmp(buf, zfs_deadman_failmode) == 0)
 		return (0);
@@ -662,7 +661,7 @@ param_set_max_auto_ashift(ZFS_MODULE_PARAM_ARGS)
 	*type = ZT_TYPE_U64;
 
 	*ptr = &zfs_vdev_max_auto_ashift;
-	*len = sizeof(zfs_vdev_max_auto_ashift);
+	*len = sizeof (zfs_vdev_max_auto_ashift);
 
 	val = zfs_vdev_max_auto_ashift;
 
@@ -682,12 +681,12 @@ param_set_slop_shift(ZFS_MODULE_PARAM_ARGS)
 	*type = ZT_TYPE_INT;
 
 	if (set == B_FALSE) {
-	    *ptr = &spa_slop_shift;
-	    *len = sizeof(spa_slop_shift);
-	    return (0);
+		*ptr = &spa_slop_shift;
+		*len = sizeof (spa_slop_shift);
+		return (0);
 	}
 
-	ASSERT3U(*len, >= , sizeof(spa_slop_shift));
+	ASSERT3U(*len, >=, sizeof (spa_slop_shift));
 
 	val = *(int *)(*ptr);
 
@@ -703,7 +702,7 @@ int
 param_set_multihost_interval(ZFS_MODULE_PARAM_ARGS)
 {
 	*ptr = zt->zt_ptr;
-	*len = sizeof(uint64_t);
+	*len = sizeof (uint64_t);
 	*type = ZT_TYPE_U64;
 
 	if (spa_mode_global != SPA_MODE_UNINIT)
@@ -711,4 +710,3 @@ param_set_multihost_interval(ZFS_MODULE_PARAM_ARGS)
 
 	return (0);
 }
-

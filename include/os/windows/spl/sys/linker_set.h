@@ -1,4 +1,4 @@
-/*-
+/*
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 1999 John D. Polstra
@@ -30,16 +30,16 @@
  *   - Windows version (x64 clang)
  */
 
-#ifndef _SYS_LINKER_SET_H_
-#define _SYS_LINKER_SET_H_
+#ifndef	_SYS_LINKER_SET_H_
+#define	_SYS_LINKER_SET_H_
 
 /* From cdefs.h */
 #ifndef	__has_attribute
 #define	__has_attribute(x)	0
 #endif
 
-#define	__CONCAT1(x,y)	x ## y
-#define	__CONCAT(x,y)	__CONCAT1(x,y)
+#define	__CONCAT1(x, y)	x ## y
+#define	__CONCAT(x, y)	__CONCAT1(x, y)
 #define	__STRING(x)	#x		/* stringify without expanding x */
 #define	__XSTRING(x)	__STRING(x)	/* expand x, then stringify */
 
@@ -51,9 +51,9 @@
 
 #if __has_attribute(no_sanitize) && defined(__clang__)
 #ifdef _KERNEL
-#define __nosanitizeaddress	__attribute__((no_sanitize("kernel-address")))
+#define	__nosanitizeaddress	__attribute__((no_sanitize("kernel-address")))
 #else
-#define __nosanitizeaddress	__attribute__((no_sanitize("address")))
+#define	__nosanitizeaddress	__attribute__((no_sanitize("address")))
 #endif
 #endif
 
@@ -93,7 +93,7 @@
  * ".mine$z" sets the end
  */
 
-#define __MAKE_SET_QV(set, sym, qv)				\
+#define	__MAKE_SET_QV(set, sym, qv)				\
 	__declspec(selectany) __declspec(allocate("." #set "$a"))		\
 	__weak_symbol const void * qv __CONCAT(__start_set_, set);	\
 	__declspec(selectany) __declspec(allocate("." #set "$z")) 		\
@@ -103,17 +103,17 @@
 	__set_##set##_sym_##sym 				\
 	__used = (void *)&(sym)
 
-#define __MAKE_SET(set, sym)	__MAKE_SET_QV(set, sym, __MAKE_SET_CONST)
+#define	__MAKE_SET(set, sym)	__MAKE_SET_QV(set, sym, __MAKE_SET_CONST)
 
 /*
  * Public macros.
  */
-#define TEXT_SET(set, sym)	__MAKE_SET(set, sym)
-#define DATA_SET(set, sym)	__MAKE_SET(set, sym)
-#define DATA_WSET(set, sym)	__MAKE_SET_QV(set, sym, )
-#define BSS_SET(set, sym)	__MAKE_SET(set, sym)
-#define ABS_SET(set, sym)	__MAKE_SET(set, sym)
-#define SET_ENTRY(set, sym)	__MAKE_SET(set, sym)
+#define	TEXT_SET(set, sym)	__MAKE_SET(set, sym)
+#define	DATA_SET(set, sym)	__MAKE_SET(set, sym)
+#define	DATA_WSET(set, sym)	__MAKE_SET_QV(set, sym, )
+#define	BSS_SET(set, sym)	__MAKE_SET(set, sym)
+#define	ABS_SET(set, sym)	__MAKE_SET(set, sym)
+#define	SET_ENTRY(set, sym)	__MAKE_SET(set, sym)
 
 /*
  * Initialize before referring to a given linker set.
@@ -123,18 +123,18 @@
  * it at '__start_set_mine' with a cast to (ptype *).
  * We also need to skip first object as it is the start value.
  */
-#define SET_DECLARE(set, ptype)					\
+#define	SET_DECLARE(set, ptype)					\
 	extern const void * __weak_symbol __CONCAT(__start_set_, set); \
 	extern const void * __weak_symbol __CONCAT(__stop_set_, set); \
 	static void * __CONCAT(__xstart_set_, set);  \
 	static void * __CONCAT(__xstop_set_, set);  \
 	__CONCAT(__xstart_set_, set) = (ptype * const) __weak_symbol &__CONCAT(__start_set_, set);	\
 	__CONCAT(__xstop_set_, set)  = (ptype * const) __weak_symbol &__CONCAT(__stop_set_, set); \
-	__CONCAT(__xstart_set_, set) += sizeof(void *)
+	__CONCAT(__xstart_set_, set) += sizeof (void *)
 
-#define SET_BEGIN(set)							\
+#define	SET_BEGIN(set)							\
 	(__CONCAT(__xstart_set_, set))
-#define SET_LIMIT(set)							\
+#define	SET_LIMIT(set)							\
 	(__CONCAT(__xstop_set_, set))
 
 /*
@@ -144,16 +144,16 @@
  * containing those addresses.  Thus is must be declared as "type **pvar",
  * and the address of each set item is obtained inside the loop by "*pvar".
  */
-#define SET_FOREACH(pvar, set)						\
+#define	SET_FOREACH(pvar, set)						\
 	for (pvar = (__typeof__((pvar))) SET_BEGIN(set); pvar < (__typeof__((pvar))) SET_LIMIT(set); pvar++)
 
-#define SET_ITEM(set, i)						\
+#define	SET_ITEM(set, i)						\
 	((SET_BEGIN(set))[i])
 
 /*
  * Provide a count of the items in a set.
  */
-#define SET_COUNT(set)							\
+#define	SET_COUNT(set)							\
 	(SET_LIMIT(set) - SET_BEGIN(set))
 
 #endif	/* _SYS_LINKER_SET_H_ */

@@ -702,8 +702,8 @@ releasef(uint64_t fd)
 		return; // Not found
 
 	// printf("SPL: releasing %p\n", fp);
-        releasefp(fp);
-	
+	releasefp(fp);
+
 #endif
 }
 
@@ -1201,25 +1201,26 @@ vnode_recycle(vnode_t *vp)
 }
 
 typedef struct {
-    FSRTL_COMMON_FCB_HEADER Header;
-    PFAST_MUTEX FastMutex;
-    LIST_ENTRY FilterContexts;
-    EX_PUSH_LOCK PushLock;
-    PVOID *FileContextSupportPointer;
-    union {
-	OPLOCK Oplock;
-	PVOID ReservedForRemote;
-    };
-    PVOID ReservedContext;
+	FSRTL_COMMON_FCB_HEADER Header;
+	PFAST_MUTEX FastMutex;
+	LIST_ENTRY FilterContexts;
+	EX_PUSH_LOCK PushLock;
+	PVOID *FileContextSupportPointer;
+	union {
+		OPLOCK Oplock;
+		PVOID ReservedForRemote;
+	};
+	PVOID ReservedContext;
 } FSRTL_ADVANCED_FCB_HEADER_NEW;
 
-POPLOCK vp_oplock(struct vnode *vp)
+POPLOCK
+vp_oplock(struct vnode *vp)
 {
-    // The oplock in header starts with Win8
-    if (vp->FileHeader.Version >= FSRTL_FCB_HEADER_V2)
-		return &((FSRTL_ADVANCED_FCB_HEADER_NEW *)&vp->FileHeader)->Oplock;
+	// The oplock in header starts with Win8
+	if (vp->FileHeader.Version >= FSRTL_FCB_HEADER_V2)
+		return (&((FSRTL_ADVANCED_FCB_HEADER_NEW *)&vp->FileHeader)->Oplock);
 	else
-		return &vp->oplock;
+		return (&vp->oplock);
 }
 
 void
@@ -1533,7 +1534,7 @@ repeat:
 				} except(EXCEPTION_EXECUTE_HANDLER) {
 					Status = GetExceptionCode();
 				}
-			    
+
 			// Try to lock fileobject before we use it.
 				if (NT_SUCCESS(Status)) {
 					int ok;
@@ -1666,7 +1667,7 @@ vnode_couplefileobject(vnode_t *vp, FILE_OBJECT *fileobject, uint64_t size)
 
 		// Make sure it is pointing to the right vp.
 		if (fileobject->SectionObjectPointer != NULL)
-		    VERIFY3P(vnode_sectionpointer(vp), ==, fileobject->SectionObjectPointer);
+			VERIFY3P(vnode_sectionpointer(vp), ==, fileobject->SectionObjectPointer);
 
 		if (fileobject->SectionObjectPointer !=
 		    vnode_sectionpointer(vp)) {
@@ -2014,23 +2015,23 @@ void
 vnode_pager_setsize(void *fo, vnode_t *vp, uint64_t size, boolean_t delay)
 {
 	FILE_OBJECT *fileObject = fo;
-	vp->FileHeader.AllocationSize.QuadPart = 
+	vp->FileHeader.AllocationSize.QuadPart =
 	    P2ROUNDUP(size, PAGE_SIZE);
 	vp->FileHeader.FileSize.QuadPart = size;
 	vp->FileHeader.ValidDataLength.QuadPart = size;
-	vnode_setsizechange(vp, 1); 
+	vnode_setsizechange(vp, 1);
 	if (!delay && fileObject && fileObject->SectionObjectPointer && fileObject->SectionObjectPointer->SharedCacheMap) {
-		DWORD __status = STATUS_SUCCESS; 
+		DWORD __status = STATUS_SUCCESS;
 
 		try {
 			CcSetFileSizes(fileObject, (PCC_FILE_SIZES) &vp->FileHeader.AllocationSize);
-		}  except (FsRtlIsNtstatusExpected(GetExceptionCode()) ?
+		}  except(FsRtlIsNtstatusExpected(GetExceptionCode()) ?
 			EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH ) {
-		    __status = STATUS_UNEXPECTED_IO_ERROR;
+			__status = STATUS_UNEXPECTED_IO_ERROR;
 		}
 
-		if (NT_SUCCESS(__status)) 
-			vnode_setsizechange(vp, 0); 
+		if (NT_SUCCESS(__status))
+			vnode_setsizechange(vp, 0);
 	}
 
 }

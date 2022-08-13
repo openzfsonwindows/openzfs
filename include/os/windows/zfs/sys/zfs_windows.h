@@ -87,7 +87,8 @@ extern NTSTATUS zfsdev_release(dev_t dev, PIRP Irp);
 extern int	zfs_vnop_recycle(znode_t *zp, int force);
 extern uint64_t zfs_blksz(znode_t *zp);
 
-inline static uint64_t allocationsize(struct znode *zp)
+inline static uint64_t
+allocationsize(struct znode *zp)
 {
 	if (zp->z_size == 0)
 		return (0ULL);

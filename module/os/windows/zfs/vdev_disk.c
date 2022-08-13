@@ -740,9 +740,9 @@ vdev_disk_io_start(zio_t *zio)
 	const ULONG_PTR r = IoGetRemainingStackSize();
 
 	if (spl_lowest_vdev_disk_stack_remaining == 0) {
-	    spl_lowest_vdev_disk_stack_remaining = r;
+		spl_lowest_vdev_disk_stack_remaining = r;
 	} else if (spl_lowest_vdev_disk_stack_remaining > r) {
-	    spl_lowest_vdev_disk_stack_remaining = r;
+		spl_lowest_vdev_disk_stack_remaining = r;
 	}
 
 	ASSERT(zio->io_size != 0);
@@ -889,8 +889,8 @@ vdev_ops_t vdev_disk_ops = {
 	.vdev_op_config_generate = NULL,
 	.vdev_op_nparity = NULL,
 	.vdev_op_ndisks = NULL,
-	.vdev_op_type = VDEV_TYPE_DISK, /* name of this vdev type */
-	.vdev_op_leaf = B_TRUE          /* leaf vdev */
+	.vdev_op_type = VDEV_TYPE_DISK,	/* name of this vdev type */
+	.vdev_op_leaf = B_TRUE		/* leaf vdev */
 };
 
 /*
