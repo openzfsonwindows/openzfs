@@ -1048,3 +1048,37 @@ zvol_fini(void)
 	zvol_fini_impl();
 	taskq_destroy(zvol_taskq);
 }
+
+/* ZFS ZVOLDI */
+
+_Function_class_(PINTERFACE_REFERENCE)
+void
+IncZvolRef(PVOID Context)
+{
+    zvol_state_t* zv = (zvol_state_t*)Context;
+    atomic_inc_32(&zv->zv_open_count);
+}
+
+_Function_class_(PINTERFACE_REFERENCE)
+void
+DecZvolRef(PVOID Context)
+{
+    zvol_state_t* zv = (zvol_state_t*)Context;
+    atomic_dec_32(&zv->zv_open_count);
+}
+
+zvol_state_t*
+zvol_name2zvolState(const char* name, uint32_t* openCount)
+{
+    zvol_state_t* zv;
+
+    zv = zvol_find_by_name(name, RW_NONE);
+    if (zv == NULL)
+	return (zv);
+
+    if (openCount)
+	*openCount = zv->zv_open_count;
+
+    mutex_exit(&zv->zv_state_lock);
+    return (zv);
+}
