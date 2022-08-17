@@ -170,4 +170,3 @@ void
 after_zpool_upgrade(zpool_handle_t *zhp)
 {
 }
-
