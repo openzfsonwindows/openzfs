@@ -849,7 +849,8 @@ DeleteReparsePoint(POBJECT_ATTRIBUTES poa)
 	memset(&ReparseData, 0, REPARSE_DATA_BUFFER_HEADER_SIZE);
 	ReparseData.ReparseTag = IO_REPARSE_TAG_MOUNT_POINT;
 
-	status = ZwFsControlFile(hFile, 0, 0, 0, &iosb, FSCTL_DELETE_REPARSE_POINT, &ReparseData,
+	status = ZwFsControlFile(hFile, 0, 0, 0, &iosb,
+	    FSCTL_DELETE_REPARSE_POINT, &ReparseData,
 	    REPARSE_DATA_BUFFER_HEADER_SIZE, NULL, 0);
 
 	ZwClose(hFile);

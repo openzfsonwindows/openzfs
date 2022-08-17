@@ -2026,16 +2026,17 @@ vnode_pager_setsize(void *fo, vnode_t *vp, uint64_t size, boolean_t delay)
 	vp->FileHeader.ValidDataLength.QuadPart = size;
 	vnode_setsizechange(vp, 1);
 	if (!delay && fileObject &&
-		fileObject->SectionObjectPointer &&
-		fileObject->SectionObjectPointer->SharedCacheMap) {
+	    fileObject->SectionObjectPointer &&
+	    fileObject->SectionObjectPointer->SharedCacheMap) {
 		DWORD __status = STATUS_SUCCESS;
 
 		try {
 			CcSetFileSizes(fileObject, (PCC_FILE_SIZES) &vp->
 			    FileHeader.AllocationSize);
-		}  except(FsRtlIsNtstatusExpected(GetExceptionCode()) ?
-			EXCEPTION_EXECUTE_HANDLER : \
-			    EXCEPTION_CONTINUE_SEARCH ) {
+		}
+		except(FsRtlIsNtstatusExpected(GetExceptionCode()) ?
+		    EXCEPTION_EXECUTE_HANDLER : \
+		    EXCEPTION_CONTINUE_SEARCH) {
 			__status = STATUS_UNEXPECTED_IO_ERROR;
 		}
 

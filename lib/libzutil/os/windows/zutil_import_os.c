@@ -1056,10 +1056,10 @@ update_vdev_config_dev_strs(nvlist_t *nv)
 			"this code assumes ZFS is on partition 1\n");
 			fflush(stderr);
 			snprintf(udevpath, MAXPATHLEN, "#%llu#%llu#%s",
-			    vtoc->efi_parts[0].p_start * \
-				(uint64_t)vtoc->efi_lbasize,
-			    vtoc->efi_parts[0].p_size * \
-				(uint64_t)vtoc->efi_lbasize,
+			    vtoc->efi_parts[0].p_start * (uint64_t)vtoc->
+			    efi_lbasize,
+			    vtoc->efi_parts[0].p_size * (uint64_t)vtoc->
+			    efi_lbasize,
 			    path);
 			efi_free(vtoc);
 			path = udevpath;
