@@ -532,9 +532,11 @@ spl_vnode_fini(void)
 			// so they are immediately freed, as well as
 			// go through the tree of fileobjects to free.
 
-			delay(hz*5); // hardcoded age, see vnode_drain_delayclose
+			delay(hz*5);
+			// hardcoded age, see vnode_drain_delayclose
 
-			dprintf("%s: forcing free (this can go wrong)n", __func__);
+			dprintf("%s: forcing free (this can go wrong)n",
+			    __func__);
 			struct vnode *rvp;
 			clock_t then = gethrtime() - SEC2NSEC(6); // hardcoded
 
@@ -1218,7 +1220,8 @@ vp_oplock(struct vnode *vp)
 {
 	// The oplock in header starts with Win8
 	if (vp->FileHeader.Version >= FSRTL_FCB_HEADER_V2)
-		return (&((FSRTL_ADVANCED_FCB_HEADER_NEW *)&vp->FileHeader)->Oplock);
+		return (&((FSRTL_ADVANCED_FCB_HEADER_NEW *)&vp->
+		    FileHeader)->Oplock);
 	else
 		return (&vp->oplock);
 }
@@ -1527,7 +1530,8 @@ repeat:
 				try {
 					Status = ObReferenceObject(fileobject);
 			//		Status = ObReferenceObjectByPointer(
-			//		    fileobject,  // fixme, keep this in dvd
+			//		    fileobject,  // fixme, keep this
+			//				 // in dvd
 			//		    0,
 			//		    *IoFileObjectType,
 			//		    KernelMode);
@@ -1667,7 +1671,8 @@ vnode_couplefileobject(vnode_t *vp, FILE_OBJECT *fileobject, uint64_t size)
 
 		// Make sure it is pointing to the right vp.
 		if (fileobject->SectionObjectPointer != NULL)
-			VERIFY3P(vnode_sectionpointer(vp), ==, fileobject->SectionObjectPointer);
+			VERIFY3P(vnode_sectionpointer(vp), ==, fileobject->
+			    SectionObjectPointer);
 
 		if (fileobject->SectionObjectPointer !=
 		    vnode_sectionpointer(vp)) {
@@ -2020,13 +2025,17 @@ vnode_pager_setsize(void *fo, vnode_t *vp, uint64_t size, boolean_t delay)
 	vp->FileHeader.FileSize.QuadPart = size;
 	vp->FileHeader.ValidDataLength.QuadPart = size;
 	vnode_setsizechange(vp, 1);
-	if (!delay && fileObject && fileObject->SectionObjectPointer && fileObject->SectionObjectPointer->SharedCacheMap) {
+	if (!delay && fileObject &&
+		fileObject->SectionObjectPointer &&
+		fileObject->SectionObjectPointer->SharedCacheMap) {
 		DWORD __status = STATUS_SUCCESS;
 
 		try {
-			CcSetFileSizes(fileObject, (PCC_FILE_SIZES) &vp->FileHeader.AllocationSize);
+			CcSetFileSizes(fileObject, (PCC_FILE_SIZES) &vp->
+			    FileHeader.AllocationSize);
 		}  except(FsRtlIsNtstatusExpected(GetExceptionCode()) ?
-			EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH ) {
+			EXCEPTION_EXECUTE_HANDLER : \
+			    EXCEPTION_CONTINUE_SEARCH ) {
 			__status = STATUS_UNEXPECTED_IO_ERROR;
 		}
 

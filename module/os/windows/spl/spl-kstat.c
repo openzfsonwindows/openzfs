@@ -988,12 +988,14 @@ kstat_t *
 kstat_create(const char *ks_module, int ks_instance, const char *ks_name,
     const char *ks_class, uchar_t ks_type, uint_t ks_ndata, uchar_t ks_flags)
 {
-	kstat_t *kstat_temp = (kstat_create_zone(ks_module, ks_instance, ks_name, ks_class,
-	    ks_type, ks_ndata, ks_flags, ALL_ZONES));
+	kstat_t *kstat_temp = (kstat_create_zone(ks_module, ks_instance,
+	    ks_name, ks_class, ks_type, ks_ndata, ks_flags, ALL_ZONES));
 
-	if (kstat_temp && !strcmp(ks_module, "zfs") && !strcmp(ks_name, "arcstats"))
+	if (kstat_temp && strcmp(ks_module, "zfs") == 0 && strcmp(ks_name,
+	    "arcstats") == 0)
 		perf_arc_ksp = kstat_temp;
-	if (kstat_temp && !strcmp(ks_module, "zfs") && !strcmp(ks_name, "zil"))
+	if (kstat_temp && strcmp(ks_module, "zfs") == 0 && strcmp(ks_name,
+	    "zil") == 0)
 		perf_zil_ksp = kstat_temp;
 
 	return (kstat_temp);
@@ -2317,10 +2319,12 @@ arc_cache_counters_perfmon(cache_counters *perf, arc_stats_t *arc_ptr)
 	perf->arcstat_mru_hits = arc_ptr->arcstat_mru_hits.value.ui64;
 
 	// $v{"mrug"} = $d{"mru_ghost_hits"}/$int;
-	perf->arcstat_mru_ghost_hits = arc_ptr->arcstat_mru_ghost_hits.value.ui64;
+	perf->arcstat_mru_ghost_hits =
+	    arc_ptr->arcstat_mru_ghost_hits.value.ui64;
 
 	// $v{"mfug"} = $d{"mfu_ghost_hits"}/$int;
-	perf->arcstat_mfu_ghost_hits = arc_ptr->arcstat_mfu_ghost_hits.value.ui64;
+	perf->arcstat_mfu_ghost_hits =
+	    arc_ptr->arcstat_mfu_ghost_hits.value.ui64;
 
 	// $v{"eskip"} = $d{"evict_skip"}/$int;
 	perf->arcstat_evict_skip = arc_ptr->arcstat_evict_skip.value.ui64;
@@ -2343,10 +2347,12 @@ arc_cache_counters_perfmon(cache_counters *perf, arc_stats_t *arc_ptr)
 	perf->arcstat_l2_misses = arc_ptr->arcstat_l2_misses.value.ui64;
 
 	// $v{"l2read"} = $d{"l2_read_bytes"}/$int;
-	perf->arcstat_l2_read_bytes = arc_ptr->arcstat_l2_read_bytes.value.ui64;
+	perf->arcstat_l2_read_bytes =
+	    arc_ptr->arcstat_l2_read_bytes.value.ui64;
 
 	// $v{"l2write"} = $d{"l2_write_bytes"}/$int;
-	perf->arcstat_l2_write_bytes = arc_ptr->arcstat_l2_write_bytes.value.ui64;
+	perf->arcstat_l2_write_bytes = arc_ptr->
+	    arcstat_l2_write_bytes.value.ui64;
 
 	// $v{l2 access per second} = $v{"l2hits"} + $v{ "l2miss" }
 	perf->arcstat_l2_access_ps = perf->arcstat_l2_hits +
@@ -2380,20 +2386,24 @@ zil_cache_counters_perfmon(cache_counters *perf, zil_stats_t *zil_ptr)
 	perf->zil_commit_writer_count = zil_ptr->
 	    zil_commit_writer_count.value.ui64;
 	perf->zil_itx_count = zil_ptr->zil_itx_count.value.ui64;
-	perf->zil_itx_indirect_count = zil_ptr->zil_itx_indirect_count.value.ui64;
-	perf->zil_itx_indirect_bytes = zil_ptr->zil_itx_indirect_bytes.value.ui64;
+	perf->zil_itx_indirect_count = zil_ptr->
+	    zil_itx_indirect_count.value.ui64;
+	perf->zil_itx_indirect_bytes = zil_ptr->
+	    zil_itx_indirect_bytes.value.ui64;
 	perf->zil_itx_copied_count = zil_ptr->zil_itx_copied_count.value.ui64;
 	perf->zil_itx_copied_bytes = zil_ptr->zil_itx_copied_bytes.value.ui64;
-	perf->zil_itx_needcopy_count = zil_ptr->zil_itx_needcopy_count.value.ui64;
-	perf->zil_itx_needcopy_bytes = zil_ptr->zil_itx_needcopy_bytes.value.ui64;
+	perf->zil_itx_needcopy_count = zil_ptr->
+	    zil_itx_needcopy_count.value.ui64;
+	perf->zil_itx_needcopy_bytes = zil_ptr->
+	    zil_itx_needcopy_bytes.value.ui64;
 	perf->zil_itx_metaslab_normal_count = zil_ptr->
 	    zil_itx_metaslab_normal_count
 	    .value.ui64;
 	perf->zil_itx_metaslab_normal_bytes = zil_ptr->
 	    zil_itx_metaslab_normal_bytes
 	    .value.ui64;
-	perf->zil_itx_metaslab_slog_count = zil_ptr->zil_itx_metaslab_slog_count
-	    .value.ui64;
-	perf->zil_itx_metaslab_slog_bytes = zil_ptr->zil_itx_metaslab_slog_bytes
-	    .value.ui64;
+	perf->zil_itx_metaslab_slog_count = zil_ptr->
+	    zil_itx_metaslab_slog_count.value.ui64;
+	perf->zil_itx_metaslab_slog_bytes = zil_ptr->
+	    zil_itx_metaslab_slog_bytes.value.ui64;
 }

@@ -2985,12 +2985,12 @@ request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 	PIRP Irp = *PIrp;
 
 	if (FileObject == NULL)
-		return STATUS_INVALID_PARAMETER;
+		return (STATUS_INVALID_PARAMETER);
 
 	struct vnode *vp = IrpSp->FileObject->FsContext;
 
 	if (vp == NULL)
-		return STATUS_INVALID_PARAMETER;
+		return (STATUS_INVALID_PARAMETER);
 
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
@@ -3108,7 +3108,7 @@ out:
 	VN_RELE(vp);
 	ZFS_EXIT(zfsvfs);
 
-	return Status;
+	return (Status);
 }
 
 NTSTATUS

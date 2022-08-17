@@ -93,14 +93,14 @@
  * ".mine$z" sets the end
  */
 
-#define	__MAKE_SET_QV(set, sym, qv)				\
-	__declspec(selectany) __declspec(allocate("." #set "$a"))		\
+#define	__MAKE_SET_QV(set, sym, qv)					\
+	__declspec(selectany) __declspec(allocate("." #set "$a"))	\
 	__weak_symbol const void * qv __CONCAT(__start_set_, set);	\
-	__declspec(selectany) __declspec(allocate("." #set "$z")) 		\
+	__declspec(selectany) __declspec(allocate("." #set "$z")) 	\
 	__weak_symbol const void * qv __CONCAT(__stop_set_, set);	\
-	__declspec(allocate("." #set "$m")) const void * qv 	\
-	__NOASAN						\
-	__set_##set##_sym_##sym 				\
+	__declspec(allocate("." #set "$m")) const void * qv 		\
+	__NOASAN							\
+	__set_##set##_sym_##sym 					\
 	__used = (void *)&(sym)
 
 #define	__MAKE_SET(set, sym)	__MAKE_SET_QV(set, sym, __MAKE_SET_CONST)
@@ -110,7 +110,7 @@
  */
 #define	TEXT_SET(set, sym)	__MAKE_SET(set, sym)
 #define	DATA_SET(set, sym)	__MAKE_SET(set, sym)
-#define	DATA_WSET(set, sym)	__MAKE_SET_QV(set, sym, )
+#define	DATA_WSET(set, sym)	__MAKE_SET_QV(set, sym,)
 #define	BSS_SET(set, sym)	__MAKE_SET(set, sym)
 #define	ABS_SET(set, sym)	__MAKE_SET(set, sym)
 #define	SET_ENTRY(set, sym)	__MAKE_SET(set, sym)
@@ -118,7 +118,8 @@
 /*
  * Initialize before referring to a given linker set.
  * We can not do the direct "extern ptype" here, due to:
- * "redeclaration of '__start_set_mine' with a different type: 'int *' vs 'void *'"
+ * "redeclaration of '__start_set_mine' with a different type: 'int *' vs
+ * 'void *'"
  * So we declare a local variable '__xstart_set_mine' and point
  * it at '__start_set_mine' with a cast to (ptype *).
  * We also need to skip first object as it is the start value.
@@ -128,8 +129,10 @@
 	extern const void * __weak_symbol __CONCAT(__stop_set_, set); \
 	static void * __CONCAT(__xstart_set_, set);  \
 	static void * __CONCAT(__xstop_set_, set);  \
-	__CONCAT(__xstart_set_, set) = (ptype * const) __weak_symbol &__CONCAT(__start_set_, set);	\
-	__CONCAT(__xstop_set_, set)  = (ptype * const) __weak_symbol &__CONCAT(__stop_set_, set); \
+	__CONCAT(__xstart_set_, set) = \
+	    (ptype * const) __weak_symbol &__CONCAT(__start_set_, set);	\
+	__CONCAT(__xstop_set_, set)  = \
+	    (ptype * const) __weak_symbol &__CONCAT(__stop_set_, set); \
 	__CONCAT(__xstart_set_, set) += sizeof (void *)
 
 #define	SET_BEGIN(set)							\
@@ -145,7 +148,8 @@
  * and the address of each set item is obtained inside the loop by "*pvar".
  */
 #define	SET_FOREACH(pvar, set)						\
-	for (pvar = (__typeof__((pvar))) SET_BEGIN(set); pvar < (__typeof__((pvar))) SET_LIMIT(set); pvar++)
+	for (pvar = (__typeof__((pvar))) \
+	    SET_BEGIN(set); pvar < (__typeof__((pvar))) SET_LIMIT(set); pvar++)
 
 #define	SET_ITEM(set, i)						\
 	((SET_BEGIN(set))[i])

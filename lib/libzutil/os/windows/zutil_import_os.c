@@ -967,7 +967,8 @@ update_vdev_config_dev_strsXXXX(nvlist_t *nv)
 		nvlist_remove_all(nv, ZPOOL_CONFIG_PHYS_PATH);
 		if (nvlist_add_string(nv, ZPOOL_CONFIG_PHYS_PATH, path) != 0)
 			return;
-		if (nvlist_add_string(nv, ZPOOL_CONFIG_VDEV_ENC_SYSFS_PATH, strdup(path)) != 0)
+		if (nvlist_add_string(nv, ZPOOL_CONFIG_VDEV_ENC_SYSFS_PATH, \
+		    strdup(path)) != 0)
 			return;
 		// This call frees the original "path", can't access after now
 		nvlist_remove_all(nv, ZPOOL_CONFIG_PATH);
@@ -981,14 +982,17 @@ update_vdev_config_dev_strsXXXX(nvlist_t *nv)
 		if (path[0] != '/') {
 			asprintf(&vdev_path, "\\??\\%s", path);
 			zfs_backslashes(vdev_path);
-			if (nvlist_add_string(nv, ZPOOL_CONFIG_PHYS_PATH, vdev_path) != 0)
+			if (nvlist_add_string(nv, ZPOOL_CONFIG_PHYS_PATH, \
+			    vdev_path) != 0)
 				return;
 
 			asprintf(&vdev_path, "//./%s", path);
 			zfs_slashes(vdev_path);
-			fprintf(stderr, "correcting path: '%s' \r\n", vdev_path);
+			fprintf(stderr, "correcting path: '%s' \r\n", \
+			    vdev_path);
 			fflush(stderr);
-			if (nvlist_add_string(nv, ZPOOL_CONFIG_PATH, vdev_path) != 0)
+			if (nvlist_add_string(nv, ZPOOL_CONFIG_PATH, \
+			    vdev_path) != 0)
 				return;
 
 		}
@@ -1052,8 +1056,10 @@ update_vdev_config_dev_strs(nvlist_t *nv)
 			"this code assumes ZFS is on partition 1\n");
 			fflush(stderr);
 			snprintf(udevpath, MAXPATHLEN, "#%llu#%llu#%s",
-			    vtoc->efi_parts[0].p_start * (uint64_t)vtoc->efi_lbasize,
-			    vtoc->efi_parts[0].p_size * (uint64_t)vtoc->efi_lbasize,
+			    vtoc->efi_parts[0].p_start * \
+				(uint64_t)vtoc->efi_lbasize,
+			    vtoc->efi_parts[0].p_size * \
+				(uint64_t)vtoc->efi_lbasize,
 			    path);
 			efi_free(vtoc);
 			path = udevpath;
@@ -1095,7 +1101,8 @@ update_vdev_config_dev_strs(nvlist_t *nv)
 		if (path[0] != '/') {
 			asprintf(&vdev_path, "\\??\\%s", path);
 			zfs_backslashes(vdev_path);
-			if (nvlist_add_string(nv, ZPOOL_CONFIG_PHYS_PATH, vdev_path) != 0)
+			if (nvlist_add_string(nv, ZPOOL_CONFIG_PHYS_PATH, \
+			    vdev_path) != 0)
 			return;
 
 		asprintf(&vdev_path, "//./%s", path);

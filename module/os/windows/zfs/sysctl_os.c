@@ -68,7 +68,7 @@ sysctl_os_open_registry(PUNICODE_STRING pRegistryPath)
 
 	if (!NT_SUCCESS(Status)) {
 		KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-		    "%s: Unable to open Registry %wZ: 0x%x -- skipping tunables\n",
+	    "%s: Unable to open Registry %wZ: 0x%x -- skipping tunables\n",
 		    __func__, pRegistryPath, Status));
 		return (0);
 	}
@@ -122,7 +122,9 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 		return;
 
 	// keys are "prefix", add to entry
-	Status = RtlUTF8ToUnicodeN((PWSTR)&((uchar_t *)entry.Buffer)[entry.Length], LINUX_MAX_MODULE_PARAM_LEN - entry.Length,
+	Status = RtlUTF8ToUnicodeN(
+	    (PWSTR)&((uchar_t *)entry.Buffer)[entry.Length],
+	    LINUX_MAX_MODULE_PARAM_LEN - entry.Length,
 	    &length, zt->zt_prefix, strlen(zt->zt_prefix));
 	entry.Length += length;
 
@@ -169,7 +171,8 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 
 			/*
 			 * STRINGS: from zfs/ZT struct to write out to Registry
-			 * Check how much space convert will need, allocate buffer
+			 * Check how much space convert will need, allocate
+			 * buffer
 			 * Convert ascii -> utf8 the string
 			 * Assign to Registry update.
 			 */
@@ -178,12 +181,13 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 			if (!NT_SUCCESS(Status))
 				goto skip;
 			str.Length = str.MaximumLength = length;
-			str.Buffer = ExAllocatePoolWithTag(PagedPool, length, 'ZTST');
+			str.Buffer = ExAllocatePoolWithTag(PagedPool, length,
+			    'ZTST');
 			if (str.Buffer == NULL)
 				goto skip;
 
-			Status = RtlUTF8ToUnicodeN(str.Buffer, str.MaximumLength,
-			    &length, val, len);
+			Status = RtlUTF8ToUnicodeN(str.Buffer,
+			    str.MaximumLength, &length, val, len);
 			str.Length = length;
 
 			len = length;
@@ -225,7 +229,8 @@ skip:
 
 		if (NT_SUCCESS(Status)) {
 			char *strval = NULL;
-			KEY_VALUE_FULL_INFORMATION *kv = (KEY_VALUE_FULL_INFORMATION *)buffer;
+			KEY_VALUE_FULL_INFORMATION *kv =
+			    (KEY_VALUE_FULL_INFORMATION *)buffer;
 			void *val = NULL;
 			ULONG len = 0;
 			ULONG type = 0;
@@ -244,34 +249,38 @@ skip:
 					/*
 					 * STRINGS:
 					 *
-					 * Static? Convert into buffer assuming static MAX.
+					 * Static? Convert into buffer assuming
+					 * static MAX.
 					 * Dynamic?
-					 * First if it has a value and ALLOCATED, then free().
+					 * First if it has a value and
+					 * ALLOCATED, then free().
 					 * Check string kength needed, allocate
 					 * Then convert ascii -> utf8 the string
 					 */
 					/* Already set? free it */
 					if (!(zt->zt_flag & ZT_FLAG_STATIC)) {
 
-						if (maybestr != NULL && *maybestr != NULL)
+						if (maybestr != NULL &&
+						    *maybestr != NULL)
 							ExFreePool(*maybestr);
 
 						*maybestr = NULL;
 					}
 					/* How much space needed? */
-					Status = RtlUnicodeToUTF8N(NULL, 0, &length,
-					    val, len);
+					Status = RtlUnicodeToUTF8N(NULL, 0,
+					    &length, val, len);
 					if (!NT_SUCCESS(Status))
 						goto failed;
 
 					/* Get space */
-					strval = ExAllocatePoolWithTag(PagedPool, length, 'ZTST');
+					strval = ExAllocatePoolWithTag(
+					    PagedPool, length, 'ZTST');
 					if (strval == NULL)
 						goto failed;
 
 					/* Convert to ascii */
-					Status = RtlUnicodeToUTF8N(strval, length, &length,
-					    val, len);
+					Status = RtlUnicodeToUTF8N(strval,
+					    length, &length, val, len);
 					if (!NT_SUCCESS(Status))
 						goto failed;
 
@@ -282,7 +291,8 @@ skip:
 
 				ZT_SET_VALUE(zt, &val, &len, &type);
 
-				if ((zt->zt_flag & ZT_FLAG_STATIC) && strval != NULL) {
+				if ((zt->zt_flag & ZT_FLAG_STATIC) &&
+				    strval != NULL) {
 					ExFreePoolWithTag(strval, '!SFZ');
 				}
 			} // RD vs RW

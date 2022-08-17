@@ -610,7 +610,8 @@ vnode_apply_single_ea(struct vnode *vp, struct vnode *xdvp,
 		iov.iov_len = ea->EaValueLength;
 
 		zfs_uio_t uio;
-		zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE, ea->EaValueLength, 0);
+		zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE,
+		    ea->EaValueLength, 0);
 		error = zfs_write(xzp, &uio, 0, NULL);
 	}
 
@@ -738,7 +739,8 @@ zfs_obtain_xattr(znode_t *dzp, const char *name, mode_t mode, cred_t *cr,
 	}
 
 	cn.cn_namelen = cn.cn_pnlen = strlen(name)+1;
-	cn.cn_nameptr = cn.cn_pnbuf = (char *)kmem_zalloc(cn.cn_pnlen, KM_SLEEP);
+	cn.cn_nameptr = cn.cn_pnbuf = (char *)kmem_zalloc(cn.cn_pnlen,
+	    KM_SLEEP);
 
 top:
 	/* Lock the attribute entry name. */
@@ -2658,7 +2660,8 @@ get_reparse_tag(znode_t *zp)
 		iov.iov_len = sizeof (tagdata);
 
 		zfs_uio_t uio;
-		zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE, sizeof (tagdata), 0);
+		zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE,
+		    sizeof (tagdata), 0);
 		err = zfs_readlink(ZTOV(zp), &uio, NULL);
 		return (tagdata.ReparseTag);
 	}
@@ -2751,7 +2754,8 @@ file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			TIME_UNIX_TO_WINDOWS(zp->z_atime,
 			    basic->LastAccessTime.QuadPart);
 
-			// FileAttributes == 0 means don't set - undocumented, but seen in fastfat
+			// FileAttributes == 0 means don't set
+			// - undocumented, but seen in fastfat
 			// if (basic->FileAttributes != 0)
 			basic->FileAttributes = zfs_getwinflags(zp);
 
@@ -2786,7 +2790,8 @@ file_compression_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	if (IrpSp->Parameters.QueryFile.Length <
 	    sizeof (FILE_COMPRESSION_INFORMATION)) {
-		Irp->IoStatus.Information = sizeof (FILE_COMPRESSION_INFORMATION);
+		Irp->IoStatus.Information =
+		    sizeof (FILE_COMPRESSION_INFORMATION);
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
 
@@ -2804,7 +2809,8 @@ file_compression_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 			VN_RELE(vp);
 		}
-		Irp->IoStatus.Information = sizeof (FILE_COMPRESSION_INFORMATION);
+		Irp->IoStatus.Information =
+		    sizeof (FILE_COMPRESSION_INFORMATION);
 		return (STATUS_SUCCESS);
 	}
 
@@ -2925,7 +2931,8 @@ file_alignment_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp, FILE_ALIGNMENT_INFORMATION *fai)
 {
 	dprintf("   %s\n", __func__);
-	if (IrpSp->Parameters.QueryFile.Length < sizeof (FILE_ALIGNMENT_INFORMATION)) {
+	if (IrpSp->Parameters.QueryFile.Length <
+	    sizeof (FILE_ALIGNMENT_INFORMATION)) {
 		Irp->IoStatus.Information = sizeof (FILE_ALIGNMENT_INFORMATION);
 		return (STATUS_BUFFER_TOO_SMALL);
 	}

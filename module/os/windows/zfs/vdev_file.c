@@ -194,7 +194,10 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	 * Make sure it's a regular file.
 	 */
 	if (zfs_file_getattr(fp, &zfa)) {
-		/* It is possible users copied file to virtual disk, try that. */
+		/*
+		 * It is possible users copied file to virtual disk,
+		 * try that.
+		 */
 		// zfs_file_close(fp);
 		vdev_file_close(vd);
 		spa_strfree(vdev_path);

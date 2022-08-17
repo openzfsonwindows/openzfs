@@ -267,7 +267,7 @@ ZFSinPerfVdevEnumerate(PCW_MASK_INFORMATION EnumerateInstances)
 
 			if (!NT_SUCCESS(status)) {
 				TraceEvent(TRACE_ERROR,
-				    "%s:%d: Ansi to Unicode string conversion failed for %Z\n",
+		    "%s:%d: Ansi to Unicode string conversion failed for %Z\n",
 				    __func__, __LINE__, &ansi_vdev);
 				continue;
 			}
@@ -276,7 +276,7 @@ ZFSinPerfVdevEnumerate(PCW_MASK_INFORMATION EnumerateInstances)
 			    MapInvalidChars(&unicodeName), 0, NULL);
 			if (!NT_SUCCESS(status)) {
 				TraceEvent(TRACE_ERROR,
-				    "%s:%d: AddZFSinPerfVdev failed - status 0x%x\n",
+			    "%s:%d: AddZFSinPerfVdev failed - status 0x%x\n",
 				    __func__, __LINE__, status);
 			}
 		}
@@ -312,10 +312,11 @@ void ZFSinPerfEnumerate(PCW_MASK_INFORMATION EnumerateInstances) {
 		RtlInitAnsiString(&ansi_spa, spa_perf->spa_name);
 		spa_close(spa_perf, FTAG);
 
-		status = RtlAnsiStringToUnicodeString(&unicodeName, &ansi_spa, FALSE);
+		status = RtlAnsiStringToUnicodeString(&unicodeName, &ansi_spa,
+		    FALSE);
 		if (!NT_SUCCESS(status)) {
-		TraceEvent(TRACE_ERROR,
-			    "%s:%d: Ansi to Unicode string conversion failed for %Z\n",
+			TraceEvent(TRACE_ERROR,
+		    "%s:%d: Ansi to Unicode string conversion failed for %Z\n",
 			    __func__, __LINE__, &ansi_spa);
 			continue;
 		}
@@ -335,7 +336,8 @@ void ZFSinPerfEnumerate(PCW_MASK_INFORMATION EnumerateInstances) {
 	status = AddZFSinPerf(EnumerateInstances.Buffer,
 	    MapInvalidChars(&total), 0, NULL);
 	if (!NT_SUCCESS(status)) {
-		TraceEvent(TRACE_ERROR, "%s:%d: AddZFSinPerf failed - status 0x%x\n",
+		TraceEvent(TRACE_ERROR,
+		    "%s:%d: AddZFSinPerf failed - status 0x%x\n",
 		    __func__, __LINE__, status);
 	}
 
@@ -393,7 +395,8 @@ latency_stats(uint64_t *histo, unsigned int buckets, stat_pair* lat)
 		 * ...
 		 */
 		if (histo[i] != 0) {
-			lat->total += histo[i] * (((1UL << i) + ((1UL << i) / 2)));
+			lat->total += histo[i] *
+			    (((1UL << i) + ((1UL << i) / 2)));
 			lat->count += histo[i];
 		}
 	}
@@ -458,8 +461,8 @@ update_perf(vdev_stat_ex_t *vsx, vdev_stat_t *vs, ddt_object_t *ddo,
 		perf->vsx_queue_histo_async_read_time = lat.total;
 		perf->vsx_queue_histo_async_read_count = lat.count;
 
-		latency_stats(&vsx->vsx_queue_histo[ZIO_PRIORITY_ASYNC_WRITE][0],
-		    VDEV_L_HISTO_BUCKETS, &lat);
+		latency_stats(&vsx->vsx_queue_histo[ZIO_PRIORITY_ASYNC_WRITE]
+		    [0], VDEV_L_HISTO_BUCKETS, &lat);
 		perf->vsx_queue_histo_async_write_time = lat.total;
 		perf->vsx_queue_histo_async_write_count = lat.count;
 
@@ -584,15 +587,17 @@ void ZFSinPerfCollect(PCW_MASK_INFORMATION CollectData) {
 
 		update_total_perf(&perf, &total_perf);
 
-		status = RtlAnsiStringToUnicodeString(&unicodeName, &ansi_spa, FALSE);
+		status = RtlAnsiStringToUnicodeString(&unicodeName, &ansi_spa,
+		    FALSE);
 		if (!NT_SUCCESS(status)) {
-		TraceEvent(TRACE_ERROR,
-			    "%s:%d: Ansi to Unicode string conversion failed for %Z\n",
+			TraceEvent(TRACE_ERROR,
+		    "%s:%d: Ansi to Unicode string conversion failed for %Z\n",
 			    __func__, __LINE__, &ansi_spa);
 			continue;
 		}
 
-		status = AddZFSinPerf(CollectData.Buffer, MapInvalidChars(&unicodeName),
+		status = AddZFSinPerf(CollectData.Buffer,
+		    MapInvalidChars(&unicodeName),
 		    0, &perf);
 
 		if (!NT_SUCCESS(status)) {
@@ -608,7 +613,8 @@ void ZFSinPerfCollect(PCW_MASK_INFORMATION CollectData) {
 	status = AddZFSinPerf(CollectData.Buffer, MapInvalidChars(&total),
 	    0, &total_perf);
 	if (!NT_SUCCESS(status)) {
-		TraceEvent(TRACE_ERROR, "%s:%d: AddZFSinPerf failed-status 0x%x\n",
+		TraceEvent(TRACE_ERROR,
+		    "%s:%d: AddZFSinPerf failed-status 0x%x\n",
 		    __func__, __LINE__, status);
 	}
 
@@ -640,7 +646,8 @@ void ZFSinPerfVdevCollect(PCW_MASK_INFORMATION CollectData) {
 
 			snprintf(vdev_zpool, ZFS_MAX_DATASET_NAME_LEN, "%s_%s",
 			    vdev_name + 5, spa_perf->
-			    spa_name); // Neglecting first five characters of vdev_name
+			    spa_name);
+			// Neglecting first five characters of vdev_name
 
 			ANSI_STRING ansi_vdev;
 			RtlInitAnsiString(&ansi_vdev, vdev_zpool);
@@ -649,7 +656,8 @@ void ZFSinPerfVdevCollect(PCW_MASK_INFORMATION CollectData) {
 
 			vdev_t *cvd = vd->vdev_child[c];
 
-			update_perf(&cvd->vdev_stat_ex, &cvd->vdev_stat, NULL, NULL, &perf_vdev);
+			update_perf(&cvd->vdev_stat_ex, &cvd->vdev_stat, NULL,
+			    NULL, &perf_vdev);
 			update_total_perf(&perf_vdev, &total_perf_vdev);
 
 			status = AddZFSinPerfVdev(CollectData.Buffer,
@@ -657,7 +665,8 @@ void ZFSinPerfVdevCollect(PCW_MASK_INFORMATION CollectData) {
 
 			if (!NT_SUCCESS(status)) {
 				TraceEvent(
-				    TRACE_ERROR, "%s:%d: AddZFSinPerfVdev failed-status 0x%x\n",
+				    TRACE_ERROR,
+			    "%s:%d: AddZFSinPerfVdev failed-status 0x%x\n",
 				    __func__, __LINE__, status);
 			}
 		}
@@ -700,13 +709,15 @@ void ZFSinCachePerfCollect(PCW_MASK_INFORMATION CollectData) {
 		KSTAT_ENTER(perf_arc_ksp);
 		int error = KSTAT_UPDATE(perf_arc_ksp, KSTAT_READ);
 		if (!error)
-		    arc_cache_counters_perfmon(&perf_cache, perf_arc_ksp->ks_data);
+			arc_cache_counters_perfmon(&perf_cache,
+			perf_arc_ksp->ks_data);
 		KSTAT_EXIT(perf_arc_ksp);
 
 		KSTAT_ENTER(perf_zil_ksp);
 		error = KSTAT_UPDATE(perf_zil_ksp, KSTAT_READ);
 		if (!error)
-			zil_cache_counters_perfmon(&perf_cache, perf_zil_ksp->ks_data);
+			zil_cache_counters_perfmon(&perf_cache,
+			    perf_zil_ksp->ks_data);
 		KSTAT_EXIT(perf_zil_ksp);
 
 		status = AddZFSinCachePerf(CollectData.Buffer,
@@ -1058,11 +1069,13 @@ zfsdev_attach(void)
 	}
 	pcwStatus = RegisterZFSinPerfVdev(ZFSinPerfVdevCallBack, NULL);
 	if (!NT_SUCCESS(pcwStatus)) {
-		TraceEvent(TRACE_ERROR, "ZFSin vdev perf registration failed\n");
+		TraceEvent(TRACE_ERROR,
+		    "ZFSin vdev perf registration failed\n");
 	}
 	pcwStatus = RegisterZFSinCachePerf(ZFSinCachePerfCallBack, NULL);
 	if (!NT_SUCCESS(pcwStatus)) {
-		TraceEvent(TRACE_ERROR, "ZFSin cache perf registration failed\n");
+		TraceEvent(TRACE_ERROR,
+		    "ZFSin cache perf registration failed\n");
 	}
 
 

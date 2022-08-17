@@ -125,9 +125,12 @@ typedef enum {
  * MACRO so, they are set to ZT_TYPE_NOTSET. The call ZT_GET_VALUE( ..., &type)
  * is used to fetch the real type from each handler function.
  * The handler functions are given and expected:
- * function(struct ztunable_s *zt, void **ptr, ULONG *len, ULONG *type, boolean_t set)
- *  * GET: point 'ptr' to variable, set 'len' size of variable, set 'type' to real type.
- *  * SET: 'ptr' points to input, 'len' has size (for ASSERT), set 'type' to real type.
+ * function(struct ztunable_s *zt, void **ptr, ULONG *len, ULONG *type, \
+ * boolean_t set)
+ *  * GET: point 'ptr' to variable, set 'len' size of variable, set 'type' to
+ * real type.
+ *  * SET: 'ptr' points to input, 'len' has size (for ASSERT), set 'type' to
+ * real type.
  */
 typedef enum {
 	ZT_TYPE_NOTSET,	// _CALL sets no type.
@@ -300,7 +303,8 @@ ZT_GET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 	SET_ENTRY(zt, zt_ ## variable)
 
 
-#define	ZFS_MODULE_PARAM_CALL_IMPL(scope_prefix, name_prefix, name, perm, args, desc) \
+#define	ZFS_MODULE_PARAM_CALL_IMPL( \
+    scope_prefix, name_prefix, name, perm, args, desc) \
 	static ztunable_t zt_ ## name_prefix ## name = { \
 		.zt_ptr = &name_prefix ## name, \
 		.zt_func = args, \
