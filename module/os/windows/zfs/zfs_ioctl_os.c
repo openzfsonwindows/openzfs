@@ -52,6 +52,60 @@
 #include <zfs_gitrev.h>
 
 #include <Wdmsec.h>
+
+
+
+typedef struct {
+    unsigned __int64	read_iops;
+    unsigned __int64	write_iops;
+    unsigned __int64	total_iops;
+    unsigned __int64	read_bytes;
+    unsigned __int64	write_bytes;
+    unsigned __int64	total_bytes;
+    unsigned __int64	ddt_entry_count; // number of elments in ddt ,zpool only
+    unsigned __int64	ddt_dspace; // size of ddt on disk   ,zpool only
+    unsigned __int64	ddt_mspace; // size of ddt in-core   ,zpool only
+    unsigned __int64	vsx_active_queue_sync_read;
+    unsigned __int64	vsx_active_queue_sync_write;
+    unsigned __int64	vsx_active_queue_async_read;
+    unsigned __int64	vsx_active_queue_async_write;
+    unsigned __int64	vsx_pend_queue_sync_read;
+    unsigned __int64	vsx_pend_queue_sync_write;
+    unsigned __int64	vsx_pend_queue_async_read;
+    unsigned __int64	vsx_pend_queue_async_write;
+    unsigned __int64	vsx_queue_histo_sync_read_time;
+    unsigned __int64	vsx_queue_histo_sync_read_count;
+    unsigned __int64	vsx_queue_histo_async_read_time;
+    unsigned __int64	vsx_queue_histo_async_read_count;
+    unsigned __int64	vsx_queue_histo_sync_write_time;
+    unsigned __int64	vsx_queue_histo_sync_write_count;
+    unsigned __int64	vsx_queue_histo_async_write_time;
+    unsigned __int64	vsx_queue_histo_async_write_count;
+    unsigned __int64	vsx_total_histo_read_time;
+    unsigned __int64	vsx_total_histo_read_count;
+    unsigned __int64	vsx_total_histo_write_time;
+    unsigned __int64	vsx_total_histo_write_count;
+    unsigned __int64	vsx_disk_histo_read_time;
+    unsigned __int64	vsx_disk_histo_read_count;
+    unsigned __int64	vsx_disk_histo_write_time;
+    unsigned __int64	vsx_disk_histo_write_count;
+    unsigned __int64	dp_dirty_total_io;	// zpool only
+} zpool_perf_counters;
+
+NTSTATUS NTAPI
+ZFSinPerfCallBack(PCW_CALLBACK_TYPE Type, PPCW_CALLBACK_INFORMATION Info,
+    PVOID Context);
+
+void ZFSinPerfCollect(PCW_MASK_INFORMATION CollectData);
+void ZFSinPerfVdevCollect(PCW_MASK_INFORMATION CollectData);
+void ZFSinCachePerfCollect(PCW_MASK_INFORMATION CollectData);
+
+PUNICODE_STRING MapInvalidChars(PUNICODE_STRING InstanceName);
+
+void ZFSinPerfEnumerate(PCW_MASK_INFORMATION EnumerateInstances);
+void ZFSinPerfVdevEnumerate(PCW_MASK_INFORMATION EnumerateInstances);
+void ZFSinCachePerfEnumerate(PCW_MASK_INFORMATION EnumerateInstances);
+
 #include <sys/spa_impl.h>
 #include <sys/zfs_ioctl.h>
 #include "../OpenZFS_perf.h"
