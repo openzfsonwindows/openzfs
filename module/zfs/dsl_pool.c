@@ -99,8 +99,8 @@
  * capped at zfs_dirty_data_max_max.  It can also be overridden with a module
  * parameter.
  */
-uint64_t zfs_dirty_data_max = 0;
-uint64_t zfs_dirty_data_max_max = 0;
+ZFS_MODULE_ULONG zfs_dirty_data_max = 0;
+ZFS_MODULE_ULONG zfs_dirty_data_max_max = 0;
 int zfs_dirty_data_max_percent = 10;
 int zfs_dirty_data_max_max_percent = 25;
 

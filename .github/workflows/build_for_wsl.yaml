@@ -1,0 +1,58 @@
+name: build_for_wsl
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+    - name: Reclaim disk space
+      run: |
+        ${{ github.workspace }}/.github/workflows/scripts/reclaim_disk_space.sh
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        xargs --arg-file=${{ github.workspace }}/.github/workflows/build-dependencies.txt sudo apt-get install -qq
+        sudo apt-get clean
+    - name: Autogen.sh
+      run: |
+        ./autogen.sh
+    - name: Configure
+      run: |
+        ./configure --enable-debug --enable-debuginfo --enable-asan --enable-ubsan
+    - name: Make
+      run: |
+        make -j16 --no-print-directory --silent pkg-utils pkg-kmod
+        #make -j$(nproc) --no-print-directory --silent pkg-utils pkg-kmod
+    - name: get files
+      run: ls -Rla
+    - name: Prepare artifacts
+      if: failure()
+      run: |
+        RESULTS_PATH=$(readlink -f /var/tmp/test_results/current)
+        sudo dmesg > $RESULTS_PATH/dmesg
+        sudo cp /var/log/syslog /var/tmp/dmesg-prerun $RESULTS_PATH/
+        sudo chmod +r $RESULTS_PATH/*
+        # Replace ':' in dir names, actions/upload-artifact doesn't support it
+        for f in $(find /var/tmp/test_results -name '*:*'); do mv "$f" "${f//:/__}"; done
+    - uses: actions/upload-artifact@v2
+      if: failure()
+      with:
+        name: Test logs Ubuntu-${{ matrix.os }}
+        path: |
+          /var/tmp/test_results/*
+          !/var/tmp/test_results/current
+        if-no-files-found: ignore
+
+    - uses: actions/upload-artifact@v2
+      with:
+        name: build result
+        path: |
+          *.deb
+          *.rpm

@@ -174,7 +174,7 @@ zvol_find_by_name_hash(const char *name, uint64_t hash, int mode)
  * before zv_state_lock. The mode argument indicates the mode (including none)
  * for zv_suspend_lock to be taken.
  */
-static zvol_state_t *
+zvol_state_t *
 zvol_find_by_name(const char *name, int mode)
 {
 	return (zvol_find_by_name_hash(name, zvol_name_hash(name), mode));
@@ -1738,37 +1738,4 @@ zvol_fini_impl(void)
 	kmem_free(zvol_htable, ZVOL_HT_SIZE * sizeof (struct hlist_head));
 	list_destroy(&zvol_state_list);
 	rw_destroy(&zvol_state_lock);
-}
-
-/* ZFS ZVOLDI */
-_Function_class_(PINTERFACE_REFERENCE)
-    void
-    IncZvolRef(PVOID Context)
-{
-	zvol_state_t *zv = (zvol_state_t *)Context;
-	atomic_inc_32(&zv->zv_open_count);
-}
-
-_Function_class_(PINTERFACE_REFERENCE)
-    void
-    DecZvolRef(PVOID Context)
-{
-	zvol_state_t *zv = (zvol_state_t *)Context;
-	atomic_dec_32(&zv->zv_open_count);
-}
-
-zvol_state_t *
-zvol_name2zvolState(const char *name, uint32_t *openCount)
-{
-	zvol_state_t *zv;
-
-	zv = zvol_find_by_name(name, RW_NONE);
-	if (zv == NULL)
-		return (zv);
-
-	if (openCount)
-		*openCount = zv->zv_open_count;
-
-	mutex_exit(&zv->zv_state_lock);
-	return (zv);
 }
