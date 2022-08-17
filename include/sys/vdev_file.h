@@ -35,6 +35,11 @@ typedef struct vdev_file {
 	uint64_t	vdev_win_offset; /* soft partition start */
 	uint64_t	vdev_win_length; /* soft partition length */
 } vdev_file_t;
+#else
+/* Grabbed from https://github.com/openzfs/zfs/blob/1d3ba0bf01020f5459b1c28db3979129088924c0/include/sys/vdev_file.h#L36 */
+typedef struct vdev_file {
+	zfs_file_t	*vf_file;
+} vdev_file_t;
 #endif
 
 extern void vdev_file_init(void);
