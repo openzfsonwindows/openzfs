@@ -783,7 +783,8 @@ ExecuteWmiMethod(
 					PGetDiscoveredPortAttributes_OUT pOut =
 					    (PGetDiscoveredPortAttributes_OUT)
 					    pBuffer;
-					sizeNeeded = 			    GetDiscoveredPortAttributes_OUT_SIZE;
+					sizeNeeded =
+	    GetDiscoveredPortAttributes_OUT_SIZE;
 
 					if (OutBufferSize >= sizeNeeded) {
 						memset(pOut, 0, sizeNeeded);
@@ -792,7 +793,8 @@ ExecuteWmiMethod(
 						// driver with no discovered
 						// ports,always return an error
 						pOut->
-						    HBAStatus = HBA_STATUS_ERROR_ILLEGAL_INDEX;
+						    HBAStatus =
+	    HBA_STATUS_ERROR_ILLEGAL_INDEX;
 					} else {
 						status =
 						    SRB_STATUS_DATA_OVERRUN;
