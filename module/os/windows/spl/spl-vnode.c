@@ -557,10 +557,13 @@ spl_vnode_fini(void)
 				mutex_exit(&rvp->v_mutex);
 			}
 			mutex_exit(&vnode_all_list_lock);
-			// here's hopin'
-			vnode_drain_delayclose(1);
 		}
 	}
+
+	// age all marked "old", so here's hopin'
+	vnode_drain_delayclose(1);
+
+	ASSERT(list_empty(&vnode_all_list));
 
 	mutex_destroy(&vnode_all_list_lock);
 	list_destroy(&vnode_all_list);
@@ -1469,6 +1472,14 @@ mount_count_nodes(struct mount *mp, int flags)
 	return (count);
 }
 
+
+/*
+ * Let's try something new. If we are to vflush, lets do everything we can
+ * then release the znode struct, and leave vnode with a NULL ptr, marked
+ * dead. Future access to vnode will be refused. Move the vnode from
+ * the mount's list, onto a deadlist. Only stop module unload
+ * until deadlist is empty.
+ */
 int
 vflush(struct mount *mp, struct vnode *skipvp, int flags)
 {
@@ -1487,7 +1498,6 @@ vflush(struct mount *mp, struct vnode *skipvp, int flags)
 
 	dprintf("vflush start\n");
 
-repeat:
 	mutex_enter(&vnode_all_list_lock);
 	while (1) {
 		for (rvp = list_head(&vnode_all_list);
@@ -1528,13 +1538,11 @@ repeat:
 			// the node at end of this while.
 
 				try {
-					Status = ObReferenceObject(fileobject);
-			//		Status = ObReferenceObjectByPointer(
-			//		    fileobject,  // fixme, keep this
-			//				 // in dvd
-			//		    0,
-			//		    *IoFileObjectType,
-			//		    KernelMode);
+					Status = ObReferenceObjectByPointer(
+					    fileobject,  // fixme, keep this in dvd
+					    0,
+					    *IoFileObjectType,
+					    KernelMode);
 				} except(EXCEPTION_EXECUTE_HANDLER) {
 					Status = GetExceptionCode();
 				}
@@ -1602,31 +1610,18 @@ restart:
 
 	kpreempt(KPREEMPT_SYNC);
 
-	// Check if all nodes have gone, or we are waiting for CcMgr
-	// not counting the MARKROOT vnode for the mount. So if empty list,
-	// or it is exactly one node with MARKROOT, then we are done.
-	// Unless FORCECLOSE, then root as well shall be gone.
-
-	// Ok, we need to count nodes that match this mount, not "all"
-	// nodes, possibly belonging to other mounts.
-
-	if (mount_count_nodes(mp, (flags & FORCECLOSE) ? 0 : SKIPROOT) > 0) {
-		dprintf("%s: waiting for vnode flush1.\n", __func__);
-		// Is there a better wakeup we can do here?
-		delay(hz >> 1);
-		vnode_drain_delayclose(1);
-
-		// We can get stuck here forever. What can we do if Windows
-		// doesn't release the files?
-
-		/* Until we can fix it, let it pass through and linger vnode */
-		// goto repeat;
-		// GROSS HACK
-		mutex_enter(&vnode_all_list_lock);
-		for (rvp = list_head(&vnode_all_list);
-		    rvp;
-		    rvp = list_next(&vnode_all_list, rvp)) {
-			if (rvp->v_data && rvp->v_mount == mp) {
+	/*
+	 * Process all remaining nodes, release znode, and set vnode to NULL
+	 * move to dead list.
+	 */
+	int deadlist = 0;
+	mutex_enter(&vnode_all_list_lock);
+	for (rvp = list_head(&vnode_all_list);
+	    rvp;
+	    rvp = list_next(&vnode_all_list, rvp)) {
+		if (rvp->v_mount == mp) {
+			if (rvp->v_data) {
+				deadlist++;
 				// mutex_exit(&vnode_all_list_lock);
 				zfs_vnop_reclaim(rvp);
 				// mutex_enter(&vnode_all_list_lock);
@@ -1636,11 +1631,13 @@ restart:
 					kmem_free(node, sizeof (*node));
 				}
 			}
+			rvp->v_flags |= VNODE_DEAD;
+			rvp->v_data = NULL;
 		}
-		mutex_exit(&vnode_all_list_lock);
 	}
+	mutex_exit(&vnode_all_list_lock);
 
-	dprintf("vflush end\n");
+	xprintf("vflush end: deadlisted %d nodes\n", deadlist);
 
 	return (0);
 }
