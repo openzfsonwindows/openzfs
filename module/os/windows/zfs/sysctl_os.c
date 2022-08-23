@@ -164,7 +164,6 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 		ZT_GET_VALUE(zt, &val, &len, &type);
 
 		ASSERT3P(val, != , NULL);
-		ASSERT3U(len, > , 0);
 
 		if (type == ZT_TYPE_STRING) {
 
