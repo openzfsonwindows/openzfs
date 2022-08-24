@@ -1845,7 +1845,7 @@ zfs_readdir(vnode_t *vp, zfs_uio_t *uio, cred_t *cr, zfs_dirlist_t *zccb,
 					eodp =
 					    (FILE_FULL_DIR_INFORMATION *)bufptr;
 					FILE_ID_EXTD_BOTH_DIR_INFORMATION
-					    *fiebdi;
+					*fiebdi;
 					fiebdi =
 					    (FILE_ID_EXTD_BOTH_DIR_INFORMATION
 					    *)bufptr;

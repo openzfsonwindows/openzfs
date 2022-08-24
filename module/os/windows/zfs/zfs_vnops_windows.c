@@ -3110,8 +3110,8 @@ request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 					    &vp->FileHeader.AllocationSize);
 				else if
 				    (fFsRtlAreThereCurrentOrInProgressFileLocks)
-					oplock_count =
-	    fFsRtlAreThereCurrentOrInProgressFileLocks(&vp->lock);
+		oplock_count =
+		    fFsRtlAreThereCurrentOrInProgressFileLocks(&vp->lock);
 				else
 					oplock_count =
 					    FsRtlAreThereCurrentFileLocks(&vp->
