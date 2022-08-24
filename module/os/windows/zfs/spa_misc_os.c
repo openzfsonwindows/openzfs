@@ -54,23 +54,23 @@ spa_history_zone(void)
 }
 
 void
-spa_create_os(void *arg)
+spa_import_os(spa_t *arg)
 {
 }
 
 void
-spa_export_os(void *arg)
+spa_export_os(spa_t *arg)
 {
 }
 
 void
-spa_activate_os(void *arg)
+spa_activate_os(spa_t *arg)
 {
 	atomic_inc_64(&zfs_module_busy);
 }
 
 void
-spa_deactivate_os(void *arg)
+spa_deactivate_os(spa_t *arg)
 {
 	atomic_dec_64(&zfs_module_busy);
 }
