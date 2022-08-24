@@ -338,12 +338,16 @@ sysctl_os_registry_change(PVOID Parameter)
 	if (registry_notify_fd == 0) {
 
 		registry_notify_fd = sysctl_os_open_registry(RegistryPath);
-		RtlDuplicateUnicodeString(
-		    RTL_DUPLICATE_UNICODE_STRING_ALLOCATE_NULL_STRING | RTL_DUPLICATE_UNICODE_STRING_NULL_TERMINATE,
-		    RegistryPath,
-		    &sysctl_os_RegistryPath);
-		ExInitializeWorkItem(&wqi, sysctl_os_registry_change, &sysctl_os_RegistryPath);
 
+		if (registry_notify_fd != 0) {
+			RtlDuplicateUnicodeString(
+			    RTL_DUPLICATE_UNICODE_STRING_ALLOCATE_NULL_STRING |
+			    RTL_DUPLICATE_UNICODE_STRING_NULL_TERMINATE,
+			    RegistryPath,
+			    &sysctl_os_RegistryPath);
+			ExInitializeWorkItem(&wqi, sysctl_os_registry_change,
+			    &sysctl_os_RegistryPath);
+		}
 	} else {
 		// Notified, re-scan registry
 		sysctl_os_init(RegistryPath);
@@ -391,9 +395,10 @@ sysctl_os_fini(void)
 {
 	HANDLE fd = registry_notify_fd;
 	registry_notify_fd = 0;
+	RtlFreeUnicodeString(&sysctl_os_RegistryPath);
+
 	if (fd != 0)
 		ZwClose(fd);
-	RtlFreeUnicodeString(&sysctl_os_RegistryPath);
 }
 
 int
