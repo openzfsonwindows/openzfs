@@ -195,10 +195,6 @@ extern void kx_qsort(void *array, size_t nm, size_t member_size,
 
 #define	strstr kmem_strstr
 
-void spa_create_os(void *spa);
-void spa_export_os(void *spa);
-void spa_activate_os(void *spa);
-void spa_deactivate_os(void *spa);
 
 #define	task_io_account_read(n)
 #define	task_io_account_write(n)
