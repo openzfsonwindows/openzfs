@@ -25,4 +25,3 @@
 #include <sys/zfs_ioctl.h>
 #include <os/windows/zfs/sys/zfs_ioctl_compat.h>
 #include <libzutil.h>
-
