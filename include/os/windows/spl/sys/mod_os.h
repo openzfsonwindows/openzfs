@@ -26,7 +26,7 @@
 /*
  * OpenZFS litter the source files with ZFS_MODULE_PARAMS
  * which are tunables for the kernel. They are generally "static".
- * 
+ *
  * For Windows, we collect all these into a "linker set", which
  * we can iterate at start up, and add the tunables to the Registry.
  *
@@ -95,15 +95,15 @@ extern "C" {
 #define	module_param_call(a, b, c, d, e)
 #define	module_param_named(a, b, c, d)
 
-#define module_init_early(fn)	\
-    void \
-    wrap_ ## fn(void *dummy __unused) \
-    {	\
-    fn();   \
-}
+#define	module_init_early(fn)	\
+	void \
+	wrap_ ## fn(void *dummy __unused) \
+	{	\
+	fn();   \
+	}
 
 typedef enum {
-	ZT_ZMOD_RD, 
+	ZT_ZMOD_RD,
 	ZT_ZMOD_RW
 } ztunable_perm;
 
@@ -125,9 +125,12 @@ typedef enum {
  * MACRO so, they are set to ZT_TYPE_NOTSET. The call ZT_GET_VALUE( ..., &type)
  * is used to fetch the real type from each handler function.
  * The handler functions are given and expected:
- * function(struct ztunable_s *zt, void **ptr, ULONG *len, ULONG *type, boolean_t set)
- *  * GET: point 'ptr' to variable, set 'len' size of variable, set 'type' to real type.
- *  * SET: 'ptr' points to input, 'len' has size (for ASSERT), set 'type' to real type.
+ * function(struct ztunable_s *zt, void **ptr, ULONG *len, ULONG *type, \
+ * boolean_t set)
+ *  * GET: point 'ptr' to variable, set 'len' size of variable, set 'type' to
+ * real type.
+ *  * SET: 'ptr' points to input, 'len' has size (for ASSERT), set 'type' to
+ * real type.
  */
 typedef enum {
 	ZT_TYPE_NOTSET,	// _CALL sets no type.
@@ -140,27 +143,27 @@ typedef enum {
 } ztunable_type;
 
 // Enhance this to dynamic one day?
-#define ZFS_MODULE_STRMAX 64
+#define	ZFS_MODULE_STRMAX	64
 
 static inline uint64_t ZT_TYPE_REGISTRY(ztunable_type t)
 {
-	switch(t) {
+	switch (t) {
 	case ZT_TYPE_INT:
 	case ZT_TYPE_UINT:
-	    return (REG_DWORD);
+		return (REG_DWORD);
 	// "long" on linux is 8 bytes (x64), and windows 4. we
 	// has special type for it, so for "ZT_" it is 8 bytes.
 	case ZT_TYPE_LONG:
 	case ZT_TYPE_ULONG:
-	    return (REG_QWORD);
+		return (REG_QWORD);
 	case ZT_TYPE_STRING:
-	    return (REG_SZ);
+		return (REG_SZ);
 	case ZT_TYPE_U64: // Only used internally.
-	    return (REG_QWORD);
+		return (REG_QWORD);
 	case ZT_TYPE_NOTSET:
-	    /* not reached */
-	    ASSERT3U(t, != , ZT_TYPE_NOTSET);
-	    return (REG_NONE);
+		/* not reached */
+		ASSERT3U(t, !=, ZT_TYPE_NOTSET);
+		return (REG_NONE);
 	}
 	return (REG_NONE);
 }
@@ -170,19 +173,19 @@ static inline uint64_t ZT_TYPE_SIZE(ztunable_type t)
 	switch (t) {
 	case ZT_TYPE_INT:
 	case ZT_TYPE_UINT:
-	    return (sizeof (int));
-	    // For now, "long" on linux is 8 bytes, and windows 4.
+		return (sizeof (int));
+		// For now, "long" on linux is 8 bytes, and windows 4.
 	case ZT_TYPE_LONG:
 	case ZT_TYPE_ULONG:
-	    return (sizeof (uint64_t));
+		return (sizeof (uint64_t));
 	case ZT_TYPE_STRING:
-	    return (sizeof (uintptr_t));
+		return (sizeof (uintptr_t));
 	case ZT_TYPE_U64:
-	    return (sizeof (uint64_t));
+		return (sizeof (uint64_t));
 	case ZT_TYPE_NOTSET:
-	    /* not reached */
-	    ASSERT3U(t, != , ZT_TYPE_NOTSET);
-	    return (0);
+		/* not reached */
+		ASSERT3U(t, !=, ZT_TYPE_NOTSET);
+		return (0);
 	}
 	return (0);
 }
@@ -205,7 +208,7 @@ static inline void
 ZT_SET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 {
 
-    	if (zt->zt_func != NULL) {
+	if (zt->zt_func != NULL) {
 		zt->zt_func(zt, ptr, len, type, B_TRUE);
 		return;
 	}
@@ -213,29 +216,29 @@ ZT_SET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 	switch (zt->zt_type) {
 	case ZT_TYPE_INT:
 	case ZT_TYPE_UINT:
-	    ASSERT3U(*len, >=, sizeof (int));
-	    *(int *)zt->zt_ptr = *(int *)*ptr;
-	    return;
+		ASSERT3U(*len, >=, sizeof (int));
+		*(int *)zt->zt_ptr = *(int *)*ptr;
+		return;
 	case ZT_TYPE_LONG:
 	case ZT_TYPE_ULONG:
-	    ASSERT3U(*len, >= , sizeof(uint64_t));
-	    *(uint64_t *)zt->zt_ptr = *(uint64_t *)*ptr;
-	    return;
+		ASSERT3U(*len, >=, sizeof (uint64_t));
+		*(uint64_t *)zt->zt_ptr = *(uint64_t *)*ptr;
+		return;
 	case ZT_TYPE_STRING:
-	    if (zt->zt_flag & ZT_FLAG_STATIC) {
-		    strlcpy(zt->zt_ptr, *ptr, ZFS_MODULE_STRMAX);
-		    return;
-	    }
-	    zt->zt_ptr = (void *)*ptr;
-	    return;
+		if (zt->zt_flag & ZT_FLAG_STATIC) {
+			strlcpy(zt->zt_ptr, *ptr, ZFS_MODULE_STRMAX);
+			return;
+		}
+		zt->zt_ptr = (void *)*ptr;
+		return;
 	case ZT_TYPE_U64:
-	    ASSERT3U(*len, >= , sizeof(uint64_t));
-	    *(uint64_t *)zt->zt_ptr = *(uint64_t *)*ptr;
-	    return;
+		ASSERT3U(*len, >=, sizeof (uint64_t));
+		*(uint64_t *)zt->zt_ptr = *(uint64_t *)*ptr;
+		return;
 	case ZT_TYPE_NOTSET:
-	    /* not reached */
-	    ASSERT3U(zt->zt_type, != , ZT_TYPE_NOTSET);
-	    return;
+		/* not reached */
+		ASSERT3U(zt->zt_type, !=, ZT_TYPE_NOTSET);
+		return;
 	}
 }
 
@@ -258,17 +261,17 @@ ZT_GET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 	case ZT_TYPE_LONG:
 	case ZT_TYPE_ULONG:
 	case ZT_TYPE_U64:
-	    *ptr = zt->zt_ptr;
-	    return;
+		*ptr = zt->zt_ptr;
+		return;
 	case ZT_TYPE_STRING:
-	    *ptr = zt->zt_ptr;
-	    if (zt->zt_ptr != NULL)
-		    *len = strlen(zt->zt_ptr);
-	    return;
+		*ptr = zt->zt_ptr;
+		if (zt->zt_ptr != NULL)
+			*len = strlen(zt->zt_ptr);
+		return;
 	case ZT_TYPE_NOTSET:
-	    /* not reached */
-	    ASSERT3U(zt->zt_type, != , ZT_TYPE_NOTSET);
-	    return;
+		/* not reached */
+		ASSERT3U(zt->zt_type, !=, ZT_TYPE_NOTSET);
+		return;
 	}
 }
 
@@ -300,7 +303,8 @@ ZT_GET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 	SET_ENTRY(zt, zt_ ## variable)
 
 
-#define	ZFS_MODULE_PARAM_CALL_IMPL(scope_prefix, name_prefix, name, perm, args, desc) \
+#define	ZFS_MODULE_PARAM_CALL_IMPL( \
+    scope_prefix, name_prefix, name, perm, args, desc) \
 	static ztunable_t zt_ ## name_prefix ## name = { \
 		.zt_ptr = &name_prefix ## name, \
 		.zt_func = args, \

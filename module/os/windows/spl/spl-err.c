@@ -75,5 +75,3 @@ spl_panic(const char *file, const char *func, int line, const char *fmt, ...)
 	PANIC(fmt, ap);
 	va_end(ap);
 }
-
-

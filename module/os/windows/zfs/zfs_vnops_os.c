@@ -1826,8 +1826,10 @@ zfs_readdir(vnode_t *vp, zfs_uio_t *uio, cred_t *cr, zfs_dirlist_t *zccb,
 					    xattr_getsize(ZTOV(tzp));
 					fiedi->FileAttributes =
 					    zfs_getwinflags(tzp);
-					memset(&fiedi->FileId.Identifier[0], 0, sizeof(fiedi->FileId));
-					memcpy(&fiedi->FileId.Identifier[0], &zp->z_id, sizeof(zp->z_id));
+					memset(&fiedi->FileId.Identifier[0], 0,
+					    sizeof (fiedi->FileId));
+					memcpy(&fiedi->FileId.Identifier[0],
+					    &zp->z_id, sizeof (zp->z_id));
 					nameptr = fiedi->FileName;
 					fiedi->FileNameLength = namelenholder;
 					break;
@@ -1842,9 +1844,11 @@ zfs_readdir(vnode_t *vp, zfs_uio_t *uio, cred_t *cr, zfs_dirlist_t *zccb,
 
 					eodp =
 					    (FILE_FULL_DIR_INFORMATION *)bufptr;
-					FILE_ID_EXTD_BOTH_DIR_INFORMATION *fiebdi;
-					fiebdi = (FILE_ID_EXTD_BOTH_DIR_INFORMATION *)
-					    bufptr;
+					FILE_ID_EXTD_BOTH_DIR_INFORMATION
+					*fiebdi;
+					fiebdi =
+					    (FILE_ID_EXTD_BOTH_DIR_INFORMATION
+					    *)bufptr;
 					fiebdi->FileIndex = offset;
 					fiebdi->AllocationSize.QuadPart =
 					    S_ISDIR(tzp->z_mode) ? 0 :
@@ -1869,14 +1873,16 @@ zfs_readdir(vnode_t *vp, zfs_uio_t *uio, cred_t *cr, zfs_dirlist_t *zccb,
 					fiebdi->FileAttributes =
 					    zfs_getwinflags(tzp);
 					fiebdi->ShortNameLength = 0;
-					memset(&fiebdi->FileId.Identifier[0], 0, sizeof(fiebdi->FileId));
-					memcpy(&fiebdi->FileId.Identifier[0], &zp->z_id, sizeof(zp->z_id));
+					memset(&fiebdi->FileId.Identifier[0], 0,
+					    sizeof (fiebdi->FileId));
+					memcpy(&fiebdi->FileId.Identifier[0],
+					    &zp->z_id, sizeof (zp->z_id));
 					nameptr = fiebdi->FileName;
 					fiebdi->FileNameLength = namelenholder;
 					break;
 
 				}
-				
+
 				// Release the zp
 #if 1
 				if (get_zp == 0 && tzp != NULL) {

@@ -846,11 +846,12 @@ DeleteReparsePoint(POBJECT_ATTRIBUTES poa)
 		return (status);
 	dprintf("%s: create ok\n", __func__);
 
-        memset(&ReparseData, 0, REPARSE_DATA_BUFFER_HEADER_SIZE);
-        ReparseData.ReparseTag = IO_REPARSE_TAG_MOUNT_POINT;
+	memset(&ReparseData, 0, REPARSE_DATA_BUFFER_HEADER_SIZE);
+	ReparseData.ReparseTag = IO_REPARSE_TAG_MOUNT_POINT;
 
-	status = ZwFsControlFile(hFile, 0, 0, 0, &iosb, FSCTL_DELETE_REPARSE_POINT, &ReparseData, 
-			REPARSE_DATA_BUFFER_HEADER_SIZE, NULL, 0);
+	status = ZwFsControlFile(hFile, 0, 0, 0, &iosb,
+	    FSCTL_DELETE_REPARSE_POINT, &ReparseData,
+	    REPARSE_DATA_BUFFER_HEADER_SIZE, NULL, 0);
 
 	ZwClose(hFile);
 	return (status);
@@ -1549,7 +1550,7 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 
 		// Carry on like ZFSin
 		// This appears no longer required, and seems to kill the mount
-		// (remounts will fail) 
+		// (remounts will fail)
 		// zfs_remove_driveletter(zmo);
 
 #if 1

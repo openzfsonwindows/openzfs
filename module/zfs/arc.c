@@ -783,7 +783,7 @@ uint64_t zfs_crc64_table[256];
 /* L2ARC Performance Tunables */
 ZFS_MODULE_ULONG l2arc_write_max = L2ARC_WRITE_SIZE;	/* def max write size */
 ZFS_MODULE_ULONG l2arc_write_boost = L2ARC_WRITE_SIZE;	/* extra warmup write */
-ZFS_MODULE_ULONG l2arc_headroom = L2ARC_HEADROOM;		/* # of dev writes */
+ZFS_MODULE_ULONG l2arc_headroom = L2ARC_HEADROOM;	/* # of dev writes */
 ZFS_MODULE_ULONG l2arc_headroom_boost = L2ARC_HEADROOM_BOOST;
 ZFS_MODULE_ULONG l2arc_feed_secs = L2ARC_FEED_SECS;	/* interval seconds */
 ZFS_MODULE_ULONG l2arc_feed_min_ms = L2ARC_FEED_MIN_MS;	/* min interval msecs */

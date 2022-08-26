@@ -161,7 +161,7 @@ extern FILE *wosix_fopen(const char *name, const char *mode);
 #undef  pipe
 #define	pipe	wosix_pipe
 #endif
-#define	pipe2(X,Y)	wosix_pipe(X)
+#define	pipe2(X, Y)	wosix_pipe(X)
 #define	mmap wosix_mmap
 #define	munmap wosix_munmap
 #define	fopen	wosix_fopen
