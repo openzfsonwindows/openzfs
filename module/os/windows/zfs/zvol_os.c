@@ -241,9 +241,9 @@ zvol_os_read_zv(zvol_state_t *zv, zfs_uio_t *uio, int flags)
 	const ULONG_PTR r = IoGetRemainingStackSize();
 
 	if (spl_lowest_zvol_stack_remaining == 0) {
-	    spl_lowest_zvol_stack_remaining = r;
+		spl_lowest_zvol_stack_remaining = r;
 	} else if (spl_lowest_zvol_stack_remaining > r) {
-	    spl_lowest_zvol_stack_remaining = r;
+		spl_lowest_zvol_stack_remaining = r;
 	}
 
 	if (zv == NULL || zv->zv_dn == NULL)
@@ -1051,34 +1051,32 @@ zvol_fini(void)
 
 /* ZFS ZVOLDI */
 
-_Function_class_(PINTERFACE_REFERENCE)
-void
+_Function_class_(PINTERFACE_REFERENCE) void
 IncZvolRef(PVOID Context)
 {
-    zvol_state_t* zv = (zvol_state_t*)Context;
-    atomic_inc_32(&zv->zv_open_count);
+	zvol_state_t *zv = (zvol_state_t *)Context;
+	atomic_inc_32(&zv->zv_open_count);
 }
 
-_Function_class_(PINTERFACE_REFERENCE)
-void
+_Function_class_(PINTERFACE_REFERENCE) void
 DecZvolRef(PVOID Context)
 {
-    zvol_state_t* zv = (zvol_state_t*)Context;
-    atomic_dec_32(&zv->zv_open_count);
+	zvol_state_t *zv = (zvol_state_t *)Context;
+	atomic_dec_32(&zv->zv_open_count);
 }
 
-zvol_state_t*
-zvol_name2zvolState(const char* name, uint32_t* openCount)
+zvol_state_t *
+zvol_name2zvolState(const char *name, uint32_t *openCount)
 {
-    zvol_state_t* zv;
+	zvol_state_t *zv;
 
-    zv = zvol_find_by_name(name, RW_NONE);
-    if (zv == NULL)
+	zv = zvol_find_by_name(name, RW_NONE);
+	if (zv == NULL)
+		return (zv);
+
+	if (openCount)
+		*openCount = zv->zv_open_count;
+
+	mutex_exit(&zv->zv_state_lock);
 	return (zv);
-
-    if (openCount)
-	*openCount = zv->zv_open_count;
-
-    mutex_exit(&zv->zv_state_lock);
-    return (zv);
 }

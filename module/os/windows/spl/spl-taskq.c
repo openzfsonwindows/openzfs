@@ -484,7 +484,7 @@
  *    TASKQ_STATISTIC	- If set will enable bucket statistic (default).
  *
  * DELAY DISPATCH --------------------------------------------------------------
- * 
+ *
  * taskq_delay_dispatch():
  *     Create a tqd_delay node containing the dispatch information, and
  * expire time. It is inserted sorted by time. The "tqd_delay" pointer is

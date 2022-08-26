@@ -137,45 +137,45 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	 * in userland as zdb. Use physpath if given, with offset and size
 	 */
 	if (vd->vdev_physpath)
-	    vdev_path = spa_strdup(vd->vdev_physpath);
+		vdev_path = spa_strdup(vd->vdev_physpath);
 	else
-	    vdev_path = spa_strdup(vd->vdev_path);
+		vdev_path = spa_strdup(vd->vdev_path);
 
 	if (vdev_path[0] == '#') {
-	    uint8_t* end;
-	    end = &vdev_path[0];
-	    while (end && end[0] == '#') end++;
-	    ddi_strtoull(end, &end, 10, &vf->vdev_win_offset);
-	    while (end && end[0] == '#') end++;
-	    ddi_strtoull(end, &end, 10, &vf->vdev_win_length);
-	    while (end && end[0] == '#') end++;
+		uint8_t *end;
+		end = &vdev_path[0];
+		while (end && end[0] == '#') end++;
+		ddi_strtoull(end, &end, 10, &vf->vdev_win_offset);
+		while (end && end[0] == '#') end++;
+		ddi_strtoull(end, &end, 10, &vf->vdev_win_length);
+		while (end && end[0] == '#') end++;
 
-	    FileName = end;
+		FileName = end;
 	} else {
-	    FileName = vdev_path;
+		FileName = vdev_path;
 
-	    // Sometimes only vdev_path is set, with "/dev/physicaldrive"
-	    // make it be " \??\physicaldrive" space skipped over.
-	    if (strncmp("/dev/", FileName, 5) == 0) {
-		FileName[0] = ' ';
-		FileName[1] = '\\';
-		FileName[2] = '?';
-		FileName[3] = '?';
-		FileName[4] = '\\';
-		FileName++;
-	    }
+		// Sometimes only vdev_path is set, with "/dev/physicaldrive"
+		// make it be " \??\physicaldrive" space skipped over.
+		if (strncmp("/dev/", FileName, 5) == 0) {
+			FileName[0] = ' ';
+			FileName[1] = '\\';
+			FileName[2] = '?';
+			FileName[3] = '?';
+			FileName[4] = '\\';
+			FileName++;
+		}
 	}
 
 #ifdef _KERNEL
 	if (strncmp("\\\\?\\", FileName, 4) == 0) {
-	    FileName[1] = '?';
+		FileName[1] = '?';
 	}
 	if (strncmp("//./", FileName, 4) == 0) {
-	    FileName[1] = '?';
-	    FileName[2] = '?';
-	    for (int i = 0; FileName[i] != 0; i++)
-		if (FileName[i] == '/')
-		    FileName[i] = '\\';
+		FileName[1] = '?';
+		FileName[2] = '?';
+		for (int i = 0; FileName[i] != 0; i++)
+			if (FileName[i] == '/')
+				FileName[i] = '\\';
 	}
 #endif
 
@@ -194,7 +194,10 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	 * Make sure it's a regular file.
 	 */
 	if (zfs_file_getattr(fp, &zfa)) {
-		/* It is possible users copied file to virtual disk, try that. */
+		/*
+		 * It is possible users copied file to virtual disk,
+		 * try that.
+		 */
 		// zfs_file_close(fp);
 		vdev_file_close(vd);
 		spa_strfree(vdev_path);
@@ -444,8 +447,8 @@ vdev_ops_t vdev_file_ops = {
 	.vdev_op_config_generate = NULL,
 	.vdev_op_nparity = NULL,
 	.vdev_op_ndisks = NULL,
-	.vdev_op_type = VDEV_TYPE_FILE, /* name of this vdev type */
-	.vdev_op_leaf = B_TRUE          /* leaf vdev */
+	.vdev_op_type = VDEV_TYPE_FILE,	/* name of this vdev type */
+	.vdev_op_leaf = B_TRUE		/* leaf vdev */
 };
 
 void
@@ -489,7 +492,7 @@ vdev_ops_t vdev_disk_ops = {
 	.vdev_op_config_generate = NULL,
 	.vdev_op_nparity = NULL,
 	.vdev_op_ndisks = NULL,
-	.vdev_op_type = VDEV_TYPE_DISK, /* name of this vdev type */
-	.vdev_op_leaf = B_TRUE          /* leaf vdev */
+	.vdev_op_type = VDEV_TYPE_DISK,	/* name of this vdev type */
+	.vdev_op_leaf = B_TRUE		/* leaf vdev */
 };
 #endif

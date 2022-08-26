@@ -39,7 +39,7 @@ random_in_range(uint32_t range)
 	ASSERT(range != 0);
 
 	if (range == 1)
-	    return (0);
+		return (0);
 
 	random_get_bytes((void *)&r, sizeof (r));
 
