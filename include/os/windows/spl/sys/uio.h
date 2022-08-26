@@ -76,7 +76,7 @@ typedef enum zfs_uio_rw { UIO_READ, UIO_WRITE } zfs_uio_rw_t;
 /*
  * Segment flag values.
  */
-typedef enum zfs_uio_seg { UIO_USERSPACE, UIO_SYSSPACE, UIO_USERISPACE } \
+typedef enum zfs_uio_seg { UIO_USERSPACE, UIO_SYSSPACE, UIO_USERISPACE }
     zfs_uio_seg_t;
 
 
