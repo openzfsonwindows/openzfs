@@ -448,7 +448,7 @@ AsciiStringToUnicodeString(char *in, PUNICODE_STRING out)
 {
 	ANSI_STRING conv;
 	if (in == NULL) {
-		memset(out, 0, sizeof(UNICODE_STRING));
+		memset(out, 0, sizeof (UNICODE_STRING));
 		return (0);
 	}
 	conv.Buffer = in;
@@ -600,7 +600,7 @@ vnode_apply_single_ea(struct vnode *vp, struct vnode *xdvp,
 			goto out;
 		xzp = VTOZ(xvp);
 		if (xzp->z_sa_hdl == NULL || ZTOV(xzp) == NULL)
-		    goto out;
+			goto out;
 		/* Truncate, if it was existing */
 		error = zfs_freesp(xzp, 0, 0, VTOZ(vp)->z_mode, TRUE);
 
@@ -610,7 +610,8 @@ vnode_apply_single_ea(struct vnode *vp, struct vnode *xdvp,
 		iov.iov_len = ea->EaValueLength;
 
 		zfs_uio_t uio;
-		zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE, ea->EaValueLength, 0);
+		zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE,
+		    ea->EaValueLength, 0);
 		error = zfs_write(xzp, &uio, 0, NULL);
 	}
 
@@ -738,7 +739,8 @@ zfs_obtain_xattr(znode_t *dzp, const char *name, mode_t mode, cred_t *cr,
 	}
 
 	cn.cn_namelen = cn.cn_pnlen = strlen(name)+1;
-	cn.cn_nameptr = cn.cn_pnbuf = (char *)kmem_zalloc(cn.cn_pnlen, KM_SLEEP);
+	cn.cn_nameptr = cn.cn_pnbuf = (char *)kmem_zalloc(cn.cn_pnlen,
+	    KM_SLEEP);
 
 top:
 	/* Lock the attribute entry name. */
@@ -1021,11 +1023,11 @@ getuseraccess(znode_t *zp, vfs_context_t ctx)
 	return (user_access);
 }
 
-#define KAUTH_WKG_NOT   0       /* not a well-known GUID */
-#define KAUTH_WKG_OWNER 1
-#define KAUTH_WKG_GROUP 2
-#define KAUTH_WKG_NOBODY        3
-#define KAUTH_WKG_EVERYBODY     4
+#define	KAUTH_WKG_NOT	0	/* not a well-known GUID */
+#define	KAUTH_WKG_OWNER	1
+#define	KAUTH_WKG_GROUP	2
+#define	KAUTH_WKG_NOBODY	3
+#define	KAUTH_WKG_EVERYBODY	4
 
 
 static unsigned char fingerprint[] = {0xab, 0xcd, 0xef, 0xab, 0xcd, 0xef,
@@ -1795,7 +1797,7 @@ zfs_set_security(struct vnode *vp, struct vnode *dvp)
 		dzp = VTOZ(dvp);
 	}
 
-        if (vnode_security(dvp) == NULL)
+	if (vnode_security(dvp) == NULL)
 		zfs_set_security(dvp, NULL);
 
 	// We can fail here, if we are processing unlinked-list
@@ -2178,14 +2180,14 @@ file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    (FileObject->SectionObjectPointer->SharedCacheMap == NULL) &&
 	    !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
 
-	    vnode_pager_setsize(NULL, vp, zp->z_size, TRUE);
+		vnode_pager_setsize(NULL, vp, zp->z_size, TRUE);
 
-	    CcInitializeCacheMap(FileObject,
+		CcInitializeCacheMap(FileObject,
 		    (PCC_FILE_SIZES)&vp->FileHeader.AllocationSize,
 		    FALSE,
 		    &CacheManagerCallbacks, vp);
 
-	    // CcSetAdditionalCacheAttributes(FileObject, FALSE, FALSE);
+		// CcSetAdditionalCacheAttributes(FileObject, FALSE, FALSE);
 		CacheMapInitialized = TRUE;
 	}
 
@@ -2199,7 +2201,7 @@ file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		if (IrpSp->Parameters.SetFile.AdvanceOnly) {
 			if (feofi->EndOfFile.QuadPart > zp->z_size) {
 
-			    Status = zfs_freesp(zp,
+				Status = zfs_freesp(zp,
 				    feofi->EndOfFile.QuadPart,
 				    0, 0, TRUE);
 				changed = 1;
@@ -2655,10 +2657,11 @@ get_reparse_tag(znode_t *zp)
 		REPARSE_DATA_BUFFER tagdata;
 		struct iovec iov;
 		iov.iov_base = (void *)&tagdata;
-		iov.iov_len = sizeof(tagdata);
+		iov.iov_len = sizeof (tagdata);
 
 		zfs_uio_t uio;
-		zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE, sizeof(tagdata), 0);
+		zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE,
+		    sizeof (tagdata), 0);
 		err = zfs_readlink(ZTOV(zp), &uio, NULL);
 		return (tagdata.ReparseTag);
 	}
@@ -2751,10 +2754,11 @@ file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			TIME_UNIX_TO_WINDOWS(zp->z_atime,
 			    basic->LastAccessTime.QuadPart);
 
-			// FileAttributes == 0 means don't set - undocumented, but seen in fastfat
-			//if (basic->FileAttributes != 0) 
+			// FileAttributes == 0 means don't set
+			// - undocumented, but seen in fastfat
+			// if (basic->FileAttributes != 0)
 			basic->FileAttributes = zfs_getwinflags(zp);
-			
+
 			VN_RELE(vp);
 		}
 		Irp->IoStatus.Information = sizeof (FILE_BASIC_INFORMATION);
@@ -2786,7 +2790,8 @@ file_compression_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	if (IrpSp->Parameters.QueryFile.Length <
 	    sizeof (FILE_COMPRESSION_INFORMATION)) {
-		Irp->IoStatus.Information = sizeof (FILE_COMPRESSION_INFORMATION);
+		Irp->IoStatus.Information =
+		    sizeof (FILE_COMPRESSION_INFORMATION);
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
 
@@ -2801,10 +2806,11 @@ file_compression_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			// Deal with ads here, and send adsdata.length
 			if (vnode_isdir(vp))
 				fci->CompressedFileSize.QuadPart = zp->z_size;
-			
+
 			VN_RELE(vp);
 		}
-		Irp->IoStatus.Information = sizeof (FILE_COMPRESSION_INFORMATION);
+		Irp->IoStatus.Information =
+		    sizeof (FILE_COMPRESSION_INFORMATION);
 		return (STATUS_SUCCESS);
 	}
 
@@ -2925,7 +2931,8 @@ file_alignment_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp, FILE_ALIGNMENT_INFORMATION *fai)
 {
 	dprintf("   %s\n", __func__);
-	if (IrpSp->Parameters.QueryFile.Length < sizeof (FILE_ALIGNMENT_INFORMATION)) {
+	if (IrpSp->Parameters.QueryFile.Length <
+	    sizeof (FILE_ALIGNMENT_INFORMATION)) {
 		Irp->IoStatus.Information = sizeof (FILE_ALIGNMENT_INFORMATION);
 		return (STATUS_BUFFER_TOO_SMALL);
 	}

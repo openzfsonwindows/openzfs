@@ -4005,7 +4005,7 @@ dump_cachefile(const char *cachefile)
 	}
 
 	if (statbuf.st_size == 0) {
-		(void)close(fd);
+		(void) close(fd);
 		return;
 	}
 

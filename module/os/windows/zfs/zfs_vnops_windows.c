@@ -201,7 +201,7 @@ CACHE_MANAGER_CALLBACKS CacheManagerCallbacks =
 int
 zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp)
 {
-        zfs_dirlist_t *zccb = fo->FsContext2;
+	zfs_dirlist_t *zccb = fo->FsContext2;
 
 	try {
 		if (fo->PrivateCacheMap == NULL) {
@@ -214,11 +214,12 @@ zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp)
 			    FALSE,
 			    &CacheManagerCallbacks, vp);
 			dprintf("CcInitializeCacheMap called on vp %p\n", vp);
-			// CcSetAdditionalCacheAttributes(fo, FALSE, FALSE); // must be FALSE
+			// CcSetAdditionalCacheAttributes(fo, FALSE, FALSE);
+			// must be FALSE
 			fo->Flags |= FO_CACHE_SUPPORTED;
 			dprintf("%s: CcInitializeCacheMap\n", __func__);
 		}
-	} except (EXCEPTION_EXECUTE_HANDLER) {
+	} except(EXCEPTION_EXECUTE_HANDLER) {
 		return (GetExceptionCode());
 	}
 	return (0);
@@ -427,7 +428,7 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 		 */
 		if (zp->z_pflags & ZFS_REPARSE) {
 
-			if (lastname) 
+			if (lastname)
 				*lastname = word /* ? word : filename */;
 
 			if (vpp != NULL)
@@ -859,13 +860,17 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		 */
 		if (error == STATUS_REPARSE) {
 			/*
-			 * How reparse points work from the point of view of the filesystem appears to
-			 * undocumented. When returning STATUS_REPARSE, MSDN encourages us to return
-			 * IO_REPARSE in Irp->IoStatus.Information, but that means we have to do
-			 * our own translation. If we instead return the reparse tag in Information,
-			 * and store a pointer to the reparse data buffer in
+			 * How reparse points work from the point of
+			 * view of the filesystem appears to undocumented.
+			 * When returning STATUS_REPARSE, MSDN encourages
+			 * us to return IO_REPARSE in
+			 * Irp->IoStatus.Information, but that means we
+			 * have to do our own translation. If we instead
+			 * return the reparse tag in Information, and
+			 * store a pointer to the reparse data buffer in
 			 * Irp->Tail.Overlay.AuxiliaryBuffer,
-			 * IopSymlinkProcessReparse will do the translation for us.
+			 * IopSymlinkProcessReparse will do the
+			 * translation for us.
 			 * - maharmstone
 			 */
 			zp = VTOZ(vp);
@@ -874,7 +879,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			    zp->z_size, '!FSZ');
 			zfs_uio_t uio;
 			struct iovec iov = { rpb, zp->z_size };
-			zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE, zp->z_size, 0);
+			zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE,
+			    zp->z_size, 0);
 			zfs_readlink(vp, &uio, NULL);
 
 			// Return in Reserved the amount of path
@@ -882,7 +888,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			/* FileObject->FileName.Length - parsed */
 			rpb->Reserved = (outlen -
 			    ((finalname - filename) +
-				strlen(finalname))) * sizeof(WCHAR);
+			    strlen(finalname))) * sizeof (WCHAR);
 
 			dprintf("%s: returning REPARSE\n", __func__);
 			Irp->IoStatus.Information = rpb->ReparseTag;
@@ -891,7 +897,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			// should this only work on the final component?
 #if 0
 			if (Options & FILE_OPEN_REPARSE_POINT) {
-				vnode_ref(vp); // Hold open reference, until CLOSE
+				// Hold open reference, until CLOSE
+				vnode_ref(vp);
 				error = STATUS_SUCCESS;
 				zfs_couplefileobject(vp, FileObject,
 				    zp ? zp->z_size : 0ULL);
@@ -1583,9 +1590,11 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 		FsRtlAcknowledgeEcp(qocContext);
 	}
 
-	if (NT_SUCCESS(status) && acec && acec->InFlags & ATOMIC_CREATE_ECP_IN_FLAG_REPARSE_POINT_SPECIFIED) {
+	if (NT_SUCCESS(status) && acec && acec->
+	    InFlags & ATOMIC_CREATE_ECP_IN_FLAG_REPARSE_POINT_SPECIFIED) {
 		panic("Implement me: atomic reparse point");
-		// acec->OutFlags |= ATOMIC_CREATE_ECP_OUT_FLAG_REPARSE_POINT_SET;
+		// acec->OutFlags |=
+		// 	ATOMIC_CREATE_ECP_OUT_FLAG_REPARSE_POINT_SET;
 	}
 #endif
 
@@ -2444,11 +2453,13 @@ zfswin_insert_xattrname(struct vnode *vp, char *xattrname, uint8_t *outbuffer,
 				iov.iov_len = roomforvalue;
 
 				zfs_uio_t uio;
-				zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE, roomforvalue, 0);
+				zfs_uio_iovec_init(&uio, &iov, 1, 0,
+				    UIO_SYSSPACE, roomforvalue, 0);
 
 				zfs_read(VTOZ(vp), &uio, 0, NULL);
 				// Consume as many bytes as we read
-				*spaceused += roomforvalue - zfs_uio_resid(&uio);
+				*spaceused +=
+				    roomforvalue - zfs_uio_resid(&uio);
 				// Set the valuelen, should this be the full
 				// value or what we would need?
 				// That is how the names work.
@@ -2691,7 +2702,8 @@ get_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			iov.iov_len = size;
 
 			zfs_uio_t uio;
-			zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE, size, 0);
+			zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE,
+			    size, 0);
 			err = zfs_readlink(vp, &uio, NULL);
 
 			if (outlen < zp->z_size)
@@ -2751,7 +2763,7 @@ set_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	// Fetch parent
 	VERIFY(sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
-	    &parent, sizeof(parent)) == 0);
+	    &parent, sizeof (parent)) == 0);
 	error = zfs_zget(zfsvfs, parent, &dzp);
 	if (error) {
 		Status = STATUS_INVALID_PARAMETER;
@@ -2764,7 +2776,7 @@ set_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 //		DbgBreakPoint();
 	}
 	// error = zfs_symlink(dzp, , vattr_t * vap, char *link,
-	//     znode_t * *zpp, cred_t * cr, int flags)
+	// 	znode_t * *zpp, cred_t * cr, int flags)
 
 
 	// Like zfs_symlink, write the data as SA attribute.
@@ -2846,10 +2858,11 @@ delete_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_INVALID_BUFFER_SIZE);
 	}
 
-	if (inlen < offsetof(REPARSE_DATA_BUFFER, GenericReparseBuffer.DataBuffer)) 
+	if (inlen < offsetof(REPARSE_DATA_BUFFER,
+	    GenericReparseBuffer.DataBuffer))
 		return (STATUS_INVALID_PARAMETER);
 
-	if (rdb->ReparseDataLength > 0) 
+	if (rdb->ReparseDataLength > 0)
 		return (STATUS_INVALID_PARAMETER);
 
 	if (VN_HOLD(vp) != 0)
@@ -2866,11 +2879,11 @@ delete_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	// Fetch parent
 	VERIFY(sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
-	    &parent, sizeof(parent)) == 0);
+	    &parent, sizeof (parent)) == 0);
 	error = zfs_zget(zfsvfs, parent, &dzp);
 	if (error) {
-	    Status = STATUS_INVALID_PARAMETER;
-	    goto out;
+		Status = STATUS_INVALID_PARAMETER;
+		goto out;
 	}
 
 	dmu_tx_t	*tx;
@@ -2922,7 +2935,7 @@ top:
 
 out:
 	if (dzp != NULL)
-	    zrele(dzp);
+		zrele(dzp);
 	VN_RELE(vp);
 
 	dprintf("%s: returning 0x%x\n", __func__, Status);
@@ -2967,10 +2980,15 @@ create_or_get_object_id(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (Status);
 }
 
-typedef BOOLEAN(__stdcall *tFsRtlCheckLockForOplockRequest)(PFILE_LOCK FileLock, PLARGE_INTEGER AllocationSize);
-typedef BOOLEAN(__stdcall *tFsRtlAreThereCurrentOrInProgressFileLocks)(PFILE_LOCK FileLock);
+typedef BOOLEAN
+	(__stdcall *tFsRtlCheckLockForOplockRequest)
+	(PFILE_LOCK FileLock, PLARGE_INTEGER AllocationSize);
+typedef BOOLEAN
+	(__stdcall *tFsRtlAreThereCurrentOrInProgressFileLocks)
+	(PFILE_LOCK FileLock);
 tFsRtlCheckLockForOplockRequest fFsRtlCheckLockForOplockRequest = NULL;
-tFsRtlAreThereCurrentOrInProgressFileLocks fFsRtlAreThereCurrentOrInProgressFileLocks = NULL;
+tFsRtlAreThereCurrentOrInProgressFileLocks \
+    fFsRtlAreThereCurrentOrInProgressFileLocks = NULL;
 
 NTSTATUS
 request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
@@ -2984,13 +3002,13 @@ request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 	ULONG oplock_count = 0;
 	PIRP Irp = *PIrp;
 
-	if (FileObject == NULL) 
-		return STATUS_INVALID_PARAMETER;
+	if (FileObject == NULL)
+		return (STATUS_INVALID_PARAMETER);
 
 	struct vnode *vp = IrpSp->FileObject->FsContext;
 
 	if (vp == NULL)
-		return STATUS_INVALID_PARAMETER;
+		return (STATUS_INVALID_PARAMETER);
 
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
@@ -3009,18 +3027,21 @@ request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 	}
 
 	if (fsctl == FSCTL_REQUEST_OPLOCK) {
-		if (IrpSp->Parameters.FileSystemControl.InputBufferLength < sizeof(REQUEST_OPLOCK_INPUT_BUFFER)) {
+		if (IrpSp->Parameters.FileSystemControl.InputBufferLength <
+		    sizeof (REQUEST_OPLOCK_INPUT_BUFFER)) {
 			Status = STATUS_BUFFER_TOO_SMALL;
 			goto out;
 		}
-		if (IrpSp->Parameters.FileSystemControl.OutputBufferLength < sizeof(REQUEST_OPLOCK_OUTPUT_BUFFER)) {
+		if (IrpSp->Parameters.FileSystemControl.OutputBufferLength <
+		    sizeof (REQUEST_OPLOCK_OUTPUT_BUFFER)) {
 			Status = STATUS_BUFFER_TOO_SMALL;
 			goto out;
 		}
 		buf = Irp->AssociatedIrp.SystemBuffer;
 
 		// flags are mutually exclusive
-		if (buf->Flags & REQUEST_OPLOCK_INPUT_FLAG_REQUEST && buf->Flags & REQUEST_OPLOCK_INPUT_FLAG_ACK) {
+		if (buf->Flags & REQUEST_OPLOCK_INPUT_FLAG_REQUEST &&
+		    buf->Flags & REQUEST_OPLOCK_INPUT_FLAG_ACK) {
 			Status = STATUS_INVALID_PARAMETER;
 			goto out;
 		}
@@ -3034,10 +3055,14 @@ request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		}
 	}
 
-	boolean_t shared_request = (fsctl == FSCTL_REQUEST_OPLOCK_LEVEL_2) || (fsctl == FSCTL_REQUEST_OPLOCK && !(buf->RequestedOplockLevel & OPLOCK_LEVEL_CACHE_WRITE));
+	boolean_t shared_request = (fsctl == FSCTL_REQUEST_OPLOCK_LEVEL_2) ||
+	    (fsctl == FSCTL_REQUEST_OPLOCK &&
+	    !(buf->RequestedOplockLevel & OPLOCK_LEVEL_CACHE_WRITE));
 
-	if (vnode_isdir(vp) && (fsctl != FSCTL_REQUEST_OPLOCK || !shared_request)) {
-		dprintf("oplock requests on directories can only be for read or read-handle oplocks\n");
+	if (vnode_isdir(vp) && (fsctl != FSCTL_REQUEST_OPLOCK ||
+	    !shared_request)) {
+		dprintf("oplock requests on directories can only be "
+		    "for read or read-handle oplocks\n");
 		Status = STATUS_INVALID_PARAMETER;
 		goto out;
 	}
@@ -3047,53 +3072,75 @@ request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 
 	ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, TRUE);
 
-	// Does windows have something like "attribute availability (function)" for dynamic checks?
-	// FastFat example uses #ifdef NTDDI-VERSION which is compile time, we should look into
+	// Does windows have something like "attribute availability (function)"
+	// for dynamic checks?
+	// FastFat example uses #ifdef NTDDI-VERSION which is compile time,
+	// we should look into
 	// winbtrfs:
 	// RtlInitUnicodeString(&name, L"FsRtlCheckLockForOplockRequest");
-	// fFsRtlCheckLockForOplockRequest = (tFsRtlCheckLockForOplockRequest)MmGetSystemRoutineAddress(&name);
+	// fFsRtlCheckLockForOplockRequest =
+	// 	(tFsRtlCheckLockForOplockRequest)
+	// 	MmGetSystemRoutineAddress(&name);
 	// move me to init place
 	static int firstrun = 1;
 	if (firstrun) {
 		UNICODE_STRING name;
 		RtlInitUnicodeString(&name, L"FsRtlCheckLockForOplockRequest");
-		fFsRtlCheckLockForOplockRequest = (tFsRtlCheckLockForOplockRequest)MmGetSystemRoutineAddress(&name);
-		RtlInitUnicodeString(&name, L"FsRtlAreThereCurrentOrInProgressFileLocks");
-		fFsRtlAreThereCurrentOrInProgressFileLocks = (tFsRtlAreThereCurrentOrInProgressFileLocks)MmGetSystemRoutineAddress(&name);
+		fFsRtlCheckLockForOplockRequest =
+		    (tFsRtlCheckLockForOplockRequest)
+		    MmGetSystemRoutineAddress(&name);
+		RtlInitUnicodeString(&name,
+		    L"FsRtlAreThereCurrentOrInProgressFileLocks");
+		fFsRtlAreThereCurrentOrInProgressFileLocks =
+		    (tFsRtlAreThereCurrentOrInProgressFileLocks)
+		    MmGetSystemRoutineAddress(&name);
 		firstrun = 0;
 	}
 
-	if (fsctl == FSCTL_REQUEST_OPLOCK_LEVEL_1 || fsctl == FSCTL_REQUEST_BATCH_OPLOCK || fsctl == FSCTL_REQUEST_FILTER_OPLOCK ||
+	if (fsctl == FSCTL_REQUEST_OPLOCK_LEVEL_1 ||
+	    fsctl == FSCTL_REQUEST_BATCH_OPLOCK ||
+	    fsctl == FSCTL_REQUEST_FILTER_OPLOCK ||
 	    fsctl == FSCTL_REQUEST_OPLOCK_LEVEL_2 || oplock_request) {
-	    if (shared_request) {
-		if (vnode_isreg(vp)) {
-		    if (fFsRtlCheckLockForOplockRequest)
-			oplock_count = !fFsRtlCheckLockForOplockRequest(&vp->lock, &vp->FileHeader.AllocationSize);
-		    else if (fFsRtlAreThereCurrentOrInProgressFileLocks)
-			oplock_count = fFsRtlAreThereCurrentOrInProgressFileLocks(&vp->lock);
-		    else
-			oplock_count = FsRtlAreThereCurrentFileLocks(&vp->lock);
+		if (shared_request) {
+			if (vnode_isreg(vp)) {
+				if (fFsRtlCheckLockForOplockRequest)
+					oplock_count =
+					    !fFsRtlCheckLockForOplockRequest(
+					    &vp->lock,
+					    &vp->FileHeader.AllocationSize);
+				else if
+				    (fFsRtlAreThereCurrentOrInProgressFileLocks)
+		oplock_count =
+		    fFsRtlAreThereCurrentOrInProgressFileLocks(&vp->lock);
+				else
+					oplock_count =
+					    FsRtlAreThereCurrentFileLocks(&vp->
+					    lock);
+			}
+		} else
+			oplock_count = vnode_iocount(vp);
 		}
-	    } else
-		oplock_count = vnode_iocount(vp);
-	}
 
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
+		zfs_dirlist_t *zccb = FileObject->FsContext2;
 
-	if (zccb != NULL &&
-	    zccb->magic == ZFS_DIRLIST_MAGIC &&
-	    zccb->deleteonclose) {
+		if (zccb != NULL &&
+		    zccb->magic == ZFS_DIRLIST_MAGIC &&
+		    zccb->deleteonclose) {
 
-		if ((fsctl == FSCTL_REQUEST_FILTER_OPLOCK || fsctl == FSCTL_REQUEST_BATCH_OPLOCK ||
-		    (fsctl == FSCTL_REQUEST_OPLOCK && buf->RequestedOplockLevel & OPLOCK_LEVEL_CACHE_HANDLE))) {
-			ExReleaseResourceLite(vp->FileHeader.Resource);
-			// ExReleaseResourceLite(&Vcb->tree_lock);
-			Status = STATUS_DELETE_PENDING;
-			goto out;
+			if ((fsctl == FSCTL_REQUEST_FILTER_OPLOCK ||
+			    fsctl == FSCTL_REQUEST_BATCH_OPLOCK ||
+			    (fsctl == FSCTL_REQUEST_OPLOCK &&
+			    buf->RequestedOplockLevel &
+			    OPLOCK_LEVEL_CACHE_HANDLE))) {
+				ExReleaseResourceLite(vp->FileHeader.Resource);
+				// ExReleaseResourceLite(&Vcb->tree_lock);
+				Status = STATUS_DELETE_PENDING;
+				goto out;
+			}
 		}
-	}
 
-	// This will complete the IRP as well. How to stop dispatcher from completing?
+	// This will complete the IRP as well.
+	// How to stop dispatcher from completing?
 	Status = FsRtlOplockFsctrl(vp_oplock(vp), Irp, oplock_count);
 	*PIrp = NULL; // Don't complete.
 
@@ -3108,7 +3155,7 @@ out:
 	VN_RELE(vp);
 	ZFS_EXIT(zfsvfs);
 
-	return Status;
+	return (Status);
 }
 
 NTSTATUS
@@ -3324,13 +3371,14 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 	// Did last call complete listing?
 	if (zccb->dir_eof)
 		return (STATUS_NO_MORE_FILES);
-        struct iovec iov;
+	struct iovec iov;
 	void *SystemBuffer = MapUserBuffer(Irp);
-        iov.iov_base = (void *)SystemBuffer;
-        iov.iov_len = IrpSp->Parameters.QueryDirectory.Length;
+	iov.iov_base = (void *)SystemBuffer;
+	iov.iov_len = IrpSp->Parameters.QueryDirectory.Length;
 
-        zfs_uio_t uio;
-        zfs_uio_iovec_init(&uio, &iov, 1, zccb->uio_offset, UIO_SYSSPACE, IrpSp->Parameters.QueryDirectory.Length, 0);
+	zfs_uio_t uio;
+	zfs_uio_iovec_init(&uio, &iov, 1, zccb->uio_offset, UIO_SYSSPACE,
+	    IrpSp->Parameters.QueryDirectory.Length, 0);
 
 	// Grab the root zp
 	zmo = DeviceObject->DeviceExtension;
@@ -3391,7 +3439,8 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 
 		// Set correct buffer size returned.
 		Irp->IoStatus.Information =
-		    IrpSp->Parameters.QueryDirectory.Length - zfs_uio_resid(&uio);
+		    IrpSp->Parameters.QueryDirectory.Length -
+		    zfs_uio_resid(&uio);
 
 		dprintf("dirlist information in %d out size %d\n",
 		    IrpSp->Parameters.QueryDirectory.Length,
@@ -3670,7 +3719,8 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	zfs_dirlist_t *zccb = fileObject->FsContext2;
 
 #if 0
-	if (Irp->RequestorMode == UserMode && !(zccb->access & FILE_READ_DATA)) {
+	if (Irp->RequestorMode == UserMode &&
+	    !(zccb->access & FILE_READ_DATA)) {
 		return (STATUS_ACCESS_DENIED);
 	}
 #endif
@@ -3708,18 +3758,19 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 #if 0
 		ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource,
 		    TRUE);
-		VERIFY3U(zccb->cacheinit, != , 0);
+		VERIFY3U(zccb->cacheinit, !=, 0);
 
-		VERIFY3P(vnode_sectionpointer(vp), == , fileObject->SectionObjectPointer);
+		VERIFY3P(vnode_sectionpointer(vp), ==, fileObject->
+		    SectionObjectPointer);
 		VERIFY(vnode_fileobject_member(vp, fileObject) == 1);
 
 		try {
 			CcFlushCache(fileObject->SectionObjectPointer,
-			    NULL, //&IrpSp->Parameters.Read.ByteOffset,
-			    0, //IrpSp->Parameters.Read.Length,
+			    NULL, // &IrpSp->Parameters.Read.ByteOffset,
+			    0, // IrpSp->Parameters.Read.Length,
 			    &IoStatus);
 		} except(EXCEPTION_EXECUTE_HANDLER) {
-			Status = GetExceptionCode(); 
+			Status = GetExceptionCode();
 		}
 
 		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
@@ -3740,18 +3791,18 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	} else {
 		// Cached
-		
+
 #if 1
 		zfs_init_cache(fileObject, vp);
 #endif
 
 		// DO A NORMAL CACHED READ, if the MDL bit is not set,
 		if (!FlagOn(IrpSp->MinorFunction, IRP_MN_MDL)) {
-			VERIFY3U(zccb->cacheinit, != , 0);
+			VERIFY3U(zccb->cacheinit, !=, 0);
 
 			vnode_pager_setsize(fileObject, vp, zp->z_size, FALSE);
 			try {
-	#if (NTDDI_VERSION >= NTDDI_WIN8)
+#if (NTDDI_VERSION >= NTDDI_WIN8)
 				if (!CcCopyReadEx(fileObject,
 				    &byteOffset,
 				    bufferLength,
@@ -3759,25 +3810,25 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 				    SystemBuffer,
 				    &Irp->IoStatus,
 				    Irp->Tail.Overlay.Thread)) {
-	#else
+#else
 				if (!CcCopyRead(fileObject,
 				    &byteOffset,
 				    bufferLength,
 				    TRUE,
 				    SystemBuffer,
 				    &Irp->IoStatus)) {
-	#endif
+#endif
 					dprintf("CcCopyReadEx error\n");
 				}
 			} except(EXCEPTION_EXECUTE_HANDLER) {
-			    Irp->IoStatus.Status = GetExceptionCode();
+				Irp->IoStatus.Status = GetExceptionCode();
 			}
 			Irp->IoStatus.Information = bufferLength;
 			Status = Irp->IoStatus.Status;
 			goto out;
 
 		} else {
-			VERIFY3U(zccb->cacheinit, != , 0);
+			VERIFY3U(zccb->cacheinit, !=, 0);
 
 
 			// MDL read
@@ -3793,12 +3844,13 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	} // !nocache
 
 
-        struct iovec iov;
-        iov.iov_base = (void *)SystemBuffer;
-        iov.iov_len = bufferLength;
+	struct iovec iov;
+	iov.iov_base = (void *)SystemBuffer;
+	iov.iov_len = bufferLength;
 
-        zfs_uio_t uio;
-        zfs_uio_iovec_init(&uio, &iov, 1, byteOffset.QuadPart, UIO_SYSSPACE, bufferLength, 0);
+	zfs_uio_t uio;
+	zfs_uio_iovec_init(&uio, &iov, 1, byteOffset.QuadPart, UIO_SYSSPACE,
+	    bufferLength, 0);
 
 	dprintf("%s: offset %llx size %lx\n", __func__,
 	    byteOffset.QuadPart, bufferLength);
@@ -3812,14 +3864,14 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 //	if (Irp->IoStatus.Information == 0)
 //		Status = STATUS_END_OF_FILE;
 	switch (error) {
-	    case 0:
-		break;
-	    case EISDIR:
-		Status = STATUS_FILE_IS_A_DIRECTORY;
-		break;
-	    default:
-		Status = STATUS_INVALID_PARAMETER;
-		break;
+		case 0:
+			break;
+		case EISDIR:
+			Status = STATUS_FILE_IS_A_DIRECTORY;
+			break;
+		default:
+			Status = STATUS_INVALID_PARAMETER;
+			break;
 	}
 
 out:
@@ -3935,11 +3987,11 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		IO_STATUS_BLOCK iosb;
 		ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource,
 		    TRUE);
-		VERIFY3U(zccb->cacheinit, != , 0);
+		VERIFY3U(zccb->cacheinit, !=, 0);
 
 		try {
-			CcFlushCache(fileObject->SectionObjectPointer, &byteOffset,
-			    bufferLength, &iosb);
+			CcFlushCache(fileObject->SectionObjectPointer,
+			    &byteOffset, bufferLength, &iosb);
 			CcPurgeCacheSection(fileObject->SectionObjectPointer,
 			    &byteOffset, bufferLength, FALSE);
 		} except(EXCEPTION_EXECUTE_HANDLER) {
@@ -4005,7 +4057,7 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 		// DO A NORMAL CACHED WRITE, if the MDL bit is not set,
 		if (!FlagOn(IrpSp->MinorFunction, IRP_MN_MDL)) {
-			VERIFY3U(zccb->cacheinit, != , 0);
+			VERIFY3U(zccb->cacheinit, !=, 0);
 
 // Since we may have grown the filesize, we need to give CcMgr a head's up.
 			vnode_pager_setsize(fileObject, vp, zp->z_size, FALSE);
@@ -4018,20 +4070,20 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 			Status = STATUS_SUCCESS;
 
 			try {
-	#if (NTDDI_VERSION >= NTDDI_WIN8)
+#if (NTDDI_VERSION >= NTDDI_WIN8)
 				if (!CcCopyWriteEx(fileObject,
 				    &byteOffset,
 				    bufferLength,
 				    TRUE,
 				    SystemBuffer,
 				    Irp->Tail.Overlay.Thread)) {
-	#else
+#else
 				if (!CcCopyWrite(fileObject,
 				    &byteOffset,
 				    bufferLength,
 				    TRUE,
 				    SystemBuffer)) {
-	#endif
+#endif
 					dprintf("Could not wait\n");
 					ASSERT0("failed copy");
 				}
@@ -4043,7 +4095,7 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 			Irp->IoStatus.Information = bufferLength;
 			goto out;
 		} else {
-			VERIFY3U(zccb->cacheinit, != , 0);
+			VERIFY3U(zccb->cacheinit, !=, 0);
 
 			//  DO AN MDL WRITE
 			CcPrepareMdlWrite(fileObject,
@@ -4057,12 +4109,13 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		}
 	}
 
-        struct iovec iov;
-        iov.iov_base = (void *)SystemBuffer;
-        iov.iov_len = bufferLength;
+	struct iovec iov;
+	iov.iov_base = (void *)SystemBuffer;
+	iov.iov_len = bufferLength;
 
-        zfs_uio_t uio;
-        zfs_uio_iovec_init(&uio, &iov, 1, byteOffset.QuadPart, UIO_SYSSPACE, bufferLength, 0);
+	zfs_uio_t uio;
+	zfs_uio_iovec_init(&uio, &iov, 1, byteOffset.QuadPart, UIO_SYSSPACE,
+	    bufferLength, 0);
 
 	// dprintf("%s: offset %llx size %lx\n", __func__,
 	// byteOffset.QuadPart, bufferLength);
@@ -4081,16 +4134,16 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	//	zp->z_pflags |= ZFS_ARCHIVE;
 	switch (error) {
 	case 0:
-	    break;
+		break;
 	case EISDIR:
-	    Status = STATUS_FILE_IS_A_DIRECTORY;
-	    break;
+		Status = STATUS_FILE_IS_A_DIRECTORY;
+		break;
 	case ENOSPC:
-	    Status = STATUS_DISK_FULL;
-	    break;
+		Status = STATUS_DISK_FULL;
+		break;
 	default:
-	    Status = STATUS_INVALID_PARAMETER;
-	    break;
+		Status = STATUS_INVALID_PARAMETER;
+		break;
 	}
 
 	// EOF?
@@ -4638,11 +4691,12 @@ zfs_fileobject_close(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 //			if (isdir) {
 
 			CcUninitializeCacheMap(IrpSp->FileObject,
-				    NULL, NULL);
+			    NULL, NULL);
 			zccb->cacheinit = 0;
 
 
-			// fastfat also flushes while(parent) dir here, if !iocount
+			// fastfat also flushes while(parent) dir here,
+			// if !iocount
 //			}
 
 /*
@@ -4829,13 +4883,13 @@ _Function_class_(DRIVER_DISPATCH)
 		// uninstall
 		extern kmutex_t zfsdev_state_lock;
 		if (fsDiskDeviceObject == NULL) {
-		    mutex_enter(&zfsdev_state_lock);
-		    if (ioctlDeviceObject != NULL) {
-			ObDereferenceObject(ioctlDeviceObject);
-			IoDeleteDevice(ioctlDeviceObject);
-			ioctlDeviceObject = NULL;
-		    }
-		    mutex_exit(&zfsdev_state_lock);
+			mutex_enter(&zfsdev_state_lock);
+			if (ioctlDeviceObject != NULL) {
+				ObDereferenceObject(ioctlDeviceObject);
+				IoDeleteDevice(ioctlDeviceObject);
+				ioctlDeviceObject = NULL;
+			}
+			mutex_exit(&zfsdev_state_lock);
 		}
 		break;
 	case IRP_MJ_DEVICE_CONTROL:
@@ -5702,8 +5756,9 @@ _Function_class_(DRIVER_DISPATCH)
 		if (vp && vnode_sizechange(vp) &&
 		    VN_HOLD(vp) == 0) {
 			if (CcIsFileCached(IrpSp->FileObject)) {
-			    znode_t *zp = VTOZ(vp);
-			    vnode_pager_setsize(IrpSp->FileObject, vp, zp->z_size, FALSE);
+				znode_t *zp = VTOZ(vp);
+				vnode_pager_setsize(IrpSp->FileObject, vp,
+				    zp->z_size, FALSE);
 				dprintf("sizechanged, updated to %llx\n",
 				    vp->FileHeader.FileSize);
 			}
@@ -5849,7 +5904,7 @@ _Function_class_(DRIVER_DISPATCH)
 		    IO_NO_INCREMENT);
 	}
 
-	VERIFY3U(saveIRQL, == , KeGetCurrentIrql());
+	VERIFY3U(saveIRQL, ==, KeGetCurrentIrql());
 
 
 	return (Status);
@@ -5981,17 +6036,21 @@ pnp_query_di(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	    &ZFSZVOLDI_GUID)) {
 		if (IrpSp->Parameters.QueryInterface.Version < 1)
 			status = STATUS_NOT_SUPPORTED;
-		else if (IrpSp->Parameters.QueryInterface.Size < sizeof (zfsdizvol_t))
+		else if (IrpSp->Parameters.QueryInterface.Size <
+		    sizeof (zfsdizvol_t))
 			status = STATUS_BUFFER_TOO_SMALL;
-		else if ((IrpSp->Parameters.QueryInterface.InterfaceSpecificData == NULL) ||
-		    strlen(IrpSp->Parameters.QueryInterface.InterfaceSpecificData) <= 8)
+		else if ((IrpSp->
+		    Parameters.QueryInterface.InterfaceSpecificData ==
+		    NULL) || strlen(IrpSp->
+		    Parameters.QueryInterface.InterfaceSpecificData) <= 8)
 			status = STATUS_INVALID_PARAMETER;
 		else {
 			PVOID zv; // zvol_state_t*, opaque here
 			uint32_t openCount;
 			extern PVOID zvol_name2zvolState(const char *name,
 			    uint32_t *openCount);
-			PCHAR vendorUniqueId = (PCHAR)IrpSp->Parameters.QueryInterface.InterfaceSpecificData;
+			PCHAR vendorUniqueId = (PCHAR)IrpSp->
+			    Parameters.QueryInterface.InterfaceSpecificData;
 			zv = zvol_name2zvolState(&vendorUniqueId[8],
 			    &openCount);
 			// check that the minor number is non-zero: that
@@ -6006,7 +6065,8 @@ pnp_query_di(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 				    zfsiodesc_t *pIo);
 				// lock in an extra reference on the zvol
 				IncZvolRef(zv);
-				zfsdizvol_t *pDI = (zfsdizvol_t *)IrpSp->Parameters.QueryInterface.Interface;
+				zfsdizvol_t *pDI = (zfsdizvol_t *)IrpSp->
+				    Parameters.QueryInterface.Interface;
 				pDI->header.Size = sizeof (zfsdizvol_t);
 				pDI->header.Version = ZFSZVOLDI_VERSION;
 				pDI->header.Context = zv;
