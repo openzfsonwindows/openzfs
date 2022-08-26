@@ -910,8 +910,8 @@ wosix_open(const char *inpath, int oflag, ...)
 
 	// Win users might not supply \\?\ paths, make them so
 	if (path[1] == ':' && strncmp("\\\\.\\", path, 4) != 0) {
-	    snprintf(otherpath, MAXPATHLEN, "\\\\.\\%s", &path[0]);
-	    path = otherpath;
+		snprintf(otherpath, MAXPATHLEN, "\\\\.\\%s", &path[0]);
+		path = otherpath;
 	}
 
 	// Support expansion of "SystemRoot"
@@ -926,14 +926,15 @@ wosix_open(const char *inpath, int oflag, ...)
 	// just in case someone names their file with a starting '#'.
 
 	h = CreateFile(path, mode, share, NULL, how,
-	    oflag & O_DIRECTORY ? FILE_FLAG_BACKUP_SEMANTICS : FILE_ATTRIBUTE_NORMAL,
+	    oflag & O_DIRECTORY ? FILE_FLAG_BACKUP_SEMANTICS : \
+	    FILE_ATTRIBUTE_NORMAL,
 	    NULL);
 
 	// Could be a directory (but we come from stat so no O_DIRECTORY)
 	if (h == INVALID_HANDLE_VALUE && GetLastError() == ERROR_ACCESS_DENIED)
-	    h = CreateFile(path, mode, share, NULL, how,
-		FILE_FLAG_BACKUP_SEMANTICS,
-		NULL);
+		h = CreateFile(path, mode, share, NULL, how,
+		    FILE_FLAG_BACKUP_SEMANTICS,
+		    NULL);
 
 	if (h == INVALID_HANDLE_VALUE && path[0] == '#') {
 		char *end = NULL;
@@ -945,7 +946,8 @@ wosix_open(const char *inpath, int oflag, ...)
 		while (end && *end == '#') end++;
 
 		h = CreateFile(end, mode, share, NULL, how,
-		    oflag & O_DIRECTORY ? FILE_FLAG_BACKUP_SEMANTICS : FILE_ATTRIBUTE_NORMAL,
+		    oflag & O_DIRECTORY ? FILE_FLAG_BACKUP_SEMANTICS : \
+		    FILE_ATTRIBUTE_NORMAL,
 		    NULL);
 		if (h != INVALID_HANDLE_VALUE) {
 			// Upper layer probably handles this, but let's help
@@ -1273,16 +1275,16 @@ wosix_fstat_blk(int fd, struct _stat64 *st)
 	// Try device first
 	if (DeviceIoControl(handle, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, NULL, 0,
 	    &geometry_ex, sizeof (geometry_ex), &len, NULL)) {
-	    st->st_size = (diskaddr_t)geometry_ex.DiskSize.QuadPart;
-	    st->st_mode = S_IFBLK;
-	    return (0);
+		st->st_size = (diskaddr_t)geometry_ex.DiskSize.QuadPart;
+		st->st_mode = S_IFBLK;
+		return (0);
 	}
 
 	// Try regular file
 	if (GetFileSizeEx(handle, &size)) {
-	    st->st_size = (diskaddr_t)size.QuadPart;
-	    st->st_mode = S_IFREG;
-	    return (0);
+		st->st_size = (diskaddr_t)size.QuadPart;
+		st->st_mode = S_IFREG;
+		return (0);
 	}
 
 	return (-1); // errno?
@@ -1539,8 +1541,8 @@ wosix_mmap(void *addr, size_t len, int prot, int flags,
 	void *mapaddr = NULL;
 
 	/* Make a vague effort at matching flags */
-  
-	if (prot & PROT_READ) { 
+
+	if (prot & PROT_READ) {
 		winprot = PAGE_READONLY;
 		winflags = FILE_MAP_READ;
 	}
@@ -1797,11 +1799,11 @@ wosix_openat(int fd, const char *path, int oflag, ...)
 
 	if (fd == AT_FDCWD)
 		return (wosix_open(path, oflag));
-    
+
 	/*
 	 * Fetch the directory name, and stitch the name together.
 	 * Another option is using NTCreateFile with RootDirectory=handle
-	 */ 
+	 */
 
 	if (GetFinalPathNameByHandleA(h, fullpath,
 	    MAXPATHLEN, FILE_NAME_NORMALIZED) > 0) {

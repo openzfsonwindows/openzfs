@@ -820,7 +820,7 @@ ddi_strtoull(const char *str, char **nptr, int base, u_longlong_t *result)
 	if (*result == 0)
 		return (errno);
 	if (nptr != NULL)
-	    *nptr = end;
+		*nptr = end;
 	return (0);
 }
 

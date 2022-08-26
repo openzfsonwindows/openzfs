@@ -259,15 +259,15 @@ zfs_xattr_owner_unlinked(znode_t *zp)
 	 * get the owner
 	 */
 	while (zp->z_pflags & ZFS_XATTR && zp->z_xattr_parent != NULL) {
-	    ASSERT3U(zp->z_xattr_parent, != , 0);
-	    if (zfs_zget(ZTOZSB(zp), zp->z_xattr_parent, &dzp) != 0) {
-		unlinked = 1;
-		break;
-	    }
+		ASSERT3U(zp->z_xattr_parent, !=, 0);
+		if (zfs_zget(ZTOZSB(zp), zp->z_xattr_parent, &dzp) != 0) {
+			unlinked = 1;
+			break;
+		}
 
-	    zrele(zp);
-	    zp = dzp;
-	    unlinked = zp->z_unlinked;
+		zrele(zp);
+		zp = dzp;
+		unlinked = zp->z_unlinked;
 	}
 	zrele(zp);
 #else

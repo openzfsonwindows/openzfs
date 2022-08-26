@@ -74,7 +74,10 @@ typedef struct kstat_raw_ops {
 	void *(*addr)(struct kstat_s *ksp, loff_t index);
 } kstat_raw_ops_t;
 
-/* This is a bit unfortunate, we store a mutex in kernel which userland needs to match in size */
+/*
+ * This is a bit unfortunate, we store a mutex in kernel which userland needs
+ * to match in size
+ */
 struct kernel_mutex
 {
 	unsigned char opaque[0x28];

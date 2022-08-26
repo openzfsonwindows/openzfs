@@ -286,7 +286,8 @@ static const int max_disabled_ms = 3;
  * Time (in seconds) to respect ms_max_size when the metaslab is not loaded.
  * To avoid 64-bit overflow, don't set above UINT32_MAX.
  */
-static ZFS_MODULE_ULONG zfs_metaslab_max_size_cache_sec = 1 * 60 * 60; /* 1 hour */
+static ZFS_MODULE_ULONG zfs_metaslab_max_size_cache_sec = 1 * 60 * 60;
+/* 1 hour */
 
 /*
  * Maximum percentage of memory to use on storing loaded metaslabs. If loading
