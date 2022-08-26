@@ -926,7 +926,7 @@ wosix_open(const char *inpath, int oflag, ...)
 	// just in case someone names their file with a starting '#'.
 
 	h = CreateFile(path, mode, share, NULL, how,
-	    oflag & O_DIRECTORY ? FILE_FLAG_BACKUP_SEMANTICS : \
+	    oflag & O_DIRECTORY ? FILE_FLAG_BACKUP_SEMANTICS :
 	    FILE_ATTRIBUTE_NORMAL,
 	    NULL);
 
@@ -946,7 +946,7 @@ wosix_open(const char *inpath, int oflag, ...)
 		while (end && *end == '#') end++;
 
 		h = CreateFile(end, mode, share, NULL, how,
-		    oflag & O_DIRECTORY ? FILE_FLAG_BACKUP_SEMANTICS : \
+		    oflag & O_DIRECTORY ? FILE_FLAG_BACKUP_SEMANTICS :
 		    FILE_ATTRIBUTE_NORMAL,
 		    NULL);
 		if (h != INVALID_HANDLE_VALUE) {
