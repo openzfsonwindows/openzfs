@@ -167,4 +167,3 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 	    "OpenZFS: Started\n"));
 	return (STATUS_SUCCESS);
 }
-

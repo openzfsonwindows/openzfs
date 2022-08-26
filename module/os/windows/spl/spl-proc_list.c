@@ -119,7 +119,8 @@ procfs_list_install(const char *module,
 	// considering unique names. Best way around that is to
 	// make "module" be "module/submodule". Ie "zfs/poolname".
 	if (submodule != NULL) {
-		snprintf(combined, sizeof (combined), "%s/%s", module, submodule);
+		snprintf(combined, sizeof (combined), "%s/%s", module,
+		    submodule);
 		fullmod = combined;
 	}
 

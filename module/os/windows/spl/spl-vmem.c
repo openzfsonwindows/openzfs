@@ -1754,7 +1754,7 @@ vmem_alloc(vmem_t *vmp, size_t size, int vmflag)
 	uint32_t mtbf;
 
 	const ULONG_PTR r = IoGetRemainingStackSize();
-	
+
 	if (spl_lowest_alloc_stack_remaining == 0) {
 		spl_lowest_alloc_stack_remaining = r;
 	} else if (spl_lowest_alloc_stack_remaining > r) {

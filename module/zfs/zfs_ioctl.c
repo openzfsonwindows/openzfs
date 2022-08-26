@@ -3999,7 +3999,7 @@ zfs_ioc_destroy(zfs_cmd_t *zc)
 	if (ost == DMU_OST_ZVOL)
 		zvol_os_detach(zc->zc_name);
 #endif
-	
+
 	if (strchr(zc->zc_name, '@')) {
 		err = dsl_destroy_snapshot(zc->zc_name, zc->zc_defer_destroy);
 	} else {

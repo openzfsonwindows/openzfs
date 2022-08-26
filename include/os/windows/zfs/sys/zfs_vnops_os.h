@@ -37,11 +37,11 @@
 extern "C" {
 #endif
 
-#define KAUTH_WKG_NOT   0       /* not a well-known GUID */
-#define KAUTH_WKG_OWNER 1
-#define KAUTH_WKG_GROUP 2
-#define KAUTH_WKG_NOBODY        3
-#define KAUTH_WKG_EVERYBODY     4
+#define	KAUTH_WKG_NOT	0	/* not a well-known GUID */
+#define	KAUTH_WKG_OWNER	1
+#define	KAUTH_WKG_GROUP	2
+#define	KAUTH_WKG_NOBODY	3
+#define	KAUTH_WKG_EVERYBODY	4
 
 extern int zfs_remove(znode_t *dzp, char *name, cred_t *cr, int flags);
 extern int zfs_mkdir(znode_t *dzp, char *dirname, vattr_t *vap,

@@ -76,7 +76,8 @@ typedef enum zfs_uio_rw { UIO_READ, UIO_WRITE } zfs_uio_rw_t;
 /*
  * Segment flag values.
  */
-typedef enum zfs_uio_seg { UIO_USERSPACE, UIO_SYSSPACE, UIO_USERISPACE } zfs_uio_seg_t;
+typedef enum zfs_uio_seg { UIO_USERSPACE, UIO_SYSSPACE, UIO_USERISPACE } \
+    zfs_uio_seg_t;
 
 
 typedef struct zfs_uio {
@@ -157,8 +158,8 @@ zfs_uio_iovec_init(zfs_uio_t *uio, const struct iovec *iov,
 }
 
 extern int zfs_uio_prefaultpages(ssize_t, zfs_uio_t *);
-#define zfs_uio_fault_disable(uio, set)
-#define zfs_uio_fault_move(p, n, rw, u) zfs_uiomove((p), (n), (rw), (u))
+#define	zfs_uio_fault_disable(uio, set)
+#define	zfs_uio_fault_move(p, n, rw, u) zfs_uiomove((p), (n), (rw), (u))
 
 
 

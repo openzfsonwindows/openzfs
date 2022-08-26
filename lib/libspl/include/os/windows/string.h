@@ -23,8 +23,6 @@
 #ifndef _LIBSPL_WINDOWS_STRING_H
 #define	_LIBSPL_WINDOWS_STRING_H
 
-#pragma message ("this we want")
-
 #include_next <string.h>
 
 static inline char *
@@ -41,7 +39,7 @@ strtok_r(char *s, const char *delim, char **last)
 	 */
 cont:
 	c = *s++;
-	for (spanp = (char *)delim; (sc = *spanp++) != 0;) {
+	for (spanp = (char *)delim; (sc = *spanp++) != 0; ) {
 		if (c == sc)
 			goto cont;
 	}

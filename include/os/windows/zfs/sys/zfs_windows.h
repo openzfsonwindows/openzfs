@@ -87,7 +87,8 @@ extern NTSTATUS zfsdev_release(dev_t dev, PIRP Irp);
 extern int	zfs_vnop_recycle(znode_t *zp, int force);
 extern uint64_t zfs_blksz(znode_t *zp);
 
-inline static uint64_t allocationsize(struct znode *zp)
+inline static uint64_t
+allocationsize(struct znode *zp)
 {
 	if (zp->z_size == 0)
 		return (0ULL);
@@ -137,8 +138,8 @@ extern NTSTATUS file_rename_information(PDEVICE_OBJECT, PIRP,
 /* IRP_MJ_GET_INFORMATION helpers */
 extern NTSTATUS file_basic_information(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION,
 	FILE_BASIC_INFORMATION *);
-extern NTSTATUS file_compression_information(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION,
-	FILE_COMPRESSION_INFORMATION *);
+extern NTSTATUS file_compression_information(PDEVICE_OBJECT, PIRP,
+	PIO_STACK_LOCATION, FILE_COMPRESSION_INFORMATION *);
 extern NTSTATUS file_standard_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION,	FILE_STANDARD_INFORMATION *);
 extern NTSTATUS file_position_information(PDEVICE_OBJECT, PIRP,
