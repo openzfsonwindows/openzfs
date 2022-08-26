@@ -2035,7 +2035,7 @@ vnode_pager_setsize(void *fo, vnode_t *vp, uint64_t size, boolean_t delay)
 			    FileHeader.AllocationSize);
 		}
 		except(FsRtlIsNtstatusExpected(GetExceptionCode()) ?
-		    EXCEPTION_EXECUTE_HANDLER : \
+		    EXCEPTION_EXECUTE_HANDLER :
 		    EXCEPTION_CONTINUE_SEARCH) {
 			__status = STATUS_UNEXPECTED_IO_ERROR;
 		}
