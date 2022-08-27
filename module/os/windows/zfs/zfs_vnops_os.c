@@ -693,7 +693,6 @@ static uint64_t null_xattr = 0;
 int
 zfs_remove(znode_t *dzp, char *name, cred_t *cr, int flags)
 {
-	(void) excl, (void) mode, (void) flag;
 	znode_t		*zp;
 	znode_t		*xzp;
 	zfsvfs_t	*zfsvfs = ZTOZSB(dzp);
