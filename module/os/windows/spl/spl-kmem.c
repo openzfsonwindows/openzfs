@@ -2935,7 +2935,7 @@ kmem_cache_magazine_disable(kmem_cache_t *cp)
 boolean_t
 kmem_cache_reap_active(void)
 {
-	return (!taskq_empty(kmem_taskq));
+	return (B_FALSE);
 }
 
 /*
