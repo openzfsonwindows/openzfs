@@ -101,7 +101,6 @@ extern void	taskq_suspend(taskq_t *);
 extern int	taskq_suspended(taskq_t *);
 extern void	taskq_resume(taskq_t *);
 extern int	taskq_member(taskq_t *, struct kthread *);
-extern boolean_t taskq_empty(taskq_t *tq);
 extern int taskq_cancel_id(taskq_t *, taskqid_t);
 extern taskq_t *taskq_of_curthread(void);
 extern int taskq_empty_ent(struct taskq_ent *);
