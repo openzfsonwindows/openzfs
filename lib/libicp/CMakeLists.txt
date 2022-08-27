@@ -25,7 +25,7 @@ add_library(libicp
     "${ICP_MODULE_DIR}/algs/skein/skein_iv.c"
     "${ICP_MODULE_DIR}/api/kcf_cipher.c"
     "${ICP_MODULE_DIR}/api/kcf_ctxops.c"
-    "${ICP_MODULE_DIR}/api/kcf_digest.c"
+#   "${ICP_MODULE_DIR}/api/kcf_digest.c"
     "${ICP_MODULE_DIR}/api/kcf_mac.c"
     "${ICP_MODULE_DIR}/api/kcf_miscapi.c"
     "${ICP_MODULE_DIR}/core/kcf_callprov.c"
