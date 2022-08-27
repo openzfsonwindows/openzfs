@@ -190,10 +190,10 @@ zfs_vscan(struct vnode *vp, cred_t *cr, int async)
 	return (0);
 }
 
-/* ARGSUSED */
 int
 zfs_open(struct vnode *vp, int mode, int flag, cred_t *cr)
 {
+	(void) cr;
 	znode_t	*zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = ITOZSB(vp);
 
@@ -224,10 +224,10 @@ zfs_open(struct vnode *vp, int mode, int flag, cred_t *cr)
 	return (0);
 }
 
-/* ARGSUSED */
 int
 zfs_close(struct vnode *vp, int flag, cred_t *cr)
 {
+	(void) cr;
 	znode_t	*zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = ITOZSB(vp);
 
@@ -346,7 +346,6 @@ zfs_zrele_async(znode_t *zp)
  * Timestamps:
  *	NA
  */
-/* ARGSUSED */
 int
 zfs_lookup(znode_t *zdp, char *nm, znode_t **zpp, int flags,
     cred_t *cr, int *direntflags, struct componentname *realpnp)
@@ -413,7 +412,6 @@ zfs_lookup(znode_t *zdp, char *nm, znode_t **zpp, int flags,
  *	 zp - ctime|mtime always, atime if new
  */
 
-/* ARGSUSED */
 int
 zfs_create(znode_t *dzp, char *name, vattr_t *vap, int excl,
     int mode, znode_t **zpp, cred_t *cr, int flag, vsecattr_t *vsecp)
@@ -692,10 +690,10 @@ out:
 
 static uint64_t null_xattr = 0;
 
-/*ARGSUSED*/
 int
 zfs_remove(znode_t *dzp, char *name, cred_t *cr, int flags)
 {
+	(void) excl, (void) mode, (void) flag;
 	znode_t		*zp;
 	znode_t		*xzp;
 	zfsvfs_t	*zfsvfs = ZTOZSB(dzp);
@@ -928,7 +926,6 @@ out:
  *	dzp - ctime|mtime updated
  *	zpp - ctime|mtime|atime updated
  */
-/*ARGSUSED*/
 int
 zfs_mkdir(znode_t *dzp, char *dirname, vattr_t *vap, znode_t **zpp,
     cred_t *cr, int flags, vsecattr_t *vsecp)
@@ -1118,7 +1115,6 @@ out:
  * Timestamps:
  *	dzp - ctime|mtime updated
  */
-/*ARGSUSED*/
 int
 zfs_rmdir(znode_t *dzp, char *name, znode_t *cwd, cred_t *cr,
     int flags)
@@ -1249,13 +1245,13 @@ out:
  * We use 0 for '.', and 1 for '..'.  If this is the root of the filesystem,
  * we use the offset 2 for the '.zfs' directory.
  */
-/* ARGSUSED */
 int
 zfs_readdir(vnode_t *vp, zfs_uio_t *uio, cred_t *cr, zfs_dirlist_t *zccb,
     int flags, int dirlisttype, int *a_numdirent)
 {
 	int		error = 0;
 
+	(void) cr;
 	znode_t		*zp = VTOZ(vp);
 	znode_t		*tzp;
 	iovec_t		*iovp;
@@ -2228,7 +2224,6 @@ void kx_qsort(void* array, size_t nm, size_t member_size,
  * Timestamps:
  *	vp - ctime updated, mtime updated if size changed.
  */
-/* ARGSUSED */
 int
 zfs_setattr(znode_t *zp, vattr_t *vap, int flags, cred_t *cr)
 {
@@ -3060,7 +3055,6 @@ zfs_rename_lock(znode_t *szp, znode_t *tdzp, znode_t *sdzp, zfs_zlock_t **zlpp)
  * Timestamps:
  *	sdzp,tdzp - ctime|mtime updated
  */
-/*ARGSUSED*/
 int
 zfs_rename(znode_t *sdzp, char *snm, znode_t *tdzp, char *tnm,
     cred_t *cr, int flags)
@@ -3436,7 +3430,6 @@ out:
  * Timestamps:
  *	dip - ctime|mtime updated
  */
-/*ARGSUSED*/
 int
 zfs_symlink(znode_t *dzp, char *name, vattr_t *vap, char *link,
     znode_t **zpp, cred_t *cr, int flags)
@@ -3605,10 +3598,10 @@ top:
  * Timestamps:
  *	ip - atime updated
  */
-/* ARGSUSED */
 int
 zfs_readlink(struct vnode *vp, zfs_uio_t *uio, cred_t *cr)
 {
+	(void) cr;
 	znode_t		*zp = VTOZ(vp);
 	zfsvfs_t	*zfsvfs = ITOZSB(vp);
 	int		error;
@@ -3644,7 +3637,6 @@ zfs_readlink(struct vnode *vp, zfs_uio_t *uio, cred_t *cr)
  *	tdzp - ctime|mtime updated
  *	 szp - ctime updated
  */
-/* ARGSUSED */
 int
 zfs_link(znode_t *tdzp, znode_t *szp, char *name, cred_t *cr,
     int flags)
@@ -3799,7 +3791,6 @@ top:
 	return (error);
 }
 
-/*ARGSUSED*/
 void
 zfs_inactive(struct vnode *vp)
 {
@@ -3868,11 +3859,11 @@ zfs_inactive(struct vnode *vp)
  * Timestamps:
  *	zp - ctime|mtime updated
  */
-/* ARGSUSED */
 int
 zfs_space(znode_t *zp, int cmd, flock64_t *bfp, int flag,
     offset_t offset, cred_t *cr)
 {
+	(void) offset;
 	zfsvfs_t	*zfsvfs = ZTOZSB(zp);
 	uint64_t	off, len;
 	int		error;
