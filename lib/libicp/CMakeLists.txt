@@ -40,7 +40,7 @@ add_library(libicp
     "${ICP_MODULE_DIR}/io/sha2_mod.c"
     "${ICP_MODULE_DIR}/io/skein_mod.c"
 #    "${ICP_MODULE_DIR}/os/modconf.c"
-    "${ICP_MODULE_DIR}/os/modhash.c"
+#   "${ICP_MODULE_DIR}/os/modhash.c"
     "${ICP_MODULE_DIR}/spi/kcf_spi.c"
 )
 
