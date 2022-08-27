@@ -148,10 +148,10 @@ extern struct vop_vector zfs_shareops;
  *      to pass vfsp here, which is not possible, because argument
  *      'cdrarg' is defined at kmem_cache_create() time.
  */
-/*ARGSUSED*/
 static int
 zfs_znode_cache_constructor(void *buf, void *arg, int kmflags)
 {
+	(void) arg, (void) kmflags;
 	znode_t *zp = buf;
 
 	list_link_init(&zp->z_link_node);
@@ -174,10 +174,10 @@ zfs_znode_cache_constructor(void *buf, void *arg, int kmflags)
 	return (0);
 }
 
-/*ARGSUSED*/
 static void
 zfs_znode_cache_destructor(void *buf, void *arg)
 {
+	(void) arg;
 	znode_t *zp = buf;
 
 	ASSERT(ZTOV(zp) == NULL);
