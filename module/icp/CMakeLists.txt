@@ -50,7 +50,7 @@ wdk_add_library(icpkern
   io/skein_mod.c
   #os/bitmap_arch.c
 #  os/modconf.c
-  os/modhash.c
+# os/modhash.c
   spi/kcf_spi.c
 )
 
