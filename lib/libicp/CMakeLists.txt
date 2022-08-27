@@ -27,7 +27,7 @@ add_library(libicp
     "${ICP_MODULE_DIR}/api/kcf_ctxops.c"
 #   "${ICP_MODULE_DIR}/api/kcf_digest.c"
     "${ICP_MODULE_DIR}/api/kcf_mac.c"
-    "${ICP_MODULE_DIR}/api/kcf_miscapi.c"
+#   "${ICP_MODULE_DIR}/api/kcf_miscapi.c"
     "${ICP_MODULE_DIR}/core/kcf_callprov.c"
     "${ICP_MODULE_DIR}/core/kcf_mech_tabs.c"
     "${ICP_MODULE_DIR}/core/kcf_prov_lib.c"
