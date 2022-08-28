@@ -913,7 +913,7 @@ efi_read(int fd, struct dk_gpt *vtoc)
 		    j < sizeof (conversion_array)
 		    / sizeof (struct uuid_to_ptag); j++) {
 
-			if (bcmp(&vtoc->efi_parts[i].p_guid,
+			if (memcmp(&vtoc->efi_parts[i].p_guid,
 			    &conversion_array[j].uuid,
 			    sizeof (struct uuid)) == 0) {
 				vtoc->efi_parts[i].p_tag = j;

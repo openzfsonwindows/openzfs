@@ -1348,7 +1348,7 @@ zio_crypt_do_indirect_mac_checksum_impl(boolean_t generate, void *buf,
 		return (0);
 	}
 
-	if (bcmp(digestbuf, cksum, ZIO_DATA_MAC_LEN) != 0)
+	if (memcmp(digestbuf, cksum, ZIO_DATA_MAC_LEN) != 0)
 		return (SET_ERROR(ECKSUM));
 
 	return (0);
@@ -1918,7 +1918,7 @@ zio_do_crypt_data(boolean_t encrypt, zio_crypt_key_t *key,
 	rw_enter(&key->zk_salt_lock, RW_READER);
 	locked = B_TRUE;
 
-	if (bcmp(salt, key->zk_salt, ZIO_DATA_SALT_LEN) == 0) {
+	if (memcmp(salt, key->zk_salt, ZIO_DATA_SALT_LEN) == 0) {
 		ckey = &key->zk_current_key;
 		tmpl = key->zk_current_tmpl;
 	} else {
