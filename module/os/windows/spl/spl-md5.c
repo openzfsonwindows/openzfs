@@ -355,7 +355,7 @@ MD5Final(void *digest, MD5_CTX *ctx)
 	Encode(digest, ctx->state, sizeof (ctx->state));
 
 	/* zeroize sensitive information */
-	bzero(ctx, sizeof (*ctx));
+	memset(ctx, 0, sizeof (*ctx));
 }
 
 #ifndef	_KERNEL

@@ -276,7 +276,7 @@ kstat_chain_update(kstat_ctl_t *kc)
 	 * determine the size and allocate space for us.  We also fill in the
 	 * name, so that truss can print something meaningful.
 	 */
-	bzero(&k0, sizeof (k0));
+	memset(&k0, 0, sizeof (k0));
 	(void) strlcpy(k0.ks_name, "kstat_headers", KSTAT_STRLEN);
 
 	kcid = kstat_read(kc, &k0, NULL);

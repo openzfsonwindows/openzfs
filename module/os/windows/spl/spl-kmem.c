@@ -993,7 +993,7 @@ kmem_log_init(size_t logsize)
 	    lhp->lh_chunksize * nchunks, VM_SLEEP);
 	lhp->lh_free = vmem_alloc(kmem_log_arena,
 	    nchunks * sizeof (int), VM_SLEEP);
-	bzero(lhp->lh_base, lhp->lh_chunksize * nchunks);
+	memset(lhp->lh_base, 0, lhp->lh_chunksize * nchunks);
 
 	for (i = 0; i < max_ncpus; i++) {
 		kmem_cpu_log_header_t *clhp = &lhp->lh_cpu[i];
@@ -1088,7 +1088,7 @@ kmem_log_event(kmem_log_header_t *lp, kmem_cache_t *cp,
 {
 	kmem_bufctl_audit_t bca;
 
-	bzero(&bca, sizeof (kmem_bufctl_audit_t));
+	memset(&bca, 0, sizeof (kmem_bufctl_audit_t));
 	bca.bc_addr = addr;
 	bca.bc_slab = sp;
 	KMEM_AUDIT(lp, cp, &bca);
@@ -3683,7 +3683,7 @@ kmem_cache_create(
 		cp->cache_hash_table = vmem_alloc(kmem_hash_arena,
 		    KMEM_HASH_INITIAL * sizeof (void *),
 		    VM_SLEEP);
-		bzero(cp->cache_hash_table,
+		memset(cp->cache_hash_table, 0,
 		    KMEM_HASH_INITIAL * sizeof (void *));
 		cp->cache_hash_mask = KMEM_HASH_INITIAL - 1;
 		cp->cache_hash_shift = highbit((ulong_t)chunksize) - 1;
@@ -3820,7 +3820,7 @@ kmem_cache_set_move(kmem_cache_t *cp,
 
 			cp->cache_defrag = defrag;
 			defrag = NULL; /* nothing to free */
-			bzero(cp->cache_defrag, sizeof (kmem_defrag_t));
+			memset(cp->cache_defrag, 0, sizeof (kmem_defrag_t));
 			avl_create(&cp->cache_defrag->kmd_moves_pending,
 			    kmem_move_cmp, sizeof (kmem_move_t),
 			    offsetof(kmem_move_t, kmm_entry));

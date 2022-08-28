@@ -210,7 +210,7 @@ sbuf_delete(struct sbuf *s)
 		SBFREE(s->s_buf);
 	}
 	isdyn = SBUF_ISDYNSTRUCT(s);
-	bzero(s, sizeof (*s));
+	memset(s, 0, sizeof (*s));
 	if (isdyn) {
 		SBFREE(s);
 	}
@@ -268,11 +268,11 @@ sbuf_new(struct sbuf *s, char *buf, int length, int flags)
 		if (s == NULL) {
 			return (NULL);
 		}
-		bzero(s, sizeof (*s));
+		memset(s, 0, sizeof (*s));
 		s->s_flags = flags;
 		SBUF_SETFLAG(s, SBUF_DYNSTRUCT);
 	} else {
-		bzero(s, sizeof (*s));
+		memset(s, 0, sizeof (*s));
 		s->s_flags = flags;
 	}
 	s->s_size = length;
@@ -682,7 +682,7 @@ kstat_alloc(size_t size)
 	}
 
 	if (e != NULL) {
-		bzero(e, size);
+		memset(e, 0, size);
 		e->e_size = size;
 		cv_init(&e->e_cv, NULL, CV_DEFAULT, NULL);
 	}
@@ -783,7 +783,7 @@ kstat_named_setstr(kstat_named_t *knp, const char *src)
 void
 kstat_set_string(char *dst, const char *src)
 {
-	bzero(dst, KSTAT_STRLEN);
+	memset(dst, 0, KSTAT_STRLEN);
 	(void) strncpy(dst, src, KSTAT_STRLEN - 1);
 }
 

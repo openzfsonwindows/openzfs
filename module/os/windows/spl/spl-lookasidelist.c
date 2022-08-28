@@ -83,7 +83,7 @@ lookasidelist_cache_create(char *name,	/* descriptive name for this cache */
 	    sizeof (lookasidelist_cache_t), ZFS_LookAsideList_DRV_TAG);
 
 	if (pLookasidelist_cache != NULL) {
-		bzero(pLookasidelist_cache, sizeof (lookasidelist_cache_t));
+		memset(pLookasidelist_cache, 0, sizeof (lookasidelist_cache_t));
 		pLookasidelist_cache->cache_chunksize = size;
 
 		if (name != NULL) {
