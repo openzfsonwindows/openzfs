@@ -1043,7 +1043,7 @@ zio_crypt_do_dnode_hmac_updates(crypto_context_t ctx, uint64_t version,
 	cd.cd_offset = 0;
 
 	/* authenticate the core dnode (masking out non-portable bits) */
-	memcpy(&tmp_dncore, dnp, dn_core_size);
+	memcpy(&tmp_dncore, dnp, sizeof (tmp_dncore));
 	adnp = (dnode_phys_t *)tmp_dncore;
 	if (le_bswap) {
 		adnp->dn_datablkszsec = BSWAP_16(adnp->dn_datablkszsec);
