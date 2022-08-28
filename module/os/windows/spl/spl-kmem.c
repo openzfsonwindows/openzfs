@@ -984,7 +984,7 @@ kmem_log_init(size_t logsize)
 	lhsize = P2ROUNDUP(lhsize, KMEM_ALIGN);
 	lhp = vmem_xalloc(kmem_log_arena, lhsize, 64, P2NPHASE(lhsize, 64), 0,
 	    NULL, NULL, VM_SLEEP);
-	bzero(lhp, lhsize);
+	memset(lhp, 0, lhsize);
 
 	mutex_init(&lhp->lh_lock, NULL, MUTEX_DEFAULT, NULL);
 	lhp->lh_nchunks = nchunks;
@@ -1162,7 +1162,7 @@ kmem_slab_create(kmem_cache_t *cp, int kmflag)
 			if (cache_flags & KMF_AUDIT) {
 				kmem_bufctl_audit_t *bcap =
 				    (kmem_bufctl_audit_t *)bcp;
-				bzero(bcap, sizeof (kmem_bufctl_audit_t));
+				memset(bcap, 0, sizeof (kmem_bufctl_audit_t));
 				bcap->bc_cache = cp;
 			}
 			bcp->bc_addr = buf;
@@ -1991,7 +1991,7 @@ kmem_dump_finish(char *buf, size_t size)
 
 	/* return buffer size used */
 	if (p < e)
-		bzero(p, e - p);
+		memset(p, 0, e - p);
 	return (p - buf);
 }
 
@@ -2591,12 +2591,12 @@ zfs_kmem_zalloc(size_t size, int kmflag)
 					    kmem_lite_count, caller());
 				}
 			}
-			bzero(buf, size);
+			memset(buf, 0, size);
 		}
 	} else {
 		buf = zfs_kmem_alloc(size, kmflag);
 		if (buf != NULL)
-			bzero(buf, size);
+			memset(buf, 0, size);
 	}
 	return (buf);
 }
@@ -3004,7 +3004,7 @@ kmem_hash_rescale(kmem_cache_t *cp)
 	    VM_NOSLEEP);
 	if (new_table == NULL)
 		return;
-	bzero(new_table, new_size * sizeof (void *));
+	memset(new_table, 0, new_size * sizeof (void *));
 
 	mutex_enter(&cp->cache_lock);
 
@@ -3465,7 +3465,7 @@ kmem_cache_create(
 	    KMEM_CPU_CACHE_SIZE,
 	    P2NPHASE(csize, KMEM_CPU_CACHE_SIZE),
 	    0, NULL, NULL, VM_SLEEP);
-	bzero(cp, csize);
+	memset(cp, 0, csize);
 	list_link_init(&cp->cache_link);
 
 	if (align == 0)
@@ -4111,7 +4111,7 @@ kmem_cache_init(int pass, int use_large_pages)
 		 * The big alloc table may not be completely overwritten, so
 		 * we clear out any stale cache pointers from the first pass.
 		 */
-		bzero(kmem_big_alloc_table, sizeof (kmem_big_alloc_table));
+		memset(kmem_big_alloc_table, 0, sizeof (kmem_big_alloc_table));
 	} else {
 		/*
 		 * During the first pass, the kmem_alloc_* caches
