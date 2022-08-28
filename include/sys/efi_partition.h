@@ -73,6 +73,10 @@ typedef struct efi_gpe_Attrs {
 			RequiredPartition	:1;
 } efi_gpe_Attrs_t;
 
+
+#define	V_NUMPAR 	NDKMAP		/* The number of partitions */
+					/* (from dkio.h) */
+
 /* MBR partition identification tags */
 #define	V_UNASSIGNED	0x00		/* unassigned partition */
 #define	V_USR		0x04		/* Usr filesystem */
