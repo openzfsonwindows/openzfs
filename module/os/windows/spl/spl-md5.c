@@ -285,7 +285,7 @@ MD5Update(MD5_CTX *ctx, const void *inpp, unsigned int input_len)
 #endif /* sun4v */
 
 		if (buf_index) {
-			bcopy(input, &ctx->buf_un.buf8[buf_index], buf_len);
+			memset(&ctx->buf_un.buf8[buf_index], input, buf_len);
 
 			MD5Transform(ctx->state[0], ctx->state[1],
 			    ctx->state[2], ctx->state[3], ctx,
@@ -321,7 +321,7 @@ MD5Update(MD5_CTX *ctx, const void *inpp, unsigned int input_len)
 	}
 
 	/* buffer remaining input */
-	bcopy(&input[i], &ctx->buf_un.buf8[buf_index], input_len - i);
+	memset(&ctx->buf_un.buf8[buf_index], &input[i], input_len - i);
 }
 
 /*
@@ -437,7 +437,7 @@ MD5Transform(uint32_t a, uint32_t b, uint32_t c, uint32_t d,
 	 *
 	 * even though it's quite tempting to assign to do:
 	 *
-	 * blk = bcopy(blk, ctx->buf_un.buf32, sizeof (ctx->buf_un.buf32));
+	 * blk = memset(ctx->buf_un.buf32, blk, sizeof (ctx->buf_un.buf32));
 	 *
 	 * and only have one set of LOAD_LITTLE_32()'s, the compiler (at least
 	 * SC4.2/5.x) *does not* like that, so please resist the urge.
@@ -445,7 +445,7 @@ MD5Transform(uint32_t a, uint32_t b, uint32_t c, uint32_t d,
 
 #ifdef _MD5_CHECK_ALIGNMENT
 	if ((uintptr_t)block & 0x3) {		/* not 4-byte aligned? */
-		bcopy(block, ctx->buf_un.buf32, sizeof (ctx->buf_un.buf32));
+		memset(ctx->buf_un.buf32, block, sizeof (ctx->buf_un.buf32));
 
 #ifdef sun4v
 		x_15 = LOAD_LITTLE_32_f(ctx->buf_un.buf32);
@@ -648,7 +648,7 @@ Encode(uint8_t *output, const uint32_t *input,
 
 #ifdef _MD5_CHECK_ALIGNMENT
 		if ((uintptr_t)output & 0x3)	/* Not 4-byte aligned */
-			bcopy(input + i, output + j, 4);
+			memset(output + j, input + i, 4);
 		else *(uint32_t *)(output + j) = input[i];
 #else
 		/*LINTED E_BAD_PTR_CAST_ALIGN*/

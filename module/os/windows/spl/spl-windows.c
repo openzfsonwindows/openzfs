@@ -270,7 +270,7 @@ ddi_copyin(const void *from, void *to, size_t len, int flags)
 		if (flags & FCOPYSTR)
 			strlcpy(to, from, len);
 		else
-			bcopy(from, to, len);
+			memset(to, from, len);
 		return (0);
 	}
 
@@ -318,7 +318,7 @@ ddi_copyin(const void *from, void *to, size_t len, int flags)
 		if (flags & FCOPYSTR)
 			strlcpy(to, buffer, len);
 		else
-			bcopy(buffer, to, len);
+			memset(to, buffer, len);
 	}
 
 	TraceEvent(TRACE_NOISY, "SPL: copyin return %d (%d bytes)\n",
@@ -346,7 +346,7 @@ ddi_copyout(const void *from, void *to, size_t len, int flags)
 
 	/* Fake ioctl() issued by kernel, 'from' is a kernel address */
 	if (flags & FKIOCTL) {
-		bcopy(from, to, len);
+		memset(to, from, len);
 		return (0);
 	}
 
@@ -381,7 +381,7 @@ ddi_copyout(const void *from, void *to, size_t len, int flags)
 		goto out;
 	} else {
 		// Success, copy over the data.
-		bcopy(from, buffer, len);
+		memset(buffer, from, len);
 	}
 	// dprintf("SPL: copyout return %d (%d bytes)\n", error, len);
 out:

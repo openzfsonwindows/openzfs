@@ -1066,7 +1066,7 @@ kmem_log_enter(kmem_log_header_t *lhp, void *data, size_t size)
 	logspace = clhp->clh_current;
 	clhp->clh_current += size;
 	clhp->clh_avail -= size;
-	bcopy(data, logspace, size);
+	memset(logspace, data, size);
 	mutex_exit(&clhp->clh_lock);
 	return (logspace);
 }

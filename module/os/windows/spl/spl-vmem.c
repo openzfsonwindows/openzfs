@@ -2051,7 +2051,7 @@ vmem_create_common(const char *name, void *base, size_t size, size_t quantum,
 	vsp->vs_type = VMEM_ROTOR;
 	VMEM_INSERT(&vmp->vm_seg0, vsp, a);
 
-	bcopy(&vmem_kstat_template, &vmp->vm_kstat, sizeof (vmem_kstat_t));
+	memset(&vmp->vm_kstat, &vmem_kstat_template, sizeof (vmem_kstat_t));
 
 	vmp->vm_id = id;
 	if (source != NULL)
