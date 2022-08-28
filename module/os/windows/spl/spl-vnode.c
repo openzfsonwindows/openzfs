@@ -420,7 +420,7 @@ dnlc_lookup(struct vnode *dvp, char *name)
 	struct componentname cn;
 	struct vnode *vp = NULL;
 
-	bzero(&cn, sizeof (cn));
+	memset(&cn, 0, sizeof (cn));
 
 	switch (0 /* cache_lookup(dvp, &vp, &cn) */) {
 	case -1:

@@ -307,7 +307,7 @@ zfs_file_fallocate(zfs_file_t *fp, int mode, loff_t offset, loff_t len)
 	int error;
 	struct flock flck;
 
-	bzero(&flck, sizeof (flck));
+	memset(&flck, 0, sizeof (flck));
 	flck.l_type = F_FREESP;
 	flck.l_start = offset;
 	flck.l_len = len;

@@ -1883,7 +1883,7 @@ vmem_walk(vmem_t *vmp, int typemask,
 	if (typemask & VMEM_WALKER)
 		return;
 
-	bzero(&walker, sizeof (walker));
+	memset(&walker, 0, sizeof (walker));
 	walker.vs_type = VMEM_WALKER;
 
 	mutex_enter(&vmp->vm_lock);
@@ -2009,7 +2009,7 @@ vmem_create_common(const char *name, void *base, size_t size, size_t quantum,
 
 	if (vmp == NULL)
 		return (NULL);
-	bzero(vmp, sizeof (vmem_t));
+	memset(vmp, 0, sizeof (vmem_t));
 
 	(void) snprintf(vmp->vm_name, VMEM_NAMELEN, "%s", name);
 	mutex_init(&vmp->vm_lock, NULL, MUTEX_DEFAULT, NULL);
@@ -2285,7 +2285,7 @@ vmem_hash_rescale(vmem_t *vmp)
 	    VM_NOSLEEP);
 	if (new_table == NULL)
 		return;
-	bzero(new_table, new_size * sizeof (void *));
+	memset(new_table, 0, new_size * sizeof (void *));
 
 	mutex_enter(&vmp->vm_lock);
 
