@@ -272,12 +272,6 @@ zfs_rollback_os(zfs_handle_t *zhp)
 	(void) zhp;
 }
 
-
-void
-libzfs_set_pipe_max(int infd)
-{
-}
-
 int
 libzfs_run_process_impl(const char *path, char *argv[], char *env[],
     int flags, char **lines[], int *lines_cnt)
