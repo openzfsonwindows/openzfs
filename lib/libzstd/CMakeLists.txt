@@ -9,6 +9,7 @@ add_library(libzstd
 	"${ZSTD_MODULE_DIR}/lib/common/fse_decompress.c"
 	"${ZSTD_MODULE_DIR}/lib/common/pool.c"
 	"${ZSTD_MODULE_DIR}/lib/common/zstd_common.c"
+	"${ZSTD_MODULE_DIR}/lib/common/xxhash.c"
 	"${ZSTD_MODULE_DIR}/lib/compress/fse_compress.c"
 	"${ZSTD_MODULE_DIR}/lib/compress/hist.c"
 	"${ZSTD_MODULE_DIR}/lib/compress/huf_compress.c"

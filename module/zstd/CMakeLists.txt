@@ -7,6 +7,7 @@ wdk_add_library(zstdkern
 	lib/common/fse_decompress.c
 	lib/common/pool.c
 	lib/common/zstd_common.c
+	lib/common/xxhash.c
 	lib/compress/fse_compress.c
 	lib/compress/hist.c
 	lib/compress/huf_compress.c
