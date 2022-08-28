@@ -145,7 +145,7 @@ zfs_get_underlying_path(const char *dev_name)
 boolean_t
 zfs_dev_is_whole_disk(const char *dev_name)
 {
-	struct dk_gpt *label;
+	struct dk_gpt *label = NULL;
 	int fd;
 
 	if ((fd = open(dev_name, O_RDONLY | O_DIRECT)) < 0)
