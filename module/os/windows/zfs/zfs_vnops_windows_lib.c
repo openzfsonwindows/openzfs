@@ -1263,7 +1263,7 @@ zpl_xattr_set_sa(struct vnode *vp, const char *name, const void *value,
 
 	/* Update the SA for additions, modifications, and removals. */
 	if (!error)
-		error = -zfs_sa_set_xattr(zp);
+		error = -zfs_sa_set_xattr(zp, name, value, size);
 
 	ASSERT3S(error, <=, 0);
 
