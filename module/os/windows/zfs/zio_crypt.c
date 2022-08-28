@@ -738,9 +738,9 @@ zio_crypt_encode_params_bp(blkptr_t *bp, uint8_t *salt, uint8_t *iv)
 	ASSERT(BP_IS_ENCRYPTED(bp));
 
 	if (!BP_SHOULD_BYTESWAP(bp)) {
-		bcopy(salt, &bp->blk_dva[2].dva_word[0], sizeof (uint64_t));
-		bcopy(iv, &bp->blk_dva[2].dva_word[1], sizeof (uint64_t));
-		bcopy(iv + sizeof (uint64_t), &val32, sizeof (uint32_t));
+		memcpy(&bp->blk_dva[2].dva_word[0], salt, sizeof (uint64_t));
+		memcpy(&bp->blk_dva[2].dva_word[1], iv, sizeof (uint64_t));
+		memcpy(&val32, iv + sizeof (uint64_t), sizeof (uint32_t));
 		BP_SET_IV2(bp, val32);
 	} else {
 		memcpy(&val64, salt, sizeof (uint64_t));
@@ -796,8 +796,8 @@ zio_crypt_encode_mac_bp(blkptr_t *bp, uint8_t *mac)
 	ASSERT3U(BP_GET_TYPE(bp), !=, DMU_OT_OBJSET);
 
 	if (!BP_SHOULD_BYTESWAP(bp)) {
-		bcopy(mac, &bp->blk_cksum.zc_word[2], sizeof (uint64_t));
-		bcopy(mac + sizeof (uint64_t), &bp->blk_cksum.zc_word[3],
+		memcpy(&bp->blk_cksum.zc_word[2], mac, sizeof (uint64_t));
+		memcpy(&bp->blk_cksum.zc_word[3], mac + sizeof (uint64_t),
 		    sizeof (uint64_t));
 	} else {
 		memcpy(&val64, mac, sizeof (uint64_t));
@@ -1523,11 +1523,12 @@ zio_crypt_init_uios_zil(boolean_t encrypt, uint8_t *plainbuf,
 			dst_iovecs[nr_iovecs].iov_len = crypt_len;
 
 			/* copy the bp now since it will not be encrypted */
-			bcopy(slrp + sizeof (lr_write_t) - sizeof (blkptr_t),
-			    dlrp + sizeof (lr_write_t) - sizeof (blkptr_t),
+			memcpy(dlrp + sizeof (lr_write_t) - sizeof (blkptr_t),
+			    slrp + sizeof (lr_write_t) - sizeof (blkptr_t),
 			    sizeof (blkptr_t));
-			bcopy(slrp + sizeof (lr_write_t) - sizeof (blkptr_t),
-			    aadp, sizeof (blkptr_t));
+			memcpy(aadp,
+			    slrp + sizeof (lr_write_t) - sizeof (blkptr_t),
+			    sizeof (blkptr_t));
 			aadp += sizeof (blkptr_t);
 			aad_len += sizeof (blkptr_t);
 			nr_iovecs++;
@@ -1674,7 +1675,8 @@ zio_crypt_init_uios_dnode(boolean_t encrypt, uint64_t version,
 		dnp = &sdnp[i];
 
 		/* copy over the core fields and blkptrs (kept as plaintext) */
-		bcopy(dnp, &ddnp[i], (uint8_t *)DN_BONUS(dnp) - (uint8_t *)dnp);
+		memcpy(&ddnp[i], dnp,
+		    (uint8_t *)DN_BONUS(dnp) - (uint8_t *)dnp);
 
 		if (dnp->dn_flags & DNODE_FLAG_SPILL_BLKPTR) {
 			memcpy(DN_SPILL_BLKPTR(&ddnp[i]), DN_SPILL_BLKPTR(dnp),
