@@ -79,8 +79,23 @@ typedef struct efi_gpe_Attrs {
 
 /* MBR partition identification tags */
 #define	V_UNASSIGNED	0x00		/* unassigned partition */
+#define	V_BOOT		0x01		/* Boot partition */
+#define	V_ROOT		0x02		/* Root filesystem */
+#define	V_SWAP		0x03		/* Swap filesystem */
 #define	V_USR		0x04		/* Usr filesystem */
+#define	V_BACKUP	0x05		/* full disk */
+#define	V_STAND		0x06		/* Stand partition */
+#define	V_VAR		0x07		/* Var partition */
+#define	V_HOME		0x08		/* Home partition */
+#define	V_ALTSCTR	0x09		/* Alternate sector partition */
+#define	V_CACHE		0x0a		/* Cache (cachefs) partition */
 #define	V_RESERVED	0x0b		/* SMI reserved data */
+
+/*
+ * Partition permission flags
+ */
+#define	V_UNMNT		0x01		/* Unmountable partition */
+#define	V_RONLY		0x10		/* Read only */
 
 /*
  * 6a96237f-1dd2-11b2-99a6-080020736631	V_UNASSIGNED (not used as such)
