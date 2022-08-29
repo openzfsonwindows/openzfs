@@ -47,54 +47,10 @@ crgetruid(const cred_t *cr)
 	return ((uint64_t)-1);
 }
 
-/* Return the saved user id */
-uid_t
-crgetsuid(const cred_t *cr)
-{
-	if (!cr)
-		return (0);
-	return ((uint64_t)-1);
-}
-
-/* Return the filesystem user id */
-uid_t
-crgetfsuid(const cred_t *cr)
-{
-	if (!cr)
-		return (0);
-	return ((uint64_t)-1);
-}
 
 /* Return the effective group id */
 gid_t
 crgetgid(const cred_t *cr)
-{
-	if (!cr)
-		return (0);
-	return ((uint64_t)-1);
-}
-
-/* Return the real group id */
-gid_t
-crgetrgid(const cred_t *cr)
-{
-	if (!cr)
-		return (0);
-	return ((uint64_t)-1);
-}
-
-/* Return the saved group id */
-gid_t
-crgetsgid(const cred_t *cr)
-{
-	if (!cr)
-		return (0);
-	return ((uint64_t)-1);
-}
-
-/* Return the filesystem group id */
-gid_t
-crgetfsgid(const cred_t *cr)
 {
 	(void) cr;
 	return ((uint64_t)-1);
