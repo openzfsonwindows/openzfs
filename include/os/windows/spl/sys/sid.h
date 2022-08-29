@@ -31,8 +31,6 @@
 extern "C" {
 #endif
 
-#include <sys/kidmap.h>
-
 typedef struct ksiddomain {
 	char		*kd_name;
 } ksiddomain_t;
@@ -71,30 +69,6 @@ ksiddomain_rele(ksiddomain_t *ksid)
 
 #define	UID_NOBODY 65534
 #define	GID_NOBODY 65534
-
-static __inline uint_t
-ksid_getid(ksid_t *ks)
-{
-	panic("%s has been unexpectedly called", __func__);
-	return (0);
-}
-
-static __inline const char *
-ksid_getdomain(ksid_t *ks)
-{
-	panic("%s has been unexpectedly called", __func__);
-	return (0);
-}
-
-static __inline uint_t
-ksid_getrid(ksid_t *ks)
-{
-	panic("%s has been unexpectedly called", __func__);
-	return (0);
-}
-
-#define	kidmap_getsidbyuid(zone, uid, sid_prefix, rid)  (1)
-#define	kidmap_getsidbygid(zone, gid, sid_prefix, rid)  (1)
 
 #ifdef	__cplusplus
 }
