@@ -677,16 +677,17 @@ wzvol_HwStartIo(
 	__in pHW_HBA_EXT pHBAExt,
 	__in __out PSCSI_REQUEST_BLOCK pSrb)
 {
-	dprintf("%s: entry\n", __func__);
 
-#if 1
+	/*
+	 * This function cal be called as DPC, so we can not call into ZFS (mutex etc) and kmem.
+	 * including dprintf
+	 */
+
 	UCHAR srbStatus = SRB_STATUS_INVALID_REQUEST;
 	BOOLEAN bFlag;
 	NTSTATUS status;
 	UCHAR Result = ResultDone;
 
-	dprintf("MpHwStartIo:  SCSI Request Block = %!SRB!\n",
-	    pSrb);
 
 	_InterlockedExchangeAdd((volatile LONG *)&pHBAExt->SRBsSeen, 1);
 
@@ -754,8 +755,6 @@ wzvol_HwStartIo(
 		break;
 
 	default:
-		dprintf("MpHwStartIo: Unknown Srb Function = 0x%x\n",
-		    pSrb->Function);
 		srbStatus = SRB_STATUS_INVALID_REQUEST;
 		break;
 
@@ -773,8 +772,6 @@ wzvol_HwStartIo(
 		StorPortNotification(RequestComplete, pHBAExt, pSrb);
 	}
 
-	dprintf("MpHwStartIo - OUT\n");
-#endif
 	return (TRUE);
 }
 
