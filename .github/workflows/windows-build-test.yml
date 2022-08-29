@@ -140,3 +140,27 @@ jobs:
       with:
         name: dev_build_inno
         path: ${{github.workspace}}\contrib\windows\${{ steps.innoout.outputs.name }}
+
+
+
+
+
+    # https://github.com/MicrosoftDocs/windows-powershell-docs/issues/266
+    - name: Import root certificate
+      run: |
+        $plaintextpwd = 'password1234'
+        $pwd = ConvertTo-SecureString -String $plaintextpwd -Force -AsPlainText
+        Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\LocalMachine\Root -Password $pwd
+        Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $pwd
+
+    - name: install zfs
+      run: 'Start-Process -FilePath "${{github.workspace}}\contrib\windows\${{ steps.innoout.outputs.name }}" -Wait -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Install.log`""'
+
+    #- name: Wait for install to finish
+    #  run: Start-Sleep -Seconds 30
+    #  uses: iFaxity/wait-on-action@v1
+    #  with:
+    #    resource: 'C:\Program Files\OpenZFS On Windows\zpool.exe'
+
+    - name: debug - print log
+      run: cat "${{github.workspace}}\InnoSetup-Install.log"
