@@ -48,7 +48,13 @@
 
 #define	makedevice(maj, min)	makedev(maj, min)
 #define	_sysconf(a)		sysconf(a)
-// #define	__NORETURN		__attribute__((noreturn))
+
+
+#ifdef _MSC_VER
+#define _Noreturn
+#else
+#define _Noreturn	__attribute__((__noreturn__))
+#endif
 
 /*
  * Compatibility macros/typedefs needed for Solaris -> Windows port
@@ -111,3 +117,4 @@
 #define	_LITTLE_ENDIAN
 
 #endif /* _LIBSPL_SYS_SYSMACROS_H */
+
