@@ -43,9 +43,6 @@
 #include <sys/types.h>
 #include <sys/md5.h>
 #include <sys/md5_consts.h>	/* MD5_CONST() optimization */
-#if	!defined(_KERNEL) || defined(_BOOT)
-#include <strings.h>
-#endif /* !_KERNEL || _BOOT */
 
 #ifdef _KERNEL
 #include <sys/systm.h>
