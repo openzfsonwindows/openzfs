@@ -26,7 +26,6 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
 #include <unistd.h>
 #include <math.h>
 #include <sys/stat.h>
