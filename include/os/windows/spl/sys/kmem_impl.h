@@ -197,7 +197,7 @@ typedef struct kmem_buftag_lite {
  * the other layers of the kmem cache if need be.
  *
  * It's not even a problem if the old cpu gets DR'ed out during the context
- * switch.  The cpu-remove DR operation bzero()s the cpu_t, but doesn't free
+ * switch.  The cpu-remove DR operation memset(0)s the cpu_t, but doesn't free
  * it.  So the cpu_t's cpu_cache_offset would read as 0, causing us to use
  * cpu 0's per-cpu cache.
  *
