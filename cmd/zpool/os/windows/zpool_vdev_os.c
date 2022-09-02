@@ -36,7 +36,6 @@
 
 #include <sys/efi_partition.h>
 #include <sys/stat.h>
-#include <sys/vtoc.h>
 #include <sys/mntent.h>
 #include <uuid/uuid.h>
 
