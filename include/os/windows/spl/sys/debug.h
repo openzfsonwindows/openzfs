@@ -67,7 +67,7 @@
 #define	__printflike(X, Y)
 #define	__unused
 #define	always_inline __forceinline
-#define	__NORETURN
+#define	_Noreturn
 
 #else
 
@@ -86,7 +86,8 @@
 #define	__printflike(a, b) __attribute__((__format__(__printf__, a, b)))
 
 #define	__unused  __attribute__((unused))
-#define	__NORETURN	__attribute__((__noreturn__))
+#define	_Noreturn	__attribute__((__noreturn__))
+
 
 #endif
 
