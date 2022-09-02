@@ -136,7 +136,7 @@ static uint8_t PADDING[64] = { 0x80, /* all zeros */ };
  * not even go out to the bus.
  *
  * this array is declared `static' to keep the compiler from having to
- * bcopy() this array onto the stack frame of MD5Transform() each time it is
+ * memcpy() this array onto the stack frame of MD5Transform() each time it is
  * called -- which is unacceptably expensive.
  *
  * the `const' is to ensure that callers are good citizens and do not try to
@@ -267,9 +267,9 @@ MD5Update(MD5_CTX *ctx, const void *inpp, unsigned int input_len)
 		/*
 		 * general optimization:
 		 *
-		 * only do initial bcopy() and MD5Transform() if
+		 * only do initial memcpy() and MD5Transform() if
 		 * buf_index != 0.  if buf_index == 0, we're just
-		 * wasting our time doing the bcopy() since there
+		 * wasting our time doing the memcpy() since there
 		 * wasn't any data left over from a previous call to
 		 * MD5Update().
 		 */
@@ -285,7 +285,7 @@ MD5Update(MD5_CTX *ctx, const void *inpp, unsigned int input_len)
 #endif /* sun4v */
 
 		if (buf_index) {
-			bcopy(input, &ctx->buf_un.buf8[buf_index], buf_len);
+			memcpy(&ctx->buf_un.buf8[buf_index], input, buf_len);
 
 			MD5Transform(ctx->state[0], ctx->state[1],
 			    ctx->state[2], ctx->state[3], ctx,
@@ -310,7 +310,7 @@ MD5Update(MD5_CTX *ctx, const void *inpp, unsigned int input_len)
 		 * general optimization:
 		 *
 		 * if i and input_len are the same, return now instead
-		 * of calling bcopy(), since the bcopy() in this
+		 * of calling memcpy(), since the memcpy() in this
 		 * case will be an expensive nop.
 		 */
 
@@ -321,7 +321,7 @@ MD5Update(MD5_CTX *ctx, const void *inpp, unsigned int input_len)
 	}
 
 	/* buffer remaining input */
-	bcopy(&input[i], &ctx->buf_un.buf8[buf_index], input_len - i);
+	memcpy(&ctx->buf_un.buf8[buf_index], &input[i], input_len - i);
 }
 
 /*
@@ -355,7 +355,7 @@ MD5Final(void *digest, MD5_CTX *ctx)
 	Encode(digest, ctx->state, sizeof (ctx->state));
 
 	/* zeroize sensitive information */
-	bzero(ctx, sizeof (*ctx));
+	memset(ctx, 0, sizeof (*ctx));
 }
 
 #ifndef	_KERNEL
@@ -429,15 +429,15 @@ MD5Transform(uint32_t a, uint32_t b, uint32_t c, uint32_t d,
 	 * sparc v9/v8plus optimization:
 	 *
 	 * if `block' is already aligned on a 4-byte boundary, use the
-	 * optimized load_little_32() directly.  otherwise, bcopy()
+	 * optimized load_little_32() directly.  otherwise, memcpy()
 	 * into a buffer that *is* aligned on a 4-byte boundary and
 	 * then do the load_little_32() on that buffer.  benchmarks
-	 * have shown that using the bcopy() is better than loading
+	 * have shown that using the memcpy() is better than loading
 	 * the bytes individually and doing the endian-swap by hand.
 	 *
 	 * even though it's quite tempting to assign to do:
 	 *
-	 * blk = bcopy(blk, ctx->buf_un.buf32, sizeof (ctx->buf_un.buf32));
+	 * blk = memcpy(ctx->buf_un.buf32, blk, sizeof (ctx->buf_un.buf32));
 	 *
 	 * and only have one set of LOAD_LITTLE_32()'s, the compiler (at least
 	 * SC4.2/5.x) *does not* like that, so please resist the urge.
@@ -445,7 +445,7 @@ MD5Transform(uint32_t a, uint32_t b, uint32_t c, uint32_t d,
 
 #ifdef _MD5_CHECK_ALIGNMENT
 	if ((uintptr_t)block & 0x3) {		/* not 4-byte aligned? */
-		bcopy(block, ctx->buf_un.buf32, sizeof (ctx->buf_un.buf32));
+		memcpy(ctx->buf_un.buf32, block, sizeof (ctx->buf_un.buf32));
 
 #ifdef sun4v
 		x_15 = LOAD_LITTLE_32_f(ctx->buf_un.buf32);
@@ -648,7 +648,7 @@ Encode(uint8_t *output, const uint32_t *input,
 
 #ifdef _MD5_CHECK_ALIGNMENT
 		if ((uintptr_t)output & 0x3)	/* Not 4-byte aligned */
-			bcopy(input + i, output + j, 4);
+			memcpy(output + j, input + i, 4);
 		else *(uint32_t *)(output + j) = input[i];
 #else
 		/*LINTED E_BAD_PTR_CAST_ALIGN*/

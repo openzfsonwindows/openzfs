@@ -1978,7 +1978,7 @@ zfs_create_fs(objset_t *os, cred_t *cr, nvlist_t *zplprops, dmu_tx_t *tx)
 
 	zfsvfs = kmem_alloc(sizeof (zfsvfs_t), KM_SLEEP);
 
-	bzero(zfsvfs, sizeof (zfsvfs_t));
+	memset(zfsvfs, 0, sizeof (zfsvfs_t));
 
 	zfsvfs->z_os = os;
 	zfsvfs->z_parent = zfsvfs;
@@ -2244,7 +2244,7 @@ zfs_obj_to_path_impl(objset_t *osp, uint64_t obj, sa_handle_t *hdl,
 		complen = strlen(component);
 		path -= complen;
 		ASSERT(path >= buf);
-		bcopy(component, path, complen);
+		memcpy(path, component, complen);
 		obj = pobj;
 
 		if (sa_hdl != hdl) {

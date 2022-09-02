@@ -154,7 +154,7 @@ ddi_soft_state_zalloc(void *state, int item)
 		/*
 		 * Copy the pointers into the new array
 		 */
-		bcopy(array, new_array, ss->n_items * sizeof (void *));
+		memcpy(new_array, array, ss->n_items * sizeof (void *));
 
 		/*
 		 * Save the old array on the dirty list
@@ -320,7 +320,7 @@ ddi_create_minor_node(dev_info_t *dip, char *name, int spec_type,
 	MALLOC(dup, char *, strlen(name)+1, M_TEMP, M_WAITOK);
 	if (dup == NULL)
 		return (ENOMEM);
-	bcopy(name, dup, strlen(name));
+	memcpy(dup, name, strlen(name));
 	dup[strlen(name)] = '\0';
 
 	for (r = dup;
