@@ -1048,7 +1048,7 @@ zio_crypt_do_dnode_hmac_updates(crypto_context_t ctx, uint64_t version,
 	 * of copying 512-64 unneeded bytes. The compiler seems to be fine
 	 * with that.
 	 */
-	bcopy(dnp, &tmp_dncore, dn_core_size);
+	memcpy(&tmp_dncore, dnp, dn_core_size);
 	adnp = &tmp_dncore;
 
 	if (le_bswap) {
@@ -1115,9 +1115,9 @@ error:
  * into little endian format.
  */
 static int
-zio_crypt_do_objset_hmacs_impl(zio_crypt_key_t *key, void *data,
+zio_crypt_do_objset_hmacs(zio_crypt_key_t *key, void *data,
     uint_t datalen, boolean_t should_bswap, uint8_t *portable_mac,
-    uint8_t *local_mac, boolean_t skip_projectquota)
+    uint8_t *local_mac)
 {
 	int ret;
 	crypto_mechanism_t mech;
@@ -1195,7 +1195,7 @@ zio_crypt_do_objset_hmacs_impl(zio_crypt_key_t *key, void *data,
 	/*
 	 * This is necessary here as we check next whether
 	 * OBJSET_FLAG_USERACCOUNTING_COMPLETE is set in order to
-	 * decide if the local_mac should be zeroed out.That flag will always
+	 * decide if the local_mac should be zeroed out. That flag will always
 	 * be set by dmu_objset_id_quota_upgrade_cb() and
 	 * dmu_objset_userspace_upgrade_cb() if useraccounting has been
 	 * completed.
@@ -1207,30 +1207,18 @@ zio_crypt_do_objset_hmacs_impl(zio_crypt_key_t *key, void *data,
 	    !(intval & OBJSET_FLAG_USERACCOUNTING_COMPLETE);
 
 	/*
-	 * This is necessary here as we check next whether
-	 * OBJSET_FLAG_USERACCOUNTING_COMPLETE or
-	 * OBJSET_FLAG_USEROBJACCOUNTING are set in order to
-	 * decide if the local_mac should be zeroed out.
-	 */
-	intval = osp->os_flags;
-	if (should_bswap)
-		intval = BSWAP_64(intval);
-
-	/*
 	 * The local MAC protects the user, group and project accounting.
 	 * If these objects are not present, the local MAC is zeroed out.
 	 */
 	if (uacct_incomplete ||
-	    (datalen >= OBJSET_PHYS_SIZE_V3 && osp->os_userused_dnode.dn_type == DMU_OT_NONE &&
+	    (datalen >= OBJSET_PHYS_SIZE_V3 &&
+	    osp->os_userused_dnode.dn_type == DMU_OT_NONE &&
 	    osp->os_groupused_dnode.dn_type == DMU_OT_NONE &&
 	    osp->os_projectused_dnode.dn_type == DMU_OT_NONE) ||
 	    (datalen >= OBJSET_PHYS_SIZE_V2 &&
 	    osp->os_userused_dnode.dn_type == DMU_OT_NONE &&
 	    osp->os_groupused_dnode.dn_type == DMU_OT_NONE) ||
-	    (datalen <= OBJSET_PHYS_SIZE_V1) ||
-	    (((intval & OBJSET_FLAG_USERACCOUNTING_COMPLETE) == 0 ||
-	    (intval & OBJSET_FLAG_USEROBJACCOUNTING_COMPLETE) == 0) &&
-	    key->zk_version > 0)) {
+	    (datalen <= OBJSET_PHYS_SIZE_V1)) {
 		memset(local_mac, 0, ZIO_OBJSET_MAC_LEN);
 		return (0);
 	}
@@ -1275,20 +1263,12 @@ zio_crypt_do_objset_hmacs_impl(zio_crypt_key_t *key, void *data,
 			goto error;
 	}
 
-	/*
-	 * Unfortunate side-effect of macOS port getting crypto before
-	 * projectquota. Luckily, if we just let it mount, by generating the
-	 * old style local_mac, "generate" calls will upgrade to "proper".
-	 */
-	if (!skip_projectquota) {
-		if (osp->os_projectused_dnode.dn_type != DMU_OT_NONE &&
-		    datalen >= OBJSET_PHYS_SIZE_V3) {
-			ret = zio_crypt_do_dnode_hmac_updates(ctx,
-			    key->zk_version, should_bswap,
-			    &osp->os_projectused_dnode);
-			if (ret)
-				goto error;
-		}
+	if (osp->os_projectused_dnode.dn_type != DMU_OT_NONE &&
+	    datalen >= OBJSET_PHYS_SIZE_V3) {
+		ret = zio_crypt_do_dnode_hmac_updates(ctx, key->zk_version,
+		    should_bswap, &osp->os_projectused_dnode);
+		if (ret)
+			goto error;
 	}
 
 	/* store the final digest in a temporary buffer and copy what we need */
@@ -1310,24 +1290,6 @@ error:
 	memset(portable_mac, 0, ZIO_OBJSET_MAC_LEN);
 	memset(local_mac, 0, ZIO_OBJSET_MAC_LEN);
 	return (ret);
-}
-
-int
-zio_crypt_do_objset_hmacs(zio_crypt_key_t *key, void *data, uint_t datalen,
-    boolean_t should_bswap, uint8_t *portable_mac, uint8_t *local_mac)
-{
-	return (zio_crypt_do_objset_hmacs_impl(key, data, datalen, should_bswap,
-	    portable_mac, local_mac, FALSE));
-}
-
-int
-zio_crypt_do_objset_hmacs_errata1(zio_crypt_key_t *key, void *data,
-    uint_t datalen, boolean_t should_bswap, uint8_t *portable_mac,
-    uint8_t *local_mac)
-{
-	dprintf("trying errata1 work-around\n");
-	return (zio_crypt_do_objset_hmacs_impl(key, data, datalen, should_bswap,
-	    portable_mac, local_mac, TRUE));
 }
 
 static void
