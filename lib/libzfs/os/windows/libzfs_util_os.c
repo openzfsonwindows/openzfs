@@ -203,9 +203,9 @@ execvPe(const char *name, const char *path, char * const *argv,
 			    16);
 			continue;
 		}
-		bcopy(p, buf, lp);
+		memcpy(buf, p, lp);
 		buf[lp] = '/';
-		bcopy(name, buf + lp + 1, ln);
+		memcpy(buf + lp + 1, name, ln);
 		buf[lp + ln + 1] = '\0';
 
 retry:
@@ -226,7 +226,7 @@ retry:
 			}
 			memp[0] = "sh";
 			memp[1] = bp;
-			bcopy(argv + 1, memp + 2, cnt * sizeof (char *));
+			memcpy(memp + 2, argv + 1, cnt * sizeof (char *));
 //			execve(_PATH_BSHELL, __DECONST(char **, memp),
 //			    envp);
 			goto done;

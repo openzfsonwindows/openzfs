@@ -4752,7 +4752,7 @@ zfsdev_async_thread(void *arg)
 
 	dprintf("%s: starting ioctl\n", __func__);
 
-	/* Use FKIOCTL to make sure it calls bcopy instead */
+	/* Use FKIOCTL to make sure it calls memcpy instead */
 	Status = zfsdev_ioctl(NULL, Irp, FKIOCTL);
 
 	dprintf("%s: finished ioctl %d\n", __func__, Status);

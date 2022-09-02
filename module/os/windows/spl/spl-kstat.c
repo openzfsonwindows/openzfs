@@ -210,7 +210,7 @@ sbuf_delete(struct sbuf *s)
 		SBFREE(s->s_buf);
 	}
 	isdyn = SBUF_ISDYNSTRUCT(s);
-	bzero(s, sizeof (*s));
+	memset(s, 0, sizeof (*s));
 	if (isdyn) {
 		SBFREE(s);
 	}
@@ -248,7 +248,7 @@ sbuf_extend(struct sbuf *s, int addlen)
 	if (newbuf == NULL) {
 		return (-1);
 	}
-	bcopy(s->s_buf, newbuf, s->s_size);
+	memcpy(newbuf, s->s_buf, s->s_size);
 	if (SBUF_ISDYNAMIC(s)) {
 		SBFREE(s->s_buf);
 	} else {
@@ -268,11 +268,11 @@ sbuf_new(struct sbuf *s, char *buf, int length, int flags)
 		if (s == NULL) {
 			return (NULL);
 		}
-		bzero(s, sizeof (*s));
+		memset(s, 0, sizeof (*s));
 		s->s_flags = flags;
 		SBUF_SETFLAG(s, SBUF_DYNSTRUCT);
 	} else {
-		bzero(s, sizeof (*s));
+		memset(s, 0, sizeof (*s));
 		s->s_flags = flags;
 	}
 	s->s_size = length;
@@ -682,7 +682,7 @@ kstat_alloc(size_t size)
 	}
 
 	if (e != NULL) {
-		bzero(e, size);
+		memset(e, 0, size);
 		e->e_size = size;
 		cv_init(&e->e_cv, NULL, CV_DEFAULT, NULL);
 	}
@@ -783,7 +783,7 @@ kstat_named_setstr(kstat_named_t *knp, const char *src)
 void
 kstat_set_string(char *dst, const char *src)
 {
-	bzero(dst, KSTAT_STRLEN);
+	memset(dst, 0, KSTAT_STRLEN);
 	(void) strncpy(dst, src, KSTAT_STRLEN - 1);
 }
 
@@ -843,7 +843,7 @@ default_kstat_snapshot(kstat_t *ksp, void *buf, int rw)
 	if (rw == KSTAT_WRITE) {
 		if (!(ksp->ks_flags & KSTAT_FLAG_WRITABLE))
 			return (EACCES);
-		bcopy(buf, ksp->ks_data, ksp->ks_data_size);
+		memcpy(ksp->ks_data, buf, ksp->ks_data_size);
 		return (0);
 	}
 
@@ -858,9 +858,9 @@ default_kstat_snapshot(kstat_t *ksp, void *buf, int rw)
 
 	namedsz = sizeof (kstat_named_t) * ksp->ks_ndata;
 	if (ksp->ks_type == KSTAT_TYPE_NAMED && ksp->ks_data_size > namedsz)
-		bcopy(ksp->ks_data, buf, namedsz);
+		memcpy(buf, ksp->ks_data, namedsz);
 	else
-		bcopy(ksp->ks_data, buf, ksp->ks_data_size);
+		memcpy(buf, ksp->ks_data, ksp->ks_data_size);
 
 	/*
 	 * Apply kstat type-specific data massaging
@@ -913,7 +913,7 @@ default_kstat_snapshot(kstat_t *ksp, void *buf, int rw)
 			for (i = 0; i < ksp->ks_ndata; i++, knp++) {
 				if (knp->data_type == KSTAT_DATA_STRING &&
 				    KSTAT_NAMED_STR_PTR(knp) != NULL) {
-					bcopy(KSTAT_NAMED_STR_PTR(knp), dst,
+					memcpy(dst, KSTAT_NAMED_STR_PTR(knp),
 					    KSTAT_NAMED_STR_BUFLEN(knp));
 					KSTAT_NAMED_STR_PTR(knp) = dst;
 					dst += KSTAT_NAMED_STR_BUFLEN(knp);
@@ -974,7 +974,7 @@ header_kstat_snapshot(kstat_t *header_ksp, void *buf, int rw)
 	for (e = avl_first(t); e != NULL; e = avl_walk(t, e, AVL_AFTER)) {
 		if (kstat_zone_find((kstat_t *)e, zoneid) &&
 		    (e->e_ks.ks_flags & KSTAT_FLAG_INVALID) == 0) {
-			bcopy(&e->e_ks, buf, sizeof (kstat_t));
+			memcpy(buf, &e->e_ks, sizeof (kstat_t));
 			buf = (char *)buf + sizeof (kstat_t);
 		}
 	}
@@ -1721,8 +1721,8 @@ read_kstat_data(int *rvalp, void *user_ksp, int flag)
 					    KSTAT_NAMED_STR_PTR(kn) +
 					    KSTAT_NAMED_STR_BUFLEN(kn) >
 					    (char *)kbuf + kbufsize + 1) {
-						bcopy(KSTAT_NAMED_STR_PTR(kn),
-						    strbuf,
+						memcpy(strbuf,
+						    KSTAT_NAMED_STR_PTR(kn),
 						    KSTAT_NAMED_STR_BUFLEN(kn));
 
 						KSTAT_NAMED_STR_PTR(kn) =
@@ -1836,8 +1836,8 @@ read_kstat_data(int *rvalp, void *user_ksp, int flag)
 					    KSTAT_NAMED_STR_PTR(kn) +
 					    KSTAT_NAMED_STR_BUFLEN(kn) >
 					    (char *)kbuf + kbufsize + 1) {
-						bcopy(KSTAT_NAMED_STR_PTR(kn),
-						    strbuf,
+						memcpy(strbuf,
+						    KSTAT_NAMED_STR_PTR(kn),
 						    KSTAT_NAMED_STR_BUFLEN(kn));
 
 						KSTAT_NAMED_STR_PTR(kn) =
