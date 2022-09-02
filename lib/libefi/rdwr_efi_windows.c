@@ -26,7 +26,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <strings.h>
 #include <unistd.h>
 #include <uuid/uuid.h>
 #include <zlib.h>
