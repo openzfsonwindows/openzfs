@@ -32,7 +32,6 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <memory.h>
-#include <strings.h>
 #include <string.h>
 #include <fcntl.h>
 #include <errno.h>
