@@ -166,10 +166,6 @@ typedef union {
 #define	STDERR_FILENO HTOI(GetStdHandle(STD_ERROR_HANDLE))
 #define	O_EXLOCK 0
 
-#define	bzero(b, len) (memset((b), '\0', (len)))
-#define	bcopy(b1, b2, len) (memmove((b2), (b1), (len)))
-#define	bcmp(b1, b2, len) (memcmp((b2), (b1), (len)))
-
 #define	alloca _alloca
 #define	posix_memalign_free _aligned_free
 int posix_memalign(void **memptr, size_t alignment, size_t size);

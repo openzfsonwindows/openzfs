@@ -237,7 +237,7 @@ abd_alloc_zero_scatter(void)
 {
 	size_t n = abd_chunkcnt_for_bytes(SPA_MAXBLOCKSIZE);
 	abd_zero_buf = lookasidelist_cache_alloc(abd_chunk_cache);
-	bzero(abd_zero_buf, zfs_abd_chunk_size);
+	memset(abd_zero_buf, 0, zfs_abd_chunk_size);
 	abd_zero_scatter = abd_alloc_struct(SPA_MAXBLOCKSIZE);
 
 	abd_zero_scatter->abd_flags |= ABD_FLAG_OWNER | ABD_FLAG_ZEROS;

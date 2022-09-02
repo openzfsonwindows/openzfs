@@ -47,9 +47,9 @@ zfs_uiomove_iov(void *p, size_t n, zfs_uio_rw_t rw, zfs_uio_t *uio)
 		switch (uio->uio_segflg) {
 		case UIO_SYSSPACE:
 			if (rw == UIO_READ)
-				bcopy(p, iov->iov_base + skip, cnt);
+				memcpy(iov->iov_base + skip, p, cnt);
 			else
-				bcopy(iov->iov_base + skip, (void *)p,
+				memcpy((void *)p, iov->iov_base + skip,
 				    cnt);
 			break;
 		default:
@@ -93,7 +93,7 @@ zfs_uiocopy(const char *p, size_t n, enum uio_rw rw, zfs_uio_t *uio,
 
 	zfs_uio_t uio_copy;
 
-	bcopy(uio, &uio_copy, sizeof (zfs_uio_t));
+	memcpy(&uio_copy, uio, sizeof (zfs_uio_t));
 	result = zfs_uiomove_iov((void *)p, n, rw, &uio_copy);
 
 	*cbytes = uio->uio_resid - uio_copy.uio_resid;

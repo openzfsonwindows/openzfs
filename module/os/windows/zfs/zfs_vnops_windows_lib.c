@@ -1070,7 +1070,7 @@ nfsacl_set_wellknown(int wkg, guid_t *guid)
 	/*
 	 * All WKGs begin with the same 12 bytes.
 	 */
-	bcopy(fingerprint, (void *)guid, 12);
+	memcpy((void *)guid, fingerprint, 12);
 	/*
 	 * The final 4 bytes are our code (in network byte order).
 	 */
@@ -1112,7 +1112,7 @@ aces_from_acl(ace_t *aces, int *nentries, struct kauth_acl *k_acl,
 
 	*nentries = k_acl->acl_entrycount;
 
-	// bzero(aces, sizeof (*aces) * *nentries);
+	// memset(aces, 0, sizeof (*aces) * *nentries);
 
 	// *nentries = aclp->acl_cnt;
 	for (i = 0; i < *nentries; i++) {
