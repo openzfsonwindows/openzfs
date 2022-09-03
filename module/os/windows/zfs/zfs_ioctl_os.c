@@ -978,6 +978,22 @@ zfs_ioc_unregister_fs(void)
 	return (0);
 }
 
+#ifdef ZFS_DEBUG
+#define	ZFS_DEBUG_STR	" (DEBUG mode)"
+#else
+#define	ZFS_DEBUG_STR	""
+#endif
+
+static int
+openzfs_init_os(void)
+{
+	return (0);
+}
+
+static void
+openzfs_fini_os(void)
+{
+}
 
 int
 zfsdev_attach(void)
@@ -985,6 +1001,7 @@ zfsdev_attach(void)
 	NTSTATUS ntStatus;
 	UNICODE_STRING  ntUnicodeString;    // NT Device Name
 	UNICODE_STRING ntWin32NameString; // Win32 Name
+	int err;
 
 	static UNICODE_STRING sddl = RTL_CONSTANT_STRING(
 	    L"D:P(A;;GA;;;SY)(A;;GRGWGX;;;BA)"
@@ -1131,12 +1148,14 @@ zfsdev_attach(void)
 	ntStatus = IoRegisterFsRegistrationChange(WIN_DriverObject,
 	    DriverNotificationRoutine);
 
-	wrap_avl_init();
-	wrap_unicode_init();
-	wrap_nvpair_init();
-	wrap_zcommon_init();
-	wrap_icp_init();
-	wrap_lua_init();
+	if ((err = zcommon_init()) != 0)
+		goto zcommon_failed;
+	if ((err = icp_init()) != 0)
+		goto icp_failed;
+	if ((err = zstd_init()) != 0)
+		goto zstd_failed;
+	if ((err = openzfs_init_os()) != 0)
+		goto openzfs_os_failed;
 
 	tsd_create(&zfsdev_private_tsd, NULL);
 
@@ -1147,6 +1166,15 @@ zfsdev_attach(void)
 	    SPA_VERSION_STRING, ZPL_VERSION_STRING);
 
 	return (0);
+
+openzfs_os_failed:
+	zstd_fini();
+zstd_failed:
+	icp_fini();
+icp_failed:
+	zcommon_fini();
+zcommon_failed:
+	return (err);
 }
 
 void
@@ -1170,12 +1198,11 @@ zfsdev_detach(void)
 
 	tsd_destroy(&zfsdev_private_tsd);
 
-	wrap_lua_fini();
-	wrap_icp_fini();
-	wrap_zcommon_fini();
-	wrap_nvpair_fini();
-	wrap_unicode_fini();
-	wrap_avl_fini();
+	openzfs_fini_os();
+	zstd_fini();
+	icp_fini();
+	zcommon_fini();
+
 }
 
 /* Update the VFS's cache of mountpoint properties */
