@@ -51,7 +51,7 @@
  * operation, we will try to write this amount of data to each disk before
  * moving on to the next top-level vdev.
  */
-static unsigned long metaslab_aliquot = 1024 * 1024;
+static ZFS_MODULE_ULONG metaslab_aliquot = 1024 * 1024;
 
 /*
  * For testing, make some blocks above a certain size be gang blocks.
