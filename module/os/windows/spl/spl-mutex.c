@@ -172,8 +172,7 @@ spl_mutex_tryenter(kmutex_t *mp)
 	if (mp->m_initialised != MUTEX_INITIALISED)
 		panic("%s: mutex not m_initialised\n", __func__);
 
-	if (mp->m_owner == thisthread)
-		panic("mutex_tryenter: locking against myself!");
+
 
 	// Test if "m_owner" is NULL, if so, set it to "thisthread".
 	// Returns original value, so if NULL, it succeeded.
