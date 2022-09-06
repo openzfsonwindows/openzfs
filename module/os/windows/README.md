@@ -5,7 +5,7 @@
 # To setup a development environment for compiling ZFS.
 
 
-Download free development Windows 10 image from Microsoft.
+Download free development Windows 11 image from Microsoft.
 
 https://developer.microsoft.com/en-us/windows/downloads/virtual-machines
 
@@ -14,18 +14,18 @@ and create two VMs.
 * Host (running Visual Studio and Kernel Debugger)
 * Target (runs the compiled kernel module)
 
-The VM images comes with Visual Studio 2017, which we use to compile the driver.
+The VM images comes with Visual Studio 2022, which we use to compile the driver.
 
 It is recommended that the VMs are placed on static IP, as they can
 change IP with all the crashes, and you have to configure the remote
 kernel development again.
 
-Go download the Windows Driver Kit 10
+Go download the Windows Driver Kit 11
 
 https://developer.microsoft.com/en-us/windows/hardware/windows-driver-kit
 
 and install on both VMs. You will need both the SDK and WDK:
-Download the SDK with the Visual Studio 2017 community edition first and install it.
+Download the SDK with the Visual Studio 2022 community edition first and install it.
 It will update the already installed Visual Studio.
 Then install the WDK. At the end of the installer, allow it to install the Visual Studio extension.
 
@@ -36,6 +36,8 @@ section "Prepare the target computer for provisioning".
 https://msdn.microsoft.com/windows/hardware/drivers/gettingstarted/provision-a-target-computer-wdk-8-1?f=255&MSPPError=-2147217396
 
 Which mostly entails running:
+
+Disable Secure Boot.
 
 C:\Program Files (x86)\Windows Kits\10\Remote\x64\WDK Test Target Setup x64-x64_en-us.msi
 
@@ -88,23 +90,6 @@ https://git-scm.com/downloads
 
 ---
 
-Handling configuration errors with Visual Studio 2019 & WDK 10:
-
-There are some issues with Visual Studio 2019 which can cause the following problem in setting up kernel debugging. 
-ERROR: Task “Configuring kernel debugger settings (possible reboot)” failed to complete successfully. Look at the logs in the driver test group explorer for more details on the failure.
-
-This problem is related to MSVC debug tool location mismatch, and as a workaround use the following steps to mitigate this problem:
-
-As Administrator, run Developer Command Prompt for VS 2019 in your Host VM
-Run the following commands in the VS Developer Command Prompt:
-
-cd /d %VCToolsRedistDir%\debug_nonredist
-MKLINK /J x86\Microsoft.VC141.DebugCRT x86\Microsoft.VC142.DebugCRT
-MKLINK /J x64\Microsoft.VC141.DebugCRT x64\Microsoft.VC142.DebugCRT
-
-Retry configuration by following guide to configure Visual Studio mentioned above.
-
----
 
 
 Host and Target VMs are now configured.
@@ -126,21 +111,27 @@ Add individual components:
 (Versions refer to what was available at the time)
 
 * C++ Cmake tools for Windows
-* C++ Clang Compiler for Windows (10.0.0)
-* C++ Clang-cl for v142 build tools (x64/x86)
-* MSVC v142 - VS 2019 C++ x64/x86 Spectre-mitigated libs (v14.28)
+* C++ Clang Compiler for Windows (14.0.5)
+* C++ Clang-cl for v143 build tools (x64/x86)
+* MSVC v143 - VS 2022 C++ x64/x86 Spectre-mitigated libs (v14.33-17.3)
 
 
-Open Visual Studio 2019 (As of Nov 2020)
+
+
+
+
+Open Visual Studio 2022 (As of Sep 2022)
 File -> Open -> Folder
 
 and open the top source folder. Hit build when ready.
 
-It is expected of you to set the environment variables
+It was previously expected of you to set the environment variables
 (either globally, or in your CMakeSettings.json)
 		${OPENZFS_SIGNTOOL_CERTSTORE}
 		${OPENZFS_SIGNTOOL_SHA1}
 		${OPENZFS_SIGNTOOL_TSA}
+
+but these now default to the test signing certificate
 
 Only the top `driver.c` is compiled using MSVC, and the
 linking of OpenZFS.sys.
@@ -323,12 +314,12 @@ Latest binary files are available at [GitHub releases](https://github.com/openzf
 
 If you are running windows 10 with secure boot on and/or installing an older release you will need to enable unsigned drivers from an elevated CMD:
 
- 
+
 * `bcdedit.exe -set testsigning on `
 * Then **reboot**. After restart it should have _Test Mode_ bottom right corner of the screen.
 
 
-After that either 
+After that either
 
 * Run OpenZFSOnWindows.exe installer to install
 * *Would you like to install device software?* should pop up, click install
@@ -410,7 +401,7 @@ Creating a virtual hard disk (ZVOL) is done by passing "-V <size>" to the "zfs c
 # zfs create -V 2g tank/hello
 ```
 
-Which would create a disk of 2GB in size, called "tank/hello". 
+Which would create a disk of 2GB in size, called "tank/hello".
 Confirm it was created with:
 
 ```
@@ -470,12 +461,12 @@ A reboot might be necessary to uninstall it completely.
 
 # Tuning
 
-You can use the [registry](https://openzfsonosx.org/wiki/Windows_Registry) to tune various parameters.  
+You can use the [registry](https://openzfsonosx.org/wiki/Windows_Registry) to tune various parameters.
 Also, there is [`kstat`](https://openzfsonosx.org/wiki/Windows_kstat) to dynamically change parameters.
 
 # Nightly builds
 
-There are nightly builds available at [AppVeyor](https://ci.appveyor.com/project/lundman/openzfs/branch/master/artifacts)  
+There are nightly builds available at [AppVeyor](https://ci.appveyor.com/project/lundman/openzfs/branch/master/artifacts)
 - These builds are currently not signed and therefore require test mode to be enabled.
 
 There also are test builds [available here](https://openzfsonosx.org/wiki/Windows_builds). These are "hotfix" builds for allowing people to test specific fixes before they are ready for a release.
