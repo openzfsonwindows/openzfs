@@ -57,6 +57,11 @@ static int nfs_lock_fd = -1;
 #define	LOCK_UN 3
 #define	LOCK_NB 4
 
+/* Fix me when we add shares to windows */
+static inline flock(int fd, int type)
+{
+	return (0);
+}
 /*
  * The nfs_exports_[lock|unlock] is used to guard against conconcurrent
  * updates to the exports file. Each protocol is responsible for
@@ -399,8 +404,7 @@ nfs_commit_shares(void)
 	return (SA_OK);
 }
 
-sa_fstype_t libshare_nfs_type = {
-	.protocol = "nfs",
+const sa_fstype_t libshare_nfs_type = {
 	.enable_share = nfs_enable_share,
 	.disable_share = nfs_disable_share,
 	.is_shared = nfs_is_shared,
