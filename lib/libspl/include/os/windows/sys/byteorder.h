@@ -41,7 +41,6 @@
 #define	_SYS_BYTEORDER_H
 
 #include <sys/isa_defs.h>
-#include <sys/int_types.h>
 #include <sys/types.h>
 
 #if defined(__GNUC__) && defined(_ASM_INLINES) && \
