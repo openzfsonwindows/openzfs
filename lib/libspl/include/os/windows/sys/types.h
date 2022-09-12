@@ -208,7 +208,6 @@ int nanosleep(const struct timespec *rqtp, struct timespec *rmtp);
 #include_next <sys/types.h>
 
 #include <sys/param.h> /* for NBBY */
-#include <sys/va_list.h>
 #include <sys/timer.h>
 
 #include <stdint.h>
