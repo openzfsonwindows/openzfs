@@ -6,6 +6,7 @@ wdk_add_library(zfskern
   abd.c
   aggsum.c
   arc.c
+  blake3_zfs.c
   ../avl/avl.c
   blkptr.c
   bplist.c
@@ -104,6 +105,7 @@ wdk_add_library(zfskern
   zcp_synctask.c
   zfeature.c
   zfs_byteswap.c
+  zfs_chksum.c
   zfs_fm.c
   zfs_fuid.c
   zfs_ioctl.c
