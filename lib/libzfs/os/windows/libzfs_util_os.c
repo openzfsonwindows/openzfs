@@ -119,18 +119,24 @@ find_shares_object(differ_info_t *di)
  * Fill given version buffer with zfs kernel version read from ZFS_SYSFS_DIR
  * Returns 0 on success, and -1 on error (with errno set)
  */
-int
-zfs_version_kernel(char *version, int len)
+char *
+zfs_version_kernel(void)
 {
 	HKEY hKey; // SYSTEM\ControlSet001\Services\OpenZFS
 	LSTATUS status = RegOpenKeyExA(HKEY_LOCAL_MACHINE,
 	    "SYSTEM\\ControlSet001\\Services\\OpenZFS", 0, KEY_READ, &hKey);
 
 	if (status != ERROR_SUCCESS)
-		return (-1);
+		return (NULL);
 
-	DWORD count = len;
+	DWORD count = 0;
 	DWORD type;
+
+	status = RegQueryValueExA(hKey, "version", 0, &type, NULL, &count);
+
+	char *version = malloc(count + 1);
+	if (version == NULL)
+		return (NULL);
 
 	status = RegQueryValueExA(hKey, "version", 0, &type, version, &count);
 
@@ -138,11 +144,9 @@ zfs_version_kernel(char *version, int len)
 
 	if (status == ERROR_SUCCESS &&
 	    (type == REG_SZ)) {
-		return (0);
+		return (version);
 	}
-
-	snprintf(version, len, "(registry lookup failed)");
-	return (0);
+	return (NULL);
 }
 
 static int
