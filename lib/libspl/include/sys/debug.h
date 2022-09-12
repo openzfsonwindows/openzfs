@@ -35,6 +35,10 @@
 #define	__printflike(x, y)
 #endif
 
+#ifndef	__printf0like
+#define	__printf0like(x, y)
+#endif
+
 #ifndef __maybe_unused
 #define	__maybe_unused
 #endif
@@ -43,6 +47,10 @@
 
 #ifndef	__printflike
 #define	__printflike(x, y) __attribute__((__format__(__printf__, x, y)))
+#endif
+
+#ifndef	__printf0like
+#define	__printf0like(x, y) __attribute__((__format__(__printf0__, x, y)))
 #endif
 
 #ifndef __maybe_unused
