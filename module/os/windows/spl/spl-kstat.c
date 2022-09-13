@@ -2380,7 +2380,7 @@ arc_cache_counters_perfmon(cache_counters *perf, arc_stats_t *arc_ptr)
 	perf->arcstat_overhead_size = arc_ptr->arcstat_overhead_size.value.ui64;
 }
 void
-zil_cache_counters_perfmon(cache_counters *perf, zil_stats_t *zil_ptr)
+zil_cache_counters_perfmon(cache_counters *perf, zil_kstat_values_t *zil_ptr)
 {
 	perf->zil_commit_count = zil_ptr->zil_commit_count.value.ui64;
 	perf->zil_commit_writer_count = zil_ptr->
