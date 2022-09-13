@@ -26,14 +26,14 @@
 
 /* No #pragma weaks here! */
 void
-dmu_buf_add_ref(dmu_buf_t *db, void *tag)
+dmu_buf_add_ref(dmu_buf_t *db, const void *tag)
 {
 	dbuf_add_ref((dmu_buf_impl_t *)db, tag);
 }
 
 boolean_t
 dmu_buf_try_add_ref(dmu_buf_t *db, objset_t *os, uint64_t object,
-    uint64_t blkid, void *tag)
+    uint64_t blkid, const void *tag)
 {
 	return (dbuf_try_add_ref(db, os, object, blkid, tag));
 }
