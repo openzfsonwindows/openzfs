@@ -59,7 +59,7 @@
  * MNTTYPE_ZFS, NULL, 0, mntopts, sizeof (mntopts)) != 0) {
  */
 int
-do_mount(zfs_handle_t *zhp, const char *dir, char *optptr, int mflag)
+do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 {
 	int ret = 0;
 	int ispool = 0;
