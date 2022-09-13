@@ -798,7 +798,7 @@ zfsvfs_setup(zfsvfs_t *zfsvfs, boolean_t mounting)
 	if (error)
 		return (error);
 
-	zfsvfs->z_log = zil_open(zfsvfs->z_os, zfs_get_data);
+	zfsvfs->z_log = zil_open(zfsvfs->z_os, zfs_get_data, NULL);
 
 	/*
 	 * If we are not mounting (ie: online recv), then we don't

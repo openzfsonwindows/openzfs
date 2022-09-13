@@ -331,7 +331,7 @@ zvol_os_write_zv(zvol_state_t *zv, zfs_uio_t *uio, int flags)
 		rw_enter(&zv->zv_suspend_lock, RW_WRITER);
 		if (zv->zv_zilog == NULL) {
 			zv->zv_zilog = zil_open(zv->zv_objset,
-			    zvol_get_data);
+			    zvol_get_data, NULL);
 			zv->zv_flags |= ZVOL_WRITTEN_TO;
 		}
 		rw_downgrade(&zv->zv_suspend_lock);
@@ -425,7 +425,7 @@ zvol_os_unmap(zvol_state_t *zv, uint64_t off, uint64_t bytes)
 		rw_enter(&zv->zv_suspend_lock, RW_WRITER);
 		if (zv->zv_zilog == NULL) {
 			zv->zv_zilog = zil_open(zv->zv_objset,
-			    zvol_get_data);
+			    zvol_get_data, NULL);
 			zv->zv_flags |= ZVOL_WRITTEN_TO;
 		}
 		rw_downgrade(&zv->zv_suspend_lock);
@@ -755,7 +755,7 @@ zvol_os_create_minor(const char *name)
 
 	// set_capacity(zv->zv_zso->zvo_disk, zv->zv_volsize >> 9);
 	ASSERT3P(zv->zv_zilog, ==, NULL);
-	zv->zv_zilog = zil_open(os, zvol_get_data);
+	zv->zv_zilog = zil_open(os, zvol_get_data, NULL);
 	if (spa_writeable(dmu_objset_spa(os))) {
 		if (zil_replay_disable)
 			zil_destroy(zv->zv_zilog, B_FALSE);
