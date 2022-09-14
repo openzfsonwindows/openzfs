@@ -100,7 +100,7 @@
 #define	ZFS_META_RELEASE "2"
 
 /* Define the project version. */
-#define	ZFS_META_VERSION "2.0.0"
+#define	ZFS_META_VERSION "2.1.99"
 
 /* Define the project alias string. */
 #define	ZFS_META_ALIAS "zfs-" ZFS_META_VERSION "-" ZFS_META_RELEASE
