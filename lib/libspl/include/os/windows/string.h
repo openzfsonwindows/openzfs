@@ -71,5 +71,6 @@ cont:
 	/* NOTREACHED */
 }
 
+char *strsep(char **stringp, const char *delim);
 
 #endif
