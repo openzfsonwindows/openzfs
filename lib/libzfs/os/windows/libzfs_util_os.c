@@ -132,18 +132,20 @@ zfs_version_kernel(void)
 	DWORD count = 0;
 	DWORD type;
 
-	status = RegQueryValueExA(hKey, "version", 0, &type, NULL, &count);
+	/* This must match module/os/windows/spl/spl-windows.c: zfs_version */
+	status = RegQueryValueExA(hKey, "zfs_version", 0, &type, NULL, &count);
 
 	char *version = malloc(count + 1);
 	if (version == NULL)
 		return (NULL);
 
-	status = RegQueryValueExA(hKey, "version", 0, &type, version, &count);
+	status = RegQueryValueExA(hKey, "zfs_version", 0, &type, version, &count);
 
 	RegCloseKey(hKey);
 
 	if (status == ERROR_SUCCESS &&
 	    (type == REG_SZ)) {
+		version[count] = 0;
 		return (version);
 	}
 	return (NULL);
