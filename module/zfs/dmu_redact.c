@@ -142,7 +142,7 @@ record_merge_enqueue(bqueue_t *q, struct redact_record **build,
 {
 	if (new->eos_marker) {
 		if (*build != NULL)
-			bqueue_enqueue(q, *build, sizeof (*build));
+			bqueue_enqueue(q, *build, sizeof (**build));
 		bqueue_enqueue_flush(q, new, sizeof (*new));
 		return;
 	}
@@ -824,7 +824,7 @@ perform_thread_merge(bqueue_t *q, uint32_t num_threads,
 	avl_destroy(&end_tree);
 	kmem_free(redact_nodes, num_threads * sizeof (*redact_nodes));
 	if (current_record != NULL)
-		bqueue_enqueue(q, current_record, sizeof (current_record));
+		bqueue_enqueue(q, current_record, sizeof (*current_record));
 
 	for (int i = 0; i < num_threads; i++) {
 		struct redact_thread_arg *targ = &thread_args[i];
