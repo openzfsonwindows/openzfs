@@ -1,3 +1,10 @@
+######################################################################################
+#                                                                                    #
+#    If you're looking for instructions on how to build this under windows go to     #
+#https://github.com/openzfsonwindows/openzfs/blob/windows/module/os/windows/README.md#
+#                                                                                    #
+######################################################################################
+
 name: windows-build-test
 
 on:
