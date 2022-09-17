@@ -186,6 +186,7 @@ int posix_memalign(void **memptr, size_t alignment, size_t size);
 #define	roundup(x, y) ((((x) + ((y) - 1)) / (y)) * (y))
 #define	howmany(x, y) ((((x) % (y)) == 0) ? ((x) / (y)) : (((x) / (y)) + 1))
 
+#define	RLIMIT_CORE 4   /* core file size */
 #define	RLIMIT_NOFILE 8 /* number of open files */
 typedef uint64_t	rlim_t;
 struct rlimit {
@@ -200,6 +201,9 @@ struct rlimit {
 #endif
 
 #define	strcasecmp _stricmp
+
+#define	srandom(x) srand(x)
+#define	random() rand()
 
 int nanosleep(const struct timespec *rqtp, struct timespec *rmtp);
 
