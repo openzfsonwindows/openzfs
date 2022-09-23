@@ -103,7 +103,6 @@ add_library(libzpool
     "${MODULE_DIR}/zfs/spa.c"
     "${MODULE_DIR}/zfs/space_map.c"
     "${MODULE_DIR}/zfs/space_reftree.c"
-    "${MODULE_DIR}/zfs/spa_boot.c"
     "${MODULE_DIR}/zfs/spa_checkpoint.c"
     "${MODULE_DIR}/zfs/spa_config.c"
     "${MODULE_DIR}/zfs/spa_errlog.c"
