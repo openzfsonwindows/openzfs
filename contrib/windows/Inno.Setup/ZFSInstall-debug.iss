@@ -54,8 +54,11 @@ WizardImageFile="{#SourcePath}\openzfs-large.bmp"
 ; Tools/Configure Sign Tools -> Add -> 
 ; "signtoola" = C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe sign /sha1 09A7835D2496C08389CF1CC1031EF73BAE897A08 /n $qWest Coast Enterprises Limited$q /t http://ts.digicert.com /as /fd sha256 /td sha256 /d $qOpenZFS on Windows$q $f
 ; "signtoolb" = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.17763.0\x64\signtool.exe sign /sha1 ab8e4f6b94cecfa4638847122b511e507e147c50 /as /n $qJoergen Lundman$q /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d $qOpenZFS on Windows$q $f"
+; "signtoolc" = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe sign /v /fd sha256 /n $qOpenZFS Test Signing Certificate$q /t http://timestamp.digicert.com $f"
 ; SignTool=signtoola
 ; SignTool=signtoolb
+SignTool=signtoolc
+
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
