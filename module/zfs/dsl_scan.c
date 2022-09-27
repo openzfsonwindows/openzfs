@@ -150,9 +150,7 @@ static int zfs_scan_strict_mem_lim = B_FALSE;
 static ZFS_MODULE_ULONG zfs_scan_vdev_limit = 4 << 20;
 
 static uint_t zfs_scan_issue_strategy = 0;
-
-/* don't queue & sort zios, go direct */
-static int zfs_scan_legacy = B_FALSE;
+static int zfs_scan_legacy = B_FALSE; /* don't queue & sort zios, go direct */
 static ZFS_MODULE_ULONG zfs_scan_max_ext_gap = 2 << 20; /* in bytes */
 
 /*
