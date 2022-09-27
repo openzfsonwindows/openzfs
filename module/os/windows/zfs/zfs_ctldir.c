@@ -368,7 +368,8 @@ zfsctl_root_lookup(struct vnode *dvp, char *name, struct vnode **vpp,
 
 	dprintf("%s: '%s'\n", __func__, name);
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	if (strcmp(name, "..") == 0) {
 		*vpp = zfs_root_dotdot(dvp);
@@ -388,7 +389,7 @@ zfsctl_root_lookup(struct vnode *dvp, char *name, struct vnode **vpp,
 	}
 
 out:
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	return (error);
 }
@@ -527,7 +528,8 @@ zfsctl_vnop_readdir_root(struct vnop_readdir_args *ap)
 
 	dprintf("%s\n", __func__);
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	*ap->a_numdirent = 0;
 
@@ -578,7 +580,7 @@ zfsctl_vnop_readdir_root(struct vnop_readdir_args *ap)
 	*ap->a_numdirent = entries;
 	dprintf("Returning %d entries\n", entries);
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	return (error);
 }
@@ -609,7 +611,8 @@ zfsctl_vnop_readdir_snapdir(struct vnop_readdir_args *ap)
 
 	dprintf("%s\n", __func__);
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	*ap->a_numdirent = 0;
 
@@ -665,7 +668,7 @@ zfsctl_vnop_readdir_snapdir(struct vnop_readdir_args *ap)
 	*ap->a_numdirent = entries;
 	dprintf("Returning %d entries\n", entries);
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	return (error);
 }
@@ -693,7 +696,8 @@ zfsctl_vnop_readdir_snapdirs(struct vnop_readdir_args *ap)
 	znode_t *zp = VTOZ(ap->a_vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	*ap->a_numdirent = 0;
 
@@ -742,7 +746,7 @@ zfsctl_vnop_readdir_snapdirs(struct vnop_readdir_args *ap)
 	*ap->a_numdirent = entries;
 	dprintf("Returning %d entries\n", entries);
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	return (error);
 }
@@ -792,10 +796,12 @@ zfsctl_vnop_getattr(struct vnop_getattr_args *ap)
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	timestruc_t	now;
+	int error = 0;
 
 	dprintf("%s: active x%llx\n", __func__, vap->va_active);
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	gethrestime(&now);
 #if 0 // WIN32 me
@@ -913,7 +919,7 @@ zfsctl_vnop_getattr(struct vnop_getattr_args *ap)
 #endif
 #endif
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	dprintf("%s: returned x%llx missed: x%llx\n", __func__,
 		vap->va_supported, vap->va_active &= ~vap->va_supported);
@@ -1006,6 +1012,7 @@ zfsctl_snapshot_mount(struct vnode *vp, int flags)
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	int ret = 0;
+	int error = 0;
 	/*
 	 * If we are here for a snapdirs directory, attempt to get zed
 	 * to mount the snapshot for the user. If successful, forward the
@@ -1016,7 +1023,8 @@ zfsctl_snapshot_mount(struct vnode *vp, int flags)
 	if (zfs_auto_snapshot == 0)
 		return (0);
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 	if (((zp->z_id >= zfsvfs->z_ctldir_startid) &&
 	    (zp->z_id <= ZFSCTL_INO_SNAPDIRS))) {
 		hrtime_t now;
@@ -1102,7 +1110,7 @@ zfsctl_snapshot_mount(struct vnode *vp, int flags)
 		}
 	}
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	return (ret);
 }
@@ -1169,6 +1177,7 @@ zfsctl_snapshot_unmount_node(struct vnode *vp, const char *full_name,
     int flags)
 {
 	znode_t *zp = VTOZ(vp);
+	int error = 0;
 
 	dprintf("%s\n", __func__);
 
@@ -1184,7 +1193,8 @@ zfsctl_snapshot_unmount_node(struct vnode *vp, const char *full_name,
 	 * Use a timeout in case zed is not running.
 	 */
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	if (zp->z_id == zfsvfs->z_root) {
 		hrtime_t now;
@@ -1264,7 +1274,7 @@ zfsctl_snapshot_unmount_node(struct vnode *vp, const char *full_name,
 		}
 	}
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	return (ret);
 }
@@ -1369,7 +1379,8 @@ zfsctl_vnop_rmdir(struct vnop_rmdir_args *ap)
 	if (zfs_admin_snapshot == 0)
 		return (SET_ERROR(EACCES));
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	snapname = kmem_alloc(ZFS_MAX_DATASET_NAME_LEN, KM_SLEEP);
 	real = kmem_alloc(ZFS_MAX_DATASET_NAME_LEN, KM_SLEEP);
@@ -1406,7 +1417,7 @@ out:
 	kmem_free(snapname, ZFS_MAX_DATASET_NAME_LEN);
 	kmem_free(real, ZFS_MAX_DATASET_NAME_LEN);
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 	return (error);
 }
 
