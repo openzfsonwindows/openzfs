@@ -60,9 +60,9 @@ struct dsl_deadlist;
 extern ZFS_MODULE_ULONG zfs_dirty_data_max;
 extern ZFS_MODULE_ULONG zfs_dirty_data_max_max;
 extern ZFS_MODULE_ULONG zfs_wrlog_data_max;
-extern int zfs_dirty_data_max_percent;
-extern int zfs_dirty_data_max_max_percent;
-extern int zfs_delay_min_dirty_percent;
+extern uint_t zfs_dirty_data_max_percent;
+extern uint_t zfs_dirty_data_max_max_percent;
+extern uint_t zfs_delay_min_dirty_percent;
 extern ZFS_MODULE_ULONG zfs_delay_scale;
 
 /* These macros are for indexing into the zfs_all_blkstats_t. */
