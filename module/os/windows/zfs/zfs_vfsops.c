@@ -133,6 +133,7 @@ int
 zfs_vfs_sync(struct mount *vfsp, __unused int waitfor,
     __unused vfs_context_t context)
 {
+	int error = 0;
 	/*
 	 * Data integrity is job one. We don't want a compromised kernel
 	 * writing to the storage pool, so we never sync during panic.
@@ -152,7 +153,8 @@ zfs_vfs_sync(struct mount *vfsp, __unused int waitfor,
 		zfsvfs_t *zfsvfs = vfs_fsprivate(vfsp);
 		dsl_pool_t *dp;
 
-		ZFS_ENTER(zfsvfs);
+		if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+			return (error);
 		dp = dmu_objset_pool(zfsvfs->z_os);
 
 		/*
@@ -160,14 +162,14 @@ zfs_vfs_sync(struct mount *vfsp, __unused int waitfor,
 		 * filesystems which may exist on a suspended pool.
 		 */
 		if (spl_system_inshutdown() && spa_suspended(dp->dp_spa)) {
-			ZFS_EXIT(zfsvfs);
+			zfs_exit(zfsvfs, FTAG);
 			return (0);
 		}
 
 		if (zfsvfs->z_log != NULL)
 			zil_commit(zfsvfs->z_log, 0);
 
-		ZFS_EXIT(zfsvfs);
+		zfs_exit(zfsvfs, FTAG);
 
 	} else {
 		/*
@@ -1386,7 +1388,8 @@ zfs_vfs_root(struct mount *mp, vnode_t **vpp, __unused vfs_context_t context)
 		return (EINVAL);
 	}
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	error = zfs_zget(zfsvfs, zfsvfs->z_root, &rootzp);
 	if (error == 0)
@@ -1394,7 +1397,7 @@ zfs_vfs_root(struct mount *mp, vnode_t **vpp, __unused vfs_context_t context)
 	else
 		*vpp = NULL;
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	if (error == 0 && *vpp != NULL)
 		if (vnode_vtype(*vpp) != VDIR) {
@@ -1834,7 +1837,8 @@ zfs_vfs_vget(struct mount *mp, ino64_t ino, vnode_t **vpp,
 
 	dprintf("%s: %llu\n", __func__, ino);
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	/* We also need to handle (.zfs) and (.zfs/snapshot). */
 	if ((ino == ZFSCTL_INO_ROOT) && (zfsvfs->z_ctldir != NULL)) {
@@ -1844,7 +1848,7 @@ zfs_vfs_vget(struct mount *mp, ino64_t ino, vnode_t **vpp,
 		} else {
 			error = ENOENT;
 		}
-		ZFS_EXIT(zfsvfs);
+		zfs_exit(zfsvfs, FTAG);
 		return (error);
 	}
 
@@ -1885,14 +1889,14 @@ zfs_vfs_vget(struct mount *mp, ino64_t ino, vnode_t **vpp,
 				}
 			}
 
-			ZFS_EXIT(zfsvfs);
+			zfs_exit(zfsvfs, FTAG);
 			return (error);
 		}
 	}
 
 	error = zfs_vget_internal(zfsvfs, ino, vpp);
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 	return (error);
 }
 
@@ -1923,7 +1927,8 @@ zfs_vfs_fhtovp(struct mount *mp, int fhlen, unsigned char *fhp,
 
 	*vpp = NULL;
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	if (fhlen < sizeof (zfs_zfid_t)) {
 		error = EINVAL;
@@ -1954,7 +1959,7 @@ zfs_vfs_fhtovp(struct mount *mp, int fhlen, unsigned char *fhp,
 	}
 	*vpp = ZTOV(zp);
 out:
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 	return (error);
 }
 
@@ -1974,12 +1979,14 @@ zfs_vfs_vptofh(vnode_t *vp, int *fhlenp, unsigned char *fhp,
 	uint64_t	obj_num;
 	uint64_t	zp_gen;
 	int		i;
+	int		error = 0;
 
 	if (*fhlenp < sizeof (zfs_zfid_t)) {
 		return (EOVERFLOW);
 	}
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	obj_num = zp->z_id;
 	zp_gen = zp->z_gen;
@@ -1997,7 +2004,7 @@ zfs_vfs_vptofh(vnode_t *vp, int *fhlenp, unsigned char *fhp,
 
 	*fhlenp = sizeof (zfs_zfid_t);
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 	return (0);
 }
 

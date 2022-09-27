@@ -1848,6 +1848,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	int len;
 	Status = STATUS_NOT_IMPLEMENTED;
 	int space;
+	int error = 0;
 
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	if (!zmo ||
@@ -1860,7 +1861,8 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
-	ZFS_ENTER(zfsvfs);  // This returns EIO if fail
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);  // This returns EIO if fail
 
 	switch (IrpSp->Parameters.QueryVolume.FsInformationClass) {
 
@@ -2079,7 +2081,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		Status = STATUS_NOT_IMPLEMENTED;
 		break;
 	}
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 	return (Status);
 }
 
@@ -3001,6 +3003,7 @@ request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 	boolean_t oplock_request = FALSE, oplock_ack = FALSE;
 	ULONG oplock_count = 0;
 	PIRP Irp = *PIrp;
+	int error = 0;
 
 	if (FileObject == NULL)
 		return (STATUS_INVALID_PARAMETER);
@@ -3013,7 +3016,8 @@ request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
-	ZFS_ENTER(zfsvfs);  // This returns EIO if fail
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);  // This returns EIO if fail
 	/* HOLD count, no returns from here. */
 
 	if (VN_HOLD(vp) != 0) {
@@ -3153,7 +3157,7 @@ request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 
 out:
 	VN_RELE(vp);
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	return (Status);
 }
