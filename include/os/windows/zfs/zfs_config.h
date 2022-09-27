@@ -1,5 +1,7 @@
 /* zfs_config.h.  static file on Windows.  */
 
+#include <zfs_gitrev.h>
+
 /* Define to 1 to enabled dmu tx validation */
 /* #undef DEBUG_DMU_TX */
 
@@ -103,4 +105,4 @@
 #define	ZFS_META_VERSION "2.1.99"
 
 /* Define the project alias string. */
-#define	ZFS_META_ALIAS "zfs-" ZFS_META_VERSION "-" ZFS_META_RELEASE
+#define	ZFS_META_ALIAS ZFS_META_GITREV
