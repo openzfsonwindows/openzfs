@@ -724,8 +724,8 @@ zfs_obtain_xattr(znode_t *dzp, const char *name, mode_t mode, cred_t *cr,
 
 	/* zfs_dirent_lock() expects a component name */
 
-	ZFS_ENTER(zfsvfs);
-	ZFS_VERIFY_ZP(dzp);
+	if ((error = zfs_enter_verify_zp(zfsvfs, dzp, FTAG)) != 0)
+		return (error);
 	zilog = zfsvfs->z_log;
 
 	vattr.va_type = VREG;
@@ -734,7 +734,7 @@ zfs_obtain_xattr(znode_t *dzp, const char *name, mode_t mode, cred_t *cr,
 
 	if ((error = zfs_acl_ids_create(dzp, 0,
 	    &vattr, cr, NULL, &acl_ids)) != 0) {
-		ZFS_EXIT(zfsvfs);
+		zfs_exit(zfsvfs, FTAG);
 		return (error);
 	}
 
@@ -804,7 +804,7 @@ out:
 	if (xzp)
 		*vpp = ZTOV(xzp);
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 	return (error);
 }
 
@@ -1756,6 +1756,7 @@ zfs_set_security(struct vnode *vp, struct vnode *dvp)
 	SECURITY_SUBJECT_CONTEXT subjcont;
 	NTSTATUS Status;
 	SID *usersid = NULL, *groupsid = NULL;
+	int error = 0;
 
 	if (vp == NULL)
 		return (0);
@@ -1773,7 +1774,8 @@ zfs_set_security(struct vnode *vp, struct vnode *dvp)
 		return (0);
 	}
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	// If no parent, find it. This will take one hold on
 	// dvp, either directly or from zget().
@@ -1828,7 +1830,7 @@ zfs_set_security(struct vnode *vp, struct vnode *dvp)
 err:
 	if (dvp)
 		VN_RELE(dvp);
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	if (usersid != NULL)
 		zfs_freesid(usersid);
@@ -2157,16 +2159,18 @@ file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	FILE_END_OF_FILE_INFORMATION *feofi = Irp->AssociatedIrp.SystemBuffer;
 	int changed = 0;
+	int error = 0;
 
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
 	dprintf("* File_EndOfFile_Information:\n");
 
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	if (VN_HOLD(vp) != 0) {
-		ZFS_EXIT(zfsvfs);
+		zfs_exit(zfsvfs, FTAG);
 		return (STATUS_INVALID_PARAMETER);
 	}
 
@@ -2256,7 +2260,7 @@ out:
 	vnode_setsizechange(vp, 0);
 
 	VN_RELE(vp);
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 	return (Status);
 }
 
@@ -3451,6 +3455,7 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	uint64_t availablebytes = IrpSp->Parameters.QueryFile.Length;
 	DWORD *lastNextEntryOffset = NULL;
 	int overflow = 0;
+	int error = 0;
 
 	dprintf("%s: \n", __func__);
 
@@ -3469,7 +3474,8 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
 	// This exits when unmounting
-	ZFS_ENTER(zfsvfs);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
 
 	struct vnode *xdvp = NULL;
 	void *cr = NULL;
@@ -3520,7 +3526,7 @@ out:
 		VN_RELE(xdvp);
 	}
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	if (overflow > 0)
 		Status = STATUS_BUFFER_OVERFLOW;
@@ -3624,6 +3630,7 @@ NTSTATUS
 ioctl_disk_get_drive_geometry(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
 {
+	int error = 0;
 	dprintf("%s: \n", __func__);
 	if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength <
 	    sizeof (DISK_GEOMETRY)) {
@@ -3642,7 +3649,8 @@ ioctl_disk_get_drive_geometry(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
-	ZFS_ENTER(zfsvfs);  // This returns EIO if fail
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);  // This returns EIO if fail
 
 	uint64_t refdbytes, availbytes, usedobjs, availobjs;
 	dmu_objset_space(zfsvfs->z_os,
@@ -3655,7 +3663,7 @@ ioctl_disk_get_drive_geometry(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	geom->TracksPerCylinder = 1;
 	geom->Cylinders.QuadPart = (availbytes + refdbytes) / 512;
 	geom->MediaType = FixedMedia;
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	Irp->IoStatus.Information = sizeof (DISK_GEOMETRY);
 	return (STATUS_SUCCESS);
@@ -3673,6 +3681,7 @@ NTSTATUS
 ioctl_disk_get_drive_geometry_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
 {
+	int error = 0;
 	dprintf("%s: \n", __func__);
 	if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength <
 	    FIELD_OFFSET(DISK_GEOMETRY_EX, Data)) {
@@ -3691,7 +3700,8 @@ ioctl_disk_get_drive_geometry_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
-	ZFS_ENTER(zfsvfs);  // This returns EIO if fail
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);  // This returns EIO if fail
 
 	uint64_t refdbytes, availbytes, usedobjs, availobjs;
 	dmu_objset_space(zfsvfs->z_os,
@@ -3713,7 +3723,7 @@ ioctl_disk_get_drive_geometry_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    sizeof (DISK_GEOMETRY_EX_INTERNAL)) {
 		geom->Detection.SizeOfDetectInfo = sizeof (geom->Detection);
 	}
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	Irp->IoStatus.Information =
 	    MIN(IrpSp->Parameters.DeviceIoControl.OutputBufferLength,
@@ -3725,6 +3735,7 @@ NTSTATUS
 ioctl_disk_get_partition_info(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
 {
+	int error = 0;
 	dprintf("%s: \n", __func__);
 
 	if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength <
@@ -3744,7 +3755,8 @@ ioctl_disk_get_partition_info(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
-	ZFS_ENTER(zfsvfs);  // This returns EIO if fail
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);  // This returns EIO if fail
 
 	uint64_t refdbytes, availbytes, usedobjs, availobjs;
 	dmu_objset_space(zfsvfs->z_os,
@@ -3761,7 +3773,7 @@ ioctl_disk_get_partition_info(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	part->RewritePartition = FALSE;
 	part->PartitionType = 'ZFS';
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	Irp->IoStatus.Information = sizeof (PARTITION_INFORMATION);
 
@@ -3772,6 +3784,7 @@ NTSTATUS
 ioctl_disk_get_partition_info_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
 {
+	int error = 0;
 	dprintf("%s: \n", __func__);
 
 	if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength <
@@ -3791,7 +3804,8 @@ ioctl_disk_get_partition_info_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
-	ZFS_ENTER(zfsvfs);  // This returns EIO if fail
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);  // This returns EIO if fail
 
 	uint64_t refdbytes, availbytes, usedobjs, availobjs;
 	dmu_objset_space(zfsvfs->z_os,
@@ -3809,7 +3823,7 @@ ioctl_disk_get_partition_info_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	part->PartitionLength.QuadPart = availbytes + refdbytes;
 	part->PartitionNumber = 0;
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	Irp->IoStatus.Information = sizeof (PARTITION_INFORMATION_EX);
 
@@ -3820,6 +3834,7 @@ NTSTATUS
 ioctl_disk_get_length_info(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
 {
+	int error = 0;
 	dprintf("%s: \n", __func__);
 
 	if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength <
@@ -3839,7 +3854,8 @@ ioctl_disk_get_length_info(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
-	ZFS_ENTER(zfsvfs);  // This returns EIO if fail
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);  // This returns EIO if fail
 
 	uint64_t refdbytes, availbytes, usedobjs, availobjs;
 	dmu_objset_space(zfsvfs->z_os,
@@ -3848,7 +3864,7 @@ ioctl_disk_get_length_info(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	GET_LENGTH_INFORMATION *gli = Irp->AssociatedIrp.SystemBuffer;
 	gli->Length.QuadPart = availbytes + refdbytes;
 
-	ZFS_EXIT(zfsvfs);
+	zfs_exit(zfsvfs, FTAG);
 
 	Irp->IoStatus.Information = sizeof (GET_LENGTH_INFORMATION);
 
