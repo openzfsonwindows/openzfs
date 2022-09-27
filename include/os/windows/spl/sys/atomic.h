@@ -199,6 +199,12 @@ membar_producer(void)
 	_mm_mfence();
 }
 
+static inline void
+membar_consumer(void)
+{
+	_mm_mfence();
+}
+
 #ifdef	__cplusplus
 }
 #endif
