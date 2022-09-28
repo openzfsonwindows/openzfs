@@ -205,6 +205,12 @@ membar_consumer(void)
 	_mm_mfence();
 }
 
+static inline void
+membar_sync(void)
+{
+	_mm_mfence();
+}
+
 #ifdef	__cplusplus
 }
 #endif
