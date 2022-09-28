@@ -160,9 +160,6 @@ typedef struct hardlinks_struct hardlinks_t;
 #define	ZFS_TEARDOWN_DESTROY(zfsvfs)            \
 	rrm_destroy(&(zfsvfs)->z_teardown_lock)
 
-#define	ZFS_TEARDOWN_TRY_ENTER_READ(zfsvfs)     \
-	rw_tryenter(&(zfsvfs)->z_teardown_lock, RW_READER)
-
 #define	ZFS_TEARDOWN_ENTER_READ(zfsvfs, tag)    \
 	rrm_enter_read(&(zfsvfs)->z_teardown_lock, tag);
 
