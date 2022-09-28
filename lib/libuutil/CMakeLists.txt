@@ -7,7 +7,7 @@ add_library(libuutil
 	uu_ident.c
 	uu_list.c
 	uu_misc.c
-	uu_pname.c
+#	uu_pname.c
 	uu_string.c
 )
 target_link_libraries(libuutil PUBLIC libspl libpthread)
