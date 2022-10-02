@@ -196,13 +196,13 @@ atomic_store_64(volatile uint64_t *target, uint64_t bits)
 static inline void
 membar_producer(void)
 {
-	_mm_mfence();
+	_mm_sfence();
 }
 
 static inline void
 membar_consumer(void)
 {
-	_mm_mfence();
+	_mm_lfence();
 }
 
 static inline void
