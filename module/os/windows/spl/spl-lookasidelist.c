@@ -87,7 +87,7 @@ lookasidelist_cache_create(char *name,	/* descriptive name for this cache */
 		pLookasidelist_cache->cache_chunksize = size;
 
 		if (name != NULL) {
-			strncpy(pLookasidelist_cache->cache_name, name,
+			strlcpy(pLookasidelist_cache->cache_name, name,
 			    LOOKASIDELIST_CACHE_NAMELEN);
 		}
 

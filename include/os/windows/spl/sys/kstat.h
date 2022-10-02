@@ -245,7 +245,7 @@ typedef struct kstat_io {
 } kstat_io_t;
 
 typedef struct kstat_timer {
-	char		name[KSTAT_STRLEN+1]; /* event name */
+	char		name[KSTAT_STRLEN]; /* event name */
 	u_longlong_t	num_events;	/* number of events */
 	hrtime_t	elapsed_time;	/* cumulative elapsed time */
 	hrtime_t	min_time;	/* shortest event duration */
