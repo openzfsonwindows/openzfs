@@ -783,8 +783,7 @@ kstat_named_setstr(kstat_named_t *knp, const char *src)
 void
 kstat_set_string(char *dst, const char *src)
 {
-	memset(dst, 0, KSTAT_STRLEN);
-	(void) strncpy(dst, src, KSTAT_STRLEN - 1);
+	(void) strlcpy(dst, src, KSTAT_STRLEN);
 }
 
 void
