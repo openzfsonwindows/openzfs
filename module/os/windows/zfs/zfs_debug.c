@@ -28,14 +28,14 @@
 typedef struct zfs_dbgmsg {
 	list_node_t zdm_node;
 	time_t zdm_timestamp;
-	int zdm_size;
+	uint_t zdm_size;
 	char zdm_msg[1]; /* variable length allocation */
 } zfs_dbgmsg_t;
 
 list_t zfs_dbgmsgs;
-int zfs_dbgmsg_size;
+uint_t zfs_dbgmsg_size;
 kmutex_t zfs_dbgmsgs_lock;
-int zfs_dbgmsg_maxsize = 4<<20; /* 4MB */
+uint_t zfs_dbgmsg_maxsize = 4<<20; /* 4MB */
 kstat_t *zfs_dbgmsg_kstat;
 
 int zfs_dbgmsg_enable = 1;
@@ -75,10 +75,10 @@ zfs_dbgmsg_addr(kstat_t *ksp, loff_t n)
 }
 
 static void
-zfs_dbgmsg_purge(int max_size)
+zfs_dbgmsg_purge(uint_t max_size)
 {
 	zfs_dbgmsg_t *zdm;
-	int size;
+	uint_t size;
 
 	ASSERT(MUTEX_HELD(&zfs_dbgmsgs_lock));
 
@@ -179,7 +179,7 @@ __set_error(const char *file, const char *func, int line, int err)
 noinline void
 __zfs_dbgmsg(char *buf)
 {
-	int size = sizeof (zfs_dbgmsg_t) + strlen(buf);
+	uint_t size = sizeof (zfs_dbgmsg_t) + strlen(buf);
 	zfs_dbgmsg_t *zdm = kmem_zalloc(size, KM_SLEEP);
 	zdm->zdm_size = size;
 	zdm->zdm_timestamp = gethrestime_sec();
@@ -188,7 +188,7 @@ __zfs_dbgmsg(char *buf)
 	mutex_enter(&zfs_dbgmsgs_lock);
 	list_insert_tail(&zfs_dbgmsgs, zdm);
 	zfs_dbgmsg_size += size;
-	zfs_dbgmsg_purge(MAX(zfs_dbgmsg_maxsize, 0));
+	zfs_dbgmsg_purge(zfs_dbgmsg_maxsize);
 	mutex_exit(&zfs_dbgmsgs_lock);
 }
 
