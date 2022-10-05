@@ -20,7 +20,7 @@
 #pragma message MyAppVersion + " is version"
 
 #if MyAppVersion == ""
-#error Failed to read version from include/zfs_gitrev.h 
+#error Failed to read version from include/zfs_gitrev.h
 #endif
 
 #include "environment.iss"
@@ -51,7 +51,7 @@ OutputDir={#SourcePath}\..
 ChangesEnvironment=true
 WizardSmallImageFile="{#SourcePath}\openzfs-small.bmp"
 WizardImageFile="{#SourcePath}\openzfs-large.bmp"
-; Tools/Configure Sign Tools -> Add -> 
+; Tools/Configure Sign Tools -> Add ->
 ; "signtoola" = C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe sign /sha1 09A7835D2496C08389CF1CC1031EF73BAE897A08 /n $qWest Coast Enterprises Limited$q /t http://ts.digicert.com /as /fd sha256 /td sha256 /d $qOpenZFS on Windows$q $f
 ; "signtoolb" = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.17763.0\x64\signtool.exe sign /sha1 ab8e4f6b94cecfa4638847122b511e507e147c50 /as /n $qJoergen Lundman$q /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d $qOpenZFS on Windows$q $f"
 ; "signtoolc" = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe sign /v /fd sha256 /n $qOpenZFS Test Signing Certificate$q /t http://timestamp.digicert.com $f"
@@ -77,18 +77,19 @@ begin
 end;
 
 [Tasks]
-Name: envPath; Description: "Add OpenZFS to PATH variable" 
+Name: envPath; Description: "Add OpenZFS to PATH variable"
 
 [Files]
-Source: "{#Root}\README.md"; DestDir: "{app}"; Flags: ignoreversion  
-Source: "{#Root}\CODE_OF_CONDUCT.md"; DestDir: "{app}"; Flags: ignoreversion  
+Source: "{#Root}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\CODE_OF_CONDUCT.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\os\windows/kstat/kstat.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\os\windows/zfsinstaller/zfsinstaller.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zpool\zpool.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zfs\zfs.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zdb\zdb.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zstream\zstreamdump.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.sys"; DestDir: "{app}"; Flags: ignoreversion 
+Source: "{#Root}\out\build\x64-Debug\cmd\raidz_test\raidz_test.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.sys"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.cat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.inf"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.man"; DestDir: "{app}"; Flags: ignoreversion
@@ -99,6 +100,7 @@ Source: "{#Root}\out\build\x64-Debug\cmd\zstream\*.pdb"; DestDir: "{app}\symbols
 Source: "{#Root}\out\build\x64-Debug\cmd\zpool\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zfs\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zdb\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\x64-Debug\cmd\raidz_test\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zfsinstaller\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\kstat\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#SourcePath}\HowToDebug.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -110,7 +112,7 @@ Name: "{group}\{cm:ProgramOnTheWeb,{#MyAppName}}"; Filename: "{#MyAppURL}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\ZFSInstaller.exe"; Parameters: "install .\OpenZFS.inf"; StatusMsg: "Installing Driver..."; Flags: runascurrentuser; 
+Filename: "{app}\ZFSInstaller.exe"; Parameters: "install .\OpenZFS.inf"; StatusMsg: "Installing Driver..."; Flags: runascurrentuser;
 
 [UninstallRun]
 Filename: "{app}\ZFSInstaller.exe"; Parameters: "uninstall .\OpenZFS.inf"; RunOnceId: "driver"; Flags: runascurrentuser;
