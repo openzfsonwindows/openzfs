@@ -88,7 +88,7 @@ lookasidelist_cache_create(char *name,	/* descriptive name for this cache */
 
 		if (name != NULL) {
 			strlcpy(pLookasidelist_cache->cache_name, name,
-			    LOOKASIDELIST_CACHE_NAMELEN);
+			    sizeof(pLookasidelist_cache->cache_name));
 		}
 
 		NTSTATUS retval = ExInitializeLookasideListEx(
