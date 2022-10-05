@@ -2440,8 +2440,8 @@ taskq_create_common(const char *name, int instance, int nthreads, pri_t pri,
 	 * Make sure the name is 0-terminated, and conforms to the rules for
 	 * C indentifiers
 	 */
-	(void) strlcpy(tq->tq_name, name, TASKQ_NAMELEN + 1);
-	strident_canon(tq->tq_name, TASKQ_NAMELEN + 1);
+	(void) strlcpy(tq->tq_name, name, sizeof(tq->tq_name));
+	strident_canon(tq->tq_name, sizeof(tq->tq_name));
 
 	tq->tq_flags = flags | TASKQ_CHANGING;
 	tq->tq_active = 0;
