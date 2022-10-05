@@ -3549,8 +3549,8 @@ kmem_cache_create(
 	/*
 	 * Set cache properties.
 	 */
-	(void) strlcpy(cp->cache_name, name, KMEM_CACHE_NAMELEN + 1);
-	strident_canon(cp->cache_name, KMEM_CACHE_NAMELEN + 1);
+	(void) strlcpy(cp->cache_name, name, sizeof(cp->cache_name));
+	strident_canon(cp->cache_name, sizeof(cp->cache_name));
 	cp->cache_bufsize = bufsize;
 	cp->cache_align = align;
 	cp->cache_constructor = constructor;
