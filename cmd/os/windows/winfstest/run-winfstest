@@ -1,0 +1,9 @@
+#!/bin/bash
+
+case $(uname) in
+CYGWIN*) ;;
+*) echo "can only be run on Cygwin" 1>&2; exit 1
+esac
+
+ProgPath=$(dirname "$0")
+PYTHONPATH="$ProgPath" "$ProgPath/simpletap.py" --run "$@"
