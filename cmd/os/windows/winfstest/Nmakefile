@@ -1,0 +1,3 @@
+winfstest.exe: winfstest.c
+	cl /MT /W2 winfstest.c advapi32.lib /link /subsystem:console
+	del *.obj
