@@ -39,7 +39,7 @@ _ntests = 0
 def testline(ok, diag = ""):
     global _ntests
     _ntests += 1
-    print "%sok %s%s%s" % ("" if ok else "not ", _ntests, " - " if diag else "", diag)
+    print(("%sok %s%s%s" % ("" if ok else "not ", _ntests, " - " if diag else "", diag)))
 def testeval(ok):
     diag = inspect.stack()[1]
     if diag and diag[4] is not None and diag[5] is not None:
@@ -50,7 +50,7 @@ def testeval(ok):
     testline(ok, diag)
 def testdone():
     global _ntests
-    print "1..%s" % _ntests
+    print(("1..%s" % _ntests))
     _ntests = 0
 
 def uniqname():
@@ -70,7 +70,7 @@ class _fstest_task(object):
         if self.tsk:
             arg.insert(0, "-w")
         self.prc = subprocess.Popen([_fstest_exe] + arg,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
         self.thr = threading.Thread(target=self._readthread)
         self.thr.start()
     def __enter__(self):
@@ -139,7 +139,7 @@ def fstest_task(cmd):
     return _fstest_task(True, cmd, None)
 def expect_task(cmd, exp):
     if isinstance(exp, types.FunctionType): # function, lambda
-        print "# expect_task \"%s\" %s" % (cmd, exp.__name__)
+        print(("# expect_task \"%s\" %s" % (cmd, exp.__name__)))
     else:
-        print "# expect_task \"%s\" %s" % (cmd, exp)
+        print(("# expect_task \"%s\" %s" % (cmd, exp)))
     return _fstest_task(True, cmd, exp)
