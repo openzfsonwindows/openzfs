@@ -63,12 +63,12 @@ testeval(":bar:$DATA" in s)
 expect("RemoveDirectory %s" % name, 0)
 expect("FindStreams %s" % name, "ERROR_FILE_NOT_FOUND")
 
-for i in xrange(100):
+for i in range(100):
 	expect("CreateFile %s:strm%s GENERIC_WRITE 0 0 CREATE_NEW FILE_ATTRIBUTE_NORMAL 0" % (name, i), 0)
 e, r = expect("FindStreams %s" % name, 0)
 s = set(l["StreamName"] for l in r)
 testeval(len(s) == 101)
-for i in xrange(100):
+for i in range(100):
 	testeval(":strm%s:$DATA" % i in s)
 expect("DeleteFile %s" % name, 0)
 expect("FindStreams %s" % name, "ERROR_FILE_NOT_FOUND")
