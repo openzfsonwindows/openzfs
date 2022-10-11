@@ -257,7 +257,7 @@ static ZFS_MODULE_ULONG zfs_unflushed_log_block_min = 1000;
  * terms of performance. Thus we have a hard limit in the size of the log in
  * terms of blocks.
  */
-static ZFS_MODULE_ULONG zfs_unflushed_log_block_max = (1ULL << 18);
+static ZFS_MODULE_ULONG zfs_unflushed_log_block_max = (1ULL << 17);
 
 /*
  * Also we have a hard limit in the size of the log in terms of dirty TXGs.
