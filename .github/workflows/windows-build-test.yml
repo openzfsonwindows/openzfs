@@ -1455,3 +1455,229 @@ jobs:
 #
 #    - run: git rebase openzfs/master
 #
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# This is a basic workflow to help you get started with Actions
+# https://github.blog/changelog/2020-07-06-github-actions-manual-triggers-with-workflow_dispatch/
+
+  test3_winfstest:
+    needs: [build_windows] #, build_wsl]
+    timeout-minutes: 30
+    runs-on: windows-latest
+    steps:
+
+    - uses: actions/checkout@v3
+
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: dev_build_inno
+
+#    - uses: actions/download-artifact@v3
+#      with:
+#        name: build result
+
+#    - name: get files
+#      run: Get-ChildItem -Recurse
+
+    - name: get diskdrive
+      run: wmic diskdrive list
+
+#    - name: Download
+#      uses: suisei-cn/actions-download-file@v1.0.1
+#      #id: innoinstaller
+#      with:
+#        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/testdrives.zip'
+#        target: ${{github.workspace}}/
+#
+#
+#    - name: make disk
+#      run: |
+#        Expand-Archive -LiteralPath ${{github.workspace}}/testdrives.zip -DestinationPath D:\
+#
+#    - name: Download
+#      uses: suisei-cn/actions-download-file@v1.0.1
+#      #id: innoinstaller
+#      with:
+#        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/scriptname.txt'
+#        target: ${{github.workspace}}/
+#
+#    - name: make disk
+#      run: |
+#        diskpart /s scriptname.txt
+#
+#
+#
+#    - name: get diskdrive
+#      run: wmic diskdrive list
+#
+#
+#    - name: get files
+#      run: Get-ChildItem -Recurse
+
+
+    - name: get zfsexename
+      id: zfsinstaller
+      run: |
+        $p = Get-ChildItem | Where-Object {$_.Name -like 'OpenZFSOnWindows-*.exe'} | Select-Object -first 1
+        echo $p
+        $f = (Get-Item $p ).Name
+        echo $f
+        echo "::set-output name=filename::$($f)"
+
+    # https://github.com/MicrosoftDocs/windows-powershell-docs/issues/266
+    - name: Import root certificate
+      run: |
+        $plaintextpwd = 'password1234'
+        $pwd = ConvertTo-SecureString -String $plaintextpwd -Force -AsPlainText
+        Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\LocalMachine\Root -Password $pwd
+        Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $pwd
+
+    - name: debug - echo filename
+      run: echo ${{ steps.zfsinstaller.outputs.filename }}
+
+#    - name: debug - list
+#      run: ls ${{github.workspace}}\
+
+    - name: debug - list
+      run: ls ${{github.workspace}}\${{ steps.zfsinstaller.outputs.filename }}
+
+    #- name: install zfs
+    #  run: ${{github.workspace}}\${{ steps.zfsinstaller.outputs.filename }} /NORESTART /ALLUSERS /VERYSILENT /LOG="${{github.workspace}}\InnoSetup-Install.log"
+
+    - name: install zfs
+      run: 'Start-Process -FilePath "${{github.workspace}}\${{ steps.zfsinstaller.outputs.filename }}" -Wait -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Install.log`""'
+
+    #- name: Wait for install to finish
+    #  run: Start-Sleep -Seconds 30
+    #  uses: iFaxity/wait-on-action@v1
+    #  with:
+    #    resource: 'C:\Program Files\OpenZFS On Windows\zpool.exe'
+
+#    - name: debug - print log
+#      run: cat "${{github.workspace}}\InnoSetup-Install.log"
+#
+#    - name: debug - list
+#      run: ls "C:\Program Files"
+#
+#    - name: debug - list
+#      run: ls "C:\Program Files\OpenZFS On Windows"
+
+    - name: debug - get status
+      run: '& "C:\Program Files\OpenZFS On Windows\zpool.exe" status'
+
+
+
+    - run: choco install gsudo
+
+
+
+    - name: Create backing files
+      run: |
+          $f = new-object System.IO.FileStream ${{github.workspace}}\test01.dat, Create, ReadWrite
+          $f.SetLength(1GB)
+          $f.Close()
+
+    - name: create pool
+      run: '& "C:\Program Files\OpenZFS On Windows\zpool.exe" create tank \\?\${{github.workspace}}\test01.dat'
+
+    - name: get pool status
+      run: '& "C:\Program Files\OpenZFS On Windows\zpool.exe" status'
+
+    - name: get pool mount
+      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe" mount'
+
+    - name: get pool mount
+      id: drive  # Remember to give an ID if you need the output filename
+      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe"  mount | Select-String -Pattern "^tank +([A-Za-z]:\\)"  | % {"::set-output name=drive::$($_.matches.groups[1].value)"}'
+
+    - name: get pool mount
+      id: drivenoslash  # Remember to give an ID if you need the output filename
+      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe"  mount | Select-String -Pattern "^tank +([A-Za-z]:)\\"  | % {"::set-output name=drive::$($_.matches.groups[1].value)"}'
+
+    - name: echo
+      run: echo ${{ steps.drive.outputs.drive }}
+
+
+    - name: Download winbtrfs
+      uses: suisei-cn/actions-download-file@v1.0.1
+      id: winbtrs  # Remember to give an ID if you need the output filename
+      with:
+        url: "https://github.com/andrewc12/btrfs/releases/download/v1.8/x64-Debug.zip"
+        target: ${{github.workspace}}/
+
+    - name: extract
+      run: Expand-Archive -LiteralPath '${{ steps.winbtrs.outputs.filename }}' -DestinationPath ${{github.workspace}}\winbtrfs
+
+    - name: debug - list
+      run: ls ${{github.workspace}}\
+
+    - name: debug - list
+      run: ls ${{github.workspace}}\winbtrfs
+
+
+    #- name: run winbtrfs tests
+    #  run: '& "${{github.workspace}}\winbtrfs\test.exe" ${{ steps.drive.outputs.drive }}'
+
+    - name: test dummy status step
+      id: dummy
+      run: exit 0
+
+    - name: debug - dummy status
+      run: echo ${{ steps.dummy.conclusion }}
+
+
+
+
+#    - name: install winfstest
+#      run: |
+#          Copy-Item -Path "${{github.workspace}}\cmd\os\windows\winfstest" -Destination "${{ steps.drive.outputs.drive }}\winfstest" -Recurse
+#          Copy-Item "${{github.workspace}}\out\build\x64-Debug\cmd\os\windows\winfstest\winfstest.exe" -Destination "${{ steps.drive.outputs.drive }}\winfstest"
+
+    - name: Download
+      uses: suisei-cn/actions-download-file@v1.0.1
+      #id: innoinstaller
+      with:
+        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/winfstest.zip'
+        target: ${{github.workspace}}/
+
+
+    - name: extract winfstest
+      run: |
+          new-item ${{ steps.drive.outputs.drive }}\winfstest -itemtype directory
+          Expand-Archive -LiteralPath ${{github.workspace}}/winfstest.zip -DestinationPath ${{ steps.drive.outputs.drive }}\winfstest
+
+
+    #- name: run winbtrfs tests
+    #  run: '& "${{github.workspace}}\winbtrfs\test.exe" ${{ steps.drive.outputs.drive }}'
+
+    #https://github.com/maharmstone/btrfs/blob/master/src/tests/test.cpp#L453
+    - name: run winfstests
+      timeout-minutes: 1
+      run: |
+          ${{ steps.drivenoslash.outputs.drive }}
+          cd ${{ steps.drive.outputs.drive }}\winfstest
+          set PYTHONPATH=${{ steps.drive.outputs.drive }}\winfstest
+          python ${{ steps.drive.outputs.drive }}\winfstest\simpletap.py --run
+      shell: cmd
+
