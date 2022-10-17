@@ -24,6 +24,7 @@
  * OSX Atomic functions using GCC builtins.
  *
  * Jorgen Lundman <lundman@lundman.net>
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  *
  */
 
