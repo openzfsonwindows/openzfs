@@ -27,6 +27,7 @@
 
 /* Portions Copyright 2010 Robert Milkowski */
 /* Portions Copyright 2013,2020 Jorgen Lundman */
+/* Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com> */
 
 #include <sys/types.h>
 #include <sys/zfs_dir.h>
