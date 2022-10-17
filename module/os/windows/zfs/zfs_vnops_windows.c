@@ -20,6 +20,7 @@
  */
 /*
  * Copyright (c) 2017 Jorgen Lundman <lundman@lundman.net>
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  */
 
 #undef _NTDDK_

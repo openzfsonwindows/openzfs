@@ -28,6 +28,7 @@
  * Copyright (c) 2017 Open-E, Inc. All Rights Reserved.
  * Copyright (c) 2017, Intel Corporation.
  * Copyright (c) 2018, loli10K <ezomori.nozomu@gmail.com>
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  */
 
 #include <errno.h>

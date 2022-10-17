@@ -24,6 +24,7 @@
  * Copyright (c) 2013 Steven Hartland. All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  * Copyright 2016 Nexenta Systems, Inc.  All rights reserved.
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  */
 
 #include <sys/dsl_pool.h>

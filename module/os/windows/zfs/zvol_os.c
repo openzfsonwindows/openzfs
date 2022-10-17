@@ -20,6 +20,7 @@
  */
 /*
  * Copyright (c) 2020 by Jorgen Lundman. All rights reserved.
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  */
 
 #include <sys/dataset_kstats.h>

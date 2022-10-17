@@ -15,6 +15,7 @@
 
 /*
  * Copyright (c) 2017, Datto, Inc. All rights reserved.
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  */
 
 #include <sys/zio_crypt.h>

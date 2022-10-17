@@ -1,6 +1,10 @@
 #include <sys/zfs_context.h>
 #include <sys/lookasidelist.h>
 
+/*
+* Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
+*/
+
 typedef struct lookasidelist_stats {
     kstat_named_t lookasidestat_active_alloc;
     kstat_named_t lookasidestat_total_alloc;

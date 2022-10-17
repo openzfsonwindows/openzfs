@@ -18,6 +18,9 @@
  * information: Portions Copyright [yyyy] [name of copyright owner]
  *
  * CDDL HEADER END
+ *
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
+ *
  */
 
 #ifndef _SYS_VDEV_FILE_H

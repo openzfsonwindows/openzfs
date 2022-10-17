@@ -26,6 +26,8 @@
  * Copyright 2017 RackTop Systems.
  * Copyright (c) 2017 Open-E, Inc. All Rights Reserved.
  * Copyright (c) 2019, 2020 by Christian Schwarz. All rights reserved.
+ * Copyright (c) 2019 Datto Inc.
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  */
 
 /*

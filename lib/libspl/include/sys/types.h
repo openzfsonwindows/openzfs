@@ -22,6 +22,9 @@
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ *
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
+ *
  */
 
 #ifndef _LIBSPL_SYS_TYPES_H
