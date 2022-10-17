@@ -51,7 +51,7 @@
 #define	DEV_BSHIFT			9 /* log2(DEV_BSIZE) */
 
 #define	proc_pageout			NULL
-#define	curproc			(struct proc *)PsGetCurrentProcess()
+#define	curproc		(struct proc *)PsGetCurrentProcess()
 
 extern uint32_t cpu_number(void);
 #define	CPU_SEQID		(cpu_number())

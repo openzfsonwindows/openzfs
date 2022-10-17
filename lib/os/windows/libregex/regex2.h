@@ -1,6 +1,6 @@
 /*	$NetBSD: regex2.h,v 1.15 2021/02/24 18:13:21 christos Exp $	*/
 
-/*-
+/*
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Copyright (c) 1992, 1993, 1994 Henry Spencer.
@@ -40,17 +40,17 @@
 
 /*
  * First, the stuff that ends up in the outside-world include file
- = typedef off_t regoff_t;
- = typedef struct {
- = 	int re_magic;
- = 	size_t re_nsub;		// number of parenthesized subexpressions
- = 	const char *re_endp;	// end pointer for REG_PEND
- = 	struct re_guts *re_g;	// none of your business :-)
- = } regex_t;
- = typedef struct {
- = 	regoff_t rm_so;		// start of match
- = 	regoff_t rm_eo;		// end of match
- = } regmatch_t;
+ * typedef off_t regoff_t;
+ * typedef struct {
+ * 	int re_magic;
+ * 	size_t re_nsub;		// number of parenthesized subexpressions
+ * 	const char *re_endp;	// end pointer for REG_PEND
+ * 	struct re_guts *re_g;	// none of your business :-)
+ * } regex_t;
+ * typedef struct {
+ * 	regoff_t rm_so;		// start of match
+ * 	regoff_t rm_eo;		// end of match
+ * } regmatch_t;
  */
 /*
  * internals of regex_t
@@ -176,7 +176,7 @@ CHIN(cset *cs, wint_t ch)
  */
 struct re_guts {
 	int magic;
-#		define	MAGIC2	((('R'^0200)<<8)|'E')
+#define	MAGIC2	((('R'^0200)<<8)|'E')
 	sop *strip;		/* malloced area for strip */
 	size_t ncsets;		/* number of csets in use */
 	cset *sets;		/* -> cset [ncsets] */
@@ -185,9 +185,9 @@ struct re_guts {
 	sopno firststate;	/* the initial OEND (normally 0) */
 	sopno laststate;	/* the final OEND */
 	int iflags;		/* internal flags */
-#		define	USEBOL	01	/* used ^ */
-#		define	USEEOL	02	/* used $ */
-#		define	BAD	04	/* something wrong */
+#define	USEBOL	01	/* used ^ */
+#define	USEEOL	02	/* used $ */
+#define	BAD	04	/* something wrong */
 	size_t nbol;		/* number of ^ used */
 	size_t neol;		/* number of $ used */
 	char *must;		/* match must contain this string */
@@ -204,4 +204,4 @@ struct re_guts {
 #undef OUT
 #define	OUT	(CHAR_MIN - 1)	/* a non-character value */
 #define	IGN	(CHAR_MIN - 2)
-#define ISWORD(c)       (iswalnum((uch)(c)) || (c) == '_')
+#define	ISWORD(c)   (iswalnum((uch)(c)) || (c) == '_')

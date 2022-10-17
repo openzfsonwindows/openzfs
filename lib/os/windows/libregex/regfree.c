@@ -1,6 +1,6 @@
 /*	$NetBSD: regfree.c,v 1.19 2021/02/26 19:24:47 christos Exp $	*/
 
-/*-
+/*
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Copyright (c) 1992, 1993, 1994 Henry Spencer.
@@ -41,13 +41,6 @@
 #include "nbtool_config.h"
 #endif
 
-// #include <sys/cdefs.h>
-#if 0
-static char sccsid[] = "@(#)regfree.c	8.3 (Berkeley) 3/20/94";
-__FBSDID("$FreeBSD: head/lib/libc/regex/regfree.c 326025 2017-11-20 19:49:47Z pfg $");
-__RCSID("$NetBSD: regfree.c,v 1.19 2021/02/26 19:24:47 christos Exp $");
-#endif
-
 // #include "namespace.h"
 #include <sys/types.h>
 #include <stdio.h>
@@ -56,15 +49,15 @@ __RCSID("$NetBSD: regfree.c,v 1.19 2021/02/26 19:24:47 christos Exp $");
 #include <regex.h>
 
 #ifdef __weak_alias
-__weak_alias(regfree,_regfree)
+__weak_alias(regfree, _regfree)
 #endif
 
 #include "utils.h"
 #include "regex2.h"
 
 /*
- - regfree - free everything
- = extern void regfree(regex_t *);
+ * regfree - free everything
+ * extern void regfree(regex_t *);
  */
 void
 regfree(regex_t *preg)

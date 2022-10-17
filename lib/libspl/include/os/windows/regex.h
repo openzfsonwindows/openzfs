@@ -1,6 +1,6 @@
 /*	$NetBSD: regex.h,v 1.16 2021/02/23 17:14:42 christos Exp $	*/
 
-/*-
+/*
  * Copyright (c) 1992, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -34,7 +34,7 @@
  *	@(#)regex.h	8.2 (Berkeley) 1/3/94
  */
 
-/*-
+/*
  * Copyright (c) 1992 Henry Spencer.
  *
  * This code is derived from software contributed to Berkeley by
@@ -78,9 +78,9 @@
 #include <sys/zfs_context.h>
 #include <sys/types.h>
 
-#define _DIAGASSERT ASSERT
-#define __UNCONST(x) (x)
-#define __arraycount(x) ARRAYSIZE(x)
+#define	_DIAGASSERT ASSERT
+#define	__UNCONST(x) (x)
+#define	__arraycount(x) ARRAYSIZE(x)
 /* types */
 typedef off_t regoff_t;
 
@@ -124,7 +124,7 @@ typedef struct {
 #define	REG_EMPTY	14
 #define	REG_ASSERT	15
 #define	REG_INVARG	16
-#define	REG_ILLSEQ      17
+#define	REG_ILLSEQ	17
 #define	REG_ATOI	255	/* convert name to number (!) */
 #define	REG_ITOA	0400	/* convert number to name (!) */
 
@@ -136,10 +136,10 @@ typedef struct {
 #define	REG_LARGE	01000	/* force large representation */
 #define	REG_BACKR	02000	/* force use of backref code */
 
-int	regcomp(regex_t * __restrict, const char * __restrict, int);
-size_t	regerror(int, const regex_t * __restrict, char * __restrict, size_t);
-int	regexec(const regex_t * __restrict,
-	    const char * __restrict, size_t, regmatch_t [], int);
-void	regfree(regex_t *);
+int regcomp(regex_t *__restrict, const char *__restrict, int);
+size_t regerror(int, const regex_t *__restrict, char *__restrict, size_t);
+int regexec(const regex_t *__restrict,
+    const char *__restrict, size_t, regmatch_t [], int);
+void regfree(regex_t *);
 
 #endif /* !_REGEX_H_ */

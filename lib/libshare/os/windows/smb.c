@@ -92,4 +92,3 @@ const sa_fstype_t libshare_smb_type = {
 	.validate_shareopts = smb_validate_shareopts,
 	.commit_shares = smb_update_shares,
 };
-
