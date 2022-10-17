@@ -1197,7 +1197,6 @@ out:
 
 }
 
-/*ARGSUSED*/
 int
 zfs_vfs_mount(struct mount *vfsp, vnode_t *mvp /* devvp */,
     user_addr_t data, vfs_context_t context)

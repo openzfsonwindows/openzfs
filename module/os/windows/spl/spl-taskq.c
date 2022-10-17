@@ -803,13 +803,13 @@ uint_t taskq_smtbf = UINT_MAX;    /* mean time between injected failures */
 /*
  * Do-nothing task which may be used to prepopulate thread caches.
  */
-/*ARGSUSED*/
+
 void
 nulltask(void *unused)
 {
 }
 
-/*ARGSUSED*/
+
 static int
 taskq_constructor(void *buf, void *cdrarg, int kmflags)
 {
@@ -830,7 +830,7 @@ taskq_constructor(void *buf, void *cdrarg, int kmflags)
 	return (0);
 }
 
-/*ARGSUSED*/
+
 static void
 taskq_destructor(void *buf, void *cdrarg)
 {
@@ -849,7 +849,7 @@ taskq_destructor(void *buf, void *cdrarg)
 	cv_destroy(&tq->tq_maxalloc_cv);
 }
 
-/*ARGSUSED*/
+
 static int
 taskq_ent_constructor(void *buf, void *cdrarg, int kmflags)
 {
@@ -865,7 +865,7 @@ taskq_ent_constructor(void *buf, void *cdrarg, int kmflags)
 	return (0);
 }
 
-/*ARGSUSED*/
+
 static void
 taskq_ent_destructor(void *buf, void *cdrarg)
 {
@@ -1203,7 +1203,7 @@ taskq_cpupct_remove(taskq_t *tq)
 	mutex_exit(&cpu_lock);
 }
 
-/*ARGSUSED*/
+
 static int
 taskq_cpu_setup(cpu_setup_t what, int id, void *arg)
 {
@@ -2440,8 +2440,8 @@ taskq_create_common(const char *name, int instance, int nthreads, pri_t pri,
 	 * Make sure the name is 0-terminated, and conforms to the rules for
 	 * C indentifiers
 	 */
-	(void) strlcpy(tq->tq_name, name, sizeof(tq->tq_name));
-	strident_canon(tq->tq_name, sizeof(tq->tq_name));
+	(void) strlcpy(tq->tq_name, name, sizeof (tq->tq_name));
+	strident_canon(tq->tq_name, sizeof (tq->tq_name));
 
 	tq->tq_flags = flags | TASKQ_CHANGING;
 	tq->tq_active = 0;

@@ -1,6 +1,6 @@
 /*	$NetBSD: cname.h,v 1.8 2021/02/23 22:14:59 christos Exp $	*/
 
-/*-
+/*
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Copyright (c) 1992, 1993, 1994 Henry Spencer.
@@ -112,7 +112,7 @@ static struct cname {
 	{"four",		'4'},
 	{"five",		'5'},
 	{"six",			'6'},
-	{"seven",      		'7'},
+	{"seven",		'7'},
 	{"eight",		'8'},
 	{"nine",		'9'},
 	{"colon",		':'},
@@ -125,7 +125,7 @@ static struct cname {
 	{"left-square-bracket",	'['},
 	{"backslash",		'\\'},
 	{"reverse-solidus",	'\\'},
-	{"right-square-bracket",']'},
+	{"right-square-bracket",    ']'},
 	{"circumflex",		'^'},
 	{"circumflex-accent",	'^'},
 	{"underscore",		'_'},

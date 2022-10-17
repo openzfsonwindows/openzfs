@@ -87,7 +87,7 @@ xdrmem_create(XDR *xdrs, const caddr_t addr, const uint_t size,
 	}
 }
 
-/* ARGSUSED */
+
 static void
 xdrmem_destroy(XDR *xdrs)
 {

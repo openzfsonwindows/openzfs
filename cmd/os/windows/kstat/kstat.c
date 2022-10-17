@@ -778,7 +778,7 @@ ks_value_print(ks_nvpair_t *nvpair)
 /*
  * Print a single instance.
  */
-/*ARGSUSED*/
+
 static void
 ks_instance_print(ks_instance_t *ksi, ks_nvpair_t *nvpair, boolean_t last)
 {

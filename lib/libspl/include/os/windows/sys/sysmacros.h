@@ -51,9 +51,9 @@
 
 
 #ifdef _MSC_VER
-#define _Noreturn
+#define	_Noreturn
 #else
-#define _Noreturn	__attribute__((__noreturn__))
+#define	_Noreturn	__attribute__((__noreturn__))
 #endif
 
 /*
@@ -117,4 +117,3 @@
 #define	_LITTLE_ENDIAN
 
 #endif /* _LIBSPL_SYS_SYSMACROS_H */
-

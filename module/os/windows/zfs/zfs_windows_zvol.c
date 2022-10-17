@@ -678,10 +678,10 @@ wzvol_HwStartIo(
 	__in __out PSCSI_REQUEST_BLOCK pSrb)
 {
 
-	/*
-	 * This function cal be called as DPC, so we can not call into ZFS (mutex etc) and kmem.
-	 * including dprintf
-	 */
+/*
+ * This function cal be called as DPC, so we can not call into ZFS
+ * (mutex etc) and kmem, including dprintf
+ */
 
 	UCHAR srbStatus = SRB_STATUS_INVALID_REQUEST;
 	BOOLEAN bFlag;

@@ -1539,7 +1539,7 @@ vflush(struct mount *mp, struct vnode *skipvp, int flags)
 
 				try {
 					Status = ObReferenceObjectByPointer(
-					    fileobject,  // fixme, keep this in dvd
+					    fileobject,
 					    0,
 					    *IoFileObjectType,
 					    KernelMode);

@@ -139,7 +139,8 @@ zfs_version_kernel(void)
 	if (version == NULL)
 		return (NULL);
 
-	status = RegQueryValueExA(hKey, "zfs_version", 0, &type, version, &count);
+	status = RegQueryValueExA(hKey, "zfs_version", 0, &type, version,
+	    &count);
 
 	RegCloseKey(hKey);
 
