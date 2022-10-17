@@ -32,6 +32,7 @@
  * Copyright (c) 2018 George Melikov. All Rights Reserved.
  * Copyright (c) 2019 Datto, Inc. All rights reserved.
  * Copyright (c) 2020 Jorgen Lundman. All rights reserved.
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  */
 
 /*
