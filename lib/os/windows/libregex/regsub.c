@@ -1,6 +1,6 @@
 /*	$NetBSD: regsub.c,v 1.3 2016/02/29 22:10:13 aymeric Exp $	*/
 
-/*-
+/*
  * Copyright (c) 2015 The NetBSD Foundation, Inc.
  * All rights reserved.
  *
@@ -28,10 +28,6 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-// #include <sys/cdefs.h>
-#if defined(LIBC_SCCS) && !defined(lint)
-__RCSID("$NetBSD: regsub.c,v 1.3 2016/02/29 22:10:13 aymeric Exp $");
-#endif
 
 #include <sys/param.h>
 #include <ctype.h>
@@ -54,19 +50,19 @@ addspace(struct str *s, size_t len)
 	void *v;
 
 	if (s->s_max - s->s_len > len)
-		return 0;
+		return (0);
 
 	if (s->s_fixed)
-		return -1;
+		return (-1);
 
 	s->s_max += len + REINCR;
 
 	v = realloc(s->s_ptr, s->s_max);
 	if (v == NULL)
-		return -1;
+		return (-1);
 	s->s_ptr = v;
 
-	return 0;
+	return (0);
 }
 
 static void
@@ -78,7 +74,7 @@ addchar(struct str *s, int c)
 		s->s_ptr[s->s_len++] = c;
 	if (c == 0) {
 		--s->s_len;
-		s->s_ptr[s->s_max - 1] = c;	
+		s->s_ptr[s->s_max - 1] = c;
 	}
 }
 
@@ -97,21 +93,21 @@ initstr(struct str *s, char *buf, size_t len)
 	s->s_ptr = buf == NULL ? malloc(len) : buf;
 	s->s_fixed = buf != NULL;
 	s->s_len = 0;
-	return s->s_ptr == NULL ? -1 : 0;
+	return (s->s_ptr == NULL ? -1 : 0);
 }
 
 static ssize_t
 regsub1(char **buf, size_t len, const char *sub,
     const regmatch_t *rm, const char *str)
 {
-        ssize_t i;
-        char c; 
+	ssize_t i;
+	char c;
 	struct str s;
 
 	if (initstr(&s, *buf, len) == -1)
-		return -1;
+		return (-1);
 
-        while ((c = *sub++) != '\0') {
+	while ((c = *sub++) != '\0') {
 
 		switch (c) {
 		case '&':
@@ -128,37 +124,37 @@ regsub1(char **buf, size_t len, const char *sub,
 			break;
 		}
 
-                if (i == -1) {
-                        if (c == '\\' && (*sub == '\\' || *sub == '&'))
-                                c = *sub++;
+		if (i == -1) {
+			if (c == '\\' && (*sub == '\\' || *sub == '&'))
+				c = *sub++;
 			addchar(&s, c);
-                } else if (rm[i].rm_so != -1 && rm[i].rm_eo != -1) {
-                        size_t l = (size_t)(rm[i].rm_eo - rm[i].rm_so);
+		} else if (rm[i].rm_so != -1 && rm[i].rm_eo != -1) {
+			size_t l = (size_t)(rm[i].rm_eo - rm[i].rm_so);
 			addnstr(&s, str + rm[i].rm_so, l);
-                }
-        }
+		}
+	}
 
 	addchar(&s, '\0');
 	if (!s.s_fixed) {
 		if (s.s_len >= s.s_max) {
 			free(s.s_ptr);
-			return -1;
+			return (-1);
 		}
 		*buf = s.s_ptr;
 	}
-	return s.s_len;
+	return (s.s_len);
 }
 
 ssize_t
 regnsub(char *buf, size_t len, const char *sub, const regmatch_t *rm,
     const char *str)
 {
-	return regsub1(&buf, len, sub, rm, str);
+	return (regsub1(&buf, len, sub, rm, str));
 }
 
 ssize_t
 regasub(char **buf, const char *sub, const regmatch_t *rm, const char *str)
 {
 	*buf = NULL;
-	return regsub1(buf, REINCR, sub, rm, str);
+	return (regsub1(buf, REINCR, sub, rm, str));
 }

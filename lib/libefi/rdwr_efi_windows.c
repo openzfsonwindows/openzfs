@@ -1310,7 +1310,7 @@ efi_write(int fd, struct dk_gpt *vtoc)
 		}
 		memcpy(&efi_parts[i].efi_gpe_UniquePartitionGUID,
 		    &vtoc->efi_parts[i].p_uguid,
- sizeof (uuid_t));
+		    sizeof (uuid_t));
 	}
 	efi->efi_gpt_PartitionEntryArrayCRC32 =
 	    LE_32(efi_crc32((unsigned char *)efi_parts,
@@ -1511,4 +1511,3 @@ efi_err_check(struct dk_gpt *vtoc)
 		    "no reserved partition found\n");
 	}
 }
-

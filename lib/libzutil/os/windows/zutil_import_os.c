@@ -800,14 +800,14 @@ typedef struct vdev_dev_strs {
 	char	vds_devphys[128];
 } vdev_dev_strs_t;
 
-/* ARGSUSED */
+
 int
 zfs_device_get_devid(struct udev_device *dev, char *bufptr, size_t buflen)
 {
 	return (ENODATA);
 }
 
-/* ARGSUSED */
+
 int
 zfs_device_get_physical(struct udev_device *dev, char *bufptr, size_t buflen)
 {

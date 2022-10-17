@@ -1504,7 +1504,7 @@ zio_crypt_init_uios_zil(boolean_t encrypt, uint8_t *plainbuf,
 			dst_iovecs[nr_iovecs].iov_len = crypt_len;
 
 			/* copy the bp now since it will not be encrypted */
-			memcpy(dlrp + sizeof(lr_write_t) - sizeof(blkptr_t),
+			memcpy(dlrp + sizeof (lr_write_t) - sizeof (blkptr_t),
 			    slrp + sizeof (lr_write_t) - sizeof (blkptr_t),
 			    sizeof (blkptr_t));
 			memcpy(aadp,
@@ -1656,7 +1656,8 @@ zio_crypt_init_uios_dnode(boolean_t encrypt, uint64_t version,
 		dnp = &sdnp[i];
 
 		/* copy over the core fields and blkptrs (kept as plaintext) */
-		memcpy(&ddnp[i], dnp, (uint8_t *)DN_BONUS(dnp) - (uint8_t *)dnp);
+		memcpy(&ddnp[i], dnp,
+		    (uint8_t *)DN_BONUS(dnp) - (uint8_t *)dnp);
 
 		if (dnp->dn_flags & DNODE_FLAG_SPILL_BLKPTR) {
 			memcpy(DN_SPILL_BLKPTR(&ddnp[i]), DN_SPILL_BLKPTR(dnp),

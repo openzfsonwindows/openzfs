@@ -102,7 +102,7 @@ xdr_double(XDR *xdrs, double *dp)
 	return (FALSE);
 }
 
-/* ARGSUSED */
+
 bool_t
 xdr_quadruple(XDR *xdrs, long double *fp)
 {

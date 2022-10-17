@@ -38,7 +38,7 @@ extern "C" {
 #include <sys/stat.h>
 
 #if defined(_MSC_VER)
-    // These are now defined in stat.h
+// These are now defined in stat.h
 // #define	S_IRUSR  S_IREAD	/* read, user */
 // #define	S_IWUSR  S_IWRITE	/* write, user */
 // #define	S_IXUSR  0		/* execute, user */

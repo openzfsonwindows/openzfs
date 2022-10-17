@@ -1,6 +1,6 @@
 /*	$NetBSD: regexec.c,v 1.26 2021/02/26 19:24:47 christos Exp $	*/
 
-/*-
+/*
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Copyright (c) 1992, 1993, 1994 Henry Spencer.
@@ -41,13 +41,6 @@
 #include "nbtool_config.h"
 #endif
 
-// #include <sys/cdefs.h>
-#if 0
-static char sccsid[] = "@(#)regexec.c	8.3 (Berkeley) 3/20/94";
-__FBSDID("$FreeBSD: head/lib/libc/regex/regexec.c 326025 2017-11-20 19:49:47Z pfg $");
-__RCSID("$NetBSD: regexec.c,v 1.26 2021/02/26 19:24:47 christos Exp $");
-#endif
-
 /*
  * the outer shell of regexec()
  *
@@ -68,7 +61,7 @@ __RCSID("$NetBSD: regexec.c,v 1.26 2021/02/26 19:24:47 christos Exp $");
 #include <regex.h>
 
 #if defined(__weak_alias) && !defined(LIBHACK)
-__weak_alias(regexec,_regexec)
+__weak_alias(regexec, _regexec)
 #endif
 
 #include "utils.h"
@@ -87,25 +80,25 @@ xmbrtowc(wint_t *wi, const char *s, size_t n, mbstate_t *mbs, wint_t dummy)
 	if (nr == 0)
 		return (1);
 	else if (nr == (size_t)-1 || nr == (size_t)-2) {
-		memset(mbs, 0, sizeof(*mbs));
+		memset(mbs, 0, sizeof (*mbs));
 		if (wi != NULL)
 			*wi = dummy;
 		return (1);
 	} else
-                return (nr);
+		return (nr);
 #else
 	if (wi)
 		*wi = *s;
-	return 1;
+	return (1);
 #endif
 }
 
 static __inline size_t
 xmbrtowc_dummy(wint_t *wi,
-		const char *s,
-		size_t n __maybe_unused,
-		mbstate_t *mbs __maybe_unused,
-		wint_t dummy __maybe_unused)
+    const char *s,
+    size_t n __maybe_unused,
+    mbstate_t *mbs __maybe_unused,
+    wint_t dummy __maybe_unused)
 {
 
 	if (wi != NULL)
@@ -139,7 +132,7 @@ xmbrtowc_dummy(wint_t *wi,
 #define	XMBRTOWC	xmbrtowc_dummy
 #define	ZAPSTATE(mbs)	((void)(mbs))
 /* function names */
-#define SNAMES			/* engine.c looks after details */
+#define	SNAMES	/* engine.c looks after details */
 
 #include "engine.c"
 
@@ -176,7 +169,8 @@ xmbrtowc_dummy(wint_t *wi,
 #define	EQ(a, b)	(memcmp(a, b, m->g->nstates) == 0)
 #define	STATEVARS	long vn; char *space
 #define	STATESETUP(m, nv)	{ (m)->space = malloc((nv)*(m)->g->nstates); \
-				if ((m)->space == NULL) return(REG_ESPACE); \
+				if ((m)->space == NULL) \
+					return (REG_ESPACE); \
 				(m)->vn = 0; }
 #define	STATETEARDOWN(m)	{ free((m)->space); }
 #define	SETUP(v)	((v) = &m->space[m->vn++ * m->g->nstates])
@@ -202,53 +196,53 @@ xmbrtowc_dummy(wint_t *wi,
 #undef	XMBRTOWC
 #undef	ZAPSTATE
 #define	XMBRTOWC	xmbrtowc
-#define	ZAPSTATE(mbs)	memset((mbs), 0, sizeof(*(mbs)))
+#define	ZAPSTATE(mbs)	memset((mbs), 0, sizeof (*(mbs)))
 #define	MNAMES
 
 #include "engine.c"
 
 /*
- - regexec - interface for matching
- = extern int regexec(const regex_t *, const char *, size_t, \
- =					regmatch_t [], int);
- = #define	REG_NOTBOL	00001
- = #define	REG_NOTEOL	00002
- = #define	REG_STARTEND	00004
- = #define	REG_TRACE	00400	// tracing of execution
- = #define	REG_LARGE	01000	// force large representation
- = #define	REG_BACKR	02000	// force use of backref code
+ * regexec - interface for matching
+ * extern int regexec(const regex_t *, const char *, size_t, \
+ *					regmatch_t [], int);
+ * #define	REG_NOTBOL	00001
+ * #define	REG_NOTEOL	00002
+ * #define	REG_STARTEND	00004
+ * #define	REG_TRACE	00400	// tracing of execution
+ * #define	REG_LARGE	01000	// force large representation
+ * #define	REG_BACKR	02000	// force use of backref code
  *
  * We put this here so we can exploit knowledge of the state representation
  * when choosing which matcher to call.  Also, by this point the matchers
  * have been prototyped.
  */
 int				/* 0 success, REG_NOMATCH failure */
-regexec(const regex_t * __restrict preg,
-	const char * __restrict string,
-	size_t nmatch,
-	regmatch_t pmatch[__restrict],
-	int eflags)
+regexec(const regex_t *__restrict preg,
+    const char *__restrict string,
+    size_t nmatch,
+    regmatch_t pmatch[__restrict],
+    int eflags)
 {
 	struct re_guts *g = preg->re_g;
 #ifdef REDEBUG
-#	define	GOODFLAGS(f)	(f)
+#define	GOODFLAGS(f)	(f)
 #else
-#	define	GOODFLAGS(f)	((f)&(REG_NOTBOL|REG_NOTEOL|REG_STARTEND))
+#define	GOODFLAGS(f)	((f)&(REG_NOTBOL|REG_NOTEOL|REG_STARTEND))
 #endif
 	_DIAGASSERT(preg != NULL);
 	_DIAGASSERT(string != NULL);
 
 	if (preg->re_magic != MAGIC1 || g->magic != MAGIC2)
-		return(REG_BADPAT);
+		return (REG_BADPAT);
 	assert(!(g->iflags&BAD));
 	if (g->iflags&BAD)		/* backstop for no-debug case */
-		return(REG_BADPAT);
+		return (REG_BADPAT);
 	eflags = GOODFLAGS(eflags);
 
 	if (MB_CUR_MAX > 1)
-		return(mmatcher(g, string, nmatch, pmatch, eflags));
-	else if (g->nstates <= CHAR_BIT*sizeof(states1) && !(eflags&REG_LARGE))
-		return(smatcher(g, string, nmatch, pmatch, eflags));
+		return (mmatcher(g, string, nmatch, pmatch, eflags));
+	else if (g->nstates <= CHAR_BIT*sizeof (states1) && !(eflags&REG_LARGE))
+		return (smatcher(g, string, nmatch, pmatch, eflags));
 	else
-		return(lmatcher(g, string, nmatch, pmatch, eflags));
+		return (lmatcher(g, string, nmatch, pmatch, eflags));
 }

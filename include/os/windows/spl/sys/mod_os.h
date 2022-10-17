@@ -161,7 +161,7 @@ static inline uint64_t ZT_TYPE_REGISTRY(ztunable_type t)
 		return (REG_SZ);
 	case ZT_TYPE_U64:
 	case ZT_TYPE_S64:
-	    return (REG_QWORD);
+		return (REG_QWORD);
 	case ZT_TYPE_NOTSET:
 		/* not reached */
 		ASSERT3U(t, !=, ZT_TYPE_NOTSET);
@@ -184,7 +184,7 @@ static inline uint64_t ZT_TYPE_SIZE(ztunable_type t)
 		return (sizeof (uintptr_t));
 	case ZT_TYPE_U64:
 	case ZT_TYPE_S64:
-	    return (sizeof (uint64_t));
+		return (sizeof (uint64_t));
 	case ZT_TYPE_NOTSET:
 		/* not reached */
 		ASSERT3U(t, !=, ZT_TYPE_NOTSET);
@@ -236,7 +236,7 @@ ZT_SET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 		return;
 	case ZT_TYPE_U64:
 	case ZT_TYPE_S64:
-	    ASSERT3U(*len, >=, sizeof (uint64_t));
+		ASSERT3U(*len, >=, sizeof (uint64_t));
 		*(uint64_t *)zt->zt_ptr = *(uint64_t *)*ptr;
 		return;
 	case ZT_TYPE_NOTSET:

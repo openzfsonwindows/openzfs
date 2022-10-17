@@ -1,6 +1,6 @@
 /*	$NetBSD: utils.h,v 1.9 2021/04/22 19:20:24 christos Exp $	*/
 
-/*-
+/*
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Copyright (c) 1992, 1993, 1994 Henry Spencer.
@@ -43,9 +43,9 @@
 #include <wctype.h>
 #else
 #include <ctype.h>
-#define wint_t regex_wint_t
-#define mbstate_t regex_mbstate_t
-#define wctype_t regex_wctype_t
+#define	wint_t regex_wint_t
+#define	mbstate_t regex_mbstate_t
+#define	wctype_t regex_wctype_t
 typedef short wint_t;
 typedef char mbstate_t;
 typedef short wctype_t;
@@ -53,8 +53,8 @@ typedef short wctype_t;
 // #define iswlower(a) islower(a)
 // #define iswalpha(a) isalpha(a)
 // #define iswalnum(a) isalnum(a)
-#define towupper(a) toupper(a)
-#define towlower(a) tolower(a)
+#define	towupper(a) toupper(a)
+#define	towlower(a) tolower(a)
 extern wctype_t __regex_wctype(const char *);
 extern int __regex_iswctype(wint_t, wctype_t);
 // #define wctype(s) __regex_wctype(s)

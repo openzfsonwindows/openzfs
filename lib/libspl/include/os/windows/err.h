@@ -24,9 +24,9 @@
 
 #include <sys/debug.h>
 
-void	err(int, const char*, ...) _Noreturn __printf0like(2, 3);
-void	errx(int, const char*, ...) _Noreturn __printf0like(2, 3);
-void	warnx(const char*, ...) __printflike(1, 2);
+void err(int, const char *, ...) _Noreturn __printf0like(2, 3);
+void errx(int, const char *, ...) _Noreturn __printf0like(2, 3);
+void warnx(const char *, ...) __printflike(1, 2);
 
 inline static void
 err(int x, const char *f, ...)

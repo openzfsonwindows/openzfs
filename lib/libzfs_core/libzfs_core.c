@@ -100,7 +100,8 @@
 /*
  * 64k aswell
  * https://stackoverflow.com/q/33553837
- * https://docs.microsoft.com/en-au/windows/win32/api/namedpipeapi/nf-namedpipeapi-transactnamedpipe
+ * https://docs.microsoft.com/en-au/windows/win32/api/namedpipeapi/
+ * nf-namedpipeapi-transactnamedpipe
  */
 
 
