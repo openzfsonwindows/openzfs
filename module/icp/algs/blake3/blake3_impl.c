@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2021-2022 Tino Reichardt <milky-zfs@mcmilk.de>
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  */
 
 #include <sys/zfs_context.h>
