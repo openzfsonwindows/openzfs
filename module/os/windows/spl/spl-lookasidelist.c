@@ -2,8 +2,8 @@
 #include <sys/lookasidelist.h>
 
 /*
-* Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
-*/
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
+ */
 
 typedef struct lookasidelist_stats {
     kstat_named_t lookasidestat_active_alloc;
