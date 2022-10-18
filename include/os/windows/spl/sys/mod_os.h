@@ -72,11 +72,6 @@ extern "C" {
 // Glancing at Linux kernel, module parameters limit:
 #define	LINUX_MAX_MODULE_PARAM_LEN 1024
 
-/* This platform have long as 32-bit */
-/* We could check this with LP32 too */
-#define	ZFS_MODULE_LONG int64_t
-#define	ZFS_MODULE_ULONG uint64_t
-
 /*
  * The init/fini functions need to be called, but they are all static
  */
