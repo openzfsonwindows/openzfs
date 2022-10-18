@@ -111,7 +111,7 @@ _LIBZUTIL_H void update_vdev_config_dev_strs(nvlist_t *);
 #ifdef _WIN32
 #define	DISK_ROOT	"\\\\?\\"
 #else
-#define	DISK_ROOT	"/dev/"
+#define	DISK_ROOT	"/dev"
 #endif
 
 #define	UDISK_ROOT	"/dev/disk"
