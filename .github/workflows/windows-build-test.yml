@@ -110,15 +110,21 @@ jobs:
     - name: get installer exe name
       id: innoout
     # https://stackoverflow.com/questions/4426442/unix-tail-equivalent-command-in-windows-powershell
+    #https://www.jamescroft.co.uk/setting-github-actions-environment-variables-in-powershell/
       run: |
         $p = Get-Content "${{github.workspace}}\iscc.log" -Tail 1
         echo $p
         $f = (Get-Item $p ).Name
         echo $f
-        echo "::set-output name=name::$($f)"
+        echo installername=$f
+        #echo "installername=$f" >> $GITHUB_ENV
+        #echo "installername=$f" >> $GITHUB_OUTPUT
+        echo "installername=$f" | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append
+      #shell: pwsh
+
 
     - name: debug - echo
-      run: echo ${{ steps.innoout.outputs.name }}
+      run: echo "${{ steps.innoout.outputs.installername }}"
 
     - name: Upload a Build Artifact
       if: ${{ failure() }}
@@ -165,7 +171,7 @@ jobs:
         Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $pwd
 
     - name: install zfs
-      run: 'Start-Process -FilePath "${{github.workspace}}\contrib\windows\${{ steps.innoout.outputs.name }}" -Wait -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Install.log`""'
+      run: 'Start-Process -FilePath "${{github.workspace}}\contrib\windows\${{ steps.innoout.outputs.installername }}" -Wait -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Install.log`""'
 
     #- name: Wait for install to finish
     #  run: Start-Sleep -Seconds 30
@@ -182,139 +188,6 @@ jobs:
 
 
 
-
-#
-#  build_wsl:
-#    runs-on: ubuntu-latest
-#    steps:
-#    - uses: actions/checkout@v3
-#      with:
-#        ref: ${{ github.event.pull_request.head.sha }}
-#    - name: Reclaim disk space
-#      run: |
-#        ${{ github.workspace }}/.github/workflows/scripts/reclaim_disk_space.sh
-#    - name: Install dependencies
-#      run: |
-#        sudo apt-get update
-#        xargs --arg-file=${{ github.workspace }}/.github/workflows/build-dependencies.txt sudo eatmydata apt-get install -qq
-#        sudo eatmydata apt-get clean
-#    - name: Autogen.sh
-#      run: |
-#        eatmydata ./autogen.sh
-#    - name: Configure
-#      run: |
-#        eatmydata ./configure -C --enable-debug --enable-debuginfo --enable-asan --enable-ubsan
-#    - name: Make
-#      run: |
-#        eatmydata make -j16 --no-print-directory --silent pkg-utils pkg-kmod
-#        #eatmydata make -j$(nproc) --no-print-directory --silent pkg-utils pkg-kmod
-#    - name: get files
-#      run: ls -Rla
-#    - name: Prepare artifacts
-#      if: failure()
-#      run: |
-#        sudo cp /var/log/syslog /var/tmp/dmesg-prerun $RESULTS_PATH/
-#        sudo chmod +r $RESULTS_PATH/*
-#        # Replace ':' in dir names, actions/upload-artifact doesn't support it
-#        for f in $(find /var/tmp/test_results -name '*:*'); do mv "$f" "${f//:/__}"; done
-#    - uses: actions/upload-artifact@v2
-#      if: failure()
-#      with:
-#        name: Test logs Ubuntu-${{ matrix.os }}
-#        path: |
-#          /var/tmp/test_results/*
-#          !/var/tmp/test_results/current
-#        if-no-files-found: ignore
-#
-#    - uses: actions/upload-artifact@v2
-#      with:
-#        name: build result
-#        path: |
-#          *.deb
-#          *.rpm
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#  build_mac:
-#    runs-on: macos-latest
-#    steps:
-#      - name: Check out repository code
-#        uses: actions/checkout@v3
-#      #- name: csrutil disable
-#      #  run: |
-#      #    sudo csrutil disable
-#      #- name: csrutil enable
-#      #  run: |
-#      #    sudo csrutil enable --without kext
-#      #- name: spctl kext-consent disable
-#      #  run: |
-#      #    sudo spctl kext-consent disable
-#      - name: install deps
-#        run: |
-#          brew install automake libtool gawk coreutils
-#      #- name: install deps
-#      #  run: |
-#          #brew install openssl@1.1
-#      - name: autogen
-#        run: |
-#          ./autogen.sh
-#      - name: configure
-#        run: |
-#          #https://stackoverflow.com/a/62591864
-#          ./configure CPPFLAGS="-I/usr/local/opt/gettext/include -I/usr/local/opt/openssl@1.1/include" LDFLAGS="-L/usr/local/opt/gettext/lib/ -L/usr/local/opt/openssl@1.1/lib"
-#      - name: build
-#        run: |
-#          make -j 2
-#      - name: install
-#        run: |
-#          sudo make install DESTDIR=///
-#
-#      #- name: load
-#      #  run: |
-#      #    sudo kextload -v /Library/Extensions/zfs.kext
-#
-#      #- name: ls
-#      #  run: |
-#      #    sudo ls -Rla
-#      #    ls -Rla
-#      #- name: rsync
-#      #  run: |
-#      #    rsync -avx --exclude /out/ ${{github.workspace}}/ ${{github.workspace}}/out/ --no-links
-#      #- name: Upload dev build
-#      #  uses: actions/upload-artifact@v3.1.0
-#      #  with:
-#      #    name: dev_build
-#      #    path: ${{github.workspace}}/out/*
-#
-#
-#
-#
-#
 
 
 
@@ -393,7 +266,8 @@ jobs:
         echo $p
         $f = (Get-Item $p ).Name
         echo $f
-        echo "::set-output name=filename::$($f)"
+        echo zfsinstallerfilename=$f
+        echo "zfsinstallerfilename=$f" | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append
 
     # https://github.com/MicrosoftDocs/windows-powershell-docs/issues/266
     - name: Import root certificate
@@ -404,7 +278,7 @@ jobs:
         Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $pwd
 
     - name: debug - echo filename
-      run: echo ${{ steps.zfsinstaller.outputs.filename }}
+      run: echo "${{ steps.zfsinstaller.outputs.zfsinstallerfilename }}"
 
 #    - name: debug - list
 #      run: ls ${{github.workspace}}\
@@ -416,7 +290,7 @@ jobs:
     #  run: ${{github.workspace}}\${{ steps.zfsinstaller.outputs.filename }} /NORESTART /ALLUSERS /VERYSILENT /LOG="${{github.workspace}}\InnoSetup-Install.log"
 
     - name: install zfs
-      run: 'Start-Process -FilePath "${{github.workspace}}\${{ steps.zfsinstaller.outputs.filename }}" -Wait -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Install.log`""'
+      run: 'Start-Process -FilePath "${{github.workspace}}\${{ steps.zfsinstaller.outputs.zfsinstallerfilename }}" -Wait -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Install.log`""'
 
     #- name: Wait for install to finish
     #  run: Start-Sleep -Seconds 30
@@ -531,6 +405,8 @@ jobs:
       timeout-minutes: 1
     - run: Start-Sleep -Seconds 10
       timeout-minutes: 1
+
+
 
 
 
