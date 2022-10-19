@@ -36,7 +36,7 @@ typedef struct zfs_dbgmsg {
 list_t zfs_dbgmsgs;
 uint_t zfs_dbgmsg_size;
 kmutex_t zfs_dbgmsgs_lock;
-uint_t zfs_dbgmsg_maxsize = 4<<20; /* 4MB */
+static uint_t zfs_dbgmsg_maxsize = 4<<20; /* 4MB */
 kstat_t *zfs_dbgmsg_kstat;
 
 int zfs_dbgmsg_enable = 1;

@@ -70,7 +70,7 @@ static abd_stats_t abd_stats = {
 	{ "linear_data_size",			KSTAT_DATA_UINT64 },
 };
 
-struct {
+static struct {
 	wmsum_t abdstat_struct_size;
 	wmsum_t abdstat_scatter_cnt;
 	wmsum_t abdstat_scatter_data_size;
