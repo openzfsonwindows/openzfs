@@ -685,7 +685,7 @@ vnode_apply_eas(struct vnode *vp, PFILE_FULL_EA_INFORMATION eas,
 
 	// Update zp based on LX eas.
 	if (vap.va_active != 0)
-		zfs_setattr(VTOZ(vp), &vap, 0, NULL);
+		zfs_setattr(VTOZ(vp), &vap, 0, NULL, NULL);
 
 out:
 	if (xdvp != NULL) {
@@ -734,7 +734,7 @@ zfs_obtain_xattr(znode_t *dzp, const char *name, mode_t mode, cred_t *cr,
 	vattr.va_mask = ATTR_TYPE | ATTR_MODE;
 
 	if ((error = zfs_acl_ids_create(dzp, 0,
-	    &vattr, cr, NULL, &acl_ids)) != 0) {
+	    &vattr, cr, NULL, &acl_ids, NULL)) != 0) {
 		zfs_exit(zfsvfs, FTAG);
 		return (error);
 	}
@@ -2016,7 +2016,7 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 		}
 	}
 
-	int error = zfs_zaccess_delete(dzp, zp, 0);
+	int error = zfs_zaccess_delete(dzp, zp, 0, NULL);
 
 	if (error == 0) {
 		ASSERT3P(zccb, !=, NULL);
@@ -2606,7 +2606,7 @@ file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 
 	error = zfs_rename(VTOZ(fdvp), &zp->z_name_cache[zp->z_name_offset],
-	    VTOZ(tdvp), remainder ? remainder : filename, NULL, 0);
+	    VTOZ(tdvp), remainder ? remainder : filename, NULL, 0, NULL);
 
 	if (error == 0) {
 		// TODO: rename file in same directory, send OLD_NAME, NEW_NAME

@@ -1049,7 +1049,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 		ASSERT(strchr(finalname, '\\') == NULL);
 		error = zfs_mkdir(VTOZ(dvp), finalname, vap, &zp, NULL,
-		    0, NULL);
+		    0, NULL, NULL);
 		if (error == 0) {
 			vp = ZTOV(zp);
 			zfs_couplefileobject(vp, FileObject, 0ULL);
@@ -1156,7 +1156,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	if (DeleteOnClose &&
 	    vp && zp &&
 	    dvp && VTOZ(dvp) &&
-	    zfs_zaccess_delete(VTOZ(dvp), zp, 0) > 0) {
+	    zfs_zaccess_delete(VTOZ(dvp), zp, 0, NULL) > 0) {
 			VN_RELE(vp);
 			if (dvp)
 				VN_RELE(dvp);
@@ -1310,7 +1310,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		// O_EXCL only if FILE_CREATE
 		error = zfs_create(VTOZ(dvp), finalname, vap,
 		    CreateDisposition == FILE_CREATE, vap->va_mode,
-		    &zp, NULL, 0, NULL);
+		    &zp, NULL, 0, NULL, NULL);
 		if (error == 0) {
 
 			vp = ZTOV(zp);
@@ -3630,7 +3630,7 @@ set_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 				    fbi->FileAttributes))
 					va.va_active |= ATTR_MODE;
 
-			Status = zfs_setattr(zp, &va, 0, NULL);
+			Status = zfs_setattr(zp, &va, 0, NULL, NULL);
 
 			// zfs_setattr will turn ARCHIVE back on, when perhaps
 			// it is set off by this call
@@ -4405,7 +4405,7 @@ set_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	// Do we need to update ZFS?
 	if (vattr.va_mask != 0) {
-		zfs_setattr(zp, &vattr, 0, NULL);
+		zfs_setattr(zp, &vattr, 0, NULL, NULL);
 		Status = STATUS_SUCCESS;
 	}
 
