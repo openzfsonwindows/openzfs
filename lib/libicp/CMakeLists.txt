@@ -45,6 +45,7 @@ add_library(libicp
     "${ICP_MODULE_DIR}/asm-x86_64/os/windows/aes/aes_amd64.S"
     "${ICP_MODULE_DIR}/asm-x86_64/os/windows/sha2/sha256_impl.S"
     "${ICP_MODULE_DIR}/asm-x86_64/os/windows/sha2/sha512_impl.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/modes/gcm_pclmulqdq.S"
 )
 
 # Add windows/assembler sources here too.

@@ -18,6 +18,7 @@ wdk_add_library(icpkern
   algs/modes/ecb.c
   algs/modes/gcm.c
   algs/modes/gcm_generic.c
+  algs/modes/gcm_pclmulqdq.c
   algs/modes/modes.c
   algs/sha2/sha2.c
   algs/skein/skein.c
@@ -33,7 +34,7 @@ wdk_add_library(icpkern
   asm-x86_64/os/windows/aes/aes_aesni.S
   asm-x86_64/os/windows/aes/aes_amd64.S
   asm-x86_64/modes/aesni-gcm-x86_64.S
-  asm-x86_64/modes/gcm_pclmulqdq.S
+  asm-x86_64/os/windows/modes/gcm_pclmulqdq.S
   asm-x86_64/modes/ghash-x86_64.S
 #  asm-x86_64/sha1/sha1-x86_64.S
   asm-x86_64/os/windows/sha2/sha256_impl.S
