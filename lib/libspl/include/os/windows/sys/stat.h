@@ -68,10 +68,18 @@
 #define	S_ISVTX		0001000 /* [XSI] directory restrcted delete */
 
 #if !defined(_POSIX_C_SOURCE)
+#ifndef S_ISTXT
 #define	S_ISTXT		S_ISVTX /* sticky bit: not supported */
+#endif
+#ifndef S_IREAD
 #define	S_IREAD		S_IRUSR /* backward compatability */
+#endif
+#ifndef S_IWRITE
 #define	S_IWRITE	S_IWUSR /* backward compatability */
+#endif
+#ifndef S_IEXEC
 #define	S_IEXEC		S_IXUSR /* backward compatability */
+#endif
 #endif
 
 /*
