@@ -254,7 +254,7 @@ __internal_opendir(wchar_t *wname, int size)
 	if (!data)
 		goto out_of_memory;
 	wname[extra_prefix + size - 1] = 0;
-	data->fd = (int)CreateFileW(wname, 0, 0, NULL, OPEN_EXISTING,
+	data->fd = (int)(uintptr_t)CreateFileW(wname, 0, 0, NULL, OPEN_EXISTING,
 	    FILE_FLAG_BACKUP_SEMANTICS, 0);
 	wname[extra_prefix + size - 1] = L'\\';
 	data->count = 16;

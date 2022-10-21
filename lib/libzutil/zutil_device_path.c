@@ -133,7 +133,7 @@ zfs_strcmp_shortname(const char *name, const char *cmp_name, int wholedisk)
 
 #ifdef _WIN32
 		if ((path_len == cmp_len) &&
-		    stricmp(path_name, cmp_name) == 0) {
+		    strcasecmp(path_name, cmp_name) == 0) {
 #else
 		if ((path_len == cmp_len) && strcmp(path_name, cmp_name) == 0) {
 #endif
