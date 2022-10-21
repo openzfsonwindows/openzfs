@@ -92,6 +92,8 @@ xgetbv(uint32_t c)
 
 #endif
 
+#define	CPUID_FEATURE_AES               (1<<25)
+#define	CPUID_FEATURE_XSAVE             (1<<26)
 
 extern uint64_t spl_cpuid_features(void);
 extern uint64_t spl_cpuid_leaf7_features(void);
