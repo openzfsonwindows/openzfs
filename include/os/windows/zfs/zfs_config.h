@@ -63,6 +63,8 @@
 
 #define	HAVE_USLEEP 1
 
+#define	HAVE_AES 1
+
 /* Path where the kernel module is installed. */
 #define	KERNEL_MODPREFIX "/Library/Extensions"
 
