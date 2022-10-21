@@ -29,8 +29,11 @@
 
 #if defined(__i386) || defined(__amd64)
 
+#ifdef _WIN32
+#include <win/asm_linkage.h>
+#else
 #include <sys/ia32/asm_linkage.h>	/* XX64	x86/sys/asm_linkage.h */
-
+#endif
 #endif
 
 #if defined(_KERNEL) && defined(HAVE_KERNEL_OBJTOOL)

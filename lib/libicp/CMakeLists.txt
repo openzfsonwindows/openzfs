@@ -39,6 +39,12 @@ add_library(libicp
     "${ICP_MODULE_DIR}/io/sha2_mod.c"
     "${ICP_MODULE_DIR}/io/skein_mod.c"
     "${ICP_MODULE_DIR}/spi/kcf_spi.c"
+
+    "${ICP_MODULE_DIR}/asm-x86_64/aes/aeskey.c"
+    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/aes/aes_aesni.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/aes/aes_amd64.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/sha2/sha256_impl.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/sha2/sha512_impl.S"
 )
 
 # Add windows/assembler sources here too.
