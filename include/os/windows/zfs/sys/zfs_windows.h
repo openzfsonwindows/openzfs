@@ -108,6 +108,8 @@ extern char *major2str(int major, int minor);
 extern char *common_status_str(NTSTATUS Status);
 extern char *create_options(ULONG options);
 extern char *create_reply(NTSTATUS, ULONG reply);
+extern void latency_stats(uint64_t *histo, unsigned int buckets,
+    stat_pair *lat);
 
 /* zfs_vnop_windows_lib.h */
 extern int	AsciiStringToUnicodeString(char *in, PUNICODE_STRING out);
