@@ -39,7 +39,6 @@ extern void aes_decrypt_intel(const uint32_t rk[], int Nr,
 
 
 #include <aes/aes_impl.h>
-
 /*
  * Expand the 32-bit AES cipher key array into the encryption and decryption
  * key schedules.

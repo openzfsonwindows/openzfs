@@ -223,15 +223,15 @@ _key_expansion_192a_local:
 	pxor	%xmm1, %xmm0
 
 	movups	%xmm2, %xmm5
-	movups	%xmm2, %xmm6
+	movups	%xmm2, %xmm7
 	pslldq	$4, %xmm5
 	pshufd	$0b11111111, %xmm0, %xmm3
 	pxor	%xmm3, %xmm2
 	pxor	%xmm5, %xmm2
 
 	movups	%xmm0, %xmm1
-	shufps	$0b01000100, %xmm0, %xmm6
-	movups	%xmm6, (%rcx)
+	shufps	$0b01000100, %xmm0, %xmm7
+	movups	%xmm7, (%rcx)
 	shufps	$0b01001110, %xmm2, %xmm1
 	movups	%xmm1, 0x10(%rcx)
 	add	$0x20, %rcx
@@ -295,6 +295,21 @@ SET_SIZE(_key_expansion_256b)
  * Return value is non-zero on error, 0 on success.
  */
 
+// Windows x64:
+// Calling: rcx, rdx, r8, and r9 (float: xmm0-xmm3)
+// Return: rax (float: xmm0)
+// Volatile: rax, rcx, rdx, r8-r11
+// Nonvolatile: rbx, rbp, rsp, rdi, rsi, r12-r15 (xmm6, xmm15)
+
+// Unix x64:
+// Calling: rdi, rsi, rdx, rcx, r8, r9 (float: xmm0-xmm7)
+// Return: rax (float: xmm0)
+// Volatile:
+// Nonvolatile: rbx, rbp, rsp, r12-r15
+
+// outcome:
+// Since xmm6 is nonvolatile, but xmm7 isnt, we can just move to that.
+
 #ifdef	OPENSSL_INTERFACE
 #define	rijndael_key_setup_enc_intel	intel_AES_set_encrypt_key
 #define	rijndael_key_setup_dec_intel	intel_AES_set_decrypt_key
@@ -304,11 +319,11 @@ SET_SIZE(_key_expansion_256b)
 #define	KEYSIZE64		rsi	/* P2, 64 bits */
 #define	AESKEY			rdx	/* P3, 64 bits */
 
-#else	/* OpenSolaris Interface */
-#define	AESKEY			rdi	/* P1, 64 bits */
-#define	USERCIPHERKEY		rsi	/* P2, 64 bits */
-#define	KEYSIZE32		edx	/* P3, 32 bits */
-#define	KEYSIZE64		rdx	/* P3, 64 bits */
+#else	/* OpenSolaris^W Windows Interface */
+#define	AESKEY			rcx	/* P1, 64 bits (was rdi) */
+#define	USERCIPHERKEY		rdx	/* P2, 64 bits (rsi) */
+#define	KEYSIZE32		r8d	/* P3, 32 bits (edx) */
+#define	KEYSIZE64		r8	/* P3, 64 bits (rdx) */
 #endif	/* OPENSSL_INTERFACE */
 
 #define	ROUNDS32		KEYSIZE32	/* temp */
@@ -587,10 +602,10 @@ FRAME_BEGIN
 #define	NROUNDS		cl	/* temporary,  8 bits */
 
 #else	/* OpenSolaris Interface */
-#define	KEYP		rdi	/* P1, 64 bits */
-#define	NROUNDS		esi	/* P2, 32 bits */
-#define	INP		rdx	/* P3, 64 bits */
-#define	OUTP		rcx	/* P4, 64 bits */
+#define	KEYP		rcx	/* P1, 64 bits (rdi) */
+#define	NROUNDS		edx	/* P2, 32 bits (esi) */
+#define	INP		r8	/* P3, 64 bits (rdx) */
+#define	OUTP		r9	/* P4, 64 bits (rcx) */
 #endif	/* OPENSSL_INTERFACE */
 
 #define	STATE		xmm0	/* temporary, 128 bits */
