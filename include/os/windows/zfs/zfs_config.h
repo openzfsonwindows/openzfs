@@ -63,6 +63,9 @@
 
 #define	HAVE_USLEEP 1
 
+/* These control which assembler files to use */
+//#define	HAVE_AVX 1
+#define	HAVE_PCLMULQDQ 1
 #define	HAVE_AES 1
 
 /* Path where the kernel module is installed. */
