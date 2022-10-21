@@ -667,6 +667,20 @@
 
 #endif	/* LAST_ROUND_TABLES */
 
+// Windows x64:
+// Calling: rcx, rdx, r8, and r9 (float: xmm0-xmm3)
+// Return: rax (float: xmm0)
+// Volatile: rax, rcx, rdx, r8-r11
+// Nonvolatile: rbx, rbp, rsp, rdi, rsi, r12-r15 (xmm6, xmm15)
+
+// Unix x64:
+// Calling: rdi, rsi, rdx, rcx, r8, r9 (float: xmm0-xmm7)
+// Return: rax (float: xmm0)
+// Volatile:
+// Nonvolatile: rbx, rbp, rsp, r12-r15
+
+// outcome:
+
 /*
  * OpenSolaris OS:
  * void aes_encrypt_amd64(const aes_ks_t *ks, int Nr,
@@ -698,12 +712,16 @@ enc_tab:
 	movzx	4*KS_LENGTH(kptr), %esi	// Get byte key length * 16
 
 #else
-	// OpenSolaris OS interface
+
+	// Windows interface
+	push	%rdi
+	push	%rsi
 	sub	$(4*8), %rsp	// Make room on stack to save registers
-	mov	%rcx, (%rsp)	// Save output pointer (P4) on stack
-	mov	%rdi, %r8	// context (P1)
-	mov	%rdx, %rdi	// P3: save input pointer
-	shl	$4, %esi	// P2: esi byte key length * 16
+	mov	%r9, (%rsp)	// Save output pointer (P4) on stack (was rcx)
+	mov	%r8, %rdi	// P3: save input pointer (was rdx)
+	mov	%rcx, %r8	// context (P1) (was rdi)
+	mov	%edx, %esi	// P2: to esi.
+	shl	$4, %esi	// P2: esi byte key length * 16 (was esi)
 
 	mov	%rbx, 1*8(%rsp)	// Save registers
 	mov	%rbp, 2*8(%rsp)
@@ -767,6 +785,8 @@ enc_tab:
 	mov	2*8(%rsp), %rbp
 	mov	3*8(%rsp), %r12
 	add	$(4*8), %rsp
+	pop	%rsi
+	pop	%rdi
 	ret
 
 	SET_SIZE(aes_encrypt_amd64)
@@ -802,12 +822,16 @@ dec_tab:
 	movzx	4*KS_LENGTH(kptr), %esi	// Get byte key length * 16
 
 #else
-	// OpenSolaris OS interface
+	// Windows interface
+	push	%rdi
+	push	%rsi
+
 	sub	$(4*8), %rsp	// Make room on stack to save registers
-	mov	%rcx, (%rsp)	// Save output pointer (P4) on stack
-	mov	%rdi, %r8	// context (P1)
-	mov	%rdx, %rdi	// P3: save input pointer
-	shl	$4, %esi	// P2: esi byte key length * 16
+	mov	%r9, (%rsp)	// Save output pointer (P4) on stack was rcx
+	mov	%r8, %rdi	// P3: save input pointer was rdx
+	mov	%rcx, %r8	// context (P1) was rdi
+	mov	%edx, %esi	// P2
+	shl	$4, %esi	// P2: esi byte key length * 16 was esi
 
 	mov	%rbx, 1*8(%rsp)	// Save registers
 	mov	%rbp, 2*8(%rsp)
@@ -877,6 +901,8 @@ dec_tab:
 	mov	2*8(%rsp), %rbp
 	mov	3*8(%rsp), %r12
 	add	$(4*8), %rsp
+	pop	%rsi
+	pop	%rdi
 	ret
 
 	SET_SIZE(aes_decrypt_amd64)
