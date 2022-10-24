@@ -89,6 +89,11 @@ wdk_add_library(zfskern
   vdev_raidz.c
   vdev_raidz_math.c
   vdev_raidz_math_scalar.c
+  vdev_raidz_math_avx2.c
+  vdev_raidz_math_avx512f.c
+  vdev_raidz_math_avx512bw.c
+  vdev_raidz_math_sse2.c
+  vdev_raidz_math_ssse3.c
   vdev_rebuild.c
   vdev_removal.c
   vdev_root.c

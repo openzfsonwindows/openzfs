@@ -93,9 +93,20 @@ xgetbv(uint32_t c)
 #endif
 
 #define	CPUID_FEATURE_PCLMULQDQ		(1<<1)
+#define	CPUID_FEATURE_MOVBE		(1<<22)
 #define	CPUID_FEATURE_AES		(1<<25)
 #define	CPUID_FEATURE_XSAVE		(1<<26)
-// #define   CPUID_FEATURE_AVX		(1<<28)
+#define	CPUID_FEATURE_OSXSAVE		(1<<27)
+#define	CPUID_FEATURE_AVX1_0		(1<<28)
+
+#define	CPUID_FEATURE_SSE		(1<<25)
+#define	CPUID_FEATURE_SSE2		(1<<26)
+#define	CPUID_FEATURE_SSE3		(1<<0)
+#define	CPUID_FEATURE_SSSE3		(1<<9)
+#define	CPUID_FEATURE_SSE4_2		(1<<20)
+#define	CPUID_FEATURE_SSE4_1		(1<<19)
+
+#define	CPUID_LEAF7_FEATURE_AVX2    (1<<5)
 
 extern uint64_t spl_cpuid_features(void);
 extern uint64_t spl_cpuid_leaf7_features(void);
@@ -283,19 +294,6 @@ CPUID_FEATURE_CHECK(aes, AES);
 CPUID_FEATURE_CHECK(pclmulqdq, PCLMULQDQ);
 
 #endif /* !defined(_KERNEL) */
-
-// WIN fix me, no asm for now
-#define	CPUID_FEATURE_SSE 0
-#define	CPUID_FEATURE_SSE2 0
-#define	CPUID_FEATURE_SSE3 0
-#define	CPUID_FEATURE_SSSE3 0
-#define	CPUID_FEATURE_SSE4_1 0
-#define	CPUID_FEATURE_SSE4_2 0
-#define	CPUID_FEATURE_OSXSAVE 0
-#define	CPUID_FEATURE_AVX1_0 0
-#define	CPUID_FEATURE_SSE 0
-#define	CPUID_FEATURE_SSE 0
-#define	CPUID_FEATURE_SSE 0
 
 
 /*
@@ -726,6 +724,20 @@ zfs_avx512vbmi_available(void)
 
 	return (has_avx512 && __zmm_enabled());
 }
+
+static inline boolean_t
+zfs_movbe_available(void)
+{
+#if defined(_KERNEL)
+#if defined(HAVE_MOVBE)
+    return (!!(spl_cpuid_features() & CPUID_FEATURE_MOVBE));
+#else
+    return (B_FALSE);
+#endif
+    return (B_FALSE);
+#endif
+}
+
 
 #endif /* defined(__x86) */
 

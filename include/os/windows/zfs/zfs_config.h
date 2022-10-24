@@ -64,9 +64,24 @@
 #define	HAVE_USLEEP 1
 
 /* These control which assembler files to use */
-//#define	HAVE_AVX 1
+#define	HAVE_SSE2 1
+#define	HAVE_SSSE3 1
+#define	HAVE_SSE4_1
+#define	HAVE_AVX 1
+#define	HAVE_AVX2 1
 #define	HAVE_PCLMULQDQ 1
+#define	HAVE_MOVBE 1
 #define	HAVE_AES 1
+#define	HAVE_AVX512F 1
+#define	HAVE_AVX512CD 1
+#define	HAVE_AVX512ER 1
+#define	HAVE_AVX512BW 1
+#define	HAVE_AVX512DQ 1
+#define	HAVE_AVX512VL 1
+#define	HAVE_AVX512IFMA 1
+#define	HAVE_AVX512VBMI 1
+#define	HAVE_AVX512PF 1
+
 
 /* Path where the kernel module is installed. */
 #define	KERNEL_MODPREFIX "/Library/Extensions"
