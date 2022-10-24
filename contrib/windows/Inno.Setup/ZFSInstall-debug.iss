@@ -57,7 +57,7 @@ WizardImageFile="{#SourcePath}\openzfs-large.bmp"
 ; "signtoolc" = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe sign /v /fd sha256 /n $qOpenZFS Test Signing Certificate$q /t http://timestamp.digicert.com $f"
 ; SignTool=signtoola
 ; SignTool=signtoolb
-SignTool=signtoolc
+SignTool=signtoola
 
 
 [Languages]
