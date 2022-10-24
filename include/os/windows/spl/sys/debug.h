@@ -62,7 +62,6 @@
 
 #define	unlikely
 #define	likely
-#define	__attribute__(X)
 #define	__maybe_unused
 #define	__printflike(X, Y)
 #define	__unused
@@ -88,12 +87,12 @@
 #define	__unused  __attribute__((unused))
 #define	_Noreturn	__attribute__((__noreturn__))
 
+extern void panic(const char* fmt, ...) __attribute__((__noreturn__));
 
 #endif
 
 
 
-extern void panic(const char *fmt, ...) __attribute__((__noreturn__));
 
 extern void printBuffer(const char *fmt, ...);
 

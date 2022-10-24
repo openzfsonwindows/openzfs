@@ -87,7 +87,6 @@ extern "C" {
 		fn();		\
 	}
 
-#define	module_param_call(a, b, c, d, e)
 #define	module_param_named(a, b, c, d)
 
 #define	module_init_early(fn)	\
@@ -304,10 +303,10 @@ ZT_GET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 
 
 #define	ZFS_MODULE_PARAM_CALL_IMPL( \
-    scope_prefix, name_prefix, name, perm, args, desc) \
+    scope_prefix, name_prefix, name, perm, func, args, desc) \
 	static ztunable_t zt_ ## name_prefix ## name = { \
-		.zt_ptr = &name_prefix ## name, \
-		.zt_func = args, \
+		.zt_ptr = args, \
+		.zt_func = func, \
 		.zt_name = #name_prefix #name, \
 		.zt_prefix = #scope_prefix, \
 		.zt_desc = #desc, \
@@ -320,9 +319,14 @@ ZT_GET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 #define	ZFS_MODULE_PARAM_CALL( \
     scope_prefix, name_prefix, name, func, _, perm, desc) \
 	ZFS_MODULE_PARAM_CALL_IMPL(scope_prefix, name_prefix, name, perm, \
-	    func, desc)
+	    func, &name_prefix ## name, desc)
 
 #define	ZFS_MODULE_VIRTUAL_PARAM_CALL ZFS_MODULE_PARAM_CALL
+
+#define	module_param_call(name, _set, _get, var, mode) \
+	extern int win32_ ## _set(ZFS_MODULE_PARAM_ARGS);	\
+    ZFS_MODULE_PARAM_CALL_IMPL(_tunable, , name, ZMOD_RW,	\
+		win32_ ## _set, var, "xxx")
 
 struct zfs_kernel_param_s;
 typedef struct zfs_kernel_param_s zfs_kernel_param_t;
