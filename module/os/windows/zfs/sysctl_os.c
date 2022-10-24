@@ -81,6 +81,67 @@ sysctl_os_close_registry(HANDLE regfd)
 	ZwClose(regfd);
 }
 
+int
+sysctl_os_write_registry(HANDLE regfd, ztunable_t *zt, UNICODE_STRING *entry)
+{
+	void *val = NULL;
+	ULONG len = 0;
+	ULONG type = 0; // Registry type
+	UNICODE_STRING str = { 0 };
+	NTSTATUS Status;
+	ULONG length;
+
+	ZT_GET_VALUE(zt, &val, &len, &type);
+
+	ASSERT3P(val, != , NULL);
+
+	if (type == ZT_TYPE_STRING) {
+
+		/*
+		 * STRINGS: from zfs/ZT struct to write out to Registry
+		 * Check how much space convert will need, allocate
+		 * buffer
+		 * Convert ascii -> utf8 the string
+		 * Assign to Registry update.
+		 */
+		Status = RtlUTF8ToUnicodeN(NULL, 0,
+		    &length, val, len);
+		if (!NT_SUCCESS(Status))
+			goto skip;
+		str.Length = str.MaximumLength = length;
+		str.Buffer = ExAllocatePoolWithTag(PagedPool, length,
+		    'ZTST');
+		if (str.Buffer == NULL) {
+			Status = STATUS_NO_MEMORY;
+			goto skip;
+		}
+
+		Status = RtlUTF8ToUnicodeN(str.Buffer,
+		    str.MaximumLength, &length, val, len);
+		str.Length = length;
+
+		len = length;
+		val = str.Buffer;
+
+		if (!NT_SUCCESS(Status))
+			goto skip;
+	}
+
+	Status = ZwSetValueKey(
+	    regfd,
+	    entry,
+	    0,
+	    ZT_TYPE_REGISTRY(type),
+	    val,
+	    len);
+
+skip:
+	if ((type == ZT_TYPE_STRING) &&
+	    str.Buffer != NULL)
+		ExFreePool(str.Buffer);
+
+	return (Status);
+}
 
 void
 sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
@@ -158,58 +219,8 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 	    &length);
 
 	if (Status == STATUS_OBJECT_NAME_NOT_FOUND) {
-		void *val = NULL;
-		ULONG len = 0;
-		ULONG type = 0; // Registry type
-		UNICODE_STRING str = { 0 };
 
-		ZT_GET_VALUE(zt, &val, &len, &type);
-
-		ASSERT3P(val, !=, NULL);
-
-		if (type == ZT_TYPE_STRING) {
-
-			/*
-			 * STRINGS: from zfs/ZT struct to write out to Registry
-			 * Check how much space convert will need, allocate
-			 * buffer
-			 * Convert ascii -> utf8 the string
-			 * Assign to Registry update.
-			 */
-			Status = RtlUTF8ToUnicodeN(NULL, 0,
-			    &length, val, len);
-			if (!NT_SUCCESS(Status))
-				goto skip;
-			str.Length = str.MaximumLength = length;
-			str.Buffer = ExAllocatePoolWithTag(PagedPool, length,
-			    'ZTST');
-			if (str.Buffer == NULL)
-				goto skip;
-
-			Status = RtlUTF8ToUnicodeN(str.Buffer,
-			    str.MaximumLength, &length, val, len);
-			str.Length = length;
-
-			len = length;
-			val = str.Buffer;
-
-			if (!NT_SUCCESS(Status))
-				goto skip;
-		}
-
-		// No entry, add it
-		Status = ZwSetValueKey(
-		    regfd,
-		    &entry,
-		    0,
-		    ZT_TYPE_REGISTRY(type),
-		    val,
-		    len);
-
-skip:
-		if ((type == ZT_TYPE_STRING) &&
-		    str.Buffer != NULL)
-			ExFreePool(str.Buffer);
+		Status = sysctl_os_write_registry(regfd, zt, &entry);
 
 	} else {
 		// Has entry in Registry, read it, and update tunable
@@ -295,6 +306,18 @@ skip:
 				    strval != NULL) {
 					ExFreePoolWithTag(strval, '!SFZ');
 				}
+
+
+				// If the registry exists, it is written to by the user, but
+				// the actual value may be changed by the _set functions,
+				// so we need to call GET again, and if it differs, update
+				// Registry with real value.
+				// So if its a call-out type, it can be adjusted
+				if (zt->zt_func != NULL) {
+					    Status = sysctl_os_write_registry(regfd, zt, &entry);
+				}
+
+
 			} // RD vs RW
 		}
 

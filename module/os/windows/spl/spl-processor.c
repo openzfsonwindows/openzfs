@@ -104,7 +104,9 @@ spl_cpuid_features(void)
 			_spl_cpuid(7, a, b, d, c);
 			_spl_cpuid_features_leaf7 = b | (c << 32);
 		}
-	}
+		xprintf("SPL: CPUID 0x%08llx and leaf7 0x%08llx\n",
+		    _spl_cpuid_features, _spl_cpuid_features_leaf7);
+        }
 #endif
 
 	return (_spl_cpuid_features);

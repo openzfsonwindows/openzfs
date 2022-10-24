@@ -43,9 +43,16 @@ add_library(libicp
     "${ICP_MODULE_DIR}/asm-x86_64/aes/aeskey.c"
     "${ICP_MODULE_DIR}/asm-x86_64/os/windows/aes/aes_aesni.S"
     "${ICP_MODULE_DIR}/asm-x86_64/os/windows/aes/aes_amd64.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/modes/aesni-gcm-x86_64.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/modes/gcm_pclmulqdq.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/modes/ghash-x86_64.S"
     "${ICP_MODULE_DIR}/asm-x86_64/os/windows/sha2/sha256_impl.S"
     "${ICP_MODULE_DIR}/asm-x86_64/os/windows/sha2/sha512_impl.S"
-    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/modes/gcm_pclmulqdq.S"
+
+    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/blake3/blake3_avx2.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/blake3/blake3_avx512.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/blake3/blake3_sse2.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/blake3/blake3_sse41.S"
 )
 
 # Add windows/assembler sources here too.
