@@ -137,6 +137,21 @@ umem_free(const void *ptr, size_t size __maybe_unused)
 	free((void *)ptr);
 }
 
+/*
+ * umem_free_aligned was added for supporting portability
+ * with non-POSIX platforms that require a different free
+ * to be used with aligned allocations.
+ */
+static inline void
+umem_free_aligned(void *ptr, size_t size __maybe_unused)
+{
+#ifndef _WIN32
+	free((void *)ptr);
+#else
+	_aligned_free(ptr);
+#endif
+}
+
 static inline void
 umem_free_aligned(void *ptr, size_t size __maybe_unused)
 {
