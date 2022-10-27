@@ -153,12 +153,6 @@ umem_free_aligned(void *ptr, size_t size __maybe_unused)
 }
 
 static inline void
-umem_free_aligned(void *ptr, size_t size __maybe_unused)
-{
-	posix_memalign_free(ptr);
-}
-
-static inline void
 umem_nofail_callback(umem_nofail_callback_t *cb __maybe_unused)
 {}
 

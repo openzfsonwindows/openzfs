@@ -53,7 +53,6 @@ typedef int		projid_t;
 #include <sys/param.h> /* for NBBY */
 
 #ifndef _WIN32
-#define	posix_memalign_free free
 #define	NTSTATUS int32_t
 #endif
 

@@ -166,7 +166,6 @@ typedef union {
 #define	O_EXLOCK 0
 
 #define	alloca _alloca
-#define	posix_memalign_free _aligned_free
 int posix_memalign(void **memptr, size_t alignment, size_t size);
 
 #ifndef MIN
