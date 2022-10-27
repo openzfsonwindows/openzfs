@@ -48,7 +48,7 @@
 #endif
 
 /* Place these in header, or better, use MS versions */
-#define	CPUID_FEATURE_XSAVE             (1<<26)
+#define	CPUID_FEATURE_XSAVE	(1<<26)
 
 static uint64_t _spl_cpuid_features = 0ULL;
 static uint64_t _spl_cpuid_features_leaf7 = 0ULL;
@@ -104,14 +104,14 @@ spl_cpuid_features(void)
 			_spl_cpuid(7, a, b, d, c);
 			_spl_cpuid_features_leaf7 = b | (c << 32);
 		}
-        }
+	}
 #endif
 
-        return (_spl_cpuid_features);
+	return (_spl_cpuid_features);
 }
 
 uint64_t
 spl_cpuid_leaf7_features(void)
 {
-        return (_spl_cpuid_features_leaf7);
+	return (_spl_cpuid_features_leaf7);
 }
