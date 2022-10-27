@@ -95,7 +95,7 @@ xgetbv(uint32_t c)
 #define	CPUID_FEATURE_PCLMULQDQ		(1<<1)
 #define	CPUID_FEATURE_AES		(1<<25)
 #define	CPUID_FEATURE_XSAVE		(1<<26)
-//#define   CPUID_FEATURE_AVX		(1<<28)
+// #define   CPUID_FEATURE_AVX		(1<<28)
 
 extern uint64_t spl_cpuid_features(void);
 extern uint64_t spl_cpuid_leaf7_features(void);
