@@ -313,7 +313,7 @@ aes_impl_init(void)
 	 * Set the fastest implementation given the assumption that the
 	 * hardware accelerated version is the fastest.
 	 */
-#if defined(__x86_64) 
+#if defined(__x86_64)
 #if defined(HAVE_AES)
 	if (aes_aesni_impl.is_supported()) {
 		memcpy(&aes_fastest_impl, &aes_aesni_impl,
