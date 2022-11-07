@@ -2,7 +2,7 @@
 [![Build status](https://ci.appveyor.com/api/projects/status/dcw734sl0prmolwr/branch/master?svg=true)](https://ci.appveyor.com/project/lundman/openzfs/branch/master)
 
 
-# To setup a development environment for compiling ZFS.
+# To setup a development environment for compiling OpenZFS on Windows.
 
 
 Download free development Windows 11 image from Microsoft.
@@ -84,7 +84,9 @@ If your version of .NET newer, just move along.
 
 The Target VM should reboot, and login as "WDKRemoteUser".
 
-It is recommended you get GIT bash for Windows and install:
+Use your preferred Unix style shell to work with git and
+cmake. If you do not yet have a preferred shell, the
+"GIT bash for Windows" is small and sufficient:
 
 https://git-scm.com/downloads
 
@@ -278,20 +280,7 @@ it makes zio_taskq_member(taskq_member()) crash. Investigate.
 
 * Functions in posix.c need sustenance.
 
-* The Volume created for MOUNT has something wrong with it, we are
-  unable to query it for mountpoint, currently has to string compare a
-  list of all mounts. Possibly also related is that we can not call
-  any of the functions to set mountpoint to change it. This needs to
-  be researched.
-
-* Find a way to get system RAM in SPL, so we can size up the kmem as
-expected. Currently looks up the information in the Registry.
-kmem should also use Windows signals
-"\KernelObjects\LowMemoryCondition" to sense pressure.
-
-Thinking on mount structure. Second design:
-
-Add dataset property WinDriveLetter, which is ignored on Unix system.
+Add dataset property DriveLetter, which is ignored on Unix system.
 So for a simple drive letter dataset:
 
 zfs set driveletter=Z pool
@@ -310,10 +299,9 @@ not set, it will mount "/pool" as "C:/pool".
 # Installing a binary release
 
 Latest binary files are available at [GitHub releases](https://github.com/openzfsonwindows/OpenZFS/releases)
+for the lastest builds use [Nightly builds](https://openzfsonosx.org/wiki/Windows_builds)
 
-
-If you are running windows 10 with secure boot on and/or installing an older release you will need to enable unsigned drivers from an elevated CMD:
-
+Developers may want to enable TestMode for quicker developments.
 
 * `bcdedit.exe -set testsigning on `
 * Then **reboot**. After restart it should have _Test Mode_ bottom right corner of the screen.
@@ -464,9 +452,3 @@ A reboot might be necessary to uninstall it completely.
 You can use the [registry](https://openzfsonosx.org/wiki/Windows_Registry) to tune various parameters.
 Also, there is [`kstat`](https://openzfsonosx.org/wiki/Windows_kstat) to dynamically change parameters.
 
-# Nightly builds
-
-There are nightly builds available at [AppVeyor](https://ci.appveyor.com/project/lundman/openzfs/branch/master/artifacts)
-- These builds are currently not signed and therefore require test mode to be enabled.
-
-There also are test builds [available here](https://openzfsonosx.org/wiki/Windows_builds). These are "hotfix" builds for allowing people to test specific fixes before they are ready for a release.
