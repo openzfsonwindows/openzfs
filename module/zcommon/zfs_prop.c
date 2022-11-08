@@ -767,6 +767,8 @@ zfs_prop_init(void)
 boolean_t
 zfs_prop_delegatable(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	zprop_desc_t *pd = &zfs_prop_table[prop];
 
 	/* The mlslabel property is never delegatable. */
@@ -877,6 +879,8 @@ zfs_prop_valid_for_type(int prop, zfs_type_t types, boolean_t headcheck)
 zprop_type_t
 zfs_prop_get_type(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	return (zfs_prop_table[prop].pd_proptype);
 }
 
@@ -886,6 +890,8 @@ zfs_prop_get_type(zfs_prop_t prop)
 boolean_t
 zfs_prop_readonly(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	return (zfs_prop_table[prop].pd_attr == PROP_READONLY ||
 	    zfs_prop_table[prop].pd_attr == PROP_ONETIME ||
 	    zfs_prop_table[prop].pd_attr == PROP_ONETIME_DEFAULT);
@@ -897,6 +903,8 @@ zfs_prop_readonly(zfs_prop_t prop)
 boolean_t
 zfs_prop_visible(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	return (zfs_prop_table[prop].pd_visible &&
 	    zfs_prop_table[prop].pd_zfs_mod_supported);
 }
@@ -907,6 +915,8 @@ zfs_prop_visible(zfs_prop_t prop)
 boolean_t
 zfs_prop_setonce(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	return (zfs_prop_table[prop].pd_attr == PROP_ONETIME ||
 	    zfs_prop_table[prop].pd_attr == PROP_ONETIME_DEFAULT);
 }
@@ -914,12 +924,16 @@ zfs_prop_setonce(zfs_prop_t prop)
 const char *
 zfs_prop_default_string(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	return (zfs_prop_table[prop].pd_strdefault);
 }
 
 uint64_t
 zfs_prop_default_numeric(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	return (zfs_prop_table[prop].pd_numdefault);
 }
 
@@ -930,6 +944,8 @@ zfs_prop_default_numeric(zfs_prop_t prop)
 const char *
 zfs_prop_to_name(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	return (zfs_prop_table[prop].pd_name);
 }
 
@@ -939,6 +955,8 @@ zfs_prop_to_name(zfs_prop_t prop)
 boolean_t
 zfs_prop_inheritable(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	return (zfs_prop_table[prop].pd_attr == PROP_INHERIT ||
 	    zfs_prop_table[prop].pd_attr == PROP_ONETIME);
 }
@@ -991,6 +1009,8 @@ zfs_prop_valid_keylocation(const char *str, boolean_t encrypted)
 const char *
 zfs_prop_values(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	return (zfs_prop_table[prop].pd_values);
 }
 
@@ -1002,6 +1022,8 @@ zfs_prop_values(zfs_prop_t prop)
 int
 zfs_prop_is_string(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	return (zfs_prop_table[prop].pd_proptype == PROP_TYPE_STRING ||
 	    zfs_prop_table[prop].pd_proptype == PROP_TYPE_INDEX);
 }
@@ -1013,6 +1035,8 @@ zfs_prop_is_string(zfs_prop_t prop)
 const char *
 zfs_prop_column_name(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	return (zfs_prop_table[prop].pd_colname);
 }
 
@@ -1023,6 +1047,8 @@ zfs_prop_column_name(zfs_prop_t prop)
 boolean_t
 zfs_prop_align_right(zfs_prop_t prop)
 {
+	ASSERT3S(prop, >=, 0);
+	ASSERT3S(prop, <, ZFS_NUM_PROPS);
 	return (zfs_prop_table[prop].pd_rightalign);
 }
 
