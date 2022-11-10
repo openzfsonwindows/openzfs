@@ -2606,7 +2606,8 @@ file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 
 	error = zfs_rename(VTOZ(fdvp), &zp->z_name_cache[zp->z_name_offset],
-	    VTOZ(tdvp), remainder ? remainder : filename, NULL, 0, NULL);
+	    VTOZ(tdvp), remainder ? remainder : filename, NULL, 0, 0, NULL,
+	    NULL);
 
 	if (error == 0) {
 		// TODO: rename file in same directory, send OLD_NAME, NEW_NAME

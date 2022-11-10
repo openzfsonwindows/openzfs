@@ -3067,7 +3067,7 @@ zfs_rename_lock(znode_t *szp, znode_t *tdzp, znode_t *sdzp, zfs_zlock_t **zlpp)
  */
 int
 zfs_rename(znode_t *sdzp, char *snm, znode_t *tdzp, char *tnm,
-    cred_t *cr, int flags, zuserns_t *mnt_ns)
+    cred_t *cr, int flags, uint64_t rflags, vattr_t *wo_vap, zuserns_t *mnt_ns)
 {
 	znode_t		*szp, *tzp;
 	zfsvfs_t	*zfsvfs = ZTOZSB(sdzp);
@@ -3080,6 +3080,9 @@ zfs_rename(znode_t *sdzp, char *snm, znode_t *tdzp, char *tnm,
 	int		error = 0;
 	int		zflg = 0;
 	boolean_t	waited = B_FALSE;
+
+	if (rflags != 0 || wo_vap != NULL)
+		return (SET_ERROR(EINVAL));
 
 	if (snm == NULL || tnm == NULL)
 		return (SET_ERROR(EINVAL));
