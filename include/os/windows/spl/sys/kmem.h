@@ -144,6 +144,8 @@ extern char *kmem_asprintf(const char *fmt, ...);
 extern char *kmem_strdup(const char *str);
 extern void kmem_strfree(char *str);
 extern char *kmem_vasprintf(const char *fmt, va_list ap);
+extern int kmem_scnprintf(char *restrict str, size_t size,
+    const char *restrict fmt, ...);
 extern char *kmem_strstr(const char *in, const char *str);
 extern void strident_canon(char *s, size_t n);
 extern uint64_t spl_kmem_cache_inuse(kmem_cache_t *cache);
