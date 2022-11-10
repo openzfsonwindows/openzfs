@@ -2033,7 +2033,7 @@ zfs_suspend_fs(zfsvfs_t *zfsvfs)
 int
 zfs_resume_fs(zfsvfs_t *zfsvfs, dsl_dataset_t *ds)
 {
-	int err, err2;
+	int err;
 	znode_t *zp;
 
 	ASSERT(ZFS_TEARDOWN_WRITE_HELD(zfsvfs));
@@ -2072,10 +2072,7 @@ zfs_resume_fs(zfsvfs_t *zfsvfs, dsl_dataset_t *ds)
 	mutex_enter(&zfsvfs->z_znodes_lock);
 	for (zp = list_head(&zfsvfs->z_all_znodes); zp;
 	    zp = list_next(&zfsvfs->z_all_znodes, zp)) {
-		err2 = zfs_rezget(zp);
-		if (err2) {
-			zp->z_is_stale = B_TRUE;
-		}
+		(void) zfs_rezget(zp);
 
 		/* see comment in zfs_suspend_fs() */
 		if (zp->z_suspended) {
