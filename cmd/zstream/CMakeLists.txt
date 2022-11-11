@@ -5,6 +5,7 @@ um_add_executable(zstreamdump
 	zstream.c
 	zstream_decompress.c
 	zstream_dump.c
+	zstream_recompress.c
 	zstream_redup.c
 	zstream_token.c
 	os/windows/resource.rc
