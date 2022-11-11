@@ -99,7 +99,7 @@ extern int    zfs_znode_asyncwait(znode_t *zp);
 extern int    zfs_ioflags(int ap_ioflag);
 extern int    zfs_getattr_znode_unlocked(struct vnode *vp, vattr_t *vap);
 extern int    ace_trivial_common(void *acep, int aclcnt,
-    uint64_t (*walk)(void *, uint64_t, int aclcnt,
+    uintptr_t (*walk)(void *, uintptr_t, int aclcnt,
     uint16_t *, uint16_t *, uint32_t *));
 
 extern int    zpl_obtain_xattr(struct znode *, const char *name, mode_t mode,

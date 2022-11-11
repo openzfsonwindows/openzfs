@@ -820,7 +820,7 @@ out:
  */
 int
 ace_trivial_common(void *acep, int aclcnt,
-    uint64_t (*walk)(void *, uint64_t, int aclcnt,
+    uintptr_t (*walk)(void *, uintptr_t, int,
     uint16_t *, uint16_t *, uint32_t *))
 {
 	uint16_t flags;
