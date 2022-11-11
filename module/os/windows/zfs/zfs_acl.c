@@ -626,18 +626,18 @@ zfs_acl_next_ace(zfs_acl_t *aclp, void *start, uint64_t *who,
 	return (NULL);
 }
 
-static uint64_t
-zfs_ace_walk(void *datap, uint64_t cookie, int aclcnt,
+static uintptr_t
+zfs_ace_walk(void *datap, uintptr_t cookie, int aclcnt,
     uint16_t *flags, uint16_t *type, uint32_t *mask)
 {
 	(void) aclcnt;
 	zfs_acl_t *aclp = datap;
-	zfs_ace_hdr_t *acep = (zfs_ace_hdr_t *)(uintptr_t)cookie;
+	zfs_ace_hdr_t *acep = (zfs_ace_hdr_t *)cookie;
 	uint64_t who;
 
 	acep = zfs_acl_next_ace(aclp, acep, &who, mask,
 	    flags, type);
-	return ((uint64_t)(uintptr_t)acep);
+	return ((uintptr_t)acep);
 }
 
 #if 0 // unused function
