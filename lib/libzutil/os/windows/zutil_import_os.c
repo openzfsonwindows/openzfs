@@ -321,7 +321,7 @@ zpool_open_func(void *arg)
 	 */
 	error = nvlist_lookup_uint64(config, ZPOOL_CONFIG_GUID, &vdev_guid);
 	if (error || (rn->rn_vdev_guid && rn->rn_vdev_guid != vdev_guid)) {
-		(void) close(HTOI(fd));
+		CloseHandle(fd);
 		nvlist_free(config);
 		return;
 	}
