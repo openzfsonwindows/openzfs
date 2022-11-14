@@ -846,14 +846,14 @@ zfsdev_ioctl(PDEVICE_OBJECT DeviceObject, PIRP Irp, int flag)
 	// get ready for zfs_cmd_t
 	zc = kmem_zalloc(sizeof (zfs_cmd_t), KM_SLEEP);
 
-	if (copyin(uaddr, zc, sizeof (zfs_cmd_t))) {
+	if (copyin((void *)uaddr, zc, sizeof (zfs_cmd_t))) {
 		error = SET_ERROR(EFAULT);
 		goto out;
 	}
 
 	error = zfsdev_ioctl_common(vecnum, zc, 0);
 
-	rc = copyout(zc, uaddr, sizeof (zfs_cmd_t));
+	rc = copyout(zc, (void *)uaddr, sizeof (zfs_cmd_t));
 
 	if (error == 0 && rc != 0)
 		error = -SET_ERROR(EFAULT);
