@@ -321,7 +321,7 @@ zpool_open_func(void *arg)
 	 */
 	error = nvlist_lookup_uint64(config, ZPOOL_CONFIG_GUID, &vdev_guid);
 	if (error || (rn->rn_vdev_guid && rn->rn_vdev_guid != vdev_guid)) {
-		(void) close(fd);
+		(void) close(HTOI(fd));
 		nvlist_free(config);
 		return;
 	}
@@ -676,7 +676,7 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 			fflush(stderr);
 			int error;
 			struct dk_gpt *vtoc;
-			error = efi_alloc_and_read(disk, &vtoc);
+			error = efi_alloc_and_read(HTOI(disk), &vtoc);
 			if (error >= 0) {
 				fprintf(stderr,
 				    "EFI read OK, max partitions %d\n",
@@ -930,7 +930,7 @@ update_vdev_config_dev_strsXXXX(nvlist_t *nv)
 	    FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 	if (h != INVALID_HANDLE_VALUE) {
 		struct dk_gpt *vtoc;
-		if ((efi_alloc_and_read(h, &vtoc)) == 0) {
+		if ((efi_alloc_and_read(HTOI(h), &vtoc)) == 0) {
 		// Slice 1 should be ZFS
 		fprintf(stderr,
 		    "this code assumes ZFS is on partition 1\n");
@@ -1050,7 +1050,7 @@ update_vdev_config_dev_strs(nvlist_t *nv)
 	    FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 	if (h != INVALID_HANDLE_VALUE) {
 		struct dk_gpt *vtoc;
-		if ((efi_alloc_and_read(h, &vtoc)) == 0) {
+		if ((efi_alloc_and_read(HTOI(h), &vtoc)) == 0) {
 			// Slice 1 should be ZFS
 			fprintf(stderr,
 			"this code assumes ZFS is on partition 1\n");

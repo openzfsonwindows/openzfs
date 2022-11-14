@@ -791,7 +791,7 @@ void
 console_echo(boolean_t willecho)
 {
 	HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
-	int constype = isatty(hStdin);
+	int constype = isatty(HTOI(hStdin));
 	switch (constype) {
 	case 0:
 	default:
