@@ -1817,12 +1817,12 @@ pnp_query_id(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	zmo = (mount_t *)DeviceObject->DeviceExtension;
 
-	Irp->IoStatus.Information = (void *)ExAllocatePoolWithTag(PagedPool,
+	Irp->IoStatus.Information = (ULONG_PTR)ExAllocatePoolWithTag(PagedPool,
 	    zmo->bus_name.Length + sizeof (UNICODE_NULL), '!OIZ');
 	if (Irp->IoStatus.Information == NULL)
 		return (STATUS_NO_MEMORY);
 
-	RtlCopyMemory(Irp->IoStatus.Information, zmo->bus_name.Buffer,
+	RtlCopyMemory((void *)Irp->IoStatus.Information, zmo->bus_name.Buffer,
 	    zmo->bus_name.Length);
 	dprintf("replying with '%.*S'\n", zmo->uuid.Length/sizeof (WCHAR),
 	    Irp->IoStatus.Information);
