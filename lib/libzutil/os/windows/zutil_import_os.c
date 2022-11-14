@@ -24,6 +24,7 @@
  * Copyright (c) 2012, 2018 by Delphix. All rights reserved.
  * Copyright 2015 RackTop Systems.
  * Copyright (c) 2016, Intel Corporation.
+ * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  */
 
 /*
@@ -233,7 +234,7 @@ zpool_open_func(void *arg)
 	uint64_t vdev_guid = 0;
 	int error;
 	int num_labels = 0;
-	HANDLE fd;
+	HANDLE h;
 	uint64_t offset = 0;
 	uint64_t len = 0;
 	uint64_t drive_len;
@@ -246,21 +247,21 @@ zpool_open_func(void *arg)
 		while (end && *end == '#') end++;
 		len = strtoull(end, &end, 10);
 		while (end && *end == '#') end++;
-		fd = CreateFile(end,
+		h = CreateFile(end,
 		    GENERIC_READ,
 		    FILE_SHARE_READ /* | FILE_SHARE_WRITE */,
 		    NULL,
 		    OPEN_EXISTING,
 		    FILE_ATTRIBUTE_NORMAL /* | FILE_FLAG_OVERLAPPED */,
 		    NULL);
-		if (fd == INVALID_HANDLE_VALUE) {
+		if (h == INVALID_HANDLE_VALUE) {
 			int error = GetLastError();
 			return;
 		}
 		LARGE_INTEGER place;
 		place.QuadPart = offset;
 		// If it fails, we cant read label
-		SetFilePointerEx(fd, place, NULL, FILE_BEGIN);
+		SetFilePointerEx(h, place, NULL, FILE_BEGIN);
 		drive_len = len;
 
 	} else {
@@ -269,27 +270,27 @@ zpool_open_func(void *arg)
 		// snprintf(fullpath, sizeof (fullpath), "%s%s",
 		// 	"", rn->rn_name);
 		zfs_backslashes(rn->rn_name);
-		fd = CreateFile(rn->rn_name,
+		h = CreateFile(rn->rn_name,
 		    GENERIC_READ,
 		    FILE_SHARE_READ /* | FILE_SHARE_WRITE */,
 		    NULL,
 		    OPEN_EXISTING,
 		    FILE_ATTRIBUTE_NORMAL /* | FILE_FLAG_OVERLAPPED */,
 		    NULL);
-		if (fd == INVALID_HANDLE_VALUE) {
+		if (h == INVALID_HANDLE_VALUE) {
 			int error = GetLastError();
 			return;
 		}
 
-		drive_len = GetFileDriveSize(fd);
+		drive_len = GetFileDriveSize(h);
 	}
 
-	DWORD type = GetFileType(fd);
+	DWORD type = GetFileType(h);
 
 	/* this file is too small to hold a zpool */
 	if (type == FILE_TYPE_DISK &&
 	    drive_len < SPA_MINDEVSIZE) {
-		CloseHandle(fd);
+		CloseHandle(h);
 		return;
 	}
 // else if (type != FILE_TYPE_DISK) {
@@ -297,18 +298,18 @@ zpool_open_func(void *arg)
 		 * Try to read the disk label first so we don't have to
 		 * open a bunch of minor nodes that can't have a zpool.
 		 */
-//		check_slices(rn->rn_avl, HTOI(fd), rn->rn_name);
+//		check_slices(rn->rn_avl, HTOI(h), rn->rn_name);
 //	}
 
-	if ((zpool_read_label_win(fd, offset, drive_len, &config,
+	if ((zpool_read_label_win(h, offset, drive_len, &config,
 	    &num_labels)) != 0) {
-		CloseHandle(fd);
+		CloseHandle(h);
 		(void) no_memory(rn->rn_hdl);
 		return;
 	}
 
 	if (num_labels == 0) {
-		CloseHandle(fd);
+		CloseHandle(h);
 		nvlist_free(config);
 		return;
 	}
@@ -321,12 +322,12 @@ zpool_open_func(void *arg)
 	 */
 	error = nvlist_lookup_uint64(config, ZPOOL_CONFIG_GUID, &vdev_guid);
 	if (error || (rn->rn_vdev_guid && rn->rn_vdev_guid != vdev_guid)) {
-		(void) close(fd);
+		CloseHandle(h);
 		nvlist_free(config);
 		return;
 	}
 
-	CloseHandle(fd);
+	CloseHandle(h);
 
 	rn->rn_config = config;
 	rn->rn_num_labels = num_labels;
@@ -676,7 +677,7 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 			fflush(stderr);
 			int error;
 			struct dk_gpt *vtoc;
-			error = efi_alloc_and_read(disk, &vtoc);
+			error = efi_alloc_and_read(HTOI(disk), &vtoc);
 			if (error >= 0) {
 				fprintf(stderr,
 				    "EFI read OK, max partitions %d\n",
@@ -930,7 +931,7 @@ update_vdev_config_dev_strsXXXX(nvlist_t *nv)
 	    FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 	if (h != INVALID_HANDLE_VALUE) {
 		struct dk_gpt *vtoc;
-		if ((efi_alloc_and_read(h, &vtoc)) == 0) {
+		if ((efi_alloc_and_read(HTOI(h), &vtoc)) == 0) {
 		// Slice 1 should be ZFS
 		fprintf(stderr,
 		    "this code assumes ZFS is on partition 1\n");
@@ -1050,7 +1051,7 @@ update_vdev_config_dev_strs(nvlist_t *nv)
 	    FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 	if (h != INVALID_HANDLE_VALUE) {
 		struct dk_gpt *vtoc;
-		if ((efi_alloc_and_read(h, &vtoc)) == 0) {
+		if ((efi_alloc_and_read(HTOI(h), &vtoc)) == 0) {
 			// Slice 1 should be ZFS
 			fprintf(stderr,
 			"this code assumes ZFS is on partition 1\n");
