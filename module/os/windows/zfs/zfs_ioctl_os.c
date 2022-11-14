@@ -782,7 +782,7 @@ zfsdev_open(dev_t dev, PIRP Irp)
 		mutex_exit(&zfsdev_state_lock);
 		return (0);
 	}
-	error = zfsdev_state_init(dev);
+	error = zfsdev_state_init((void *)dev);
 	mutex_exit(&zfsdev_state_lock);
 
 	return (-error);

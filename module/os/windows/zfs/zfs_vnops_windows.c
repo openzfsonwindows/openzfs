@@ -4880,7 +4880,7 @@ _Function_class_(DRIVER_DISPATCH)
 		    "length %u flags 0x%x\n",
 		    IrpSp->FileObject, IrpSp->FileObject->FileName,
 		    IrpSp->FileObject->FileName.Length, IrpSp->Flags);
-		Status = zfsdev_open(IrpSp->FileObject, Irp);
+		Status = zfsdev_open((dev_t)IrpSp->FileObject, Irp);
 		break;
 	case IRP_MJ_CLOSE:
 		Status = zfsdev_release((dev_t)IrpSp->FileObject, Irp);
