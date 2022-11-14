@@ -957,7 +957,7 @@ kmem_error(int error, kmem_cache_t *cparg, void *bufarg)
 		    "%s\n", (void *)bcap->bc_thread, ts.tv_sec, ts.tv_nsec,
 		    (void *)sp, cp->cache_name);
 		for (d = 0; d < MIN(bcap->bc_depth, KMEM_STACK_DEPTH); d++) {
-			dprintf("   : %p\n, ", bcap->bc_stack[d]);
+			dprintf("   : %p\n, ", (void *)bcap->bc_stack[d]);
 		}
 	}
 
