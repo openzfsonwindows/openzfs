@@ -317,7 +317,7 @@ zcalloc(
     unsigned items,
     unsigned size)
 {
-	return (zfs_kmem_alloc(items * size, KM_SLEEP));
+	return ((voidpf)zfs_kmem_alloc(items * size, KM_SLEEP));
 }
 
 void
