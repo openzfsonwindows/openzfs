@@ -59,6 +59,8 @@ add_compile_options(
 	#-fms-extensions
 	-Wno-unused-function
 	-Wno-unused-label
+	#Visual Studio 2022 update 2022114 started breaking builds with errors
+	-Wno-int-conversion
 )
 endfunction()
 
