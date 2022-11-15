@@ -447,6 +447,21 @@ typedef uLong FAR uLongf;
 #  define Z_HAVE_STDARG_H
 #endif
 
+#ifdef STDC
+#  ifndef Z_SOLO
+#  endif
+#endif
+
+#if defined(STDC) || defined(Z_HAVE_STDARG_H)
+#  ifndef Z_SOLO
+#  endif
+#endif
+
+#ifdef _WIN32
+#  ifndef Z_SOLO
+#  endif
+#endif
+
 /* a little trick to accommodate both "#define _LARGEFILE64_SOURCE" and
  * "#define _LARGEFILE64_SOURCE 1" as requesting 64-bit operations, (even
  * though the former does not conform to the LFS document), but considering
@@ -470,13 +485,15 @@ typedef uLong FAR uLongf;
 
 #if 0	   /* HAVE_UNISTD_H -- this line is updated by ./configure */
 #  include <sys/types.h> /* for off_t */
-#  include <unistd.h>    /* for SEEK_* and off_t */
+#  if defined(Z_HAVE_UNISTD_H)
+#    include <unistd.h>         /* for SEEK_*, off_t, and _LFS64_LARGEFILE */
 #    ifdef VMS
 #      include <unixio.h>       /* for off_t */
 #    endif
 #    ifndef z_off_t
 #      define z_off_t off_t
 #    endif
+#  endif
 #endif
 
 #if defined(_LFS64_LARGEFILE) && _LFS64_LARGEFILE-0
