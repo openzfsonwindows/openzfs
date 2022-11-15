@@ -54,10 +54,9 @@ print_timestamp(uint_t timestamp_fmt)
 		(void) printf("%lld\n", (longlong_t)t);
 	} else if (timestamp_fmt == DDATE) {
 		char dstr[64];
-		struct tm tm;
 		int len;
 
-		len = strftime(dstr, sizeof (dstr), fmt, localtime_r(&t, &tm));
+		len = strftime(dstr, sizeof (dstr), fmt, localtime(&t));
 		if (len > 0)
 			(void) printf("%s\n", dstr);
 	}
