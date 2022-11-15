@@ -18,8 +18,8 @@ set(ZLIB_SOURCES
   trees.c
   uncompr.c
   zutil.c
-  contrib/masmx64/inffas8664.c
-  contrib/masmx86/gvmat32c.c
+  #contrib/masmx64/inffas8664.c
+  #contrib/masmx86/gvmat32c.c
   contrib/minizip/ioapi.c
   contrib/minizip/unzip.c
   contrib/minizip/zip.c
