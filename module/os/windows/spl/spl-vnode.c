@@ -640,7 +640,7 @@ getf(uint64_t fd)
 
 	sfp->f_vnode	= sfp;
 
-	sfp->f_handle	= fd;
+	sfp->f_handle	= (HANDLE)fd;
 	sfp->f_offset	= 0;
 	sfp->f_proc	= current_proc();
 	sfp->f_fp	= (void *)fp;
