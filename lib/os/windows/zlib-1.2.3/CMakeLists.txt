@@ -6,7 +6,11 @@ set(ZLIB_SOURCES
   compress.c
   crc32.c
   deflate.c
-  gzio.c
+  #gzio.c
+  gzlib.c
+  gzread.c
+  gzwrite.c
+  gzclose.c
   infback.c
   inffast.c
   inflate.c
