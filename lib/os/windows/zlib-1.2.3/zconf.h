@@ -449,16 +449,19 @@ typedef uLong FAR uLongf;
 
 #ifdef STDC
 #  ifndef Z_SOLO
+#    include <sys/types.h>      /* for off_t */
 #  endif
 #endif
 
 #if defined(STDC) || defined(Z_HAVE_STDARG_H)
 #  ifndef Z_SOLO
+#    include <stdarg.h>         /* for va_list */
 #  endif
 #endif
 
 #ifdef _WIN32
 #  ifndef Z_SOLO
+#    include <stddef.h>         /* for wchar_t */
 #  endif
 #endif
 
@@ -482,9 +485,7 @@ typedef uLong FAR uLongf;
 #    define Z_HAVE_UNISTD_H
 #  endif
 #endif
-
-#if 0	   /* HAVE_UNISTD_H -- this line is updated by ./configure */
-#  include <sys/types.h> /* for off_t */
+#ifndef Z_SOLO
 #  if defined(Z_HAVE_UNISTD_H)
 #    include <unistd.h>         /* for SEEK_*, off_t, and _LFS64_LARGEFILE */
 #    ifdef VMS
