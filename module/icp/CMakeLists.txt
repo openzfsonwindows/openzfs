@@ -39,10 +39,10 @@ wdk_add_library(icpkern
 #  asm-x86_64/sha1/sha1-x86_64.S
   asm-x86_64/os/windows/sha2/sha256_impl.S
   asm-x86_64/os/windows/sha2/sha512_impl.S
-  asm-x86_64/os/windows/blake3/blake3_avx2.S
-  asm-x86_64/os/windows/blake3/blake3_avx512.S
-  asm-x86_64/os/windows/blake3/blake3_sse2.S
-  asm-x86_64/os/windows/blake3/blake3_sse41.S
+  asm-x86_64/blake3/blake3_avx2.S
+  asm-x86_64/blake3/blake3_avx512.S
+  asm-x86_64/blake3/blake3_sse2.S
+  asm-x86_64/blake3/blake3_sse41.S
   core/kcf_callprov.c
   core/kcf_mech_tabs.c
   core/kcf_prov_lib.c

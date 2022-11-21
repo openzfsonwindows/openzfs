@@ -49,10 +49,10 @@ add_library(libicp
     "${ICP_MODULE_DIR}/asm-x86_64/os/windows/sha2/sha256_impl.S"
     "${ICP_MODULE_DIR}/asm-x86_64/os/windows/sha2/sha512_impl.S"
 
-    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/blake3/blake3_avx2.S"
-    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/blake3/blake3_avx512.S"
-    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/blake3/blake3_sse2.S"
-    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/blake3/blake3_sse41.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_avx2.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_avx512.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_sse2.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_sse41.S"
 )
 
 # Add windows/assembler sources here too.

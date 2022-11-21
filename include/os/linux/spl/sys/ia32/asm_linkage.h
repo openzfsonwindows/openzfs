@@ -30,11 +30,37 @@
 #include <sys/stack.h>
 #include <sys/trap.h>
 
-#if defined(__linux__) && defined(CONFIG_SLS)
-#define	RET	ret; int3
-#else
+#if defined(_KERNEL) && defined(__linux__)
+#include <linux/linkage.h>
+#endif
+
+#ifndef ENDBR
+#if defined(__ELF__) && defined(__CET__) && defined(__has_include)
+/* CSTYLED */
+#if __has_include(<cet.h>)
+
+#include <cet.h>
+
+#ifdef _CET_ENDBR
+#define	ENDBR	_CET_ENDBR
+#endif /* _CET_ENDBR */
+
+#endif /* <cet.h> */
+#endif /* __ELF__ && __CET__ && __has_include */
+#endif /* !ENDBR */
+
+#ifndef ENDBR
+#define	ENDBR
+#endif
+#ifndef RET
 #define	RET	ret
 #endif
+
+/* You can set to nothing on Unix platforms */
+#define	ASMABI	__attribute__((sysv_abi))
+
+#define	SECTION_TEXT .text
+#define	SECTION_STATIC .section .rodata
 
 #ifdef	__cplusplus
 extern "C" {
@@ -122,16 +148,19 @@ extern "C" {
  * insert the calls to mcount for profiling. ENTRY_NP is identical, but
  * never calls mcount.
  */
+#undef ENTRY
 #define	ENTRY(x) \
 	.text; \
 	.align	ASM_ENTRY_ALIGN; \
 	.globl	x; \
+	.type	x, @function; \
 x:	MCOUNT(x)
 
 #define	ENTRY_NP(x) \
 	.text; \
 	.align	ASM_ENTRY_ALIGN; \
 	.globl	x; \
+	.type	x, @function; \
 x:
 
 /*
@@ -141,6 +170,8 @@ x:
 	.text;	\
 	.align	ASM_ENTRY_ALIGN; \
 	.globl	x, y; \
+	.type	x, @function; \
+	.type	y, @function; \
 x:; \
 y:	MCOUNT(x)
 
@@ -148,6 +179,8 @@ y:	MCOUNT(x)
 	.text; \
 	.align	ASM_ENTRY_ALIGN; \
 	.globl	x, y; \
+	.type	x, @function; \
+	.type	y, @function; \
 x:; \
 y:
 
@@ -155,7 +188,8 @@ y:
 /*
  * SET_SIZE trails a function and set the size for the ELF symbol table.
  */
-#define	SET_SIZE(x)
+#define	SET_SIZE(x) \
+	.size	x, [.-x]
 
 #endif /* _ASM */
 
