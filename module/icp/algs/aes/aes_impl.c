@@ -457,7 +457,7 @@ win32_icp_aes_impl_set(ZFS_MODULE_PARAM_ARGS)
 		return (0);
 	}
 
-	ASSERT3P(ptr, != , NULL);
+	ASSERT3P(ptr, !=, NULL);
 
 	aes_impl_set(*ptr);
 
@@ -469,4 +469,3 @@ module_param_call(icp_aes_impl, icp_aes_impl_set, icp_aes_impl_get,
     NULL, 0644);
 MODULE_PARM_DESC(icp_aes_impl, "Select aes implementation.");
 #endif /* KERNEL */
-

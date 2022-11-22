@@ -93,7 +93,7 @@ sysctl_os_write_registry(HANDLE regfd, ztunable_t *zt, UNICODE_STRING *entry)
 
 	ZT_GET_VALUE(zt, &val, &len, &type);
 
-	ASSERT3P(val, != , NULL);
+	ASSERT3P(val, !=, NULL);
 
 	if (type == ZT_TYPE_STRING) {
 
@@ -308,13 +308,18 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 				}
 
 
-				// If the registry exists, it is written to by the user, but
-				// the actual value may be changed by the _set functions,
-				// so we need to call GET again, and if it differs, update
-				// Registry with real value.
-				// So if its a call-out type, it can be adjusted
+				/*
+				 * If the registry exists, it is written to by
+				 * user, the actual value may be changed by the
+				 * _set functions, so we need to call GET again,
+				 * and if it differs, update Registry with real
+				 * (new) value.
+				 * So if its a call-out type, it could have been
+				 * adjusted by the call.
+				 */
 				if (zt->zt_func != NULL) {
-					    Status = sysctl_os_write_registry(regfd, zt, &entry);
+					Status = sysctl_os_write_registry(regfd,
+					    zt, &entry);
 				}
 
 

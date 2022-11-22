@@ -367,7 +367,7 @@ win32_blake3_param_set(ZFS_MODULE_PARAM_ARGS)
 		return (0);
 	}
 
-	ASSERT3P(ptr, != , NULL);
+	ASSERT3P(ptr, !=, NULL);
 
 	blake3_impl_setname(*ptr);
 

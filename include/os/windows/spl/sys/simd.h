@@ -730,11 +730,11 @@ zfs_movbe_available(void)
 {
 #if defined(_KERNEL)
 #if defined(HAVE_MOVBE)
-    return (!!(spl_cpuid_features() & CPUID_FEATURE_MOVBE));
+	return (!!(spl_cpuid_features() & CPUID_FEATURE_MOVBE));
 #else
-    return (B_FALSE);
+	return (B_FALSE);
 #endif
-    return (B_FALSE);
+	return (B_FALSE);
 #endif
 }
 
