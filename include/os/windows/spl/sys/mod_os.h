@@ -328,7 +328,7 @@ ZT_GET_VALUE(ztunable_t *zt, void **ptr, ULONG *len, ULONG *type)
 
 #define	module_param_call(name, _set, _get, var, mode) \
 	extern int win32_ ## _set(ZFS_MODULE_PARAM_ARGS);	\
-    ZFS_MODULE_PARAM_CALL_IMPL(zfs, , name, ZMOD_RW,	\
+	ZFS_MODULE_PARAM_CALL_IMPL(zfs, /* */, name, ZMOD_RW,	\
 		win32_ ## _set, var, "xxx")
 
 struct zfs_kernel_param_s;

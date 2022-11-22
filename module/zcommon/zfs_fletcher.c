@@ -925,9 +925,6 @@ fletcher_4_param_set(const char *val, zfs_kernel_param_t *unused)
 
 #ifdef _WIN32
 
-/* Not used, needs a ptr */
-//static int32_t zfs_fletcher_4_impl = 0;
-
 int
 win32_fletcher_4_param_set(ZFS_MODULE_PARAM_ARGS)
 {
@@ -938,13 +935,13 @@ win32_fletcher_4_param_set(ZFS_MODULE_PARAM_ARGS)
 
 	if (set == B_FALSE) {
 		if (fletcher_4_initialized)
-		    fletcher_4_param_get(str, NULL);
+			fletcher_4_param_get(str, NULL);
 		*ptr = str;
 		*len = strlen(str);
 		return (0);
 	}
 
-	ASSERT3P(ptr, != , NULL);
+	ASSERT3P(ptr, !=, NULL);
 
 	fletcher_4_impl_set(*ptr);
 

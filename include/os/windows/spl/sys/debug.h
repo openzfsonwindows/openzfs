@@ -90,7 +90,7 @@
 
 #endif
 
-extern void _Noreturn panic(const char* fmt, ...);
+extern void _Noreturn panic(const char *fmt, ...);
 
 
 

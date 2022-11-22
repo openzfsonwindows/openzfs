@@ -1051,7 +1051,7 @@ win32_icp_gcm_impl_set(ZFS_MODULE_PARAM_ARGS)
 		return (0);
 	}
 
-	ASSERT3P(ptr, != , NULL);
+	ASSERT3P(ptr, !=, NULL);
 
 	gcm_impl_set(*ptr);
 
@@ -1622,18 +1622,18 @@ win32_icp_gcm_avx_set_chunk_size(ZFS_MODULE_PARAM_ARGS)
 
 	if (set == B_FALSE) {
 		*ptr = &gcm_avx_chunk_size;
-		*len = sizeof(gcm_avx_chunk_size);
+		*len = sizeof (gcm_avx_chunk_size);
 		return (0);
 	}
 
-	ASSERT3U(*len, >= , sizeof(gcm_avx_chunk_size));
+	ASSERT3U(*len, >=, sizeof (gcm_avx_chunk_size));
 
 	val = *(uint32_t *)(*ptr);
 
 	val = (val / GCM_AVX_MIN_DECRYPT_BYTES) * GCM_AVX_MIN_DECRYPT_BYTES;
 
 	if (val < GCM_AVX_MIN_ENCRYPT_BYTES || val > GCM_AVX_MAX_CHUNK_SIZE)
-	    return (-EINVAL);
+		return (-EINVAL);
 
 	gcm_avx_chunk_size = val;
 

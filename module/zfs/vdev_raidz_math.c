@@ -684,7 +684,7 @@ win32_zfs_vdev_raidz_impl_set(ZFS_MODULE_PARAM_ARGS)
 		return (0);
 	}
 
-	ASSERT3P(ptr, != , NULL);
+	ASSERT3P(ptr, !=, NULL);
 
 	vdev_raidz_impl_set(*ptr);
 
