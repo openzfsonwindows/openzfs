@@ -31,8 +31,8 @@ wdk_add_library(icpkern
   api/kcf_ctxops.c
   api/kcf_mac.c
   asm-x86_64/aes/aeskey.c
-  asm-x86_64/os/windows/aes/aes_aesni.S
-  asm-x86_64/os/windows/aes/aes_amd64.S
+  asm-x86_64/aes/aes_aesni.S
+  asm-x86_64/aes/aes_amd64.S
   asm-x86_64/os/windows/modes/gcm_pclmulqdq.S
   asm-x86_64/os/windows/modes/ghash-x86_64.S
   asm-x86_64/os/windows/modes/aesni-gcm-x86_64.S

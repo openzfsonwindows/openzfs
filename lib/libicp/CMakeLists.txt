@@ -41,8 +41,8 @@ add_library(libicp
     "${ICP_MODULE_DIR}/spi/kcf_spi.c"
 
     "${ICP_MODULE_DIR}/asm-x86_64/aes/aeskey.c"
-    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/aes/aes_aesni.S"
-    "${ICP_MODULE_DIR}/asm-x86_64/os/windows/aes/aes_amd64.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/aes/aes_aesni.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/aes/aes_amd64.S"
     "${ICP_MODULE_DIR}/asm-x86_64/os/windows/modes/aesni-gcm-x86_64.S"
     "${ICP_MODULE_DIR}/asm-x86_64/os/windows/modes/gcm_pclmulqdq.S"
     "${ICP_MODULE_DIR}/asm-x86_64/os/windows/modes/ghash-x86_64.S"
