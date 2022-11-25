@@ -162,6 +162,8 @@ y:
  */
 #define	SET_SIZE(x)
 
+#define SET_OBJ(x)
+
 #endif /* _ASM */
 
 #ifdef	__cplusplus

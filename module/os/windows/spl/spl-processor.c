@@ -50,12 +50,6 @@ uint32_t kfpu_state = 0;
 
 #endif
 
-/* Place these in header, or better, use MS versions */
-#define	CPUID_FEATURE_XSAVE	(1<<26)
-#define	CPUID_FEATURE_AVX1_0		(1<<28)
-#define	CPUID_LEAF7_FEATURE_AVX2    (1<<5)
-#define	CPUID_LEAF7_FEATURE_AVX512F    (1<<16)
-
 static uint64_t _spl_cpuid_features = 0ULL;
 static uint64_t _spl_cpuid_features_leaf7 = 0ULL;
 static boolean_t _spl_cpuid_has_xgetbv = B_FALSE;
@@ -115,6 +109,8 @@ spl_cpuid_features(void)
 
 		if (_spl_cpuid_features & CPUID_FEATURE_AVX1_0)
 			kfpu_state |= XSTATE_MASK_AVX;
+		if (_spl_cpuid_features_leaf7 & CPUID_LEAF7_FEATURE_AVX2)
+		    kfpu_state |= XSTATE_MASK_AVX;
 		if (_spl_cpuid_features_leaf7 & CPUID_LEAF7_FEATURE_AVX512F)
 			kfpu_state |= XSTATE_MASK_AVX512;
 
