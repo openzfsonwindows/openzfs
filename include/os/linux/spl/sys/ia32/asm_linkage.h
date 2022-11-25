@@ -27,9 +27,6 @@
 #ifndef _IA32_SYS_ASM_LINKAGE_H
 #define	_IA32_SYS_ASM_LINKAGE_H
 
-#include <sys/stack.h>
-#include <sys/trap.h>
-
 #if defined(_KERNEL) && defined(__linux__)
 #include <linux/linkage.h>
 #endif
