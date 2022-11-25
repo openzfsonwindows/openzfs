@@ -107,6 +107,8 @@ xgetbv(uint32_t c)
 #define	CPUID_FEATURE_SSE4_1		(1<<19)
 
 #define	CPUID_LEAF7_FEATURE_AVX2    (1<<5)
+#define	CPUID_LEAF7_FEATURE_AVX512F    (1<<16)
+
 
 extern uint64_t spl_cpuid_features(void);
 extern uint64_t spl_cpuid_leaf7_features(void);
@@ -120,8 +122,16 @@ extern uint64_t spl_cpuid_leaf7_features(void);
 #define	kfpu_init()		(0)
 #define	kfpu_fini()		do {} while (0)
 
-#define	kfpu_begin()  ((void)0)
-#define	kfpu_end()    ((void)0)
+extern uint32_t kfpu_state;
+
+#define	kfpu_begin() \
+	NTSTATUS saveStatus = STATUS_INVALID_PARAMETER; \
+	XSTATE_SAVE SaveState; \
+	saveStatus = KeSaveExtendedProcessorState(kfpu_state, &SaveState);
+
+#define	kfpu_end() \
+	if (NT_SUCCESS(saveStatus)) \
+		KeRestoreExtendedProcessorState(&SaveState);
 
 /*
  * CPUID feature tests for user-space. Linux kernel provides an interface for
