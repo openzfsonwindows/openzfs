@@ -59,7 +59,7 @@ boolean_t gcm_avx_can_use_movbe = B_FALSE;
 static boolean_t gcm_use_avx = B_FALSE;
 #define	GCM_IMPL_USE_AVX	(*(volatile boolean_t *)&gcm_use_avx)
 
-extern boolean_t atomic_toggle_boolean_nv(volatile boolean_t *);
+extern boolean_t ASMABI atomic_toggle_boolean_nv(volatile boolean_t *);
 
 static inline boolean_t gcm_avx_will_work(void);
 static inline void gcm_set_avx(boolean_t);

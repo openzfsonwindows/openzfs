@@ -110,7 +110,7 @@ spl_cpuid_features(void)
 		if (_spl_cpuid_features & CPUID_FEATURE_AVX1_0)
 			kfpu_state |= XSTATE_MASK_AVX;
 		if (_spl_cpuid_features_leaf7 & CPUID_LEAF7_FEATURE_AVX2)
-		    kfpu_state |= XSTATE_MASK_AVX;
+			kfpu_state |= XSTATE_MASK_AVX;
 		if (_spl_cpuid_features_leaf7 & CPUID_LEAF7_FEATURE_AVX512F)
 			kfpu_state |= XSTATE_MASK_AVX512;
 

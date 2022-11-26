@@ -191,7 +191,7 @@ y:
 #define	SET_SIZE(x) \
 	.size	x, [.-x]
 
-#define SET_OBJ(x) .type	(x),@object
+#define	SET_OBJ(x) .type	x, @object
 
 #endif /* _ASM */
 

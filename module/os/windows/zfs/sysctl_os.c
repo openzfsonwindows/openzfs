@@ -285,7 +285,7 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 
 					/* Get space */
 					strval = ExAllocatePoolWithTag(
-					    PagedPool, length, 'ZTST');
+					    PagedPool, length + 1, 'ZTST');
 					if (strval == NULL)
 						goto failed;
 
