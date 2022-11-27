@@ -27,6 +27,9 @@
 
 #include <sys/processor.h>
 
+/* Holds the flags for KeSaveExtendedProcessorState() in simd.h */
+uint32_t kfpu_state = 0;
+
 #ifdef __x86_64__
 
 /* Should probably use MS cpuid() call */
@@ -46,9 +49,6 @@
 	a = b = c = d = 0
 
 #endif
-
-/* Place these in header, or better, use MS versions */
-#define	CPUID_FEATURE_XSAVE	(1<<26)
 
 static uint64_t _spl_cpuid_features = 0ULL;
 static uint64_t _spl_cpuid_features_leaf7 = 0ULL;
@@ -104,6 +104,16 @@ spl_cpuid_features(void)
 			_spl_cpuid(7, a, b, d, c);
 			_spl_cpuid_features_leaf7 = b | (c << 32);
 		}
+		xprintf("SPL: CPUID 0x%08llx and leaf7 0x%08llx\n",
+		    _spl_cpuid_features, _spl_cpuid_features_leaf7);
+
+		if (_spl_cpuid_features & CPUID_FEATURE_AVX1_0)
+			kfpu_state |= XSTATE_MASK_AVX;
+		if (_spl_cpuid_features_leaf7 & CPUID_LEAF7_FEATURE_AVX2)
+			kfpu_state |= XSTATE_MASK_AVX;
+		if (_spl_cpuid_features_leaf7 & CPUID_LEAF7_FEATURE_AVX512F)
+			kfpu_state |= XSTATE_MASK_AVX512;
+
 	}
 #endif
 

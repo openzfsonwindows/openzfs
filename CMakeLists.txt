@@ -48,7 +48,7 @@ add_compile_options(
 	-Wno-microsoft-enum-forward-reference
 	-Wno-visibility
 	-Wno-microsoft-anon-tag
-	-Wno-ignored-attributes
+	# -Wno-ignored-attributes
 	-Wno-unused-command-line-argument
 	-Wno-unused-local-typedef
 	-Wno-int-to-void-pointer-cast

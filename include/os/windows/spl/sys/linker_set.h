@@ -47,7 +47,7 @@
 #define	__GLOBL(sym)	__asm__(".globl " __XSTRING(sym))
 #define	__WEAK(sym)	__asm__(".weak " __XSTRING(sym))
 
-#define	__weak_symbol	__attribute__((__weak__))
+#define	__weak_symbol	/* __attribute__((__weak__)) */
 
 #if __has_attribute(no_sanitize) && defined(__clang__)
 #ifdef _KERNEL

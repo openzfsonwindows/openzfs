@@ -68,6 +68,7 @@
 #define	_SIMD_X86_H
 
 #include <sys/isa_defs.h>
+#include <sys/processor.h>
 
 /* only for __x86 */
 #if defined(__x86)
@@ -92,11 +93,6 @@ xgetbv(uint32_t c)
 
 #endif
 
-#define	CPUID_FEATURE_PCLMULQDQ		(1<<1)
-#define	CPUID_FEATURE_AES		(1<<25)
-#define	CPUID_FEATURE_XSAVE		(1<<26)
-// #define   CPUID_FEATURE_AVX		(1<<28)
-
 extern uint64_t spl_cpuid_features(void);
 extern uint64_t spl_cpuid_leaf7_features(void);
 
@@ -109,8 +105,16 @@ extern uint64_t spl_cpuid_leaf7_features(void);
 #define	kfpu_init()		(0)
 #define	kfpu_fini()		do {} while (0)
 
-#define	kfpu_begin()  ((void)0)
-#define	kfpu_end()    ((void)0)
+extern uint32_t kfpu_state;
+
+#define	kfpu_begin() \
+	NTSTATUS saveStatus = STATUS_INVALID_PARAMETER; \
+	XSTATE_SAVE SaveState; \
+	saveStatus = KeSaveExtendedProcessorState(kfpu_state, &SaveState);
+
+#define	kfpu_end() \
+	if (NT_SUCCESS(saveStatus)) \
+		KeRestoreExtendedProcessorState(&SaveState);
 
 /*
  * CPUID feature tests for user-space. Linux kernel provides an interface for
@@ -283,19 +287,6 @@ CPUID_FEATURE_CHECK(aes, AES);
 CPUID_FEATURE_CHECK(pclmulqdq, PCLMULQDQ);
 
 #endif /* !defined(_KERNEL) */
-
-// WIN fix me, no asm for now
-#define	CPUID_FEATURE_SSE 0
-#define	CPUID_FEATURE_SSE2 0
-#define	CPUID_FEATURE_SSE3 0
-#define	CPUID_FEATURE_SSSE3 0
-#define	CPUID_FEATURE_SSE4_1 0
-#define	CPUID_FEATURE_SSE4_2 0
-#define	CPUID_FEATURE_OSXSAVE 0
-#define	CPUID_FEATURE_AVX1_0 0
-#define	CPUID_FEATURE_SSE 0
-#define	CPUID_FEATURE_SSE 0
-#define	CPUID_FEATURE_SSE 0
 
 
 /*
@@ -726,6 +717,20 @@ zfs_avx512vbmi_available(void)
 
 	return (has_avx512 && __zmm_enabled());
 }
+
+static inline boolean_t
+zfs_movbe_available(void)
+{
+#if defined(_KERNEL)
+#if defined(HAVE_MOVBE)
+	return (!!(spl_cpuid_features() & CPUID_FEATURE_MOVBE));
+#else
+	return (B_FALSE);
+#endif
+	return (B_FALSE);
+#endif
+}
+
 
 #endif /* defined(__x86) */
 
