@@ -33,6 +33,14 @@
 #define	RET	ret
 #endif
 
+/* Tell compiler to call assembler like Unix */
+#define	ASMABI	__attribute__((sysv_abi))
+
+#define	ENDBR
+
+#define	SECTION_TEXT .text
+#define	SECTION_STATIC .data
+
 #ifdef	__cplusplus
 extern "C" {
 #endif
@@ -153,6 +161,8 @@ y:
  * SET_SIZE trails a function and set the size for the ELF symbol table.
  */
 #define	SET_SIZE(x)
+
+#define	SET_OBJ(x)
 
 #endif /* _ASM */
 

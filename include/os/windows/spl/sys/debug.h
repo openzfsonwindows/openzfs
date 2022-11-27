@@ -62,12 +62,12 @@
 
 #define	unlikely
 #define	likely
-#define	__attribute__(X)
 #define	__maybe_unused
 #define	__printflike(X, Y)
 #define	__unused
 #define	always_inline __forceinline
-#define	_Noreturn
+#define	_Noreturn __declspec(noreturn)
+
 
 #else
 
@@ -88,12 +88,11 @@
 #define	__unused  __attribute__((unused))
 #define	_Noreturn	__attribute__((__noreturn__))
 
-
 #endif
 
+extern void _Noreturn panic(const char *fmt, ...);
 
 
-extern void panic(const char *fmt, ...) __attribute__((__noreturn__));
 
 extern void printBuffer(const char *fmt, ...);
 

@@ -83,7 +83,7 @@ extern kthread_t *spl_thread_create(caddr_t stk, size_t stksize,
 #endif
 
 #define	thread_exit spl_thread_exit
-extern void spl_thread_exit(void);
+extern void __declspec(noreturn) spl_thread_exit(void);
 
 extern kthread_t *spl_current_thread(void);
 
