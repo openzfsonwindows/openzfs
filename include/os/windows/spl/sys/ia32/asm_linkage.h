@@ -43,6 +43,7 @@ extern "C" {
 
 #ifdef _ASM	/* The remainder of this file is only for assembly files */
 
+
 /*
  * make annoying differences in assembler syntax go away
  */
