@@ -31,17 +31,10 @@
 #include <sys/asm_linkage.h>
 
 .intel_syntax noprefix
-.global zfs_blake3_compress_in_place_sse41
-.global zfs_blake3_compress_xof_sse41
-.global zfs_blake3_hash_many_sse41
 
 .text
-.type zfs_blake3_hash_many_sse41,@function
-.type zfs_blake3_compress_in_place_sse41,@function
-.type zfs_blake3_compress_xof_sse41,@function
 
-.p2align  6
-zfs_blake3_hash_many_sse41:
+ENTRY_NP(zfs_blake3_hash_many_sse41)
         ENDBR
         push    r15
         push    r14
@@ -1800,8 +1793,7 @@ zfs_blake3_hash_many_sse41:
         movups  xmmword ptr [rbx], xmm0
         movups  xmmword ptr [rbx+0x10], xmm1
         jmp     4b
-.p2align 6
-zfs_blake3_compress_in_place_sse41:
+ENTRY_NP(zfs_blake3_compress_in_place_sse41)
         ENDBR
         movups  xmm0, xmmword ptr [rdi]
         movups  xmm1, xmmword ptr [rdi+0x10]
@@ -1899,8 +1891,7 @@ zfs_blake3_compress_in_place_sse41:
         movups  xmmword ptr [rdi], xmm0
         movups  xmmword ptr [rdi+0x10], xmm1
         RET
-.p2align 6
-zfs_blake3_compress_xof_sse41:
+ENTRY_NP(zfs_blake3_compress_xof_sse41)
         ENDBR
         movups  xmm0, xmmword ptr [rdi]
         movups  xmm1, xmmword ptr [rdi+0x10]
@@ -2007,15 +1998,12 @@ zfs_blake3_compress_xof_sse41:
         movups  xmmword ptr [r9+0x30], xmm3
         RET
 
-.size zfs_blake3_hash_many_sse41, . - zfs_blake3_hash_many_sse41
-.size zfs_blake3_compress_in_place_sse41, . - zfs_blake3_compress_in_place_sse41
-.size zfs_blake3_compress_xof_sse41, . - zfs_blake3_compress_xof_sse41
+SET_SIZE(zfs_blake3_hash_many_sse41)
+SET_SIZE(zfs_blake3_compress_in_place_sse41)
+SET_SIZE(zfs_blake3_compress_xof_sse41)
 
-#ifdef __APPLE__
-.static_data
-#else
-.section .rodata
-#endif
+SECTION_STATIC
+
 .p2align  6
 BLAKE3_IV:
         .long  0x6A09E667, 0xBB67AE85

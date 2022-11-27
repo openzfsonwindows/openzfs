@@ -2065,7 +2065,7 @@ SET_SIZE(SHA256TransformBlocks)
 
 .section .rodata
 .align	64
-.type	K256,@object
+SET_OBJ(K256)
 K256:
 	.long	0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5
 	.long	0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5
@@ -2085,6 +2085,6 @@ K256:
 	.long	0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
 #endif /* !lint && !__lint */
 
-#ifdef __ELF__
+#if defined(__linux__) && defined(__ELF__)
 .section .note.GNU-stack,"",%progbits
 #endif

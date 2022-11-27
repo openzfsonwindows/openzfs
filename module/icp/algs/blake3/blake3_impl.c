@@ -272,7 +272,7 @@ blake3_per_cpu_ctx_fini(void)
 
 #define	IMPL_FMT(impl, i)	(((impl) == (i)) ? "[%s] " : "%s ")
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 static int
 blake3_param_get(char *buffer, zfs_kernel_param_t *unused)
@@ -306,16 +306,28 @@ blake3_param_set(const char *val, zfs_kernel_param_t *unused)
 	return (blake3_impl_setname(val));
 }
 
-#elif defined(_WIN32)
+#endif /* Linux || Windows */
 
-static uint32_t zfs_blake3_impl = 0;
+#if defined(_WIN32)
 
-static int
-blake3_param_set(ZFS_MODULE_PARAM_ARGS)
+int
+win32_blake3_param_set(ZFS_MODULE_PARAM_ARGS)
 {
-	*ptr = zt->zt_ptr;
-	*len = sizeof (uint32_t);
-	*type = ZT_TYPE_INT;
+	static char str[1024] = "";
+
+	*type = ZT_TYPE_STRING;
+
+	if (set == B_FALSE) {
+		if (blake3_initialized)
+			blake3_param_get(str, NULL);
+		*ptr = str;
+		*len = strlen(str);
+		return (0);
+	}
+
+	ASSERT3P(ptr, !=, NULL);
+
+	blake3_impl_setname(*ptr);
 
 	return (0);
 }

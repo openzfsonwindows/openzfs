@@ -25,7 +25,7 @@
 #include "ltm.h"
 #include "lvm.h"
 #include "lzio.h"
-
+#include <sys/asm_linkage.h>
 
 
 /* Return the number of bytes available on the stack. */
@@ -75,7 +75,7 @@ static intptr_t stack_remaining(void) {
 #define	JMP_BUF_CNT	6
 #elif defined(__x86_64__)
 #ifdef _WIN32
-#define	JMP_BUF_CNT	10 // +rsi +rdi see win_setjmp_x86_64.S
+#define	JMP_BUF_CNT	10 // +rsi +rdi 
 #else
 #define	JMP_BUF_CNT	8
 #endif
@@ -99,8 +99,8 @@ static intptr_t stack_remaining(void) {
 
 typedef	struct _label_t { long long unsigned val[JMP_BUF_CNT]; } label_t;
 
-int setjmp(label_t *) __attribute__ ((__nothrow__));
-extern __attribute__((noreturn)) void longjmp(label_t *);
+int ASMABI setjmp(label_t *) __attribute__ ((__nothrow__));
+extern __attribute__((noreturn)) void ASMABI longjmp(label_t *);
 
 #define LUAI_THROW(L,c)		longjmp(&(c)->b)
 #define LUAI_TRY(L,c,a)		if (setjmp(&(c)->b) == 0) { a }
