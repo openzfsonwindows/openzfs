@@ -56,6 +56,12 @@
 #define	RET	ret
 #endif
 
+/* You can set to nothing on Unix platforms */
+#define	ASMABI	__attribute__((sysv_abi))
+
+#define	SECTION_TEXT .text
+#define	SECTION_STATIC .section .rodata
+
 #ifdef	__cplusplus
 extern "C" {
 #endif
@@ -184,6 +190,8 @@ y:
  */
 #define	SET_SIZE(x) \
 	.size	x, [.-x]
+
+#define	SET_OBJ(x) .type	x, @object
 
 #endif /* _ASM */
 

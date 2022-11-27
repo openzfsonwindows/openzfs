@@ -27,20 +27,22 @@
 #ifndef _IA32_SYS_ASM_LINKAGE_H
 #define	_IA32_SYS_ASM_LINKAGE_H
 
-#include <sys/stack.h>
-#include <sys/trap.h>
-
-#if defined(__linux__) && defined(CONFIG_SLS)
-#define	RET	ret; int3
-#else
 #define	RET	ret
-#endif
+
+/* Tell compiler to call assembler like Unix */
+#define	ASMABI	__attribute__((sysv_abi))
+
+#define	ENDBR
+
+#define	SECTION_TEXT .text
+#define	SECTION_STATIC .data
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
 
 #ifdef _ASM	/* The remainder of this file is only for assembly files */
+
 
 /*
  * make annoying differences in assembler syntax go away
@@ -156,6 +158,9 @@ y:
  * SET_SIZE trails a function and set the size for the ELF symbol table.
  */
 #define	SET_SIZE(x)
+
+#define	SET_OBJ(x)
+
 
 #endif /* _ASM */
 
