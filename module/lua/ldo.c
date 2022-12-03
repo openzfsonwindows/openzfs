@@ -9,6 +9,7 @@
 #define LUA_CORE
 
 #include <sys/lua/lua.h>
+#include <sys/asm_linkage.h>
 
 #include "lapi.h"
 #include "ldebug.h"
@@ -26,7 +27,6 @@
 #include "lvm.h"
 #include "lzio.h"
 #include <sys/asm_linkage.h>
-
 
 /* Return the number of bytes available on the stack. */
 #if defined (_KERNEL) && defined(__linux__)
