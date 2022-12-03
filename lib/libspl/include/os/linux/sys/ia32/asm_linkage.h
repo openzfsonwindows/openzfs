@@ -27,9 +27,6 @@
 #ifndef _IA32_SYS_ASM_LINKAGE_H
 #define	_IA32_SYS_ASM_LINKAGE_H
 
-#include <sys/stack.h>
-#include <sys/trap.h>
-
 #if defined(_KERNEL) && defined(__linux__)
 #include <linux/linkage.h>
 #endif
@@ -57,6 +54,7 @@
 #endif
 
 /* You can set to nothing on Unix platforms */
+#undef ASMABI
 #define	ASMABI	__attribute__((sysv_abi))
 
 #define	SECTION_TEXT .text
@@ -160,6 +158,10 @@ x:	MCOUNT(x)
 	.text; \
 	.align	ASM_ENTRY_ALIGN; \
 	.globl	x; \
+	.type	x, @function; \
+x:
+
+#define	FUNCTION(x) \
 	.type	x, @function; \
 x:
 

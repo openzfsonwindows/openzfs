@@ -2110,6 +2110,7 @@ K512:
 	.quad	0x5fcb6fab3ad6faec,0x6c44198c4a475817
 #endif /* !lint && !__lint */
 
-#if defined(__linux__) && defined(__ELF__)
+#if defined(__ELF__)
 .section .note.GNU-stack,"",%progbits
 #endif
+

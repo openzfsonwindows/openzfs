@@ -30,6 +30,7 @@
 #define	RET	ret
 
 /* Tell compiler to call assembler like Unix */
+#undef ASMABI
 #define	ASMABI	__attribute__((sysv_abi))
 
 #define	ENDBR
@@ -134,6 +135,9 @@ x:	MCOUNT(x)
 	.text; \
 	.align	ASM_ENTRY_ALIGN; \
 	.globl	x; \
+x:
+
+#define	FUNCTION(x) \
 x:
 
 /*
