@@ -58,7 +58,8 @@
 .text
 
 #ifdef HAVE_MOVBE
-ENTRY_NP(_aesni_ctr32_ghash_6x)
+.align 32
+_aesni_ctr32_ghash_6x:
 .cfi_startproc
 	ENDBR
 	vmovdqu	32(%r11),%xmm2
@@ -373,7 +374,8 @@ ENTRY_NP(_aesni_ctr32_ghash_6x)
 SET_SIZE(_aesni_ctr32_ghash_6x)
 #endif /* ifdef HAVE_MOVBE */
 
-ENTRY_NP(_aesni_ctr32_ghash_no_movbe_6x)
+.align 32
+_aesni_ctr32_ghash_no_movbe_6x:
 .cfi_startproc
 	ENDBR
 	vmovdqu	32(%r11),%xmm2
@@ -816,7 +818,8 @@ ENTRY_NP(aesni_gcm_decrypt)
 .cfi_endproc
 SET_SIZE(aesni_gcm_decrypt)
 
-ENTRY_NP(_aesni_ctr32_6x)
+.align 32
+_aesni_ctr32_6x:
 .cfi_startproc
 	ENDBR
 	vmovdqu	0-128(%rcx),%xmm4
