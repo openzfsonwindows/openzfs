@@ -34,12 +34,6 @@
 #include <aes/aes_impl.h>
 #endif
 
-#ifdef _WIN32
-// gcm will panic
-#pragma message("Disabling GCM for now")
-#undef CAN_USE_GCM_ASM
-#endif
-
 #define	GHASH(c, d, t, o) \
 	xor_block((uint8_t *)(d), (uint8_t *)(c)->gcm_ghash); \
 	(o)->mul((uint64_t *)(void *)(c)->gcm_ghash, (c)->gcm_H, \

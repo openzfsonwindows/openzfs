@@ -107,13 +107,22 @@ typedef struct aes_impl_ops aes_impl_ops_t;
  * coded in aesni-gcm-x86_64, so please don't change (or adjust accordingly).
  */
 typedef struct aes_key aes_key_t;
+
 struct aes_key {
 	aes_ks_t	encr_ks;  /* encryption key schedule */
 	aes_ks_t	decr_ks;  /* decryption key schedule */
 #ifdef __amd64
 	long double	align128; /* Align fields above for Intel AES-NI */
 #endif	/* __amd64 */
+#ifdef _WIN32
+	/*
+	 * We need to align with aesni-gcm-x64_64.S that pulls this out
+	 * of the struct, and it is aligned to 128 on posix somehow.
+	 */
+	const aes_impl_ops_t	_Alignas(16) *ops;
+#else
 	const aes_impl_ops_t	*ops;	/* ops associated with this schedule */
+#endif
 	int		nr;	  /* number of rounds (10, 12, or 14) */
 	int		type;	  /* key schedule size (32 or 64 bits) */
 };
