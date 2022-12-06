@@ -67,6 +67,7 @@
 #endif
 
 #define	kfpu_allowed()			1
+#define	kfpu_vars			0
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0)
 #define	kfpu_begin()				\

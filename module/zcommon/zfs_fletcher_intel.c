@@ -105,6 +105,7 @@ fletcher_4_avx2_native(fletcher_4_ctx_t *ctx, const void *buf, uint64_t size)
 {
 	const uint64_t *ip = buf;
 	const uint64_t *ipend = (uint64_t *)((uint8_t *)ip + size);
+	kfpu_vars;
 
 	kfpu_begin();
 
@@ -133,6 +134,7 @@ fletcher_4_avx2_byteswap(fletcher_4_ctx_t *ctx, const void *buf, uint64_t size)
 	};
 	const uint64_t *ip = buf;
 	const uint64_t *ipend = (uint64_t *)((uint8_t *)ip + size);
+	kfpu_vars;
 
 	kfpu_begin();
 

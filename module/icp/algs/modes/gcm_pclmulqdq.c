@@ -45,6 +45,7 @@ extern void ASMABI gcm_mul_pclmulqdq(uint64_t *, uint64_t *, uint64_t *);
 static void
 gcm_pclmulqdq_mul(uint64_t *x_in, uint64_t *y, uint64_t *res)
 {
+	kfpu_vars;
 	kfpu_begin();
 	gcm_mul_pclmulqdq(x_in, y, res);
 	kfpu_end();

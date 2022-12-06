@@ -381,7 +381,7 @@ gf_x2_mul_fns[256] = {
 	}								\
 }
 
-
+#define	raidz_math_vars		kfpu_vars
 #define	raidz_math_begin()	kfpu_begin()
 #define	raidz_math_end()	kfpu_end()
 

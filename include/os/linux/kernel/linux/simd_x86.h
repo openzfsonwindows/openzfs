@@ -103,6 +103,7 @@
 #define	kfpu_allowed()		1
 #define	kfpu_init()		0
 #define	kfpu_fini()		((void) 0)
+#define	kfpu_vars		0
 
 #if defined(HAVE_UNDERSCORE_KERNEL_FPU)
 #define	kfpu_begin()		\

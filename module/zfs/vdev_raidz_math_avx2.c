@@ -298,6 +298,7 @@ static const uint8_t __attribute__((aligned(32))) _mul_mask = 0x0F;
 	}								\
 }
 
+#define	raidz_math_vars		kfpu_vars
 #define	raidz_math_begin()	kfpu_begin()
 #define	raidz_math_end()						\
 {									\
