@@ -1203,6 +1203,7 @@ gcm_mode_encrypt_contiguous_blocks_avx(gcm_ctx_t *ctx, char *data,
 	uint8_t *ct_buf = NULL;
 	uint8_t *tmp = (uint8_t *)ctx->gcm_tmp;
 	int rv = CRYPTO_SUCCESS;
+	kfpu_vars;
 
 	ASSERT(block_size == GCM_BLOCK_LEN);
 	/*
@@ -1347,6 +1348,7 @@ gcm_encrypt_final_avx(gcm_ctx_t *ctx, crypto_data_t *out, size_t block_size)
 	const void *keysched = ((aes_key_t *)ctx->gcm_keysched)->encr_ks.ks32;
 	int aes_rounds = ((aes_key_t *)keysched)->nr;
 	int rv;
+	kfpu_vars;
 
 	ASSERT(block_size == GCM_BLOCK_LEN);
 
@@ -1416,6 +1418,7 @@ gcm_decrypt_final_avx(gcm_ctx_t *ctx, crypto_data_t *out, size_t block_size)
 	uint32_t *tmp = (uint32_t *)ctx->gcm_tmp;
 	int rv = CRYPTO_SUCCESS;
 	size_t bleft, done;
+	kfpu_vars;
 
 	/*
 	 * Decrypt in chunks of gcm_avx_chunk_size, which is asserted to be
@@ -1522,6 +1525,7 @@ gcm_init_avx(gcm_ctx_t *ctx, unsigned char *iv, size_t iv_len,
 	uint8_t *datap = auth_data;
 	size_t chunk_size = (size_t)GCM_CHUNK_SIZE_READ;
 	size_t bleft;
+	kfpu_vars;
 
 	ASSERT(block_size == GCM_BLOCK_LEN);
 

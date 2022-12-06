@@ -152,6 +152,7 @@ static const struct {
 	}								\
 }
 
+#define	raidz_math_vars		(0)
 #define	raidz_math_begin()	{}
 #define	raidz_math_end()	{}
 
