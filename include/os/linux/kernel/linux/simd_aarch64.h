@@ -44,7 +44,6 @@
 #include <asm/neon.h>
 
 #define	kfpu_allowed()		1
-#define	kfpu_vars		0
 #define	kfpu_begin()		kernel_neon_begin()
 #define	kfpu_end()		kernel_neon_end()
 #define	kfpu_init()		0
