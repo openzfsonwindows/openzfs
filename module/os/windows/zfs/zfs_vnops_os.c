@@ -2587,7 +2587,7 @@ zfs_setattr(znode_t *zp, vattr_t *vap, int flags, cred_t *cr, zuserns_t *mnt_ns)
 			}
 		}
 		err = secpolicy_vnode_setattr(cr, vp, vap, &oldva, flags,
-		    (int (*)(void *, int, cred_t *))zfs_zaccess_unix, zp);
+		    zfs_zaccess_unix, zp);
 		if (err) {
 			zfs_exit(zfsvfs, FTAG);
 			return (err);
