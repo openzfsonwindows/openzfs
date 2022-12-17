@@ -28,7 +28,8 @@ jobs:
         ./configure --enable-debug --enable-debuginfo --enable-asan --enable-ubsan
     - name: Make
       run: |
-        make -j16 --no-print-directory --silent
-        #make -j$(nproc) --no-print-directory --silent pkg-utils pkg-kmod
+        make --no-print-directory --silent native-deb-utils native-deb-kmod
+        mv ../*.deb .
+        rm ./openzfs-zfs-dkms*.deb ./openzfs-zfs-dracut*.deb
     - name: get files
       run: ls -Rla
