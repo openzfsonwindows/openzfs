@@ -280,7 +280,7 @@ DisplayVolumePaths(char *VolumeName, char *out, int len)
 		    NameIdx[0] != '\0';
 		    NameIdx += strlen(NameIdx) + 1) {
 			// printf("  %s", NameIdx);
-			snprintf(out, len, "%s%s ", out, NameIdx);
+			snprintf(out, len, "%s%s", out, NameIdx);
 		}
 		// printf("\n");
 	}
@@ -387,14 +387,21 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 				    sizeof (buf->f_mntfromname));
 				strlcpy(buf->f_fstypename, MNTTYPE_ZFS,
 				    sizeof (buf->f_fstypename));
-				// FIXME, should be mountpoint!
+				// If we have a driveletter, use it
+				// otherwise, lookup mountpoint, and if
+				// no mountpoint, the device exists, but
+				// is not mounted.
 				if (strlen(driveletter) > 2)
 					strlcpy(buf->f_mntonname, driveletter,
 					    sizeof (buf->f_mntonname));
-				else
+				else {
+					/* Check if it is mounted? */
+//					buf->f_mntonname[0] = 0;
 					strlcpy(buf->f_mntonname, UID->UniqueId,
 					    sizeof (buf->f_mntonname));
+					}
 			} else {
+				// Not ZFS - do we care?
 				strlcpy(buf->f_mntfromname, DeviceName,
 				    sizeof (buf->f_mntfromname));
 				strlcpy(buf->f_fstypename, "UKN",
@@ -404,10 +411,12 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 			}
 			UID = NULL;
 
-			buf++; // Go to next struct.
-			bufsize -= sizeof (*buf);
+			// If it is mounted, add node.
+			if (buf->f_mntonname[0] != 0) {
+				buf++; // Go to next struct.
+				bufsize -= sizeof (*buf);
+			}
 		}
-
 		count++;
 
 	} while (FindNextVolume(vh, name, sizeof (name)) != 0);

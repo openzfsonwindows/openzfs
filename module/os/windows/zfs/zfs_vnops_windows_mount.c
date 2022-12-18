@@ -716,6 +716,10 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	mnt_args.mflag = 0; // Set flags
 	mnt_args.fspec = zc->zc_name;
 
+	// zc_cleanup_fd carrier mount flags for now.
+	if (zc->zc_cleanup_fd & MNT_RDONLY)
+		vfs_setrdonly(zmo_dcb);
+
 	// Mount will temporarily be pointing to "dcb" until the
 	// zfs_vnop_mount() below corrects it to "vcb".
 	status = zfs_vfs_mount(zmo_dcb, NULL, (user_addr_t)&mnt_args, NULL);
@@ -1081,7 +1085,6 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		goto out;
 	}
 #endif
-
 	mount_t *dcb = DeviceToMount->DeviceExtension;
 	if (dcb == NULL) {
 		dprintf("%s: Not a ZFS dataset -- ignoring\n", __func__);
@@ -1109,6 +1112,9 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	if (!zfs_disable_removablemedia)
 		deviceCharacteristics |= FILE_REMOVABLE_MEDIA;
 
+	if (dcb->mountflags & MNT_RDONLY)
+		deviceCharacteristics |= FILE_READ_ONLY_DEVICE;
+
 	status = IoCreateDevice(DriverObject,
 	    sizeof (mount_t),
 	    NULL,
@@ -1133,7 +1139,7 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	// Move the fsprivate ptr from dcb to vcb
 	vfs_setfsprivate(vcb, vfs_fsprivate(dcb)); // HACK
-	vfs_setfsprivate(dcb, NULL);
+	// vfs_setfsprivate(dcb, NULL);
 	zfsvfs_t *zfsvfs = vfs_fsprivate(vcb);
 	if (zfsvfs == NULL) {
 		dprintf("zfsvfs not resolved yet\n");
@@ -1154,8 +1160,11 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	RtlDuplicateUnicodeString(0, &dcb->device_name, &vcb->device_name);
 	RtlDuplicateUnicodeString(0, &dcb->symlink_name, &vcb->symlink_name);
 	RtlDuplicateUnicodeString(0, &dcb->uuid, &vcb->uuid);
+	RtlDuplicateUnicodeString(0, &dcb->mountpoint, &vcb->mountpoint);
 
 	vcb->mountflags = dcb->mountflags;
+	if (vfs_isrdonly(dcb))
+		vfs_setrdonly(vcb);
 
 	// Directory notification
 	InitializeListHead(&vcb->DirNotifyList);
@@ -1301,7 +1310,6 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		status = mountmgr_get_drive_letter(mountmgr,
 		    &dcb->device_name, namex);
 	} else {
-
 		OBJECT_ATTRIBUTES poa;
 		// 36(uuid) + 6 (punct) + 6 (Volume)
 		DECLARE_UNICODE_STRING_SIZE(volStr,
@@ -1630,6 +1638,7 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 
 		// If mount uses reparsepoint (not driveletter)
 		OBJECT_ATTRIBUTES poa;
+
 		InitializeObjectAttributes(&poa,
 		    &zmo_dcb->mountpoint, OBJ_KERNEL_HANDLE, NULL, NULL);
 		dprintf("Deleting reparse mountpoint '%wZ'\n",

@@ -122,6 +122,9 @@ typedef struct mount vfsp_t;
 int   vfs_busy(mount_t *mp, int flags);
 void  vfs_unbusy(mount_t *mp);
 int   vfs_isrdonly(mount_t *mp);
+void  vfs_setrdonly(mount_t *mp);
+void  vfs_clearrdonly(mount_t *mp);
+
 void *vfs_fsprivate(mount_t *mp);
 void  vfs_setfsprivate(mount_t *mp, void *mntdata);
 void  vfs_clearflags(mount_t *mp, uint64_t flags);

@@ -137,6 +137,7 @@ static list_t zfsctl_unmount_list;
 struct zfsctl_unmount_delay {
 	char		*se_name;	/* full snapshot name */
 	spa_t		*se_spa;	/* pool spa */
+	struct vnode	*se_vnode;
 	uint64_t	se_objsetid;	/* snapshot objset id */
 	time_t		se_time;
 	list_node_t	se_nodelink;
@@ -148,9 +149,23 @@ typedef struct zfsctl_unmount_delay zfsctl_unmount_delay_t;
  * Check if the given vnode is a part of the virtual .zfs directory.
  */
 boolean_t
-zfsctl_is_node(struct vnode *ip)
+zfsctl_is_node(znode_t *zp)
 {
-	return (ITOZ(ip)->z_is_ctldir);
+	return (zp->z_is_ctldir);
+}
+
+/*
+ * /.zfs/snapshot/nameofsnapshot/
+ * -------------------^
+ */
+boolean_t
+zfsctl_is_leafnode(znode_t *zp)
+{
+	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	return (zp->z_is_ctldir && zp->z_id != ZFSCTL_INO_ROOT &&
+	    zp->z_id != ZFSCTL_INO_SNAPDIR &&
+	    (zp->z_id >= zfsvfs->z_ctldir_startid) &&
+	    (zp->z_id <= ZFSCTL_INO_SNAPDIRS));
 }
 
 typedef int (**vnode_operations)(void *);
@@ -193,6 +208,7 @@ zfsctl_vnode_alloc(zfsvfs_t *zfsvfs, uint64_t id,
 	zp->z_mode = 0;
 	zp->z_sync_cnt = 0;
 	zp->z_gen = 0;
+	zp->z_links = 2;
 	zp->z_mode = (S_IFDIR | (S_IRWXU|S_IRWXG|S_IRWXO));
 	zp->z_uid = 0;
 	zp->z_gid = 0;
@@ -225,18 +241,21 @@ zfsctl_vnode_alloc(zfsvfs_t *zfsvfs, uint64_t id,
 	zp->z_vid = vnode_vid(vp);
 	zp->z_vnode = vp;
 
+	// Update startid before buildpath.
+	if (id < zfsvfs->z_ctldir_startid)
+		zfsvfs->z_ctldir_startid = id;
+
 	// Build fullpath string here, for Notifications & set_name_information
 	if (zfs_build_path(zp, NULL, &zp->z_name_cache,
-	    &zp->z_name_len, &zp->z_name_offset) == -1)
+	    &zp->z_name_len, &zp->z_name_offset) == -1) {
 		dprintf("%s: failed to build fullpath\n", __func__);
+	}
 
 	zfs_set_security(vp, NULL);
 
 	mutex_enter(&zfsvfs->z_znodes_lock);
 	list_insert_tail(&zfsvfs->z_all_znodes, zp);
 	membar_producer();
-	if (id < zfsvfs->z_ctldir_startid)
-		zfsvfs->z_ctldir_startid = id;
 	mutex_exit(&zfsvfs->z_znodes_lock);
 
 	return (vp);
@@ -311,7 +330,6 @@ zfsctl_destroy(zfsvfs_t *zfsvfs)
 			/* Because tagged VSYSTEM, we manually call recycle */
 			zfsvfs->z_ctldir->v_flags &= ~VNODE_MARKROOT; // Hack
 			VN_RELE(zfsvfs->z_ctldir);
-			vnode_recycle(zfsvfs->z_ctldir);
 		}
 		zfsvfs->z_ctldir = NULL;
 	}
@@ -324,47 +342,50 @@ zfsctl_destroy(zfsvfs_t *zfsvfs)
 struct vnode *
 zfsctl_root(znode_t *zp)
 {
-	ASSERT(zfs_has_ctldir(zp));
 	VN_HOLD(ZTOZSB(zp)->z_ctldir);
 	return (ZTOZSB(zp)->z_ctldir);
 }
 
-
+/* Given a entry in .zfs, find its parent */
 struct vnode *
 zfs_root_dotdot(struct vnode *vp)
 {
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = ZTOZSB(zp);
-	znode_t *rootzp = NULL;
+	znode_t *retzp = NULL;
 	struct vnode *retvp = NULL;
+	int error = 0;
 
 	dprintf("%s: for id %llu\n", __func__, zp->z_id);
 
 	if (zp->z_id == ZFSCTL_INO_ROOT)
-		zfs_zget(zfsvfs, zfsvfs->z_root, &rootzp);
+		error = zfs_zget(zfsvfs, zfsvfs->z_root, &retzp);
 	else if (zp->z_id == ZFSCTL_INO_SNAPDIR)
 		retvp = zfsctl_root(zp);
 	else
 		retvp = zfsctl_vnode_lookup(zfsvfs, ZFSCTL_INO_SNAPDIR,
-		    "snapshot");
+		    ZFS_SNAPDIR_NAME);
 
-	if (rootzp != NULL)
-		retvp = ZTOV(rootzp);
+	if (retzp != NULL)
+		return (ZTOV(retzp));
+	if (retvp != NULL)
+		return (retvp);
 
-	return (retvp);
+	return (NULL);
 }
 
 /*
  * Special case the handling of "..".
  */
 int
-zfsctl_root_lookup(struct vnode *dvp, char *name, struct vnode **vpp,
+zfsctl_root_lookup(struct vnode *dvp, char *name, znode_t **zpp,
     int flags, cred_t *cr, int *direntflags, struct componentname *realpnp)
 {
 	znode_t *dzp = VTOZ(dvp);
 	zfsvfs_t *zfsvfs = ZTOZSB(dzp);
 	int error = 0;
 	uint64_t id;
+	struct vnode *vp;
 
 	dprintf("%s: '%s'\n", __func__, name);
 
@@ -372,21 +393,22 @@ zfsctl_root_lookup(struct vnode *dvp, char *name, struct vnode **vpp,
 		return (error);
 
 	if (strcmp(name, "..") == 0) {
-		*vpp = zfs_root_dotdot(dvp);
+		vp = zfs_root_dotdot(dvp);
 	} else if (strcmp(name, ZFS_SNAPDIR_NAME) == 0) {
-		*vpp = zfsctl_vnode_lookup(zfsvfs, ZFSCTL_INO_SNAPDIR,
+		vp = zfsctl_vnode_lookup(zfsvfs, ZFSCTL_INO_SNAPDIR,
 		    name);
 	} else {
 		error = dmu_snapshot_lookup(zfsvfs->z_os, name, &id);
 		if (error != 0)
 			goto out;
-		*vpp = zfsctl_vnode_lookup(zfsvfs, ZFSCTL_INO_SNAPDIRS - id,
+		vp = zfsctl_vnode_lookup(zfsvfs, ZFSCTL_INO_SNAPDIRS - id,
 		    name);
 	}
 
-	if (*vpp == NULL) {
+	if (vp == NULL)
 		error = SET_ERROR(ENOENT);
-	}
+	else
+		*zpp = VTOZ(vp);
 
 out:
 	zfs_exit(zfsvfs, FTAG);
@@ -394,136 +416,12 @@ out:
 	return (error);
 }
 
-// int zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
-#if 0
 int
-zfsctl_vnop_lookup(struct vnop_lookup_args *ap)
-#if 0
-	struct vnop_lookup_args {
-		struct vnode	*a_dvp;
-		struct vnode	**a_vpp;
-		struct componentname *a_cnp;
-		vfs_context_t	a_context;
-	};
-#endif
-{
-	int direntflags = 0;
-	int error;
-	struct componentname *cnp = ap->a_cnp;
-	char *filename = NULL;
-	int filename_num_bytes = 0;
-	cred_t *cr = (cred_t *)vfs_context_ucred((ap)->a_context);
-
-	/*
-	 * Darwin uses namelen as an optimisation, for example it can be
-	 * set to 5 for the string "alpha/beta" to look up "alpha". In this
-	 * case we need to copy it out to null-terminate.
-	 */
-	if (cnp->cn_nameptr[cnp->cn_namelen] != 0) {
-		filename_num_bytes = cnp->cn_namelen + 1;
-		filename = (char *)kmem_alloc(filename_num_bytes, KM_SLEEP);
-		memcpy(filename, cnp->cn_nameptr, cnp->cn_namelen);
-		filename[cnp->cn_namelen] = '\0';
-	}
-
-	error =  zfsctl_root_lookup(ap->a_dvp,
-		filename ? filename : cnp->cn_nameptr,
-		ap->a_vpp, /* flags */ 0, cr, &direntflags, NULL);
-
-	/* If we are to create a directory, change error code for XNU */
-	if ((error == ENOENT) &&
-		(cnp->cn_flags & ISLASTCN)) {
-		if ((cnp->cn_nameiop == CREATE) ||
-			(cnp->cn_nameiop == RENAME))
-			error = EJUSTRETURN;
-	}
-
-	if (filename != NULL)
-		kmem_free(filename, filename_num_bytes);
-
-	return (error);
-}
-#endif
-
-
-static int zfsctl_dir_emit(const char *name, uint64_t id, enum vtype type,
-	struct vnop_readdir_args *ap, uint64_t **next)
-{
-#if 0
-	struct uio *uio = ap->a_uio;
-	boolean_t extended = (ap->a_flags & VNODE_READDIR_EXTENDED);
-	struct direntry	*eodp;	/* Extended */
-	struct dirent	*odp;	/* Standard */
-	int namelen;
-	void *buf;
-	int error = 0;
-	ushort_t reclen;
-
-	dprintf("%s '%s'\n", __func__, name);
-
-	namelen = strlen(name);
-	reclen = DIRENT_RECLEN(namelen, extended);
-
-	if (reclen > uio_resid(uio))
-		return (EINVAL);
-
-	buf = kmem_zalloc(reclen, KM_SLEEP);
-
-	if (extended) {
-		eodp = buf;
-
-		/*
-		 * NOTE: d_seekoff is the offset for the *next* entry -
-		 * so poke in the previous struct with this id
-		 */
-		eodp->d_seekoff = uio_offset(uio) + 1;
-
-		eodp->d_ino = id;
-		eodp->d_type = type;
-
-		(void) memcpy(eodp->d_name, name, namelen + 1);
-		eodp->d_namlen = namelen;
-		eodp->d_reclen = reclen;
-
-	} else {
-		odp = buf;
-
-		odp->d_ino = id;
-		odp->d_type = type;
-		(void) memcpy(odp->d_name, name, namelen + 1);
-		odp->d_namlen = namelen;
-		odp->d_reclen = reclen;
-
-	}
-
-	/* Copyout this entry */
-	error = uiomove(buf, (long)reclen, UIO_READ, uio);
-
-	kmem_free(buf, reclen);
-	return (error);
-#endif
-	return (-1);
-}
-
-int
-zfsctl_vnop_readdir_root(struct vnop_readdir_args *ap)
-#if 0
-	struct vnop_readdir_args {
-		struct vnode	a_vp;
-		struct uio	*a_uio;
-		int		a_flags;
-		int		*a_eofflag;
-		int		*a_numdirent;
-		vfs_context_t	a_context;
-	};
-#endif
+zfsctl_vnop_readdir_root(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
+    zfs_dirlist_t *zccb, int flags)
 {
 	int error = 0;
-	uint64_t *next = NULL;
-	int entries = 0;
-	uint64_t offset;
-	struct uio *uio = ap->a_uio;
-	znode_t *zp = VTOZ(ap->a_vp);
+	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
 	dprintf("%s\n", __func__);
@@ -531,54 +429,54 @@ zfsctl_vnop_readdir_root(struct vnop_readdir_args *ap)
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
 		return (error);
 
-	*ap->a_numdirent = 0;
+	ctx->numdirent = 0;
 
-	offset = zfs_uio_offset(uio);
+	while (ctx->offset < 3 && error == 0) {
 
-	while (offset < 3 && error == 0) {
-
-		switch (offset) {
+		switch (ctx->offset) {
 		case 0: /* "." */
-			error = zfsctl_dir_emit(".", ZFSCTL_INO_ROOT,
-			    DT_DIR, ap, &next);
+			error = zfs_readdir_emitdir(zfsvfs, ".",
+			    ctx, zccb, ZFSCTL_INO_ROOT);
 			break;
 
 		case 1: /* ".." */
-			error = zfsctl_dir_emit("..", 2,
-			    DT_DIR, ap, &next);
+			error = zfs_readdir_emitdir(zfsvfs, "..",
+			    ctx, zccb, zfsvfs->z_root);
 			break;
 
 		case 2:
-			error = zfsctl_dir_emit(ZFS_SNAPDIR_NAME,
-			    ZFSCTL_INO_SNAPDIR, DT_DIR, ap, &next);
+			error = zfs_readdir_emitdir(zfsvfs, ZFS_SNAPDIR_NAME,
+			    ctx, zccb, ZFSCTL_INO_SNAPDIR);
 			break;
 		}
 
-		if (error == ENOENT) {
-			dprintf("end of snapshots reached\n");
+		if (error == 0) {
+			ctx->numdirent++;
+		} else if (error == ENOSPC) { /* stop iterating */
 			break;
+		} else {
+			/* other error, skip over entry */
+			error = 0;
 		}
 
-		if (error != 0) {
-			dprintf("emit error\n");
-			break;
-		}
-
-		entries++;
-		offset++;
-		zfs_uio_setoffset(uio, offset);
+		ctx->offset++;
 	}
 
-	zfs_uio_setoffset(uio, offset);
+	if (error == ENOENT) {
+		dprintf("end of snapshots reached\n");
+	}
+
+	if (error != 0) {
+		dprintf("emit error\n");
+	}
+
+	zfs_readdir_complete(ctx);
 
 	/* Finished without error? Set EOF */
-	if (offset >= 3 && error == 0) {
-		*ap->a_eofflag = 1;
+	if (ctx->offset >= 3 && error == 0) {
+		error = ENOENT;
 		dprintf("Setting eof\n");
 	}
-
-	*ap->a_numdirent = entries;
-	dprintf("Returning %d entries\n", entries);
 
 	zfs_exit(zfsvfs, FTAG);
 
@@ -586,27 +484,14 @@ zfsctl_vnop_readdir_root(struct vnop_readdir_args *ap)
 }
 
 int
-zfsctl_vnop_readdir_snapdir(struct vnop_readdir_args *ap)
-#if 0
-	struct vnop_readdir_args {
-		struct vnode	a_vp;
-		struct uio	*a_uio;
-		int		a_flags;
-		int		*a_eofflag;
-		int		*a_numdirent;
-		vfs_context_t	a_context;
-	};
-#endif
+zfsctl_vnop_readdir_snapdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
+    zfs_dirlist_t *zccb, int flags)
 {
 	int error = 0;
-	uint64_t *next = NULL;
-	int entries = 0;
-	uint64_t offset;
-	struct uio *uio = ap->a_uio;
 	boolean_t case_conflict;
 	uint64_t id;
 	char snapname[MAXNAMELEN];
-	znode_t *zp = VTOZ(ap->a_vp);
+	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
 	dprintf("%s\n", __func__);
@@ -614,35 +499,32 @@ zfsctl_vnop_readdir_snapdir(struct vnop_readdir_args *ap)
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
 		return (error);
 
-	*ap->a_numdirent = 0;
-
-	offset = zfs_uio_offset(uio);
-
 	while (error == 0) {
 
-		switch (offset) {
+		switch (ctx->offset) {
 		case 0: /* "." */
-			error = zfsctl_dir_emit(".", ZFSCTL_INO_SNAPDIR,
-			    DT_DIR, ap, &next);
+			error = zfs_readdir_emitdir(zfsvfs, ".",
+			    ctx, zccb, ZFSCTL_INO_SNAPDIR);
 			break;
 
 		case 1: /* ".." */
-			error = zfsctl_dir_emit("..", ZFSCTL_INO_ROOT,
-			    DT_DIR, ap, &next);
+			error = zfs_readdir_emitdir(zfsvfs, "..",
+			    ctx, zccb, ZFSCTL_INO_ROOT);
 			break;
 
 		default:
 			dsl_pool_config_enter(dmu_objset_pool(zfsvfs->z_os),
 			    FTAG);
 			error = dmu_snapshot_list_next(zfsvfs->z_os,
-			    MAXNAMELEN, snapname, &id, &offset, &case_conflict);
+			    MAXNAMELEN, snapname, &id, &ctx->offset,
+			    &case_conflict);
 			dsl_pool_config_exit(dmu_objset_pool(zfsvfs->z_os),
 			    FTAG);
 			if (error)
 				break;
 
-			error = zfsctl_dir_emit(snapname,
-			    ZFSCTL_INO_SHARES - id, DT_DIR, ap, &next);
+			error = zfs_readdir_emitdir(zfsvfs, snapname,
+			    ctx, zccb, ZFSCTL_INO_SNAPDIRS - id);
 			break;
 		}
 
@@ -651,22 +533,10 @@ zfsctl_vnop_readdir_snapdir(struct vnop_readdir_args *ap)
 			break;
 		}
 
-		entries++;
-		offset++;
-		zfs_uio_setoffset(uio, offset);
+		ctx->offset++;
 	}
 
-	zfs_uio_setoffset(uio, offset);
-
-	/* Finished without error? Set EOF */
-	if (error == ENOENT) {
-		*ap->a_eofflag = 1;
-		dprintf("Setting eof\n");
-		error = 0;
-	}
-
-	*ap->a_numdirent = entries;
-	dprintf("Returning %d entries\n", entries);
+	zfs_readdir_complete(ctx);
 
 	zfs_exit(zfsvfs, FTAG);
 
@@ -676,47 +546,27 @@ zfsctl_vnop_readdir_snapdir(struct vnop_readdir_args *ap)
 
 /* We need to spit out a valid "." ".." entries for mount to work */
 int
-zfsctl_vnop_readdir_snapdirs(struct vnop_readdir_args *ap)
-#if 0
-	struct vnop_readdir_args {
-		struct vnode	a_vp;
-		struct uio	*a_uio;
-		int		a_flags;
-		int		*a_eofflag;
-		int		*a_numdirent;
-		vfs_context_t	a_context;
-	};
-#endif
+zfsctl_vnop_readdir_snapdirs(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
+    zfs_dirlist_t *zccb, int flags)
 {
 	int error = 0;
-	uint64_t *next = NULL;
-	int entries = 0;
-	uint64_t offset;
-	struct uio *uio = ap->a_uio;
-	znode_t *zp = VTOZ(ap->a_vp);
+	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
 		return (error);
 
-	*ap->a_numdirent = 0;
-
-	offset = zfs_uio_offset(uio);
-
-	dprintf("%s: for id %llu: offset %llu\n", __func__,
-	    zp->z_id, offset);
-
 	while (error == 0) {
 
-		switch (offset) {
+		switch (ctx->offset) {
 		case 0: /* "." */
-			error = zfsctl_dir_emit(".", ZFSCTL_INO_SNAPDIR,
-			    DT_DIR, ap, &next);
+			error = zfs_readdir_emitdir(zfsvfs, ".",
+			    ctx, zccb, zp->z_id);
 			break;
 
 		case 1: /* ".." */
-			error = zfsctl_dir_emit("..", ZFSCTL_INO_ROOT,
-			    DT_DIR, ap, &next);
+			error = zfs_readdir_emitdir(zfsvfs, "..",
+			    ctx, zccb, ZFSCTL_INO_SNAPDIR);
 			break;
 
 		default:
@@ -729,54 +579,38 @@ zfsctl_vnop_readdir_snapdirs(struct vnop_readdir_args *ap)
 			break;
 		}
 
-		entries++;
-		offset++;
-		zfs_uio_setoffset(uio, offset);
+		ctx->offset++;
 	}
-
-	zfs_uio_setoffset(uio, offset);
-
-	/* Finished without error? Set EOF */
-	if (error == ENOENT) {
-		*ap->a_eofflag = 1;
-		dprintf("Setting eof\n");
-		error = 0;
-	}
-
-	*ap->a_numdirent = entries;
-	dprintf("Returning %d entries\n", entries);
 
 	zfs_exit(zfsvfs, FTAG);
+
+	zfs_readdir_complete(ctx);
 
 	return (error);
 }
 
 int
-zfsctl_vnop_readdir(struct vnop_readdir_args *ap)
-#if 0
-	struct vnop_readdir_args {
-		struct vnode	a_vp;
-		struct uio	*a_uio;
-		int		a_flags;
-		int		*a_eofflag;
-		int		*a_numdirent;
-		vfs_context_t	a_context;
-	};
-#endif
+zfsctl_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
+    zfs_dirlist_t *zccb, int flags)
 {
-	znode_t *zp = VTOZ(ap->a_vp);
+	znode_t *zp = VTOZ(vp);
 
 	dprintf("%s\n", __func__);
 
 	/* Which directory are we to output? */
 	switch (zp->z_id) {
-		case ZFSCTL_INO_ROOT:
-			return (zfsctl_vnop_readdir_root(ap));
-		case ZFSCTL_INO_SNAPDIR:
-			return (zfsctl_vnop_readdir_snapdir(ap));
-		default:
-			return (zfsctl_vnop_readdir_snapdirs(ap));
+	case ZFSCTL_INO_ROOT:
+		return (zfsctl_vnop_readdir_root(vp, ctx, cr,
+		    zccb, flags));
+	case ZFSCTL_INO_SNAPDIR:
+		return (zfsctl_vnop_readdir_snapdir(vp, ctx, cr,
+		    zccb, flags));
+	default:
+		return (zfsctl_vnop_readdir_snapdirs(vp, ctx, cr,
+		    zccb, flags));
+	break;
 	}
+	panic("%s: weird snapshot state\n", __func__);
 	return (EINVAL);
 }
 
@@ -1117,7 +951,7 @@ zfsctl_snapshot_mount(struct vnode *vp, int flags)
 
 /* Called whenever zfs_vfs_mount() is called with a snapshot */
 void
-zfsctl_mount_signal(char *osname, boolean_t mounting)
+zfsctl_mount_signal(zfsvfs_t *zfsvfs, char *osname, boolean_t mounting)
 {
 	zfsctl_mounts_waiting_t *zcm;
 
@@ -1161,14 +995,17 @@ zfsctl_mount_signal(char *osname, boolean_t mounting)
 		for (zcu = list_head(&zfsctl_unmount_list);
 		    zcu != NULL;
 		    zcu = list_next(&zfsctl_unmount_list, zcu)) {
-			if (strcmp(osname, zcu->se_name) == 0) {
-				list_remove(&zfsctl_unmount_list, zcu);
-				kmem_strfree(zcu->se_name);
-				kmem_free(zcu, sizeof (zfsctl_unmount_delay_t));
+			if (strcmp(osname, zcu->se_name) == 0)
 				break;
-			}
 		}
 		mutex_exit(&zfsctl_unmount_list_lock);
+
+
+		if (zcu != NULL) {
+			list_remove(&zfsctl_unmount_list, zcu);
+			kmem_strfree(zcu->se_name);
+			kmem_free(zcu, sizeof (zfsctl_unmount_delay_t));
+		}
 	}
 }
 
@@ -1183,6 +1020,7 @@ zfsctl_snapshot_unmount_node(struct vnode *vp, const char *full_name,
 
 	if (zp == NULL)
 		return (ENOENT);
+	return (0);
 
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	int ret = ENOENT;
@@ -1308,6 +1146,69 @@ zfsctl_snapshot_unmount(const char *snapname, int flags)
 }
 
 int
+zfsctl_mkdir(znode_t *dzp, znode_t **zpp, char *dirname)
+{
+	int error;
+	error = zfsctl_root_lookup(ZTOV(dzp), dirname, zpp, 0, NULL,
+	    NULL, NULL);
+	if (error == 0) {
+		ZTOV(*zpp)->v_unlink = 0;
+	}
+	return (error);
+}
+
+int
+zfsctl_set_reparse_point(znode_t *zp, REPARSE_DATA_BUFFER *rdb, size_t size)
+{
+	if (!zfsctl_is_leafnode(zp))
+		return (STATUS_INVALID_PARAMETER);
+
+	zp->z_pflags |= ZFS_REPARSE;
+	vnode_set_reparse(ZTOV(zp), rdb, size);
+	return (STATUS_SUCCESS);
+}
+
+int
+zfsctl_delete_reparse_point(znode_t *zp)
+{
+	if (!zfsctl_is_leafnode(zp))
+		return (STATUS_INVALID_PARAMETER);
+
+	zp->z_pflags &= ~ZFS_REPARSE;
+	vnode_set_reparse(ZTOV(zp), NULL, 0);
+
+	return (STATUS_SUCCESS);
+}
+
+// make Tag vs Point call, to return just ULONG tag or copy over point
+ULONG
+zfsctl_get_reparse_tag(znode_t *zp)
+{
+
+	if (!zfsctl_is_leafnode(zp))
+		return (0);
+
+	if (!(zp->z_pflags & ZFS_REPARSE))
+		return (0);
+
+	return (vnode_get_reparse_tag(ZTOV(zp)));
+}
+
+int
+zfsctl_get_reparse_point(znode_t *zp, REPARSE_DATA_BUFFER **buffer,
+    size_t *size)
+{
+
+	if (!zfsctl_is_leafnode(zp))
+		return (STATUS_NOT_A_REPARSE_POINT);
+
+	if (!(zp->z_pflags & ZFS_REPARSE))
+		return (STATUS_NOT_A_REPARSE_POINT);
+
+	return (vnode_get_reparse_point(ZTOV(zp), buffer, size));
+}
+
+int
 zfsctl_vnop_mkdir(struct vnop_mkdir_args *ap)
 #if 0
 	struct vnop_mkdir_args {
@@ -1346,8 +1247,8 @@ zfsctl_vnop_mkdir(struct vnop_mkdir_args *ap)
 		if (error != 0)
 			goto out;
 
-		error = zfsctl_root_lookup(ap->a_dvp, ap->a_cnp->cn_nameptr,
-		    ap->a_vpp, 0, cr, NULL, NULL);
+		// error = zfsctl_root_lookup(ap->a_dvp, ap->a_cnp->cn_nameptr,
+		//    ap->a_vpp, 0, cr, NULL, NULL);
 	}
 
 out:
