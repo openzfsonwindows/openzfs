@@ -60,8 +60,8 @@
 
 #ifdef _MSC_VER
 
-#define	unlikely
-#define	likely
+#define	unlikely(X) X
+#define	likely(X) X
 #define	__maybe_unused
 #define	__printflike(X, Y)
 #define	__unused

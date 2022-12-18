@@ -103,10 +103,6 @@ static int hardlinks_compare_linkid(const void *arg1, const void *arg2)
 	return (0);
 }
 
-extern int
-zfs_obtain_xattr(znode_t *, const char *, mode_t, cred_t *, vnode_t **, int);
-
-
 /*
  * We need to keep a count of active fs's.
  * This is necessary to prevent our kext
@@ -1027,6 +1023,7 @@ zfs_domount(struct mount *vfsp, dev_t mount_dev, char *osname,
 		    NULL)))
 			goto out;
 		xattr_changed_cb(zfsvfs, pval);
+		zfsvfs->z_rdonly = B_TRUE;
 		zfsvfs->z_issnap = B_TRUE;
 		zfsvfs->z_os->os_sync = ZFS_SYNC_DISABLED;
 
@@ -1034,7 +1031,7 @@ zfs_domount(struct mount *vfsp, dev_t mount_dev, char *osname,
 		dmu_objset_set_user(zfsvfs->z_os, zfsvfs);
 		mutex_exit(&zfsvfs->z_os->os_user_ptr_lock);
 
-		zfsctl_mount_signal(osname, B_TRUE);
+		zfsctl_mount_signal(zfsvfs, osname, B_TRUE);
 
 	} else {
 		if ((error = zfsvfs_setup(zfsvfs, B_TRUE)))
@@ -1644,9 +1641,8 @@ zfs_vfs_unmount(struct mount *mp, int mntflags, vfs_context_t context)
 	/* If we are ourselves a snapshot */
 	if (dmu_objset_is_snapshot(zfsvfs->z_os)) {
 		/* Wake up anyone waiting for unmount */
-		zfsctl_mount_signal(osname, B_FALSE);
+		zfsctl_mount_signal(zfsvfs, osname, B_FALSE);
 	}
-
 
 	/*
 	 * Last chance to dump unreferenced system files.
@@ -1876,7 +1872,7 @@ zfs_vfs_vget(struct mount *mp, ino64_t ino, vnode_t **vpp,
 			    zp = list_next(&zfsvfs->z_all_znodes, zp)) {
 				if (zp->z_id == ino)
 					break;
-				if (zp->z_id == ZFSCTL_INO_SHARES - ino)
+				if (zp->z_id == ZFSCTL_INO_SNAPDIRS - ino)
 					break;
 			}
 			mutex_exit(&zfsvfs->z_znodes_lock);

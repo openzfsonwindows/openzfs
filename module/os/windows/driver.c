@@ -55,7 +55,7 @@ extern void sysctl_os_fini(void);
 #endif
 
 PDRIVER_OBJECT WIN_DriverObject = NULL;
-PDRIVER_UNLOAD STOR_DriverUnload;
+PDRIVER_UNLOAD STOR_DriverUnload = NULL;
 PDRIVER_DISPATCH STOR_MajorFunction[IRP_MJ_MAXIMUM_FUNCTION + 1];
 
 wzvolDriverInfo STOR_wzvolDriverInfo;

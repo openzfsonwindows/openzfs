@@ -92,6 +92,8 @@ struct vnode {
 	uint32_t v_usecount; // Long term holds
 	uint32_t v_type;
 	uint32_t v_unlink;
+	REPARSE_DATA_BUFFER *v_reparse;
+	size_t v_reparse_size;
 	uint32_t v_unused;
 	void *v_data;
 	uint64_t v_id;
@@ -503,6 +505,11 @@ void cache_purge_negatives(vnode_t *vp);
 int vnode_removefsref(vnode_t *vp);
 int vnode_iocount(vnode_t *vp);
 void vnode_pager_setsize(void *fo, vnode_t *vp, uint64_t size, boolean_t delay);
+void vnode_set_reparse(struct vnode *vp, REPARSE_DATA_BUFFER *rpp, size_t size);
+ULONG vnode_get_reparse_tag(struct vnode *vp);
+int vnode_get_reparse_point(struct vnode *vp, REPARSE_DATA_BUFFER **rpp,
+    size_t *size);
+
 
 #define	VNODE_READDIR_EXTENDED 1
 

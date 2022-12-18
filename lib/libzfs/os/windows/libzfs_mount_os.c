@@ -105,57 +105,68 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 	(void) strlcpy(zc.zc_name, zhp->zfs_name, sizeof (zc.zc_name));
 	(void) strlcpy(zc.zc_value, dir, sizeof (zc.zc_value));
 
-	// If hasprop is set, use 'driveletter' and ignore mountpoint path
-	// if !hasprop && rootds same
-	if (hasprop) {
-		// We just pass "\\??\\X:" to kernel.
-		snprintf(zc.zc_value, sizeof (zc.zc_value), "\\??\\%c:",
-		    tolower(driveletter[0]));
-	} else {
-		// We are to mount with path. Attempt to find parent
-		// driveletter, if any. Otherwise assume c:/
-		driveletter[0] = 'c';
 
-		if (!ispool) {
-			char parent[ZFS_MAX_DATASET_NAME_LEN] = "";
-			char *slashp;
-			struct mnttab entry = { 0 };
+	if (zhp->zfs_type != ZFS_TYPE_SNAPSHOT) {
+		// If hasprop is set, use 'driveletter' and ignore mountpoint
+		// path. if !hasprop && rootds same
+		if (hasprop) {
+			// We just pass "\\??\\X:" to kernel.
+			snprintf(zc.zc_value, sizeof (zc.zc_value), "\\??\\%c:",
+			    tolower(driveletter[0]));
+		} else {
+			// We are to mount with path. Attempt to find parent
+			// driveletter, if any. Otherwise assume c:/
+			driveletter[0] = 'c';
 
-			zfs_parent_name(zhp, parent, sizeof (parent));
+			if (!ispool) {
+				char parent[ZFS_MAX_DATASET_NAME_LEN] = "";
+				char *slashp;
+				struct mnttab entry = { 0 };
 
-			while (strlen(parent) >= 1) {
-				if ((libzfs_mnttab_find(zhp->zfs_hdl, parent,
-				    &entry) == 0) &&
-				    (entry.mnt_mountp[1] == ':')) {
-					driveletter[0] = entry.mnt_mountp[0];
+				zfs_parent_name(zhp, parent, sizeof (parent));
+
+				while (strlen(parent) >= 1) {
+					if ((libzfs_mnttab_find(zhp->zfs_hdl,
+					    parent,
+					    &entry) == 0) &&
+					    (entry.mnt_mountp[1] == ':')) {
+						driveletter[0] =
+						    entry.mnt_mountp[0];
 #ifdef DEBUG
 	fprintf(stderr,
 	    "we think '%s' parent is '%s' and its mounts are: '%s'\r\n",
 	    zfs_get_name(zhp), parent, entry.mnt_mountp);
 	fflush(stderr);
 #endif
-					break;
+						break;
+					}
+					if ((slashp = strrchr(parent, '/')) ==
+					    NULL)
+						break;
+					*slashp = '\0';
 				}
-				if ((slashp = strrchr(parent, '/')) == NULL)
-					break;
-				*slashp = '\0';
+
+	/*
+	 * We need to skip the parent name part, in mountpoint "dir" here,ie
+	 * if parent is "BOOM/lower" we need to skip to the 3nd slash
+	 * in "/BOOM/lower/newfs"
+	 * So, check if the mounted name is in the string
+	 */
+				// "BOOM" -> "/BOOM/"
+				snprintf(parent, sizeof (parent), "/%s/",
+				    entry.mnt_special);
+				char *part = strstr(dir, parent);
+				if (part) dir = &part[strlen(parent) - 1];
 			}
 
-/*
- * We need to skip the parent name part, in mountpoint "dir" here,ie
- * if parent is "BOOM/lower" we need to skip to the 3nd slash
- * in "/BOOM/lower/newfs"
- * So, check if the mounted name is in the string
- */
-			// "BOOM" -> "/BOOM/"
-			snprintf(parent, sizeof (parent), "/%s/",
-			    entry.mnt_special);
-			char *part = strstr(dir, parent);
-			if (part) dir = &part[strlen(parent) - 1];
+			snprintf(zc.zc_value, sizeof (zc.zc_value),
+			    "\\??\\%c:%s", tolower(driveletter[0]), dir);
 		}
-
-		snprintf(zc.zc_value, sizeof (zc.zc_value), "\\??\\%c:%s",
-		    tolower(driveletter[0]), dir);
+	} else {
+		// snapshot
+		snprintf(zc.zc_value, sizeof (zc.zc_value), "\\??\\%s",
+		    dir);
+		zc.zc_cleanup_fd = MNT_RDONLY;
 	}
 
 	// Convert Unix slash to Win32 backslash
@@ -272,36 +283,27 @@ do_unmount_impl(zfs_handle_t *zhp, const char *mntpt, int flags)
 		// from JUNCTION to a real folder
 		char mtpt_prop[ZFS_MAXPROPLEN];
 		char driveletter[MAX_PATH];
-		verify(zfs_prop_get(zhp, ZFS_PROP_MOUNTPOINT, mtpt_prop,
-		    sizeof (mtpt_prop), NULL, NULL, 0, B_FALSE) == 0);
-		verify(zfs_prop_get(zhp, ZFS_PROP_DRIVELETTER, driveletter,
-		    sizeof (driveletter), NULL, NULL, 0, B_FALSE) == 0);
-		// if mountpoint starts with '/' we assume that it is a path
-		// to a directory make sure we didn't mount as driveletter
-		if (mtpt_prop && mtpt_prop[0] == '/' &&
-		    (strstr(driveletter, "-") != 0 ||
-		    strstr(driveletter, "off") != 0) &&
-		    (mntpt && strstr(mntpt, ":\\") == 0)) {
-			fprintf(stderr, "recreate mountpoint %s\n", mtpt_prop);
-			fflush(stderr);
-			BOOL val = RemoveDirectoryA(mtpt_prop);
-			if (!val) {
-				if (GetLastError() != ERROR_FILE_NOT_FOUND)
-					fprintf(stderr,
-					    "RemoveDirectoryA false, err %lu\n",
-					    GetLastError());
-				fflush(stderr);
-			} else {
-				val = CreateDirectoryA(mtpt_prop, NULL);
-				if (!val)
-					fprintf(stderr,
-					    "CreateDirectoryA false, err %lu\n",
-					    GetLastError());
-				fflush(stderr);
+		// snapshots dont have mountpoint property
+		if (zfs_prop_get(zhp, ZFS_PROP_MOUNTPOINT, mtpt_prop,
+		    sizeof (mtpt_prop), NULL, NULL, 0, B_FALSE) == 0) {
+			verify(zfs_prop_get(zhp, ZFS_PROP_DRIVELETTER,
+			    driveletter, sizeof (driveletter), NULL,
+			    NULL, 0, B_FALSE) == 0);
+			// if mountpoint starts with '/' we assume that it is a
+			// path to a directory make sure we didn't mount as
+			// driveletter
+			if (mtpt_prop && mtpt_prop[0] == '/' &&
+			    (strstr(driveletter, "-") != 0 ||
+			    strstr(driveletter, "off") != 0) &&
+			    (mntpt && strstr(mntpt, ":\\") == 0)) {
+				BOOL val = RemoveDirectoryA(mtpt_prop);
+				if (!val) {
+				} else {
+					val = CreateDirectoryA(mtpt_prop, NULL);
+				}
+
 			}
-
 		}
-
 	}
 
 	fprintf(stderr, "zunmount(%s,%s) returns %d\n",
@@ -463,7 +465,7 @@ zfs_snapshot_unmount(zfs_handle_t *zhp, int flags)
 	char *mountpoint;
 
 	if (!zfs_is_mounted(zhp, NULL)) {
-		return (ENOENT);
+	//	return (ENOENT);
 	}
 
 	mountpoint = zfs_snapshot_mountpoint(zhp);
