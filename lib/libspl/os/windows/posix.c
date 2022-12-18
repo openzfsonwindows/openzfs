@@ -195,20 +195,21 @@ statfs(const char *path, struct statfs *buf)
 	if (GetDiskFreeSpaceEx(path,
 	    &lpFreeBytesAvailable,
 	    &lpTotalNumberOfBytes,
-	    &lpTotalNumberOfFreeBytes))
+	    &lpTotalNumberOfFreeBytes)) {
 		return (-1);
+	}
 #endif
 
 	DISK_GEOMETRY_EX geometry_ex;
 	HANDLE handle;
 	DWORD len;
 
-	int fd = open(path, O_RDONLY | O_BINARY);
-	handle = (HANDLE) _get_osfhandle(fd);
+	handle = wosix_open(path, O_RDONLY | O_BINARY);
+
 	if (!DeviceIoControl(handle, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, NULL, 0,
 	    &geometry_ex, sizeof (geometry_ex), &len, NULL))
 		return (-1);
-	close(fd);
+	wosix_close(handle);
 	lbsize = (uint_t)geometry_ex.Geometry.BytesPerSector;
 
 	buf->f_bsize = lbsize;

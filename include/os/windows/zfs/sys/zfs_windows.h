@@ -110,6 +110,7 @@ extern char *create_options(ULONG options);
 extern char *create_reply(NTSTATUS, ULONG reply);
 extern void latency_stats(uint64_t *histo, unsigned int buckets,
     stat_pair *lat);
+extern size_t get_reparse_point_impl(znode_t *zp, char *buffer, size_t outlen);
 
 /* zfs_vnop_windows_lib.h */
 extern int	AsciiStringToUnicodeString(char *in, PUNICODE_STRING out);
@@ -124,17 +125,20 @@ extern NTSTATUS zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp);
 extern int zfs_find_dvp_vp(zfsvfs_t *, char *, int finalpartmaynotexist,
     int finalpartmustnotexist, char **lastname, struct vnode **dvpp,
     struct vnode **vpp, int flags, ULONG options);
+extern ULONG get_reparse_tag(znode_t *zp);
 
 /* IRP_MJ_SET_INFORMATION helpers */
-extern NTSTATUS file_disposition_information(PDEVICE_OBJECT, PIRP,
+extern NTSTATUS set_file_basic_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
-extern NTSTATUS file_disposition_information_ex(PDEVICE_OBJECT, PIRP,
+extern NTSTATUS set_file_disposition_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
-extern NTSTATUS file_endoffile_information(PDEVICE_OBJECT, PIRP,
+extern NTSTATUS set_file_disposition_information_ex(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
-extern NTSTATUS file_link_information(PDEVICE_OBJECT, PIRP,
+extern NTSTATUS set_file_endoffile_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
-extern NTSTATUS file_rename_information(PDEVICE_OBJECT, PIRP,
+extern NTSTATUS set_file_link_information(PDEVICE_OBJECT, PIRP,
+    PIO_STACK_LOCATION);
+extern NTSTATUS set_file_rename_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
 
 /* IRP_MJ_GET_INFORMATION helpers */

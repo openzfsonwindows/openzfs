@@ -24,6 +24,7 @@ find_package(OpenSSL REQUIRED)
 
 # Attempt to simulate scripts/make-gitrev.h and zfs_gitrev.h
 include(GetGitRevisionDescription)
+include(GetGitRevisionDescription)
 git_describe_working_tree(GIT_GITREV)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/include/zfs_gitrev.h.win" "${CMAKE_CURRENT_SOURCE_DIR}/include/zfs_gitrev.h" @ONLY)
 #

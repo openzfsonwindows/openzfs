@@ -116,14 +116,17 @@ extern void zfsctl_destroy(zfsvfs_t *);
 extern struct vnode *zfsctl_root(znode_t *);
 extern void zfsctl_init(void);
 extern void zfsctl_fini(void);
-extern boolean_t zfsctl_is_node(struct vnode *ip);
+extern boolean_t zfsctl_is_node(znode_t *zp);
+extern boolean_t zfsctl_is_leafnode(znode_t *zp);
+
 extern boolean_t zfsctl_is_snapdir(struct vnode *ip);
 extern int zfsctl_fid(struct vnode *ip, fid_t *fidp);
 
 /* zfsctl '.zfs' functions */
 extern int zfsctl_root_lookup(struct vnode *dip, char *name,
-    struct vnode **ipp, int flags, cred_t *cr, int *direntflags,
+    znode_t **zpp, int flags, cred_t *cr, int *direntflags,
     struct componentname *realpnp);
+extern struct vnode *zfs_root_dotdot(struct vnode *vp);
 
 /* zfsctl '.zfs/snapshot' functions */
 extern int zfsctl_snapdir_lookup(struct vnode *dip, char *name,
@@ -143,6 +146,14 @@ extern int zfsctl_snapshot_unmount_delay(spa_t *spa, uint64_t objsetid,
     int delay);
 extern int zfsctl_snapdir_vget(struct mount *sb, uint64_t objsetid,
     int gen, struct vnode **ipp);
+extern int zfsctl_mkdir(znode_t *dzp, znode_t **zpp, char *dirname);
+extern int zfsctl_set_reparse_point(znode_t *zp, REPARSE_DATA_BUFFER *rdb,
+    size_t size);
+extern int zfsctl_delete_reparse_point(znode_t *zp);
+extern ULONG zfsctl_get_reparse_tag(znode_t *zp);
+extern int zfsctl_get_reparse_point(znode_t *zp, REPARSE_DATA_BUFFER **buffer,
+    size_t *size);
+
 
 /* zfsctl '.zfs/shares' functions */
 extern int zfsctl_shares_lookup(struct vnode *dip, char *name,
@@ -163,7 +174,7 @@ extern int zfsctl_vnop_reclaim(struct vnop_reclaim_args *);
 extern void zfs_ereport_snapshot_post(const char *subclass, spa_t *spa,
     const char *name);
 
-extern void	zfsctl_mount_signal(char *, boolean_t);
+extern void zfsctl_mount_signal(zfsvfs_t *zfsvfs, char *, boolean_t);
 
 
 /*

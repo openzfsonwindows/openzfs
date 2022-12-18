@@ -46,6 +46,18 @@ vfs_isrdonly(mount_t *mp)
 	return (mp->mountflags & MNT_RDONLY);
 }
 
+void
+vfs_setrdonly(mount_t *mp)
+{
+	mp->mountflags |= MNT_RDONLY;
+}
+
+void
+vfs_clearrdonly(mount_t *mp)
+{
+	mp->mountflags &= ~MNT_RDONLY;
+}
+
 void *
 vfs_fsprivate(mount_t *mp)
 {
