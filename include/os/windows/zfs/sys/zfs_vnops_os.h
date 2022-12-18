@@ -43,6 +43,20 @@ extern "C" {
 #define	KAUTH_WKG_NOBODY	3
 #define	KAUTH_WKG_EVERYBODY	4
 
+struct emitdir_ptr {
+	char *alloc_buf; /* output buffer */
+	char *bufptr; /* starts at alloc_buf, increments */
+	int bufsize; /* total size of alloc_buf */
+	int outcount; /* starts at 0, approaches bufsize */
+	ULONG *next_offset; /* ptr to previous nextoffset */
+	int last_alignment; /* How much was last alignment */
+	uint64_t offset; /* dirindex, 0=".", 1="..", 2=".zfs" */
+	int numdirent;
+	int dirlisttype; /* Win struct to use */
+};
+
+typedef struct emitdir_ptr emitdir_ptr_t;
+
 extern int zfs_remove(znode_t *dzp, char *name, cred_t *cr, int flags);
 extern int zfs_mkdir(znode_t *dzp, char *dirname, vattr_t *vap,
 	znode_t **zpp, cred_t *cr, int flags, vsecattr_t *vsecp,
@@ -74,8 +88,11 @@ extern int zfs_lookup(znode_t *dzp, char *nm, znode_t **zpp,
     int flags, cred_t *cr, int *direntflags, struct componentname *realpnp);
 extern int zfs_ioctl(vnode_t *vp, ulong_t com, intptr_t data, int flag,
     cred_t *cred, int *rvalp, caller_context_t *ct);
-extern int zfs_readdir(vnode_t *vp, zfs_uio_t *uio, cred_t *cr,
-	zfs_dirlist_t *zccb, int flags, int dirlisttype, int *a_numdirent);
+extern int zfs_readdir(vnode_t *vp, emitdir_ptr_t *, cred_t *cr,
+	zfs_dirlist_t *zccb, int flags);
+extern int zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name,
+    emitdir_ptr_t *ctx, zfs_dirlist_t *zccb, ino64_t objnum);
+extern void zfs_readdir_complete(emitdir_ptr_t *ctx);
 
 extern int zfs_fsync(znode_t *zp, int syncflag, cred_t *cr);
 extern int zfs_getattr(vnode_t *vp, vattr_t *vap, int flags,
@@ -111,6 +128,9 @@ extern int   zpl_xattr_set_sa(struct vnode *vp, const char *name,
 extern int zpl_xattr_get_sa(struct vnode *vp, const char *name, void *value,
     size_t size);
 extern void zfs_zrele_async(znode_t *zp);
+extern int zfs_obtain_xattr(znode_t *, const char *, mode_t, cred_t *,
+    vnode_t **, int);
+
 
 /*
  * OSX ACL Helper funcions

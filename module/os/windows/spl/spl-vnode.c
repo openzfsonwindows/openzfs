@@ -852,7 +852,6 @@ spl_vfs_start()
 	spl_skip_getrootdir = 0;
 }
 
-
 int
 vnode_vfsisrdonly(vnode_t *vp)
 {
@@ -1247,6 +1246,9 @@ vnode_create(mount_t *mp, void *v_data, int type, int flags,
 	vp->v_iocount = 1;
 	vp->v_usecount = 0;
 	vp->v_unlink = 0;
+	vp->v_reparse = NULL;
+	vp->v_reparse_size = 0;
+
 	atomic_inc_64(&vnode_active);
 
 	list_link_init(&vp->v_list);
@@ -1630,12 +1632,17 @@ restart:
 					avl_remove(&rvp->v_fileobjects, node);
 					kmem_free(node, sizeof (*node));
 				}
+			} else {
+				rvp->v_age = gethrtime() - SEC2NSEC(6);
 			}
 			rvp->v_flags |= VNODE_DEAD;
 			rvp->v_data = NULL;
 		}
 	}
 	mutex_exit(&vnode_all_list_lock);
+
+	if (FORCECLOSE)
+		vnode_drain_delayclose(1);
 
 	xprintf("vflush end: deadlisted %d nodes\n", deadlist);
 
@@ -1992,6 +1999,40 @@ void
 vnode_clear_easize(struct vnode *vp)
 {
 	vp->v_flags &= ~VNODE_EASIZE;
+}
+
+void
+vnode_set_reparse(struct vnode *vp, REPARSE_DATA_BUFFER *rpp, size_t size)
+{
+	if (vp->v_reparse != NULL && size > 0)
+		kmem_free(vp->v_reparse, vp->v_reparse_size);
+	vp->v_reparse = NULL;
+	vp->v_reparse_size = 0;
+
+	if (rpp != NULL && size > 0) {
+		vp->v_reparse = kmem_alloc(size, KM_SLEEP);
+		vp->v_reparse_size = size;
+		memcpy(vp->v_reparse, rpp, size);
+	}
+}
+
+ULONG
+vnode_get_reparse_tag(struct vnode *vp)
+{
+	return (vp->v_reparse ? vp->v_reparse->ReparseTag : 0);
+}
+
+int
+vnode_get_reparse_point(struct vnode *vp, REPARSE_DATA_BUFFER **rpp,
+    size_t *size)
+{
+	if (vp->v_reparse == NULL || vp->v_reparse_size == 0)
+		return (ENOENT);
+	ASSERT3P(rpp, !=, NULL);
+	ASSERT3P(size, !=, NULL);
+	*rpp = vp->v_reparse;
+	*size = vp->v_reparse_size;
+	return (0);
 }
 
 #ifdef DEBUG_IOCOUNT

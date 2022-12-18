@@ -1453,7 +1453,7 @@ destroy_callback(zfs_handle_t *zhp, void *data)
 	if (zfs_get_type(zhp) == ZFS_TYPE_SNAPSHOT) {
 		cb->cb_snap_count++;
 		fnvlist_add_boolean(cb->cb_batchedsnaps, name);
-		zfs_snapshot_unmount_os(zhp, cb->cb_force ? MS_FORCE : 0);
+		zfs_snapshot_unmount(zhp, cb->cb_force ? MS_FORCE : 0);
 		if (cb->cb_snap_count % 10 == 0 && cb->cb_defer_destroy) {
 			error = destroy_batched(cb);
 			if (error != 0) {
@@ -7195,9 +7195,16 @@ share_mount(int op, int argc, char **argv)
 		}
 
 		while (getmntent(mnttab, &entry) == 0) {
+
+#ifdef _WIN32
+			/* No df/mount command on Windows, show snapshots too */
+			if (strcmp(entry.mnt_fstype, MNTTYPE_ZFS) != 0)
+				continue;
+#else
 			if (strcmp(entry.mnt_fstype, MNTTYPE_ZFS) != 0 ||
 			    strchr(entry.mnt_special, '@') != NULL)
 				continue;
+#endif
 
 			(void) printf("%-30s  %s\n", entry.mnt_special,
 			    entry.mnt_mountp);
@@ -7219,10 +7226,10 @@ share_mount(int op, int argc, char **argv)
 		} else {
 
 			if (zfs_get_type(zhp) & ZFS_TYPE_SNAPSHOT) {
-				ret = zfs_snapshot_mount_os(zhp, options,
+				ret = zfs_snapshot_mount(zhp, options,
 				    flags);
 			} else {
-				ret = share_mount_one(zhp, op, flags, 
+				ret = share_mount_one(zhp, op, flags,
 				    SA_NO_PROTOCOL, B_TRUE, options);
 				zfs_commit_shares(NULL);
 			}
@@ -7605,7 +7612,7 @@ unshare_unmount(int op, int argc, char **argv)
 			return (1);
 
 		if (zfs_get_type(zhp) & ZFS_TYPE_SNAPSHOT) {
-			ret = zfs_snapshot_unmount_os(zhp, flags);
+			ret = zfs_snapshot_unmount(zhp, flags);
 			zfs_close(zhp);
 			return (ret);
 		}
