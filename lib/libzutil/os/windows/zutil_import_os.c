@@ -99,6 +99,8 @@ zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE] = {
 	"/dev"	/* Only with DEBUG build */
 };
 
+extern uint64_t GetFileDriveSize(HANDLE);
+
 static boolean_t
 is_watchdog_dev(char *dev)
 {
@@ -621,10 +623,13 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 
 				slice = zutil_alloc(hdl, sizeof (rdsk_node_t));
 
+				uint64_t size = GetFileDriveSize(disk);
+
 				error = asprintf(&slice->rn_name,
 				    "#%llu#%llu#%s",
-				    0ULL, GetFileDriveSize(disk),
+				    0ULL, size,
 				    deviceInterfaceDetailData->DevicePath);
+
 				if (error == -1) {
 					free(slice);
 					continue;
