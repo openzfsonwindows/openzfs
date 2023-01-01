@@ -417,9 +417,11 @@ jobs:
 
 
 
+    - name: uninstall zfs
+      run: 'Start-Process -FilePath "C:\Program Files\OpenZFS On Windows\unins000.exe" -Wait -ArgumentList "/NORESTART /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Uninstall.log`""'
 
-
-
+    - name: debug - print log
+      run: cat "${{github.workspace}}\InnoSetup-Uninstall.log"
 
 
 
