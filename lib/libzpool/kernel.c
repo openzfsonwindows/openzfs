@@ -813,12 +813,8 @@ random_get_pseudo_bytes(uint8_t *ptr, size_t len)
 int
 ddi_strtoull(const char *str, char **nptr, int base, u_longlong_t *result)
 {
-	(void) nptr;
-	char *end;
-
+	char *end = NULL;
 	*result = strtoull(str, &end, base);
-	if (*result == 0)
-		return (errno);
 	if (nptr != NULL)
 		*nptr = end;
 	return (0);
