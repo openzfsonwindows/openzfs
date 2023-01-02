@@ -42,7 +42,7 @@ extern void ASMABI zfs_blake3_hash_many_sse2(const uint8_t * const *inputs,
     uint64_t counter, boolean_t increment_counter, uint8_t flags,
     uint8_t flags_start, uint8_t flags_end, uint8_t *out);
 
-static void ASMABI blake3_compress_in_place_sse2(uint32_t cv[8],
+static void blake3_compress_in_place_sse2(uint32_t cv[8],
     const uint8_t block[BLAKE3_BLOCK_LEN], uint8_t block_len,
     uint64_t counter, uint8_t flags) {
 	kfpu_vars;
