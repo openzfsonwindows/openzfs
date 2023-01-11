@@ -2773,6 +2773,7 @@ file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	// This can be called from diskDispatcher, referring to the volume.
 	// if so, make something up. Is this the right thing to do?
+#if 0
 	if (IrpSp->FileObject && IrpSp->FileObject->FsContext == NULL) {
 		LARGE_INTEGER JanOne1980 = { 0xe1d58000, 0x01a8e79f };
 		ExLocalTimeToSystemTime(&JanOne1980,
@@ -2783,8 +2784,8 @@ file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		Irp->IoStatus.Information = sizeof (FILE_BASIC_INFORMATION);
 		return (STATUS_SUCCESS);
 	}
-
-	ASSERT(basic->FileAttributes != 0);
+#endif
+	// ASSERT(basic->FileAttributes != 0);
 	dprintf("   %s failing\n", __func__);
 	return (STATUS_OBJECT_NAME_NOT_FOUND);
 }
@@ -3072,17 +3073,21 @@ file_case_sensitive_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
 
-	struct vnode *vp = FileObject->FsContext;
-
-	znode_t *zp = VTOZ(vp);
-	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
-
 	fcsi->Flags = 0;
-	if (zfsvfs->z_case == ZFS_CASE_SENSITIVE)
-		fcsi->Flags |= FILE_CS_FLAG_CASE_SENSITIVE_DIR;
 
-	Irp->IoStatus.Information = sizeof (FILE_CASE_SENSITIVE_INFORMATION);
+	struct vnode *vp = FileObject->FsContext;
+	if (vp != NULL) {
+		znode_t *zp = VTOZ(vp);
+		if (zp != NULL) {
+		zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
+		if (zfsvfs->z_case == ZFS_CASE_SENSITIVE)
+			fcsi->Flags |= FILE_CS_FLAG_CASE_SENSITIVE_DIR;
+
+		}
+	}
+
+	Irp->IoStatus.Information = sizeof(FILE_CASE_SENSITIVE_INFORMATION);
 	return (STATUS_SUCCESS);
 }
 
