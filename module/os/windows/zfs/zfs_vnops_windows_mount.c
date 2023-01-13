@@ -722,6 +722,7 @@ zfs_windows_mount(zfs_cmd_t *zc)
 
 	// Mount will temporarily be pointing to "dcb" until the
 	// zfs_vnop_mount() below corrects it to "vcb".
+#if 0
 	status = zfs_vfs_mount(zmo_dcb, NULL, (user_addr_t)&mnt_args, NULL);
 	dprintf("%s: zfs_vfs_mount() returns %d\n", __func__, status);
 
@@ -730,7 +731,7 @@ zfs_windows_mount(zfs_cmd_t *zc)
 		IoDeleteDevice(diskDeviceObject);
 		return (status);
 	}
-
+#endif
 	// Check if we are to mount with driveletter, or path
 	// We already check that path is "\\??\\" above, and
 	// at least 6 chars. Seventh char can be zero, or "/"
@@ -1134,11 +1135,34 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	volDeviceObject->Flags |= DO_BUS_ENUMERATED_DEVICE;
 
+
+	struct zfs_mount_args mnt_args;
+	char *dsname[ZFS_MAX_DATASET_NAME_LEN];
+	ULONG length = 0;
+
+	RtlUnicodeToUTF8N(dsname, ZFS_MAX_DATASET_NAME_LEN, &length,
+	    dcb->name.Buffer, dcb->name.Length);
+	dsname[length] = 0;
+
+	mnt_args.struct_size = sizeof (struct zfs_mount_args);
+	mnt_args.optlen = 0;
+	mnt_args.mflag = 0; // Set flags
+	mnt_args.fspec = dsname;
+
+	status = zfs_vfs_mount(vcb, NULL, (user_addr_t)&mnt_args, NULL);
+	dprintf("%s: zfs_vfs_mount() returns %d\n", __func__, status);
+
+	if (status) {
+		IoDeleteDevice(volDeviceObject);
+		return (status);
+	}
+	vfs_setfsprivate(dcb, vfs_fsprivate(vcb)); // HACK
+
 	// FIXME for proper sync
-	if (vfs_fsprivate(dcb) == NULL) delay(hz);
+	// if (vfs_fsprivate(dcb) == NULL) delay(hz);
 
 	// Move the fsprivate ptr from dcb to vcb
-	vfs_setfsprivate(vcb, vfs_fsprivate(dcb)); // HACK
+//	vfs_setfsprivate(vcb, vfs_fsprivate(dcb)); // HACK
 	// vfs_setfsprivate(dcb, NULL);
 	zfsvfs_t *zfsvfs = vfs_fsprivate(vcb);
 	if (zfsvfs == NULL) {
@@ -1596,8 +1620,18 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 		    NULL, 0, NULL, 0);
 #endif
 
+		// Save the parent device
+		zmo_dcb = zmo->parent_device;
+
 		// Flush volume
 		// rdonly = !spa_writeable(dmu_objset_spa(zfsvfs->z_os));
+
+		/*
+		 * We call mount on DCB, but shouldn't it be VCB? We
+		 * match unmount on DCB here so vflush can compare.
+		 * DCB and VCB do have almost the same information, but
+		 * it is probably more correct to change mount to use VCB.
+		 */
 		error = zfs_vfs_unmount(zmo, 0, NULL);
 		dprintf("%s: zfs_vfs_unmount %d\n", __func__, error);
 		if (error)
@@ -1629,10 +1663,6 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 		}
 #endif
 		ObDereferenceObject(fileObject);
-
-
-		// Save the parent device
-		zmo_dcb = zmo->parent_device;
 
 		// DbgBreakPoint();
 
