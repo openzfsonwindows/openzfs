@@ -33,8 +33,7 @@
 .intel_syntax noprefix
 .text
 
-
-ENTRY_NP(zfs_blake3_hash_many_avx512)
+ENTRY_ALIGN(zfs_blake3_hash_many_avx512, 64)
         ENDBR
         push    r15
         push    r14
@@ -2474,7 +2473,7 @@ ENTRY_ALIGN(zfs_blake3_compress_in_place_avx512, 64)
         RET
 SET_SIZE(zfs_blake3_compress_in_place_avx512)
 
-ENTRY_NP(zfs_blake3_compress_xof_avx512)
+ENTRY_ALIGN(zfs_blake3_compress_xof_avx512, 64)
         ENDBR
         vmovdqu xmm0, xmmword ptr [rdi]
         vmovdqu xmm1, xmmword ptr [rdi+0x10]

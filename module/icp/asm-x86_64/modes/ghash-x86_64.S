@@ -104,7 +104,7 @@
 
 /* Windows userland links with OpenSSL */
 #if !defined (_WIN32) || defined (_KERNEL)
-ENTRY_NP(gcm_gmult_clmul)
+ENTRY_ALIGN(gcm_gmult_clmul, 16)
 
 .cfi_startproc
 	ENDBR
@@ -159,7 +159,7 @@ ENTRY_NP(gcm_gmult_clmul)
 SET_SIZE(gcm_gmult_clmul)
 #endif /* !_WIN32 || _KERNEL */
 
-ENTRY_NP(gcm_init_htab_avx)
+ENTRY_ALIGN(gcm_init_htab_avx, 32)
 .cfi_startproc
 	ENDBR
 	vzeroupper
@@ -271,14 +271,14 @@ ENTRY_NP(gcm_init_htab_avx)
 SET_SIZE(gcm_init_htab_avx)
 
 #if !defined (_WIN32) || defined (_KERNEL)
-ENTRY_NP(gcm_gmult_avx)
+ENTRY_ALIGN(gcm_gmult_avx, 32)
 .cfi_startproc
 	ENDBR
 	jmp	.L_gmult_clmul
 .cfi_endproc
 SET_SIZE(gcm_gmult_avx)
 
-ENTRY_NP(gcm_ghash_avx)
+ENTRY_ALIGN(gcm_ghash_avx, 32)
 .cfi_startproc
 	ENDBR
 	vzeroupper

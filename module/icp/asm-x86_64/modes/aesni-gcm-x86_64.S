@@ -706,7 +706,7 @@ FUNCTION(_aesni_ctr32_ghash_no_movbe_6x)
 .cfi_endproc
 SET_SIZE(_aesni_ctr32_ghash_no_movbe_6x)
 
-ENTRY_NP(aesni_gcm_decrypt)
+ENTRY_ALIGN(aesni_gcm_decrypt, 32)
 .cfi_startproc
 	ENDBR
 	xorq	%r10,%r10
@@ -916,7 +916,7 @@ FUNCTION(_aesni_ctr32_6x)
 .cfi_endproc
 SET_SIZE(_aesni_ctr32_6x)
 
-ENTRY_NP(aesni_gcm_encrypt)
+ENTRY_ALIGN(aesni_gcm_encrypt, 32)
 .cfi_startproc
 	ENDBR
 	xorq	%r10,%r10
@@ -1206,7 +1206,7 @@ SET_SIZE(aesni_gcm_encrypt)
  * clear all fpu registers
  * void clear_fpu_regs_avx(void);
  */
-ENTRY_NP(clear_fpu_regs_avx)
+ENTRY_ALIGN(clear_fpu_regs_avx, 32)
 	vzeroall
 	RET
 SET_SIZE(clear_fpu_regs_avx)
@@ -1218,7 +1218,7 @@ SET_SIZE(clear_fpu_regs_avx)
  * stores the result at `dst'. The XOR is performed using FPU registers,
  * so make sure FPU state is saved when running this in the kernel.
  */
-ENTRY_NP(gcm_xor_avx)
+ENTRY_ALIGN(gcm_xor_avx, 32)
 	movdqu  (%rdi), %xmm0
 	movdqu  (%rsi), %xmm1
 	pxor    %xmm1, %xmm0
@@ -1230,7 +1230,7 @@ SET_SIZE(gcm_xor_avx)
  * Toggle a boolean_t value atomically and return the new value.
  * boolean_t atomic_toggle_boolean_nv(volatile boolean_t *);
  */
-ENTRY_NP(atomic_toggle_boolean_nv)
+ENTRY_ALIGN(atomic_toggle_boolean_nv, 32)
 	xorl	%eax, %eax
 	lock
 	xorl	$1, (%rdi)

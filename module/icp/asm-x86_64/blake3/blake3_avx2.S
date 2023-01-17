@@ -33,7 +33,7 @@
 .intel_syntax noprefix
 .text
 
-ENTRY_NP(zfs_blake3_hash_many_avx2)
+ENTRY_ALIGN(zfs_blake3_hash_many_avx2, 64)
         ENDBR
         push    r15
         push    r14
