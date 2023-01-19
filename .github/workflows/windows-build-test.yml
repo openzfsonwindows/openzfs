@@ -1859,3 +1859,205 @@ jobs:
 
     - name: run tests
       run: robocopy ${{ steps.drive2.outputs.drive }}\curtin ${{ steps.drive.outputs.drive }}curtin /E /b /R:0 /W:0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  test5_py:
+    needs: [build_windows] #, build_wsl]
+    timeout-minutes: 30
+    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
+    # You can convert this to a matrix build if you need cross-platform coverage.
+    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    runs-on: windows-latest
+
+    steps:
+
+    - uses: actions/checkout@v3
+
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: dev_build_inno
+
+#    - uses: actions/download-artifact@v3
+#      with:
+#        name: build result
+
+#    - name: get files
+#      run: Get-ChildItem -Recurse
+
+    - name: get diskdrive
+      run: wmic diskdrive list
+
+
+    #- uses: suisei-cn/actions-download-file@v1.3.0
+    #  #id: innoinstaller
+    #  with:
+    #    url: 'https://github.com/andrewc12/zfsfiledump/raw/main/OpenZFSOnWindowsaa'
+    #    target: ${{github.workspace}}/
+
+
+
+    #- uses: suisei-cn/actions-download-file@v1.3.0
+    #  #id: innoinstaller
+    #  with:
+    #    url: 'https://github.com/andrewc12/zfsfiledump/raw/main/OpenZFSOnWindowsab'
+    #    target: ${{github.workspace}}/
+
+
+
+    #- uses: suisei-cn/actions-download-file@v1.3.0
+    #  #id: innoinstaller
+    #  with:
+    #    url: 'https://github.com/andrewc12/zfsfiledump/raw/main/OpenZFSOnWindowsac'
+    #    target: ${{github.workspace}}/
+
+
+
+    #- uses: suisei-cn/actions-download-file@v1.3.0
+    #  #id: innoinstaller
+    #  with:
+    #    url: 'https://github.com/andrewc12/zfsfiledump/raw/main/OpenZFSOnWindowsad'
+    #    target: ${{github.workspace}}/
+
+
+
+
+
+
+
+
+#    - name: Download
+#      uses: suisei-cn/actions-download-file@v1.3.0
+#      #id: innoinstaller
+#      with:
+#        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/testdrives.zip'
+#        target: ${{github.workspace}}/
+#
+#
+#    - name: make disk
+#      run: |
+#        Expand-Archive -LiteralPath ${{github.workspace}}/testdrives.zip -DestinationPath D:\
+#
+#    - name: Download
+#      uses: suisei-cn/actions-download-file@v1.3.0
+#      #id: innoinstaller
+#      with:
+#        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/scriptname.txt'
+#        target: ${{github.workspace}}/
+#
+#    - name: make disk
+#      run: |
+#        diskpart /s scriptname.txt
+#
+#
+#
+#    - name: get diskdrive
+#      run: wmic diskdrive list
+#
+#
+#    - name: get files
+#      run: Get-ChildItem -Recurse
+
+    #- run: copy /b OpenZFSOnWindowsaa+OpenZFSOnWindowsab+OpenZFSOnWindowsac+OpenZFSOnWindowsad OpenZFSOnWindows-a.exe
+    #  shell: cmd
+
+
+
+    - name: get zfsexename
+      id: zfsinstaller
+      run: |
+        $p = Get-ChildItem | Where-Object {$_.Name -like 'OpenZFSOnWindows-*.exe'} | Select-Object -first 1
+        echo $p
+        $f = (Get-Item $p ).Name
+        echo $f
+        echo "filename=$f" | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+
+
+
+
+
+    # https://github.com/MicrosoftDocs/windows-powershell-docs/issues/266
+    - name: Import root certificate
+      run: |
+        $plaintextpwd = 'password1234'
+        $pwd = ConvertTo-SecureString -String $plaintextpwd -Force -AsPlainText
+        Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\LocalMachine\Root -Password $pwd
+        Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $pwd
+
+    - name: debug - echo filename
+      run: echo ${{ steps.zfsinstaller.outputs.filename }}
+
+#    - name: debug - list
+#      run: ls ${{github.workspace}}\
+
+    - name: debug - list
+      run: ls ${{github.workspace}}\${{ steps.zfsinstaller.outputs.filename }}
+
+    #- name: install zfs
+    #  run: ${{github.workspace}}\${{ steps.zfsinstaller.outputs.filename }} /NORESTART /ALLUSERS /VERYSILENT /LOG="${{github.workspace}}\InnoSetup-Install.log"
+
+    - name: install zfs
+      run: 'Start-Process -FilePath "${{github.workspace}}\${{ steps.zfsinstaller.outputs.filename }}" -Wait -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Install.log`""'
+
+    #- name: Wait for install to finish
+    #  run: Start-Sleep -Seconds 30
+    #  uses: iFaxity/wait-on-action@v1
+    #  with:
+    #    resource: 'C:\Program Files\OpenZFS On Windows\zpool.exe'
+
+#    - name: debug - print log
+#      run: cat "${{github.workspace}}\InnoSetup-Install.log"
+#
+#    - name: debug - list
+#      run: ls "C:\Program Files"
+#
+#    - name: debug - list
+#      run: ls "C:\Program Files\OpenZFS On Windows"
+
+    - name: debug - get status
+      run: '& "C:\Program Files\OpenZFS On Windows\zpool.exe" status'
+
+
+
+    - name: test
+      run: 'python.exe -u "${{github.workspace}}\contrib\windows\tests\tests.py" -path ${{github.workspace}}\'
+
+
+
