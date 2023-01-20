@@ -112,6 +112,16 @@ def zpool(*args):
     return magic_number_process
 
 
+def zfs(*args):
+    magic_number_process = subprocess.run(
+        ["C:\\Program Files\\OpenZFS On Windows\\zfs.exe", *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+
+    return magic_number_process
+
+
 
 def tounc(name):
     q = "\\\\?\\" + str(name)
@@ -282,6 +292,123 @@ def main():
         delete_file(r)
         delete_file(s)
         print("=" * 20)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        print("snapshot no hang:")
+
+
+        print("Drive letters before pool create:", get_driveletters())
+        q = PureWindowsPath(p, "testsn01.dat")
+        allocate_file(q, 1024*1024*1024)
+        ret = zpool("create", "-f", "testsn01", tounc(q))
+        print(ret)
+        if ret.returncode != 0:
+            print("FAIL")
+        print("Drive letters after pool create:", get_driveletters())
+
+        f = PureWindowsPath(get_driveletters()[0][1], "test01.file")
+        allocate_file(f, 1024)
+
+        ret = zfs("snapshot", "testsn01@friday")
+        print(ret)
+        if ret.returncode != 0:
+            print("FAIL")
+
+
+        f = PureWindowsPath(get_driveletters()[0][1], "test02.file")
+        allocate_file(f, 1024)
+
+        print( zpool("export", "-a") )
+
+        print( zpool("destroy", "-f", "testsn01") )
+        print("Drive letters after pool destroy:", get_driveletters())
+        delete_file(q)
+        print("=" * 20)
+
+
+
+
+
+
+
+        print("snapshot hang:")
+
+
+        print("Drive letters before pool create:", get_driveletters())
+        q = PureWindowsPath(p, "testsn02.dat")
+        allocate_file(q, 1024*1024*1024)
+        ret = zpool("create", "-f", "testsn02", tounc(q))
+        print(ret)
+        if ret.returncode != 0:
+            print("FAIL")
+        print("Drive letters after pool create:", get_driveletters())
+
+        f = PureWindowsPath(get_driveletters()[0][1], "test01.file")
+        allocate_file(f, 1024)
+
+        ret = zfs("snapshot", "testsn02@friday")
+        print(ret)
+        if ret.returncode != 0:
+            print("FAIL")
+
+
+        f = PureWindowsPath(get_driveletters()[0][1], "test02.file")
+        allocate_file(f, 1024)
+
+
+        ret = zfs("mount", "testsn02@friday")
+        print(ret)
+        if ret.returncode != 0:
+            print("FAIL")
+
+
+        print( zpool("export", "-a") )
+
+        print( zpool("destroy", "-f", "testsn02") )
+        print("Drive letters after pool destroy:", get_driveletters())
+        delete_file(q)
+        print("=" * 20)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 if __name__ == "__main__":
