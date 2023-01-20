@@ -209,8 +209,8 @@ extern void kx_qsort(void *array, size_t nm, size_t member_size,
 
 #endif // _KERNEL
 
-#define	FSCTL_ZFS_VOLUME_MOUNTPOINT CTL_CODE(FILE_DEVICE_UNKNOWN,
-    0x8ff, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define	FSCTL_ZFS_VOLUME_MOUNTPOINT CTL_CODE(FILE_DEVICE_UNKNOWN, \
+	0x8ff, METHOD_BUFFERED, FILE_ANY_ACCESS)
 typedef struct {
 	int len;
 	WCHAR buffer[1]; // make this dynamic?
