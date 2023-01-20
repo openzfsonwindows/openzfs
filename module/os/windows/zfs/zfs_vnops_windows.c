@@ -3372,6 +3372,11 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		}
 		break;
 
+	case FSCTL_ZFS_VOLUME_MOUNTPOINT:
+		dprintf("    FSCTL_ZFS_VOLUME_MOUNTPOINT\n");
+		Status = fsctl_zfs_volume_mountpoint(DeviceObject, Irp, IrpSp);
+		break;
+
 	default:
 		dprintf("* %s: unknown class 0x%lx\n", __func__,
 		    IrpSp->Parameters.FileSystemControl.FsControlCode);
@@ -5542,6 +5547,8 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 		case IOCTL_MOUNTDEV_QUERY_SUGGESTED_LINK_NAME:
 			dprintf("IOCTL_MOUNTDEV_QUERY_SUGGESTED_LINK_NAME\n");
+			Status = ioctl_mountdev_query_suggested_link_name(
+			    DeviceObject, Irp, IrpSp);
 			break;
 		case IOCTL_VOLUME_ONLINE:
 			dprintf("IOCTL_VOLUME_ONLINE\n");

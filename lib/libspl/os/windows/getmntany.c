@@ -44,11 +44,48 @@
 #include <io.h>
 #endif
 
+#include <sys/zfs_context.h>
+
+#include <windows.h>
+#include <winternl.h>
+#include <ntstatus.h>
+
 #define	DIFF(xx) ((mrefp->xx != NULL) && \
 	    (mgetp->xx == NULL || strcmp(mrefp->xx, mgetp->xx) != 0))
 
 static struct statfs *gsfs = NULL;
 static int allfs = 0;
+static dllinit = 1;
+
+NTSTATUS(__stdcall *NtFsControlFile)(
+    HANDLE fileHandle,
+    HANDLE event,
+    PIO_APC_ROUTINE apcRoutine,
+    PVOID apcContext,
+    PIO_STATUS_BLOCK ioStatusBlock,
+    ULONG fsControlCode,
+    PVOID inputBuffer,
+    ULONG inputBufferLength,
+    PVOID outputBuffer,
+    ULONG outputBufferLength
+);
+
+
+typedef struct _MOUNTDEV_NAME
+{
+    USHORT NameLength;
+    WCHAR  Name[1];
+} MOUNTDEV_NAME, * PMOUNTDEV_NAME;
+#define	IOCTL_MOUNTDEV_QUERY_DEVICE_NAME 0x004d0008
+typedef struct _MOUNTDEV_UNIQUE_ID
+{
+    USHORT  UniqueIdLength;
+    UCHAR   UniqueId[1];
+} MOUNTDEV_UNIQUE_ID;
+typedef MOUNTDEV_UNIQUE_ID* PMOUNTDEV_UNIQUE_ID;
+#define	IOCTL_MOUNTDEV_QUERY_UNIQUE_ID 0x4d0000
+
+
 /*
  * We will also query the extended filesystem capabilities API, to lookup
  * other mount options, for example, XATTR. We can not use the MNTNOUSERXATTR
@@ -291,17 +328,15 @@ DisplayVolumePaths(char *VolumeName, char *out, int len)
 	}
 }
 
-typedef struct _MOUNTDEV_NAME {
-	USHORT NameLength;
-	WCHAR  Name[1];
-} MOUNTDEV_NAME, *PMOUNTDEV_NAME;
-#define	IOCTL_MOUNTDEV_QUERY_DEVICE_NAME 0x004d0008
-typedef struct _MOUNTDEV_UNIQUE_ID {
-	USHORT  UniqueIdLength;
-	UCHAR   UniqueId[1];
-} MOUNTDEV_UNIQUE_ID;
-typedef MOUNTDEV_UNIQUE_ID *PMOUNTDEV_UNIQUE_ID;
-#define	IOCTL_MOUNTDEV_QUERY_UNIQUE_ID 0x4d0000
+static void
+backslash2slash(char *s)
+{
+	while (*s != 0) {
+		if (*s == '\\')
+			*s = '/';
+		s++;
+	}
+}
 
 int
 getfsstat(struct statfs *buf, int bufsize, int flags)
@@ -318,6 +353,7 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 
 	do {
 		char *s = name;
+		fsctl_zfs_volume_mountpoint_t *fzvm = NULL;
 
 		// Still room in out buffer?
 		if (buf && (bufsize < sizeof (struct statfs)))
@@ -360,14 +396,14 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 
 		if (h != INVALID_HANDLE_VALUE) {
 			char *dataset;
-			char cheat[1024];
-			UID = cheat;
+			char uidbuffer[1024];
+			UID = uidbuffer;
 			DWORD Size;
 			BOOL gotname = FALSE;
 
 			gotname = DeviceIoControl(h,
 			    IOCTL_MOUNTDEV_QUERY_UNIQUE_ID,
-			    NULL, 0, UID, sizeof (cheat) - 1, &Size, NULL);
+			    NULL, 0, UID, sizeof (uidbuffer) - 1, &Size, NULL);
 			// printf("deviocon %d: namelen %d\n", status,
 			//  UID->UniqueIdLength);
 			if (gotname) {
@@ -375,6 +411,36 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 				UID->UniqueId[UID->UniqueIdLength] = 0;
 			} else
 				UID = NULL;
+
+			if (NtFsControlFile != NULL) {
+				IO_STATUS_BLOCK iosb;
+				long Status;
+
+				Status = NtFsControlFile(h, NULL, NULL, NULL,
+				    &iosb, FSCTL_ZFS_VOLUME_MOUNTPOINT, NULL,
+				    0, fzvm, 0);
+				if (Status == STATUS_BUFFER_TOO_SMALL) {
+					// we are not given size back here,
+					// because of METHOD BUFFERED?
+					iosb.Information = 1024;
+					fzvm = malloc(iosb.Information);
+					if (fzvm) {
+						Status = NtFsControlFile(h,
+						    NULL, NULL, NULL, &iosb,
+						    FSCTL_ZFS_VOLUME_MOUNTPOINT,
+						    NULL, 0,
+						    fzvm, iosb.Information);
+						if (Status == 0) {
+							// Always "\??\E:\..."
+							fzvm->buffer[fzvm->len /
+							    sizeof (WCHAR)] = 0;
+						} else {
+							free(fzvm);
+							fzvm = NULL;
+						}
+					}
+				}
+			}
 			CloseHandle(h);
 		}
 
@@ -391,15 +457,21 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 				// otherwise, lookup mountpoint, and if
 				// no mountpoint, the device exists, but
 				// is not mounted.
-				if (strlen(driveletter) > 2)
+				if (strlen(driveletter) > 2) {
 					strlcpy(buf->f_mntonname, driveletter,
 					    sizeof (buf->f_mntonname));
-				else {
-					/* Check if it is mounted? */
-//					buf->f_mntonname[0] = 0;
-					strlcpy(buf->f_mntonname, UID->UniqueId,
-					    sizeof (buf->f_mntonname));
+				} else {
+					if (fzvm) {
+						snprintf(buf->f_mntonname,
+						    sizeof (buf->f_mntonname),
+						    "%ws",
+						    &fzvm->buffer[4]);
+					} else {
+						strlcpy(buf->f_mntonname,
+						    UID->UniqueId,
+						    sizeof (buf->f_mntonname));
 					}
+				}
 			} else {
 				// Not ZFS - do we care?
 				strlcpy(buf->f_mntfromname, DeviceName,
@@ -409,8 +481,14 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 				strlcpy(buf->f_mntonname, name,
 				    sizeof (buf->f_mntonname));
 			}
-			UID = NULL;
 
+			backslash2slash(buf->f_mntfromname);
+			backslash2slash(buf->f_mntonname);
+
+			if (fzvm)
+				free(fzvm);
+
+			UID = NULL;
 			// If it is mounted, add node.
 			if (buf->f_mntonname[0] != 0) {
 				buf++; // Go to next struct.
@@ -431,6 +509,12 @@ statfs_init(void)
 {
 	struct statfs *sfs;
 	int error;
+
+	if (dllinit) {
+		dllinit = 0;
+		NtFsControlFile = (void *)GetProcAddress(
+		    GetModuleHandle("ntdll.dll"), "NtFsControlFile");
+	}
 
 	if (gsfs != NULL) {
 		free(gsfs);
