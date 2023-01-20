@@ -38,4 +38,12 @@ struct zfs_handle;
 extern void zfs_rollback_os(struct zfs_handle *zhp);
 extern void libzfs_macos_wrapfd(int *srcfd, boolean_t send);
 
+#define	FSCTL_ZFS_VOLUME_MOUNTPOINT CTL_CODE(FILE_DEVICE_UNKNOWN,
+    0x8ff, METHOD_BUFFERED, FILE_ANY_ACCESS)
+typedef struct
+{
+    int len;
+    WCHAR buffer[1]; // make this dynamic?
+} fsctl_zfs_volume_mountpoint_t;
+
 #endif
