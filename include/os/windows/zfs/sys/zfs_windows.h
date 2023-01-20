@@ -58,6 +58,7 @@ extern uint64_t zfs_module_busy;
 
 extern CACHE_MANAGER_CALLBACKS CacheManagerCallbacks;
 
+
 extern NTSTATUS dev_ioctl(PDEVICE_OBJECT DeviceObject, ULONG ControlCode,
     PVOID InputBuffer, ULONG InputBufferSize, PVOID OutputBuffer,
     ULONG OutputBufferSize, BOOLEAN Override, IO_STATUS_BLOCK* iosb);
