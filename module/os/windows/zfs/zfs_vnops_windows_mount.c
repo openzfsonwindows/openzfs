@@ -488,6 +488,58 @@ SendVolumeCreatePoint(__in PUNICODE_STRING DeviceName,
 }
 
 NTSTATUS
+SendVolumeCreatePointX(__in PUNICODE_STRING DeviceName,
+    __in PUNICODE_STRING MountPoint)
+{
+	NTSTATUS status;
+	PMOUNTMGR_VOLUME_MOUNT_POINT point;
+	ULONG length;
+
+	dprintf("=> SendVolumeCreatePointX\n");
+
+	length = sizeof (MOUNTMGR_VOLUME_MOUNT_POINT) + MountPoint->Length +
+	    DeviceName->Length;
+	point = ExAllocatePool(PagedPool, length);
+
+	if (point == NULL) {
+		dprintf("  can't allocate MOUNTMGR_VOLUME_MOUNT_POINT\n");
+		return (STATUS_INSUFFICIENT_RESOURCES);
+	}
+
+	RtlZeroMemory(point, length);
+
+	dprintf("  DeviceName: %wZ\n", DeviceName);
+	point->TargetVolumeNameOffset = sizeof (MOUNTMGR_VOLUME_MOUNT_POINT);
+	point->TargetVolumeNameLength = DeviceName->Length;
+	RtlCopyMemory((PCHAR)point + point->TargetVolumeNameOffset,
+	    DeviceName->Buffer,
+	    DeviceName->Length);
+
+	dprintf("  MountPoint: %wZ\n", MountPoint);
+	point->SourceVolumeNameOffset =
+	    point->TargetVolumeNameOffset + point->TargetVolumeNameLength;
+	point->SourceVolumeNameLength = MountPoint->Length;
+	RtlCopyMemory((PCHAR)point + point->SourceVolumeNameOffset,
+	    MountPoint->Buffer, MountPoint->Length);
+
+	status = SendIoctlToMountManager(
+	    IOCTL_MOUNTMGR_VOLUME_MOUNT_POINT_CREATED,
+	    point, length, NULL, 0);
+
+	if (NT_SUCCESS(status)) {
+		dprintf("  IoCallDriver success\n");
+	} else {
+		dprintf("  IoCallDriver failed: 0x%x\n", status);
+	}
+
+	ExFreePool(point);
+
+	dprintf("<= SendVolumeCreatePointX\n");
+
+	return (status);
+}
+
+NTSTATUS
 SendVolumeDeletePoints(__in PUNICODE_STRING MountPoint,
     __in PUNICODE_STRING DeviceName)
 {
@@ -1360,6 +1412,18 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		volStr.Length = lenx;
 
 		status = SendVolumeDeletePoints(&volStr, &dcb->device_name);
+
+		// Must start with "\DosDevices\X:"
+		// mountpoint = "\\??\\x:"
+		DECLARE_UNICODE_STRING_SIZE(mpoint, 128);
+
+		status = RtlUnicodeStringPrintf(
+		    &mpoint, L"\\DosDevices\\%ws",
+		    &dcb->mountpoint.Buffer[4]);
+
+		status =
+		    SendVolumeCreatePointX(
+		    &dcb->device_name, &mpoint);
 
 	}
 

@@ -4860,7 +4860,6 @@ ioctl_query_stable_guid(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (STATUS_NOT_FOUND);
 }
 
-
 NTSTATUS
 ioctl_mountdev_query_suggested_link_name(PDEVICE_OBJECT DeviceObject,
     PIRP Irp, PIO_STACK_LOCATION IrpSp)
@@ -4946,5 +4945,33 @@ ioctl_mountdev_query_stable_guid(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    (char *)&guid->StableGuid);
 
 	Irp->IoStatus.Information = sizeof (MOUNTDEV_STABLE_GUID);
+	return (STATUS_SUCCESS);
+}
+
+NTSTATUS
+fsctl_zfs_volume_mountpoint(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	mount_t *zmo = (mount_t *)DeviceObject->DeviceExtension;
+
+	ULONG bufferLength =
+	    IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+	if (bufferLength < sizeof (fsctl_zfs_volume_mountpoint_t) +
+	    zmo->mountpoint.Length) {
+		Irp->IoStatus.Information =
+		    sizeof (fsctl_zfs_volume_mountpoint_t) +
+		    zmo->mountpoint.Length;
+		return (STATUS_BUFFER_TOO_SMALL);
+	}
+
+	fsctl_zfs_volume_mountpoint_t *fzvm =
+	    (fsctl_zfs_volume_mountpoint_t *)Irp->AssociatedIrp.SystemBuffer;
+
+	fzvm->len = zmo->mountpoint.Length;
+	memcpy(fzvm->buffer, zmo->mountpoint.Buffer, fzvm->len);
+	Irp->IoStatus.Information =
+	    sizeof (fsctl_zfs_volume_mountpoint_t) +
+	    zmo->mountpoint.Length;
 	return (STATUS_SUCCESS);
 }
