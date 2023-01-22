@@ -5,6 +5,7 @@ import subprocess
 
 from pathlib import Path, PurePosixPath, PureWindowsPath, WindowsPath
 
+from pprint import pprint
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process command line arguments.')
@@ -78,6 +79,8 @@ def get_driveletters():
 
     c = a.splitlines()
 
+    print("get_driveletters() debug",c)
+
     d = [x.split() for x in c]
 
     return d
@@ -122,11 +125,44 @@ def zfs(*args):
     return magic_number_process
 
 
+def run(args):
+    d = {"zfs": "C:\\Program Files\\OpenZFS On Windows\\zfs.exe", "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
+    l = list(args)
+    cmd = d[l[0]]
+    result = subprocess.run(
+        [cmd, *l[1:]],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+
+    return result
+
+
 
 def tounc(name):
     q = "\\\\?\\" + str(name)
     return q
 
+
+
+
+
+def runWithPrint(cmd):
+    print(" ".join(cmd))
+    ret = run(cmd)
+    print("args={}\nreturncode={}\nstdout={}\nstderrr={}".format(" ".join(ret.args), ret.returncode, ret.stdout, ret.stderr))
+    return ret
+
+def preTest(testName = None):
+    print("=" * 20)
+    if testName is not None:
+        print("Name:", testName)
+
+    print("Drive letters before pool create:", get_driveletters())
+
+def postTest():
+    print("Drive letters after pool destroy:", get_driveletters())
+    print("=" * 20)
 
 def main():
     parsed_args = parse_arguments()
@@ -140,158 +176,99 @@ def main():
     print("Physical devices", get_DeviceId())
 
     if p.is_absolute():
-        print("=" * 20)
+
+        f1 = PureWindowsPath(p, "test01.dat")
+        allocate_file(f1, 1024*1024*1024)
+        f2 = PureWindowsPath(p, "test02.dat")
+        allocate_file(f2, 1024*1024*1024)
+        f3 = PureWindowsPath(p, "test03.dat")
+        allocate_file(f3, 1024*1024*1024)
 
 
-        print("Drive letters before pool create:", get_driveletters())
-        q = PureWindowsPath(p, "test01.dat")
-        allocate_file(q, 1024*1024*1024)
-        ret = zpool("create", "-f", "test01", tounc(q))
-        print(ret)
+
+
+
+
+
+        preTest()
+        ret = runWithPrint(["zpool", "create", "-f", "test01", tounc(f1)])
         if ret.returncode != 0:
             print("FAIL")
         print("Drive letters after pool create:", get_driveletters())
-        print( zpool("destroy", "-f", "test01") )
-        print("Drive letters after pool destroy:", get_driveletters())
-        delete_file(q)
-        print("=" * 20)
+        runWithPrint(["zpool", "destroy", "-f", "test01"])
+        postTest()
 
 
 
 
-        print("Drive letters before pool create:", get_driveletters())
-        q = PureWindowsPath(p, "test01.dat")
-        allocate_file(q, 1024*1024*1024)
-        r = PureWindowsPath(p, "test02.dat")
-        allocate_file(r, 1024*1024*1024)
-        ret = zpool("create", "-f", "test02", tounc(q), tounc(r))
-        print(ret)
+
+        preTest()
+        ret = runWithPrint(["zpool", "create", "-f", "test02", tounc(f1), tounc(f2)])
         if ret.returncode != 0:
             print("FAIL")
         print("Drive letters after pool create:", get_driveletters())
-        print( zpool("destroy", "-f", "test02") )
-        print("Drive letters after pool destroy:", get_driveletters())
-        delete_file(q)
-        delete_file(r)
-        print("=" * 20)
+        runWithPrint(["zpool", "destroy", "-f", "test02"])
+        postTest()
 
 
 
 
 
-
-        print("Drive letters before pool create:", get_driveletters())
-        q = PureWindowsPath(p, "test01.dat")
-        allocate_file(q, 1024*1024*1024)
-        r = PureWindowsPath(p, "test02.dat")
-        allocate_file(r, 1024*1024*1024)
-        s = PureWindowsPath(p, "test03.dat")
-        allocate_file(s, 1024*1024*1024)
-        ret = zpool("create", "-f", "test03", tounc(q), tounc(r), tounc(s))
-        print(ret)
+        preTest()
+        ret = runWithPrint(["zpool", "create", "-f", "test03", tounc(f1), tounc(f2), tounc(f3)])
         if ret.returncode != 0:
             print("FAIL")
         print("Drive letters after pool create:", get_driveletters())
-        print( zpool("destroy", "-f", "test03") )
-        print("Drive letters after pool destroy:", get_driveletters())
-        delete_file(q)
-        delete_file(r)
-        delete_file(s)
-        print("=" * 20)
+        runWithPrint(["zpool", "destroy", "-f", "test03"])
+        postTest()
 
 
 
 
-        print("Drive letters before pool create:", get_driveletters())
-        q = PureWindowsPath(p, "test01.dat")
-        allocate_file(q, 1024*1024*1024)
-        r = PureWindowsPath(p, "test02.dat")
-        allocate_file(r, 1024*1024*1024)
-        ret = zpool("create", "-f", "test04", "mirror", tounc(q), tounc(r))
-        print(ret)
+
+        preTest()
+        ret = runWithPrint(["zpool", "create", "-f", "test04", "mirror", tounc(f1), tounc(f2)])
         if ret.returncode != 0:
             print("FAIL")
         print("Drive letters after pool create:", get_driveletters())
-        print( zpool("destroy", "-f", "test04") )
-        print("Drive letters after pool destroy:", get_driveletters())
-        delete_file(q)
-        delete_file(r)
-        print("=" * 20)
+        runWithPrint(["zpool", "destroy", "-f", "test04"])
+        postTest()
 
 
 
 
 
-
-        print("Drive letters before pool create:", get_driveletters())
-        q = PureWindowsPath(p, "test01.dat")
-        allocate_file(q, 1024*1024*1024)
-        r = PureWindowsPath(p, "test02.dat")
-        allocate_file(r, 1024*1024*1024)
-        s = PureWindowsPath(p, "test03.dat")
-        allocate_file(s, 1024*1024*1024)
-        ret = zpool("create", "-f", "test05", "mirror", tounc(q), tounc(r), tounc(s))
-        print(ret)
+        preTest()
+        ret = runWithPrint(["zpool", "create", "-f", "test05", "mirror", tounc(f1), tounc(f2), tounc(f3)])
         if ret.returncode != 0:
             print("FAIL")
         print("Drive letters after pool create:", get_driveletters())
-        print( zpool("destroy", "-f", "test05") )
-        print("Drive letters after pool destroy:", get_driveletters())
-        delete_file(q)
-        delete_file(r)
-        delete_file(s)
-        print("=" * 20)
+        runWithPrint(["zpool", "destroy", "-f", "test05"])
+        postTest()
 
 
 
 
 
-
-
-        print("Drive letters before pool create:", get_driveletters())
-        q = PureWindowsPath(p, "test01.dat")
-        allocate_file(q, 1024*1024*1024)
-        r = PureWindowsPath(p, "test02.dat")
-        allocate_file(r, 1024*1024*1024)
-        s = PureWindowsPath(p, "test03.dat")
-        allocate_file(s, 1024*1024*1024)
-        ret = zpool("create", "-f", "test06", "raidz", tounc(q), tounc(r), tounc(s))
-        print(ret)
+        preTest()
+        ret = runWithPrint(["zpool", "create", "-f", "test06", "raidz", tounc(f1), tounc(f2), tounc(f3)])
         if ret.returncode != 0:
             print("FAIL")
         print("Drive letters after pool create:", get_driveletters())
-        print( zpool("destroy", "-f", "test06") )
-        print("Drive letters after pool destroy:", get_driveletters())
-        delete_file(q)
-        delete_file(r)
-        delete_file(s)
-        print("=" * 20)
+        runWithPrint(["zpool", "destroy", "-f", "test06"])
+        postTest()
 
 
 
 
 
-
-
-
-        print("Drive letters before pool create:", get_driveletters())
-        q = PureWindowsPath(p, "test01.dat")
-        allocate_file(q, 1024*1024*1024)
-        r = PureWindowsPath(p, "test02.dat")
-        allocate_file(r, 1024*1024*1024)
-        s = PureWindowsPath(p, "test03.dat")
-        allocate_file(s, 1024*1024*1024)
-        ret = zpool("create", "-f", "test07", "raidz1", tounc(q), tounc(r), tounc(s))
-        print(ret)
+        preTest()
+        ret = runWithPrint(["zpool", "create", "-f", "test07", "raidz1", tounc(f1), tounc(f2), tounc(f3)])
         if ret.returncode != 0:
             print("FAIL")
         print("Drive letters after pool create:", get_driveletters())
-        print( zpool("destroy", "-f", "test07") )
-        print("Drive letters after pool destroy:", get_driveletters())
-        delete_file(q)
-        delete_file(r)
-        delete_file(s)
-        print("=" * 20)
+        runWithPrint(["zpool", "destroy", "-f", "test07"])
+        postTest()
 
 
 
@@ -306,14 +283,13 @@ def main():
 
 
 
-        print("snapshot no hang:")
 
 
-        print("Drive letters before pool create:", get_driveletters())
-        q = PureWindowsPath(p, "testsn01.dat")
-        allocate_file(q, 1024*1024*1024)
-        ret = zpool("create", "-f", "testsn01", tounc(q))
-        print(ret)
+
+
+        preTest("snapshot no hang:")
+
+        ret = runWithPrint(["zpool", "create", "-f", "testsn01", tounc(f1)])
         if ret.returncode != 0:
             print("FAIL")
         print("Drive letters after pool create:", get_driveletters())
@@ -321,36 +297,29 @@ def main():
         f = PureWindowsPath(get_driveletters()[0][1], "test01.file")
         allocate_file(f, 1024)
 
-        ret = zfs("snapshot", "testsn01@friday")
-        print(ret)
+        ret = runWithPrint(["zfs", "snapshot", "testsn01@friday"])
         if ret.returncode != 0:
             print("FAIL")
-
 
         f = PureWindowsPath(get_driveletters()[0][1], "test02.file")
         allocate_file(f, 1024)
 
-        print( zpool("export", "-a") )
+        ret = runWithPrint(["zpool", "export", "-a"])
+        if ret.returncode != 0:
+            print("FAIL")
 
-        print( zpool("destroy", "-f", "testsn01") )
-        print("Drive letters after pool destroy:", get_driveletters())
-        delete_file(q)
-        print("=" * 20)
+        runWithPrint(["zpool", "destroy", "-f", "testsn01"])
 
-
-
+        postTest()
 
 
 
 
-        print("snapshot hang:")
 
 
-        print("Drive letters before pool create:", get_driveletters())
-        q = PureWindowsPath(p, "testsn02.dat")
-        allocate_file(q, 1024*1024*1024)
-        ret = zpool("create", "-f", "testsn02", tounc(q))
-        print(ret)
+        preTest("snapshot hang")
+
+        ret = runWithPrint(["zpool", "create", "-f", "testsn02", tounc(f1)])
         if ret.returncode != 0:
             print("FAIL")
         print("Drive letters after pool create:", get_driveletters())
@@ -358,8 +327,7 @@ def main():
         f = PureWindowsPath(get_driveletters()[0][1], "test01.file")
         allocate_file(f, 1024)
 
-        ret = zfs("snapshot", "testsn02@friday")
-        print(ret)
+        ret = runWithPrint(["zfs", "snapshot", "testsn02@friday"])
         if ret.returncode != 0:
             print("FAIL")
 
@@ -367,21 +335,17 @@ def main():
         f = PureWindowsPath(get_driveletters()[0][1], "test02.file")
         allocate_file(f, 1024)
 
-
-        ret = zfs("mount", "testsn02@friday")
-        print(ret)
+        ret = runWithPrint(["zfs", "mount", "testsn02@friday"])
         if ret.returncode != 0:
             print("FAIL")
 
 
-        print( zpool("export", "-a") )
+        ret = runWithPrint(["zpool", "export", "-a"])
+        if ret.returncode != 0:
+            print("FAIL")
 
-        print( zpool("destroy", "-f", "testsn02") )
-        print("Drive letters after pool destroy:", get_driveletters())
-        delete_file(q)
-        print("=" * 20)
-
-
+        runWithPrint(["zpool", "destroy", "-f", "testsn02"])
+        postTest()
 
 
 
@@ -407,6 +371,99 @@ def main():
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+        preTest("regex for key file")
+
+        random_bytearray = bytearray(os.urandom(32))
+
+        key01 = PureWindowsPath(p, "key01.key")
+
+        with open(key01, 'wb') as f:
+            f.write(random_bytearray)
+
+        nx ="file://" + tounc(key01).replace("\\", "/")
+        print(nx)
+
+
+        ret = runWithPrint(["zpool", "create", "-f", "-O", "encryption=aes-256-ccm", "-O", "keylocation=" + nx, "-O", "keyformat=raw", "tank", tounc(f1)])
+        if ret.returncode != 0:
+            print("FAIL")
+        print("Drive letters after pool create:", get_driveletters())
+
+        ret = runWithPrint(["zfs", "get", "keylocation", "tank"])
+        if ret.returncode != 0:
+            print("FAIL")
+
+        ret = runWithPrint(["zpool", "export", "tank"])
+        if ret.returncode != 0:
+            print("FAIL")
+
+
+
+
+
+
+        print("Drive letters before pool create:", get_driveletters())
+        ret = runWithPrint(["zpool", "import", "-f", "-l", "-O", "encryption=aes-256-ccm", "-O", "keylocation=" + nx, "-O", "keyformat=raw", tounc(f1)])
+        if ret.returncode != 0:
+            print("FAIL")
+
+        print("Drive letters after pool create:", get_driveletters())
+        runWithPrint(["zpool", "destroy", "-f", "tank"])
+        postTest()
+
+
+
+
+
+
+
+
+
+
+
+
+
+        preTest("run out of drive letters")
+
+        for i in range(1, 26):
+            ret = runWithPrint(["zpool", "create", "-f", "tank" + str(i), tounc(f1)])
+            if ret.returncode != 0:
+                print("FAIL")
+            print("Drive letters after pool create:", get_driveletters())
+
+            f = PureWindowsPath(get_driveletters()[0][1], "test01.file")
+            try:
+                allocate_file(f, 1024)
+            except:
+                print("FAIL")
+
+            runWithPrint(["zpool", "destroy", "-f", "tank" + str(i)])
+
+        postTest()
+
+
+
+
+
+
+
+
+        delete_file(f1)
+        delete_file(f2)
+        delete_file(f3)
 
 
 
