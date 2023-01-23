@@ -127,33 +127,36 @@ extern "C" {
  */
 #define	ENTRY(x) \
 	.text; \
-	.align	ASM_ENTRY_ALIGN; \
+	.balign	ASM_ENTRY_ALIGN; \
 	.globl	x; \
 x:	MCOUNT(x)
 
 #define	ENTRY_NP(x) \
 	.text; \
-	.align	ASM_ENTRY_ALIGN; \
+	.balign	ASM_ENTRY_ALIGN; \
 	.globl	x; \
 x:
 
-#define	FUNCTION(x) \
-	.type   x, @function; \
+#define	ENTRY_ALIGN(x, a) \
+	.text; \
+	.balign	a; \
+	.globl	x; \
 x:
+
 
 /*
  * ENTRY2 is identical to ENTRY but provides two labels for the entry point.
  */
 #define	ENTRY2(x, y) \
 	.text;	\
-	.align	ASM_ENTRY_ALIGN; \
+	.balign	ASM_ENTRY_ALIGN; \
 	.globl	x, y; \
 x:; \
 y:	MCOUNT(x)
 
 #define	ENTRY_NP2(x, y) \
 	.text; \
-	.align	ASM_ENTRY_ALIGN; \
+	.balign	ASM_ENTRY_ALIGN; \
 	.globl	x, y; \
 x:; \
 y:
