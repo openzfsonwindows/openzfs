@@ -83,7 +83,7 @@
  * Spans are subdivided into *segments*, each of which is either allocated
  * or free.  A segment, like a span, is a contiguous range of integers.
  * Each allocated segment [addr, addr + size) represents exactly one
- * vmem_alloc(size) that returned addr.  Free segments represent the space
+ * vmem_alloc_impl(size) that returned addr.  Free segments represent the space
  * between allocated segments.  If two free segments are adjacent, we
  * coalesce them into one larger segment; that is, if segments [a, b) and
  * [b, c) are both free, we merge them into a single segment [a, c).
@@ -134,7 +134,8 @@
  * 1.9 Relationship to Kernel Memory Allocator
  * -------------------------------------------
  * Every kmem cache has a vmem arena as its slab supplier.  The kernel memory
- * allocator uses vmem_alloc() and vmem_free() to create and destroy slabs.
+ * allocator uses vmem_alloc_impl() and vmem_free_impl() to create and
+ * destroy slabs.
  *
  *
  * 2. Implementation
@@ -161,7 +162,8 @@
  * 2.2 Allocation hashing
  * ----------------------
  * We maintain a hash table of all allocated segments, hashed by address.
- * This allows vmem_free() to discover the target segment in constant time.
+ * This allows vmem_free_impl() to discover the target segment in constant
+ * time.
  * vmem_update() periodically resizes hash tables to keep hash chains short.
  *
  * 2.3 Freelist management
@@ -276,17 +278,17 @@
  * as the kmem_va quantum cache allocations.  This causes the worst-case
  * allocation from the vmem_metadata_arena to be 3 segments.)
  *
- * vmem_alloc(vmem_seg_arena)		-> 2 segs (span create + exact alloc)
+ * vmem_alloc_impl(vmem_seg_arena)	-> 2 segs (span create + exact alloc)
  *  segkmem_alloc(vmem_metadata_arena)
- *   vmem_alloc(vmem_metadata_arena)	-> 3 segs (span create + left alloc)
- *    vmem_alloc(heap_arena)		-> 1 seg (left alloc)
+ *   vmem_alloc_impl(vmem_metadata_arena) -> 3 segs (span create + left alloc)
+ *    vmem_alloc_impl(heap_arena)		-> 1 seg (left alloc)
  *   page_create()
  *   hat_memload()
  *    kmem_cache_alloc()
  *     kmem_slab_create()
- *	vmem_alloc(hat_memload_arena)	-> 2 segs (span create + exact alloc)
+ *	vmem_alloc_impl(hat_memload_arena) -> 2 segs (span create + exact alloc)
  *	 segkmem_alloc(heap_arena)
- *	  vmem_alloc(heap_arena)	-> 1 seg (left alloc)
+ *	  vmem_alloc_impl(heap_arena)	-> 1 seg (left alloc)
  *	  page_create()
  *	  hat_memload()		-> (hat layer won't recurse further)
  *
@@ -593,7 +595,7 @@ vmem_freelist_insert_sort_by_time(vmem_t *vmp, vmem_seg_t *vsp)
 	 * VS_SIZE is the segment size (->vs_end - ->vs_start), so say 8k-512
 	 * highbit is the higest bit set PLUS 1, so in this case would be the
 	 * 16k list. so below, vprev is therefore pointing to the 8k list
-	 * in vmem_alloc, the unconstrained allocation takes, for a 8k-512
+	 * in vmem_alloc_impl, the unconstrained allocation takes, for a 8k-512
 	 * block: vsp = flist[8k].vs_knext
 	 * and calls vmem_seg_create() which sends any leftovers from vsp
 	 * to vmem_freelist_insert
@@ -603,7 +605,8 @@ vmem_freelist_insert_sort_by_time(vmem_t *vmp, vmem_seg_t *vsp)
 	 * inserts the segment immediately after
 	 *
 	 * so vmem_seg_create(...8k-512...) pushes to the head of the 8k list,
-	 * and vmem_alloc(...8-512k...) will pull from the head of the 8k list
+	 * and vmem_alloc_impl(...8-512k...) will pull from the head of
+	 * the 8k list
 	 *
 	 * below we may want to push to the TAIL of the 8k list, which is
 	 * just before flist[16k].
@@ -1026,12 +1029,12 @@ vmem_populate(vmem_t *vmp, int vmflag)
 	nseg = size / vmem_seg_size;
 
 	/*
-	 * The following vmem_alloc() may need to populate vmem_seg_arena
+	 * The following vmem_alloc_impl() may need to populate vmem_seg_arena
 	 * and all the things it imports from.  When doing so, it will tap
 	 * each arena's reserve to prevent recursion (see the block comment
 	 * above the definition of VMEM_POPULATE_RESERVE).
 	 */
-	p = vmem_alloc(vmem_seg_arena, size, vmflag & VM_KMFLAGS);
+	p = vmem_alloc_impl(vmem_seg_arena, size, vmflag & VM_KMFLAGS);
 	if (p == NULL) {
 		mutex_exit(lp);
 		mutex_enter(&vmp->vm_lock);
@@ -1738,6 +1741,8 @@ vmem_xfree(vmem_t *vmp, void *vaddr, size_t size)
 }
 
 /*
+ * vmem_alloc_impl() and auxiliary functions :
+ *
  * Allocate size bytes from arena vmp.  Returns the allocated address
  * on success, NULL on failure.  vmflag specifies VM_SLEEP or VM_NOSLEEP,
  * and may also specify best-fit, first-fit, or next-fit allocation policy
@@ -1745,7 +1750,7 @@ vmem_xfree(vmem_t *vmp, void *vaddr, size_t size)
  * guaranteed to succeed.
  */
 void *
-vmem_alloc(vmem_t *vmp, size_t size, int vmflag)
+vmem_alloc_impl(vmem_t *vmp, size_t size, int vmflag)
 {
 	vmem_seg_t *vsp;
 	uintptr_t addr;
@@ -1811,7 +1816,7 @@ vmem_alloc(vmem_t *vmp, size_t size, int vmflag)
  * Free the segment [vaddr, vaddr + size).
  */
 void
-vmem_free(vmem_t *vmp, void *vaddr, size_t size)
+vmem_free_impl(vmem_t *vmp, void *vaddr, size_t size)
 {
 	if (size - 1 < vmp->vm_qcache_max)
 		kmem_cache_free(vmp->vm_qcache[(size - 1) >> vmp->vm_qshift],
@@ -1975,7 +1980,7 @@ spl_vmem_size(vmem_t *vmp, int typemask)
 
 /*
  * Create an arena called name whose initial span is [base, base + size).
- * The arena's natural unit of currency is quantum, so vmem_alloc()
+ * The arena's natural unit of currency is quantum, so vmem_alloc_impl()
  * guarantees quantum-aligned results.  The arena may import new spans
  * by invoking afunc() on source, and may return those spans by invoking
  * ffunc() on source.  To make small allocations fast and scalable,
@@ -1996,7 +2001,7 @@ vmem_create_common(const char *name, void *base, size_t size, size_t quantum,
 	uint32_t id = atomic_inc_32_nv(&vmem_id);
 
 	if (vmem_vmem_arena != NULL) {
-		vmp = vmem_alloc(vmem_vmem_arena, sizeof (vmem_t),
+		vmp = vmem_alloc_impl(vmem_vmem_arena, sizeof (vmem_t),
 		    vmflag & VM_KMFLAGS);
 	} else {
 		ASSERT(id <= VMEM_INITIAL);
@@ -2174,7 +2179,7 @@ vmem_destroy(vmem_t *vmp)
 
 	if (vmp->vm_hash_table != vmp->vm_hash0)
 		if (vmem_hash_arena != NULL)
-			vmem_free(vmem_hash_arena, vmp->vm_hash_table,
+			vmem_free_impl(vmem_hash_arena, vmp->vm_hash_table,
 			    (vmp->vm_hash_mask + 1) * sizeof (void *));
 
 	/*
@@ -2194,7 +2199,7 @@ vmem_destroy(vmem_t *vmp)
 
 	mutex_destroy(&vmp->vm_lock);
 	cv_destroy(&vmp->vm_cv);
-	vmem_free(vmem_vmem_arena, vmp, sizeof (vmem_t));
+	vmem_free_impl(vmem_vmem_arena, vmp, sizeof (vmem_t));
 }
 
 
@@ -2224,7 +2229,7 @@ vmem_destroy_internal(vmem_t *vmp)
 
 	if (vmp->vm_hash_table != vmp->vm_hash0)
 		if (vmem_hash_arena != NULL)
-			vmem_free(vmem_hash_arena, vmp->vm_hash_table,
+			vmem_free_impl(vmem_hash_arena, vmp->vm_hash_table,
 			    (vmp->vm_hash_mask + 1) * sizeof (void *));
 
 	/*
@@ -2253,7 +2258,7 @@ vmem_destroy_internal(vmem_t *vmp)
 
 	// Alas, to free, requires access to "vmem_vmem_arena" the very thing
 	// we release first.
-	// vmem_free(vmem_vmem_arena, vmp, sizeof (vmem_t));
+	// vmem_free_impl(vmem_vmem_arena, vmp, sizeof (vmem_t));
 }
 
 /*
@@ -2281,7 +2286,7 @@ vmem_hash_rescale(vmem_t *vmp)
 	    new_size <= (old_size << 1))
 		return;
 
-	new_table = vmem_alloc(vmem_hash_arena, new_size * sizeof (void *),
+	new_table = vmem_alloc_impl(vmem_hash_arena, new_size * sizeof (void *),
 	    VM_NOSLEEP);
 	if (new_table == NULL)
 		return;
@@ -2311,7 +2316,7 @@ vmem_hash_rescale(vmem_t *vmp)
 	mutex_exit(&vmp->vm_lock);
 
 	if (old_table != vmp->vm_hash0)
-		vmem_free(vmem_hash_arena, old_table,
+		vmem_free_impl(vmem_hash_arena, old_table,
 		    old_size * sizeof (void *));
 }
 
@@ -2794,7 +2799,7 @@ vmem_bucket_alloc(vmem_t *null_vmp, size_t size, const int vmflags)
 
 	// there are 13 buckets, so use a 16-bit scalar to hold
 	// a set of bits, where each bit corresponds to an in-progress
-	// vmem_alloc(bucket, ...) below.
+	// vmem_alloc_impl(bucket, ...) below.
 
 	static volatile _Atomic uint16_t buckets_busy_allocating = 0;
 	const uint16_t bucket_number = vmem_bucket_number(size);
@@ -2868,7 +2873,7 @@ vmem_bucket_alloc(vmem_t *null_vmp, size_t size, const int vmflags)
 	    hiprio_timeout = entry_time + hiprio_loop_ticks, timedout = 0;
 	    waiters > 1UL || loop_once; /* empty */) {
 		loop_once = false;
-		// non-waiting allocations should proceeed to vmem_alloc()
+		// non-waiting allocations should proceeed to vmem_alloc_impl()
 		// immediately
 		if (vmflags & (VM_NOSLEEP | VM_PANIC | VM_ABORT)) {
 			break;
@@ -2897,7 +2902,7 @@ vmem_bucket_alloc(vmem_t *null_vmp, size_t size, const int vmflags)
 				// allocator
 				atomic_inc_64(&spl_vba_parent_memory_appeared);
 				break;
-				// The vmem_alloc() should return extremely
+				// The vmem_alloc_impl() should return extremely
 				// quickly from an INSTANTFIT allocation that
 				// canalloc predicts will succeed.
 			} else {
@@ -2998,7 +3003,7 @@ vmem_bucket_alloc(vmem_t *null_vmp, size_t size, const int vmflags)
 
 	/*
 	 * Turn on the exclusion bit in buckets_busy_allocating, to
-	 * prevent multiple threads from calling vmem_alloc() on the
+	 * prevent multiple threads from calling vmem_alloc_impl() on the
 	 * same bucket arena concurrently rather than serially.
 	 *
 	 * This principally reduces the liklihood of asking xnu for
@@ -3006,7 +3011,7 @@ vmem_bucket_alloc(vmem_t *null_vmp, size_t size, const int vmflags)
 	 *
 	 * This exclusion only applies to VM_SLEEP allocations;
 	 * others (VM_PANIC, VM_NOSLEEP, VM_ABORT) will go to
-	 * vmem_alloc() concurrently with any other threads.
+	 * vmem_alloc_impl() concurrently with any other threads.
 	 *
 	 * Since we aren't doing a test-and-set operation like above,
 	 * we can just use |= and &= below and get correct atomic
@@ -3069,7 +3074,7 @@ vmem_bucket_alloc(vmem_t *null_vmp, size_t size, const int vmflags)
 	// There is memory in this bucket, or there are no other waiters,
 	// or we aren't a VM_SLEEP allocation,  or we iterated out of the
 	// for loop.
-	// vmem_alloc() and vmem_xalloc() do their own mutex serializing
+	// vmem_alloc_impl() and vmem_xalloc() do their own mutex serializing
 	// on bvmp->vm_lock, so we don't have to here.
 	//
 	// vmem_alloc may take some time to return (especially for VM_SLEEP
@@ -3078,7 +3083,7 @@ vmem_bucket_alloc(vmem_t *null_vmp, size_t size, const int vmflags)
 	// because waiters was 0 when we entered this function,
 	// subsequent callers will enter the for loop.
 
-	void *m = vmem_alloc(bvmp, size, vmflags);
+	void *m = vmem_alloc_impl(bvmp, size, vmflags);
 
 	// allow another vmem_canalloc() through for this bucket
 	// by atomically turning off the appropriate bit
@@ -3117,7 +3122,7 @@ vmem_bucket_free(vmem_t *null_vmp, void *vaddr, size_t size)
 {
 	vmem_t *calling_arena = spl_heap_arena;
 
-	vmem_free(vmem_bucket_arena_by_size(size), vaddr, size);
+	vmem_free_impl(vmem_bucket_arena_by_size(size), vaddr, size);
 
 	// wake up arena waiters to let them try an alloc
 	cv_broadcast(&calling_arena->vm_cv);
@@ -3386,7 +3391,10 @@ vmem_init(const char *heap_name,
 	dprintf("SPL: %s: real_total_memory %llu, large spans %llu, small "
 	    "spans %llu\n", __func__, real_total_memory,
 	    spl_bucket_tunable_large_span, spl_bucket_tunable_small_span);
-	char *buf = vmem_alloc(spl_default_arena, VMEM_NAMELEN + 21, VM_SLEEP);
+
+	char *buf;
+	buf = vmem_alloc_impl(spl_default_arena, VMEM_NAMELEN + 21, VM_SLEEP);
+
 	for (int32_t i = VMEM_BUCKET_LOWBIT; i <= VMEM_BUCKET_HIBIT; i++) {
 		const uint64_t bucket_largest_size = (1ULL << (uint64_t)i);
 		(void) snprintf(buf, VMEM_NAMELEN + 20, "%s_%llu",
@@ -3415,7 +3423,7 @@ vmem_init(const char *heap_name,
 		vmem_bucket_id_to_bucket_number[b->vm_id] = bucket_number;
 	}
 
-	vmem_free(spl_default_arena, buf, VMEM_NAMELEN + 21);
+	vmem_free_impl(spl_default_arena, buf, VMEM_NAMELEN + 21);
 	// spl_heap_arena, the bucket heap, is the primary interface
 	// to the vmem system
 
@@ -3464,7 +3472,7 @@ vmem_init(const char *heap_name,
 
 	heap = vmem_create(heap_name,  // id 16
 	    NULL, 0, heap_quantum,
-	    vmem_alloc, vmem_free, spl_heap_arena, 0,
+	    vmem_alloc_impl, vmem_free_impl, spl_heap_arena, 0,
 	    VM_SLEEP);
 
 	VERIFY(heap != NULL);
@@ -3474,28 +3482,29 @@ vmem_init(const char *heap_name,
 	// and the total allocation will generally cap off around 24 MiB.
 
 	vmem_metadata_arena = vmem_create("vmem_metadata", // id 17
-	    NULL, 0, heap_quantum, vmem_alloc, vmem_free, spl_default_arena,
+	    NULL, 0, heap_quantum, vmem_alloc_impl, vmem_free_impl,
+	    spl_default_arena,
 	    8 * PAGESIZE, VM_SLEEP | VMC_POPULATOR | VMC_NO_QCACHE);
 
 	VERIFY(vmem_metadata_arena != NULL);
 
 	vmem_seg_arena = vmem_create("vmem_seg", // id 18
 	    NULL, 0, heap_quantum,
-	    vmem_alloc, vmem_free, vmem_metadata_arena, 0,
+	    vmem_alloc_impl, vmem_free_impl, vmem_metadata_arena, 0,
 	    VM_SLEEP | VMC_POPULATOR);
 
 	VERIFY(vmem_seg_arena != NULL);
 
 	vmem_hash_arena = vmem_create("vmem_hash", // id 19
 	    NULL, 0, 8,
-	    vmem_alloc, vmem_free, vmem_metadata_arena, 0,
+	    vmem_alloc_impl, vmem_free_impl, vmem_metadata_arena, 0,
 	    VM_SLEEP);
 
 	VERIFY(vmem_hash_arena != NULL);
 
 	vmem_vmem_arena = vmem_create("vmem_vmem", // id 20
 	    vmem0, sizeof (vmem0), 1,
-	    vmem_alloc, vmem_free, vmem_metadata_arena, 0,
+	    vmem_alloc_impl, vmem_free_impl, vmem_metadata_arena, 0,
 	    VM_SLEEP);
 
 	VERIFY(vmem_vmem_arena != NULL);

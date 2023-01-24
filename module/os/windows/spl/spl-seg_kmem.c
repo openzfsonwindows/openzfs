@@ -216,10 +216,27 @@ segkmem_abd_init()
 	extern vmem_t *spl_heap_arena;
 
 	abd_arena = vmem_create("abd_cache", NULL, 0,
-	    PAGESIZE, vmem_alloc, vmem_free, spl_heap_arena,
+	    PAGESIZE, vmem_alloc_impl, vmem_free_impl, spl_heap_arena,
 	    131072, VM_SLEEP | VMC_NO_QCACHE | VM_FIRSTFIT);
 
-	ASSERT(abd_arena != NULL);
+	VERIFY3P(abd_arena, !=, NULL);
+
+	/*
+	 * We also have a sub-arena for sub-page allocations, so as to avoid
+	 * memory waste, while segregating ABDs for visibility and
+	 * fragmentation control.
+	 *
+	 * This approach presently assumes SPA_MINBLOCKSIZE is 512 and that
+	 * PAGESIZE is an even multiple of at least several SPA_MINBLOCKSIZE.
+	 * This will be _Static_assert-ed in abd_os.c.
+	 */
+#if 0 // macos
+	abd_subpage_arena = vmem_create("abd_subpage_cache", NULL, 0,
+	    512, vmem_alloc_impl, vmem_free_impl, abd_arena,
+	    131072, VM_SLEEP | VMC_NO_QCACHE | VM_FIRSTFIT);
+
+	VERIFY3P(abd_subpage_arena, !=, NULL);
+#endif
 }
 
 void

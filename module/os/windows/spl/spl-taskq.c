@@ -2515,7 +2515,8 @@ taskq_create_common(const char *name, int instance, int nthreads, pri_t pri,
 	 */
 	if (flags & TASKQ_NOINSTANCE) {
 		instance = tq->tq_instance =
-		    (int)(uintptr_t)vmem_alloc(taskq_id_arena, 1, VM_SLEEP);
+		    (int)(uintptr_t)vmem_alloc_impl(taskq_id_arena, 1,
+		    VM_SLEEP);
 	}
 
 	if (flags & TASKQ_DYNAMIC) {
@@ -2571,8 +2572,8 @@ taskq_destroy(taskq_t *tq)
 	 * Destroy instance if needed.
 	 */
 	if (tq->tq_flags & TASKQ_NOINSTANCE) {
-		vmem_free(taskq_id_arena, (void *)(uintptr_t)(tq->tq_instance),
-		    1);
+		vmem_free_impl(taskq_id_arena,
+		    (void *)(uintptr_t)(tq->tq_instance), 1);
 		tq->tq_instance = 0;
 	}
 

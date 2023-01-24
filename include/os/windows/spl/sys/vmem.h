@@ -148,10 +148,10 @@ extern vmem_t *vmem_create(const char *, void *, size_t, size_t,
 extern vmem_t *vmem_xcreate(const char *, void *, size_t, size_t,
     vmem_ximport_t *, vmem_free_t *, vmem_t *, size_t, int);
 extern void vmem_destroy(vmem_t *);
-extern void *vmem_alloc(vmem_t *, size_t, int);
+extern void *vmem_alloc_impl(vmem_t *, size_t, int);
 extern void *vmem_xalloc(vmem_t *, size_t, size_t, size_t, size_t,
     void *, void *, int);
-extern void vmem_free(vmem_t *, void *, size_t);
+extern void vmem_free_impl(vmem_t *, void *, size_t);
 extern void vmem_xfree(vmem_t *, void *, size_t);
 extern void *vmem_add(vmem_t *, void *, size_t, int);
 extern int vmem_contains(vmem_t *, void *, size_t);
@@ -162,6 +162,14 @@ extern size_t vmem_size_locked(vmem_t *, int);
 extern size_t vmem_size_semi_atomic(vmem_t *, int);
 extern void vmem_qcache_reap(vmem_t *vmp);
 extern int64_t vmem_buckets_size(int);
+
+/*
+ * Since Linux code uses vmem_alloc()/vmem_free and it is not
+ * the illumos one, wrap kmem_alloc()/kmem_free.
+ */
+#define	vmem_free(A, B)		zfs_kmem_free((A), (B))
+#define	vmem_alloc(A, B)	zfs_kmem_alloc((A), (B))
+#define	vmem_zalloc(A, B)	zfs_kmem_zalloc((A), (B))
 
 #ifdef	__cplusplus
 }

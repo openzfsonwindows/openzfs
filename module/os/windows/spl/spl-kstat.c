@@ -679,7 +679,7 @@ kstat_alloc(size_t size)
 			kstat_initial_avail -= size;
 		}
 	} else {
-		e = vmem_alloc(kstat_arena, size, VM_NOSLEEP);
+		e = vmem_alloc_impl(kstat_arena, size, VM_NOSLEEP);
 	}
 
 	if (e != NULL) {
@@ -695,7 +695,7 @@ static void
 kstat_free(ekstat_t *e)
 {
 	cv_destroy(&e->e_cv);
-	vmem_free(kstat_arena, e, e->e_size);
+	vmem_free_impl(kstat_arena, e, e->e_size);
 }
 
 extern vmem_t		*heap_arena;
