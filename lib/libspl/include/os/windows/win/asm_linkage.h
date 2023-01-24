@@ -121,13 +121,13 @@ extern "C" {
  */
 #define	ENTRY(x) \
 	.text; \
-	.align	ASM_ENTRY_ALIGN; \
+	.balign	ASM_ENTRY_ALIGN; \
 	.globl	x; \
 x:	MCOUNT(x)
 
 #define	ENTRY_NP(x) \
 	.text; \
-	.align	ASM_ENTRY_ALIGN; \
+	.balign	ASM_ENTRY_ALIGN; \
 	.globl	x; \
 x:
 
