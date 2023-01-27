@@ -1783,17 +1783,18 @@ vnode_flushcache(vnode_t *vp, FILE_OBJECT *fileobject, boolean_t hard)
 	// goto out;
 	}
 
+	if (fileobject->PrivateCacheMap == NULL) {
+		KeInitializeEvent(&UninitializeCompleteEvent.Event,
+		    SynchronizationEvent,
+		    FALSE);
 
-	KeInitializeEvent(&UninitializeCompleteEvent.Event,
-	    SynchronizationEvent,
-	    FALSE);
-
-	// Try to release cache
-	TraceEvent(8, "calling CcUninit: fo %p\n", fileobject);
-	CcUninitializeCacheMap(fileobject,
-	    hard ? &Zero : NULL,
-	    NULL);
-	TraceEvent(8, "complete CcUninit\n");
+		// Try to release cache
+		TraceEvent(8, "calling CcUninit: fo %p\n", fileobject);
+		CcUninitializeCacheMap(fileobject,
+		    hard ? &Zero : NULL,
+		    NULL);
+		TraceEvent(8, "complete CcUninit\n");
+	}
 
 	ret = 1;
 	if (fileobject && fileobject->SectionObjectPointer)
