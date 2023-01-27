@@ -118,7 +118,12 @@ extern void UnlockAndFreeMdl(PMDL);
 BOOLEAN
 zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 {
-	struct vnode *vp = Context;
+	FILE_OBJECT *fo = Context;
+
+	if (fo == NULL)
+		return (FALSE);
+
+	struct vnode *vp = fo->FsContext;
 	dprintf("%s:\n", __func__);
 
 	if (vp == NULL)
@@ -138,25 +143,45 @@ zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 		return (TRUE);
 	}
 
+	/*
+	 * There is something wrong (still) with unmounting so
+	 * LazyWriter does not stop (even though volume is gone)
+	 * Presumably we've not correctly told some part of Windows
+	 * that we are unmounted.
+	 * So we have to pretend the lock here went well, and
+	 * ignore the write request later, for it to eventually
+	 * stop.
+	 */
+	return (TRUE);
+
 	return (FALSE);
 }
 
 void
 zfs_ReleaseFromLazyWrite(void *Context)
 {
-	struct vnode *vp = Context;
-	dprintf("%s:\n", __func__);
-	if (VN_HOLD(vp) == 0) {
-		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
-		vnode_rele(vp);
-		VN_RELE(vp);
+	FILE_OBJECT *fo = Context;
+
+	if (fo != NULL) {
+		struct vnode *vp = fo->FsContext;
+		dprintf("%s:\n", __func__);
+		if (vp != NULL && VN_HOLD(vp) == 0) {
+			ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
+			vnode_rele(vp);
+			VN_RELE(vp);
+		}
 	}
 }
 
 BOOLEAN
 zfs_AcquireForReadAhead(void *Context, BOOLEAN Wait)
 {
-	struct vnode *vp = Context;
+	FILE_OBJECT *fo = Context;
+
+	if (fo == NULL)
+		return (FALSE);
+
+	struct vnode *vp = fo->FsContext;
 	dprintf("%s:\n", __func__);
 
 	if (vp == NULL)
@@ -182,12 +207,16 @@ zfs_AcquireForReadAhead(void *Context, BOOLEAN Wait)
 void
 zfs_ReleaseFromReadAhead(void *Context)
 {
-	struct vnode *vp = Context;
-	dprintf("%s:\n", __func__);
-	if (VN_HOLD(vp) == 0) {
-		ExReleaseResourceLite(vp->FileHeader.Resource);
-		vnode_rele(vp);
-		VN_RELE(vp);
+	FILE_OBJECT *fo = Context;
+
+	if (fo != NULL) {
+		struct vnode *vp = fo->FsContext;
+		dprintf("%s:\n", __func__);
+		if (vp != NULL && VN_HOLD(vp) == 0) {
+			ExReleaseResourceLite(vp->FileHeader.Resource);
+			vnode_rele(vp);
+			VN_RELE(vp);
+		}
 	}
 }
 
@@ -213,7 +242,7 @@ zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp)
 			CcInitializeCacheMap(fo,
 			    (PCC_FILE_SIZES)&vp->FileHeader.AllocationSize,
 			    FALSE,
-			    &CacheManagerCallbacks, vp);
+			    &CacheManagerCallbacks, fo);
 			dprintf("CcInitializeCacheMap called on vp %p\n", vp);
 			// CcSetAdditionalCacheAttributes(fo, FALSE, FALSE);
 			// must be FALSE
@@ -261,6 +290,9 @@ zfs_decouplefileobject(vnode_t *vp, FILE_OBJECT *fileobject)
 
 	if (zccb != NULL) {
 
+		ASSERT3U(zccb->cacheinit, ==, 1);
+		zccb->cacheinit = 0;
+
 		if (zccb->searchname.Buffer != NULL) {
 			kmem_free(zccb->searchname.Buffer,
 			    zccb->searchname.MaximumLength);
@@ -272,6 +304,8 @@ zfs_decouplefileobject(vnode_t *vp, FILE_OBJECT *fileobject)
 		fileobject->FsContext2 = NULL;
 	}
 
+	CcUninitializeCacheMap(fileobject,
+	    NULL, NULL);
 	vnode_decouplefileobject(vp, fileobject);
 }
 
@@ -4715,16 +4749,13 @@ zfs_fileobject_close(PDEVICE_OBJECT DeviceObject, PIRP Irp,
  * First encourage Windows to release the FileObject, CcMgr etc,
  * flush everything.
  */
-
 			// FileObject should/could no longer point to vp.
+			// this also frees zccb
 			zfs_decouplefileobject(vp, IrpSp->FileObject);
+			zccb = NULL;
+
 			// vnode_fileobject_remove(vp, IrpSp->FileObject);
 //			if (isdir) {
-
-			CcUninitializeCacheMap(IrpSp->FileObject,
-			    NULL, NULL);
-			zccb->cacheinit = 0;
-
 
 			// fastfat also flushes while(parent) dir here,
 			// if !iocount
