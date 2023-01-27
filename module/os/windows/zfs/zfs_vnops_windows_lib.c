@@ -3090,7 +3090,7 @@ file_case_sensitive_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 	}
 
-	Irp->IoStatus.Information = sizeof(FILE_CASE_SENSITIVE_INFORMATION);
+	Irp->IoStatus.Information = sizeof (FILE_CASE_SENSITIVE_INFORMATION);
 	return (STATUS_SUCCESS);
 }
 
