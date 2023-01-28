@@ -959,7 +959,7 @@ wosix_open(const char *inpath, int oflag, ...)
 	}
 
 	// Also handle "/dev/"
-	if (strncmp("/dev/", path, 5) == 0) {
+	if (strncmp("\\dev\\", path, 5) == 0) {
 		char tmp[PATH_MAX];
 		snprintf(tmp, sizeof (tmp), "\\\\?\\%s", &path[5]);
 		h = CreateFile(tmp, mode, share, NULL, how,

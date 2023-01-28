@@ -167,15 +167,16 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	}
 
 #ifdef _KERNEL
+	for (int i = 0; FileName[i] != 0; i++)
+		if (FileName[i] == '/')
+			FileName[i] = '\\';
+
 	if (strncmp("\\\\?\\", FileName, 4) == 0) {
 		FileName[1] = '?';
 	}
-	if (strncmp("//./", FileName, 4) == 0) {
+	if (strncmp("\\\\.\\", FileName, 4) == 0) {
 		FileName[1] = '?';
 		FileName[2] = '?';
-		for (int i = 0; FileName[i] != 0; i++)
-			if (FileName[i] == '/')
-				FileName[i] = '\\';
 	}
 #endif
 

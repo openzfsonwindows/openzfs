@@ -1196,12 +1196,23 @@ zfs_resolve_shortname_os(const char *name, char *path, size_t len)
 		return (0);
 	}
 	if (!strncasecmp("Harddisk", name, 8)) {
-	    // Convert to "\\?\HarddiskXPartitionY"
+		// Convert to "\\?\HarddiskXPartitionY"
 		snprintf(path, len, "\\\\?\\%s", name);
 		printf("Expanded path to '%s'\n", path);
 		return (0);
 	}
-	return (ENOENT);
+	if ((name[0] == '/' || name[0] == '\\') &&
+	    (name[1] == '/' || name[1] == '\\') &&
+	    (name[2] == '?' || name[2] == '.') &&
+	    (name[3] == '/' || name[3] == '\\'))
+		return (ENOENT);
+
+	snprintf(path, len, "\\\\?\\%s", name);
+	char *r;
+	while ((r = strchr(path, '/')) != NULL)
+		*r = '\\';
+
+	return (0);
 }
 
 void
