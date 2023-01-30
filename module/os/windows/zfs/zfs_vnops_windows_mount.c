@@ -814,6 +814,13 @@ zfs_windows_mount(zfs_cmd_t *zc)
 
 	// Mount will temporarily be pointing to "dcb" until the
 	// zfs_vnop_mount() below corrects it to "vcb".
+	status = zfs_vfs_mount(zmo_dcb, NULL, (user_addr_t)&mnt_args, NULL);
+	dprintf("%s: zfs_vfs_mount() returns %d\n", __func__, status);
+
+	if (status) {
+		IoDeleteDevice(diskDeviceObject);
+		return (status);
+	}
 
 	// Check if we are to mount with driveletter, or path
 	// We already check that path is "\\??\\" above, and
@@ -1199,36 +1206,21 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	volDeviceObject->Flags |= DO_BUS_ENUMERATED_DEVICE;
 
-
-	struct zfs_mount_args mnt_args;
-	char *dsname[ZFS_MAX_DATASET_NAME_LEN];
-	ULONG length = 0;
-
-	RtlUnicodeToUTF8N(dsname, ZFS_MAX_DATASET_NAME_LEN, &length,
-	    dcb->name.Buffer, dcb->name.Length);
-	dsname[length] = 0;
-
-	mnt_args.struct_size = sizeof (struct zfs_mount_args);
-	mnt_args.optlen = 0;
-	mnt_args.mflag = 0; // Set flags
-	mnt_args.fspec = dsname;
-
-	status = zfs_vfs_mount(vcb, NULL, (user_addr_t)&mnt_args, NULL);
-	dprintf("%s: zfs_vfs_mount() returns %d\n", __func__, status);
-
-	if (status) {
-		IoDeleteDevice(volDeviceObject);
-		return (status);
-	}
-	vfs_setfsprivate(dcb, vfs_fsprivate(vcb)); // HACK
-
-	zfsvfs_t *zfsvfs = vfs_fsprivate(vcb);
-	if (zfsvfs == NULL) {
+	zfsvfs_t *zfsvfs = vfs_fsprivate(dcb);
+	int giveup = 0;
+	while (zfsvfs == NULL) {
+		delay(hz / 10);
 		dprintf("zfsvfs not resolved yet\n");
-		status = STATUS_MOUNT_POINT_NOT_RESOLVED;
-		goto out;
+		zfsvfs = vfs_fsprivate(dcb);
+		if (giveup++ > 50)
+			return (STATUS_UNRECOGNIZED_VOLUME);
 	}
 	zfsvfs->z_vfs = vcb;
+	vfs_setfsprivate(vcb, zfsvfs);
+	// a bit hacky this bit, but we created some vnodes under
+	// dcb during this mount hand over, make them be owned by
+	// vcb
+	vfs_changeowner(dcb, vcb);
 
 	// Remember the parent device, so during unmount we can free both.
 	vcb->parent_device = dcb;
