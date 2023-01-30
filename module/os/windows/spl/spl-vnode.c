@@ -2084,3 +2084,18 @@ vnode_pager_setsize(void *fo, vnode_t *vp, uint64_t size, boolean_t delay)
 	}
 
 }
+
+void
+vfs_changeowner(mount_t *from, mount_t *to)
+{
+	struct vnode *rvp;
+	mutex_enter(&vnode_all_list_lock);
+	for (rvp = list_head(&vnode_all_list);
+	    rvp;
+	    rvp = list_next(&vnode_all_list, rvp)) {
+		if (rvp->v_mount == from)
+			rvp->v_mount = to;
+
+	}
+	mutex_exit(&vnode_all_list_lock);
+}
