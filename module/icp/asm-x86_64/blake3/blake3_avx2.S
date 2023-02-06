@@ -1791,7 +1791,6 @@ ENTRY_NP(zfs_blake3_hash_many_avx2)
 SET_SIZE(zfs_blake3_hash_many_avx2)
 
 SECTION_STATIC
-.section .rodata
 
 .p2align  6
 ADD0:
