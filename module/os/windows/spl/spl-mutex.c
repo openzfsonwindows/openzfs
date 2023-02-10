@@ -73,7 +73,7 @@ spl_mutex_init(kmutex_t *mp, char *name, kmutex_type_t type, void *ibc)
 	if (mp->m_initialised == MUTEX_INITIALISED)
 		panic("%s: mutex already m_initialised\n", __func__);
 	mp->m_initialised = MUTEX_INITIALISED;
-	mp->m_set_event_guard = 0;
+	KeInitializeSpinLock(&mp->m_destroy_lock);
 
 	mp->m_owner = NULL;
 
@@ -85,21 +85,21 @@ spl_mutex_init(kmutex_t *mp, char *name, kmutex_type_t type, void *ibc)
 void
 spl_mutex_destroy(kmutex_t *mp)
 {
+	KIRQL oldq;
+
 	if (!mp)
 		return;
 
 	if (mp->m_initialised != MUTEX_INITIALISED)
 		panic("%s: mutex not m_initialised\n", __func__);
 
-	// Make sure any call to KeSetEvent() has completed.
-	while (mp->m_set_event_guard != 0) {
-		kpreempt(KPREEMPT_SYNC);
-	}
-
-	mp->m_initialised = MUTEX_DESTROYED;
-
 	if (mp->m_owner != 0)
 		panic("SPL: releasing held mutex");
+
+	// Make sure any call to KeSetEvent() has completed.
+	KeAcquireSpinLock(&mp->m_destroy_lock, &oldq);
+	mp->m_initialised = MUTEX_DESTROYED;
+	KeReleaseSpinLock(&mp->m_destroy_lock, oldq);
 
 	// There is no FREE member for events
 	// KeDeleteEvent();
@@ -152,15 +152,19 @@ spl_mutex_exit(kmutex_t *mp)
 
 	VERIFY3P(mp->m_owner, !=, 0xdeadbeefdeadbeef);
 
-	atomic_inc_32(&mp->m_set_event_guard);
+	KIRQL oldq;
 
+	/*
+	 * Hold spinlock so the SetEvent() does't accidentally alow
+	 * another thread to turbo into mutex_destroy()
+	 */
+	KeAcquireSpinLock(&mp->m_destroy_lock, &oldq);
 	mp->m_owner = NULL;
-
-	VERIFY3U(KeGetCurrentIrql(), <=, DISPATCH_LEVEL);
-
 	// Wake up one waiter now that it is available.
 	KeSetEvent((PRKEVENT)&mp->m_lock, SEMAPHORE_INCREMENT, FALSE);
-	atomic_dec_32(&mp->m_set_event_guard);
+	KeReleaseSpinLock(&mp->m_destroy_lock, oldq);
+
+	VERIFY3U(KeGetCurrentIrql(), <=, DISPATCH_LEVEL);
 }
 
 int

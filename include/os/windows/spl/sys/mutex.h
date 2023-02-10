@@ -72,7 +72,7 @@ typedef struct {
 typedef struct kmutex {
 	mutex_t		m_lock;
 	void		*m_owner;
-	unsigned int	m_set_event_guard;
+	KSPIN_LOCK	m_destroy_lock;
 	unsigned int	m_initialised;
 } kmutex_t;
 
