@@ -104,6 +104,8 @@ Source: "{#Root}\out\build\x64-Debug\cmd\raidz_test\*.pdb"; DestDir: "{app}\symb
 Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zfsinstaller\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\kstat\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#SourcePath}\HowToDebug.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\contrib\windows\parsedump\*.*"; DestDir: "{app}"; Flags: ignoreversion
+
 
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
