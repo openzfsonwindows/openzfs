@@ -49,6 +49,11 @@
 static uint32_t icp_gcm_impl = IMPL_FASTEST;
 static uint32_t user_sel_impl = IMPL_FASTEST;
 
+static inline int gcm_init_ctx_impl(boolean_t, gcm_ctx_t *, char *, size_t,
+    int (*)(const void *, const uint8_t *, uint8_t *),
+    void (*)(uint8_t *, uint8_t *),
+    void (*)(uint8_t *, uint8_t *));
+
 #ifdef CAN_USE_GCM_ASM
 /* Does the architecture we run on support the MOVBE instruction? */
 boolean_t gcm_avx_can_use_movbe = B_FALSE;
@@ -71,7 +76,7 @@ static int gcm_mode_encrypt_contiguous_blocks_avx(gcm_ctx_t *, char *, size_t,
 
 static int gcm_encrypt_final_avx(gcm_ctx_t *, crypto_data_t *, size_t);
 static int gcm_decrypt_final_avx(gcm_ctx_t *, crypto_data_t *, size_t);
-static int gcm_init_avx(gcm_ctx_t *, unsigned char *, size_t, unsigned char *,
+static int gcm_init_avx(gcm_ctx_t *, const uint8_t *, size_t, const uint8_t *,
     size_t, size_t);
 #endif /* ifdef CAN_USE_GCM_ASM */
 
@@ -478,7 +483,7 @@ gcm_validate_args(CK_AES_GCM_PARAMS *gcm_param)
 }
 
 static void
-gcm_format_initial_blocks(uchar_t *iv, ulong_t iv_len,
+gcm_format_initial_blocks(const uint8_t *iv, ulong_t iv_len,
     gcm_ctx_t *ctx, size_t block_size,
     void (*copy_block)(uint8_t *, uint8_t *),
     void (*xor_block)(uint8_t *, uint8_t *))
@@ -527,8 +532,8 @@ gcm_format_initial_blocks(uchar_t *iv, ulong_t iv_len,
 }
 
 static int
-gcm_init(gcm_ctx_t *ctx, unsigned char *iv, size_t iv_len,
-    unsigned char *auth_data, size_t auth_data_len, size_t block_size,
+gcm_init(gcm_ctx_t *ctx, const uint8_t *iv, size_t iv_len,
+    const uint8_t *auth_data, size_t auth_data_len, size_t block_size,
     int (*encrypt_block)(const void *, const uint8_t *, uint8_t *),
     void (*copy_block)(uint8_t *, uint8_t *),
     void (*xor_block)(uint8_t *, uint8_t *))
@@ -587,8 +592,6 @@ gcm_init(gcm_ctx_t *ctx, unsigned char *iv, size_t iv_len,
 /*
  * The following function is called at encrypt or decrypt init time
  * for AES GCM mode.
- *
- * Init the GCM context struct. Handle the cycle and avx implementations here.
  */
 int
 gcm_init_ctx(gcm_ctx_t *gcm_ctx, char *param, size_t block_size,
@@ -596,29 +599,70 @@ gcm_init_ctx(gcm_ctx_t *gcm_ctx, char *param, size_t block_size,
     void (*copy_block)(uint8_t *, uint8_t *),
     void (*xor_block)(uint8_t *, uint8_t *))
 {
-	int rv;
+	return (gcm_init_ctx_impl(B_FALSE, gcm_ctx, param, block_size,
+	    encrypt_block, copy_block, xor_block));
+}
+
+/*
+ * The following function is called at encrypt or decrypt init time
+ * for AES GMAC mode.
+ */
+int
+gmac_init_ctx(gcm_ctx_t *gcm_ctx, char *param, size_t block_size,
+    int (*encrypt_block)(const void *, const uint8_t *, uint8_t *),
+    void (*copy_block)(uint8_t *, uint8_t *),
+    void (*xor_block)(uint8_t *, uint8_t *))
+{
+	return (gcm_init_ctx_impl(B_TRUE, gcm_ctx, param, block_size,
+	    encrypt_block, copy_block, xor_block));
+}
+
+/*
+ * Init the GCM context struct. Handle the cycle and avx implementations here.
+ * Initialization of a GMAC context differs slightly from a GCM context.
+ */
+static inline int
+gcm_init_ctx_impl(boolean_t gmac_mode, gcm_ctx_t *gcm_ctx, char *param,
+    size_t block_size, int (*encrypt_block)(const void *, const uint8_t *,
+    uint8_t *), void (*copy_block)(uint8_t *, uint8_t *),
+    void (*xor_block)(uint8_t *, uint8_t *))
+{
 	CK_AES_GCM_PARAMS *gcm_param;
+	int rv = CRYPTO_SUCCESS;
+	size_t tag_len, iv_len;
 
 	if (param != NULL) {
 		gcm_param = (CK_AES_GCM_PARAMS *)(void *)param;
 
-		if ((rv = gcm_validate_args(gcm_param)) != 0) {
-			return (rv);
-		}
+		if (gmac_mode == B_FALSE) {
+			/* GCM mode. */
+			if ((rv = gcm_validate_args(gcm_param)) != 0) {
+				return (rv);
+			}
+			gcm_ctx->gcm_flags |= GCM_MODE;
 
-		gcm_ctx->gcm_tag_len = gcm_param->ulTagBits;
-		gcm_ctx->gcm_tag_len >>= 3;
+			size_t tbits = gcm_param->ulTagBits;
+			tag_len = CRYPTO_BITS2BYTES(tbits);
+			iv_len = gcm_param->ulIvLen;
+		} else {
+			/* GMAC mode. */
+			gcm_ctx->gcm_flags |= GMAC_MODE;
+			tag_len = CRYPTO_BITS2BYTES(AES_GMAC_TAG_BITS);
+			iv_len = AES_GMAC_IV_LEN;
+		}
+		gcm_ctx->gcm_tag_len = tag_len;
 		gcm_ctx->gcm_processed_data_len = 0;
 
 		/* these values are in bits */
 		gcm_ctx->gcm_len_a_len_c[0]
 		    = htonll(CRYPTO_BYTES2BITS(gcm_param->ulAADLen));
-
-		rv = CRYPTO_SUCCESS;
-		gcm_ctx->gcm_flags |= GCM_MODE;
 	} else {
 		return (CRYPTO_MECHANISM_PARAM_INVALID);
 	}
+
+	const uint8_t *iv = (const uint8_t *)gcm_param->pIv;
+	const uint8_t *aad = (const uint8_t *)gcm_param->pAAD;
+	size_t aad_len = gcm_param->ulAADLen;
 
 #ifdef CAN_USE_GCM_ASM
 	if (GCM_IMPL_READ(icp_gcm_impl) != IMPL_CYCLE) {
@@ -745,8 +789,8 @@ gmac_init_ctx(gcm_ctx_t *gcm_ctx, char *param, size_t block_size,
 		}
 #ifdef CAN_USE_GCM_ASM
 	} else {
-		if (gcm_init_avx(gcm_ctx, gmac_param->pIv, AES_GMAC_IV_LEN,
-		    gmac_param->pAAD, gmac_param->ulAADLen, block_size) != 0) {
+		if (gcm_init_avx(gcm_ctx, iv, iv_len, aad, aad_len,
+		    block_size) != CRYPTO_SUCCESS) {
 			rv = CRYPTO_MECHANISM_PARAM_INVALID;
 		}
 	}
@@ -1496,14 +1540,14 @@ gcm_decrypt_final_avx(gcm_ctx_t *ctx, crypto_data_t *out, size_t block_size)
  * initial counter block.
  */
 static int
-gcm_init_avx(gcm_ctx_t *ctx, unsigned char *iv, size_t iv_len,
-    unsigned char *auth_data, size_t auth_data_len, size_t block_size)
+gcm_init_avx(gcm_ctx_t *ctx, const uint8_t *iv, size_t iv_len,
+    const uint8_t *auth_data, size_t auth_data_len, size_t block_size)
 {
 	uint8_t *cb = (uint8_t *)ctx->gcm_cb;
 	uint64_t *H = ctx->gcm_H;
 	const void *keysched = ((aes_key_t *)ctx->gcm_keysched)->encr_ks.ks32;
 	int aes_rounds = ((aes_key_t *)ctx->gcm_keysched)->nr;
-	uint8_t *datap = auth_data;
+	const uint8_t *datap = auth_data;
 	size_t chunk_size = (size_t)GCM_CHUNK_SIZE_READ;
 	size_t bleft;
 	kfpu_vars;
