@@ -4437,29 +4437,6 @@ vdev_get_stats_ex_impl(vdev_t *vd, vdev_stat_t *vs, vdev_stat_ex_t *vsx)
 	}
 }
 
-/*
- * Get mirror slog alloc and space
- */
-static void
-getMirrorSlogSizeDetails(vdev_t *vd, unsigned __int64 *mirror_slog_alloc_size,
-    unsigned __int64 *mirror_slog_space)
-{
-	if (!vd->vdev_ops->vdev_op_leaf) {
-		for (int c = 0; c < vd->vdev_children; c++) {
-		vdev_t *cvd = vd->vdev_child[c];
-		vdev_stat_t *cvs = &cvd->vdev_stat;
-
-		getMirrorSlogSizeDetails(cvd, mirror_slog_alloc_size,
-		    mirror_slog_space);
-		    if (cvd->vdev_islog) {
-			*mirror_slog_alloc_size = cvs->vs_alloc;
-			*mirror_slog_space = cvs->vs_space;
-			return;
-		    }
-		}
-	}
-}
-
 void
 vdev_get_stats_ex(vdev_t *vd, vdev_stat_t *vs, vdev_stat_ex_t *vsx)
 {
