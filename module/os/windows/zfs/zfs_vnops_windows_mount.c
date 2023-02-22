@@ -1562,7 +1562,8 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 
 		// fsDeviceObject
 		if (zmo->deviceObject) {
-			IoDetachDevice(zmo->deviceObject);
+			// For some reason IODetachDevice can cause BSOD
+			// IoDetachDevice(zmo->deviceObject);
 			IoDeleteDevice(zmo->deviceObject);
 		}
 
