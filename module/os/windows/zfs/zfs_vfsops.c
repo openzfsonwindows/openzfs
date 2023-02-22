@@ -2388,3 +2388,7 @@ zfs_get_vfs_flag_unmounted(objset_t *os)
 
 	return (unmounted);
 }
+
+
+ZFS_MODULE_PARAM(zfs, zfs_, vnop_skip_unlinked_drain,
+    UINT, ZMOD_RW, "Do not call unlinked_drain on import");
