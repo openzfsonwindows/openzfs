@@ -184,7 +184,8 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 
 	if (error) {
 		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
-		spa_strfree(vdev_path);
+		if (vdev_path != NULL)
+			spa_strfree(vdev_path);
 		return (error);
 	}
 
@@ -200,7 +201,8 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 		 */
 		// zfs_file_close(fp);
 		vdev_file_close(vd);
-		spa_strfree(vdev_path);
+		if (vdev_path != NULL)
+			spa_strfree(vdev_path);
 		return (SET_ERROR(ENODEV));
 	}
 
@@ -233,14 +235,16 @@ skip_open:
 
 	if (error) {
 		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
-		spa_strfree(vdev_path);
+		if (vdev_path != NULL)
+			spa_strfree(vdev_path);
 		return (error);
 	}
 
 	*max_psize = *psize = zfa.zfa_size;
 	*ashift = SPA_MINBLOCKSHIFT;
 	*physical_ashift = SPA_MINBLOCKSHIFT;
-	spa_strfree(vdev_path);
+	if (vdev_path != NULL)
+		spa_strfree(vdev_path);
 	return (0);
 }
 
