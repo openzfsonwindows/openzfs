@@ -1843,7 +1843,12 @@ zfs_prop_set_list(zfs_handle_t *zhp, nvlist_t *props)
 		if (prop != ZFS_PROP_CANMOUNT ||
 		    (fnvpair_value_uint64(elem) == ZFS_CANMOUNT_OFF &&
 		    zfs_is_mounted(zhp, NULL))) {
+#ifdef _WIN32
+			cls[cl_idx] = changelist_gather(zhp, prop,
+			    CL_GATHER_DONT_UNMOUNT, 0);
+#else
 			cls[cl_idx] = changelist_gather(zhp, prop, 0, 0);
+#endif
 			if (cls[cl_idx] == NULL)
 				goto error;
 		}
