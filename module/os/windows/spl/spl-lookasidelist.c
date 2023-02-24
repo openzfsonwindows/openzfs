@@ -105,7 +105,7 @@ lookasidelist_cache_create(char *name,	/* descriptive name for this cache */
     size_t size) /* size of the objects it manages */
 {
 	lookasidelist_cache_t *pLookasidelist_cache;
-	pLookasidelist_cache = ExAllocatePoolWithTag(NonPagedPool,
+	pLookasidelist_cache = ExAllocatePoolWithTag(NonPagedPoolNx,
 	    sizeof (lookasidelist_cache_t), ZFS_LookAsideList_DRV_TAG);
 
 	if (pLookasidelist_cache != NULL) {
