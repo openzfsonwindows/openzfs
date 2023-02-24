@@ -111,7 +111,7 @@
 static void txg_sync_thread(void *arg);
 static void txg_quiesce_thread(void *arg);
 
-int zfs_txg_timeout = 5;	/* max seconds worth of delta per txg */
+int zfs_txg_timeout = 1;	/* max seconds worth of delta per txg */
 
 /*
  * Prepare the txg subsystem.
