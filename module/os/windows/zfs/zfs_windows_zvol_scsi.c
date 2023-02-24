@@ -1083,7 +1083,7 @@ DiReadWriteSetup(zvol_state_t *zv, MpWkRtnAction action, zfsiodesc_t *pIo)
 	// cannot use kmem_alloc with sleep if IRQL dispatch so get straight
 	// from NP pool.
 	pMP_WorkRtnParms pWkRtnParms = (pMP_WorkRtnParms)ExAllocatePoolWithTag(
-	    NonPagedPool, ALIGN_UP_BY(sizeof (MP_WorkRtnParms), 16) +
+	    NonPagedPoolNx, ALIGN_UP_BY(sizeof (MP_WorkRtnParms), 16) +
 	    IoSizeofWorkItem(), MP_TAG_GENERAL);
 	if (NULL == pWkRtnParms) {
 		if (pIo->Cb) {
