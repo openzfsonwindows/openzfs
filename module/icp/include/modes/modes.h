@@ -328,10 +328,10 @@ gcm_clear_ctx(gcm_ctx_t *ctx)
 		gcm_ctx_t *sc = ctx->gcm_shadow_ctx;
 
 		if (sc->gcm_Htable != NULL) {
-			kmem_free(c->gcm_Htable, c->gcm_htab_len);
+			kmem_free(sc->gcm_Htable, sc->gcm_htab_len);
 		}
 		if (sc->gcm_pt_buf != NULL) {
-			vmem_free(c->gcm_pt_buf, c->gcm_pt_buf_len);
+			vmem_free(sc->gcm_pt_buf, sc->gcm_pt_buf_len);
 		}
 		kmem_free(sc, sizeof (gcm_ctx_t));
 		ctx->gcm_shadow_ctx = NULL;

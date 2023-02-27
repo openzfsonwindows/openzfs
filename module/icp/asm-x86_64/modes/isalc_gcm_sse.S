@@ -117,7 +117,7 @@
 //
 
 // Port to GNU as, translation to GNU as att-syntax and adoptions for the ICP
-// Copyright(c) 2022-2023 Attila Fülöp <attila@fueloep.org>
+// Copyright(c) 2023 Attila Fülöp <attila@fueloep.org>
 
 .att_syntax prefix
 

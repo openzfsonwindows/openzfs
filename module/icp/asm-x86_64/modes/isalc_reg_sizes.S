@@ -27,7 +27,8 @@
 //  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ////////////////////////////////////////////////////////////////////////////////
 
-// Parts Copyright(c) 2022-2023 Attila Fülöp <attila@fueloep.org>
+// Port to GNU as, translation to GNU as att-syntax and adoptions for the ICP
+// Copyright(c) 2023 Attila Fülöp <attila@fueloep.org>
 
 #ifndef _REG_SIZES_ASM_
 #define _REG_SIZES_ASM_
