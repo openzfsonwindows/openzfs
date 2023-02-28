@@ -2403,6 +2403,30 @@ icp_gcm_isalc_set_chunk_size(const char *buf, zfs_kernel_param_t *kp)
 	return (error);
 }
 
+#ifdef __APPLE__
+int
+param_icp_gcm_isalc_set_chunk_size(ZFS_MODULE_PARAM_ARGS)
+{
+	int val;
+	int rc = 0;
+
+	/* Always fill in value before calling sysctl_handle_*() */
+	val = gcm_isalc_chunk_size;
+
+	rc = sysctl_handle_int(oidp, &val, 0, req);
+	if (rc || req->newptr == (user_addr_t)NULL)
+		return (rc);
+
+	val = val & ~(512UL - 1UL);
+
+	if (val < GCM_ISALC_MIN_CHUNK_SIZE || val > GCM_ISALC_MAX_CHUNK_SIZE)
+		return (-EINVAL);
+
+	gcm_isalc_chunk_size = val;
+	return (rc);
+}
+#endif
+
 module_param_call(icp_gcm_isalc_chunk_size, icp_gcm_isalc_set_chunk_size,
     param_get_uint, &gcm_isalc_chunk_size, 0644);
 
