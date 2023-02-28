@@ -188,6 +188,7 @@
 #define __OUTPUT_FORMAT__ elf64
 #endif
 
+#ifdef __ELF__
 #if __OUTPUT_FORMAT__ == elf32
 .section .note.GNU-stack,"",%progbits
 .section .text
@@ -199,6 +200,7 @@
 .section .note.GNU-stack,"",%progbits
 .section .text
 #endif
+#endif /* ELF */
 #if __OUTPUT_FORMAT__ == win64
 #define __x86_64__
 #endif

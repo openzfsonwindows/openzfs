@@ -179,7 +179,7 @@ mask_out_top_block:
 	.quad      0xffffffffffffffff, 0xffffffffffffffff
 	.quad      0x0000000000000000, 0x0000000000000000
 
-.section .text
+SECTION_TEXT
 
 // #define	KEYSCHED_LEN (15 * GCM_BLOCKSIZE)
 // #define	AES_KEY_LEN (2 * KEYSCHED_LEN + 16 + 8 + 4 + 4)	// 512

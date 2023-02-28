@@ -137,26 +137,31 @@
 
 #ifdef GCM192_MODE
 #define FN_NAME(x,y) ENTRY(icp_isalc_gcm_ ## x ## _192 ## y ## sse)
+#define _FN_NAME(x,y) ENTRY(icp_isalc_gcm_ ## x ## _192 ## y ## sse)
 #define NROUNDS 11
 #endif
 
 #ifdef GCM256_MODE
 #define FN_NAME(x,y) ENTRY(icp_isalc_gcm_ ## x ## _256 ## y ## sse)
+#define _FN_NAME(x,y) ENTRY(icp_isalc_gcm_ ## x ## _256 ## y ## sse)
 #define NROUNDS 13
 #endif
 #else
 #ifdef GCM128_MODE
 #define FN_NAME(x,y) icp_isalc_gcm_ ## x ## _128 ## y ## sse
+#define _FN_NAME(x,y) _icp_isalc_gcm_ ## x ## _128 ## y ## sse
 #define NROUNDS 9
 #endif
 
 #ifdef GCM192_MODE
 #define FN_NAME(x,y) icp_isalc_gcm_ ## x ## _192 ## y ## sse
+#define _FN_NAME(x,y) _icp_isalc_gcm_ ## x ## _192 ## y ## sse
 #define NROUNDS 11
 #endif
 
 #ifdef GCM256_MODE
 #define FN_NAME(x,y) icp_isalc_gcm_ ## x ## _256 ## y ## sse
+#define _FN_NAME(x,y) _icp_isalc_gcm_ ## x ## _256 ## y ## sse
 #define NROUNDS 13
 #endif
 #endif
