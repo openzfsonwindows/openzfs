@@ -994,7 +994,7 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 #endif
 	} // while SetupDiEnumDeviceInterfaces
 
-#if 1
+#if 0
 	/* Now lets iterate the partitions (volumes) */
 	HANDLE vol;
 	vol = FindFirstVolume(rdsk, sizeof (rdsk));
