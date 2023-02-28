@@ -1093,7 +1093,7 @@
 						type         = "perf_counter_bulk_count"
 						detailLevel  = "standard">
           </counter>
-          <counter
+         <!-- <counter
 						id           = "40"
 						uri          = "ZFSin.zil_itx_metaslab_slog_count"
 						name         = "SLOG Metaslab Count"
@@ -1112,7 +1112,7 @@
 						description  = "zil_itx_metaslab_slog_bytes"
 						type         = "perf_counter_bulk_count"
 						detailLevel  = "standard">
-          </counter>
+          </counter> -->
         </counterSet>
       </provider>
 		</counters>
