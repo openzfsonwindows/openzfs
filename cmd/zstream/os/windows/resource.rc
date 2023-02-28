@@ -81,7 +81,7 @@ BEGIN
             VALUE "CompanyName", "DataCore Software Corporation"
             VALUE "FileDescription", "zstreamdump.exe"
             VALUE "FileVersion", "1.0.0.1"
-            VALUE "LegalCopyright", "Copyright (C) 2021 DataCore Software Corporation"
+            VALUE "LegalCopyright", "Copyright (C) 2023 DataCore Software Corporation"
             VALUE "OriginalFilename", "zstreamdump.exe"
             VALUE "ProductName", "zstreamdump.exe"
             VALUE "ProductVersion", "1.0.0.1"

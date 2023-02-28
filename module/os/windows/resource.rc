@@ -60,7 +60,7 @@ BEGIN
             VALUE "FileDescription", "OpenZFS.sys"
             VALUE "FileVersion", "1.0.0.1"
             VALUE "InternalName", "resource.rc"
-            VALUE "LegalCopyright", "Copyright (C) 2021 DataCore Software Corporation"
+            VALUE "LegalCopyright", "Copyright (C) 2023 DataCore Software Corporation"
             VALUE "OriginalFilename", "OpenZFS.sys"
             VALUE "ProductName", "OpenZFS.sys"
             VALUE "ProductVersion", "1.0.0.1"

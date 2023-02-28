@@ -81,7 +81,7 @@ BEGIN
             VALUE "CompanyName", "DataCore Software Corporation"
             VALUE "FileDescription", "raidz_test.exe"
             VALUE "FileVersion", "1.0.0.1"
-            VALUE "LegalCopyright", "Copyright (C) 2021 DataCore Software Corporation"
+            VALUE "LegalCopyright", "Copyright (C) 2023 DataCore Software Corporation"
             VALUE "OriginalFilename", "raidz_test.exe"
             VALUE "ProductName", "raidz_test.exe"
             VALUE "ProductVersion", "1.0.0.1"
