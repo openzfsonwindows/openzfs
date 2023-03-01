@@ -2237,7 +2237,6 @@ gcm_mode_encrypt_contiguous_blocks_isalc(gcm_ctx_t *ctx, const uint8_t *data,
 		kfpu_begin();
 		(*(isalc_ops.igo_enc_update[impl][keylen]))(
 		    ctx, ct_buf, datap, bleft);
-
 		kfpu_end();
 
 #ifdef DEBUG_GCM_ASM

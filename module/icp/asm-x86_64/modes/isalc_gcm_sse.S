@@ -641,7 +641,7 @@ movdqu	16*j(\KEYSCHED), \T_key		// encrypt with last (14th) key round (12 for GC
 		XLDR	(\PLAIN_CYPH_IN, \DATA_OFFSET), \T1
 		pxor	\T1, xmmi
 		XSTR	xmmi, (\CYPH_PLAIN_OUT, \DATA_OFFSET)	// write back ciphertext for \num_initial_blocks blocks
-		add	$16, \DATA_OFFSET
+		add	$(0x10), \DATA_OFFSET
 		.ifc \ENC_DEC, DEC
 		movdqa	\T1, xmmi
 		.endif
