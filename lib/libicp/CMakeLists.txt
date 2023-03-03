@@ -12,7 +12,6 @@ add_library(libicp
     "${ICP_MODULE_DIR}/algs/blake3/blake3.c"
     "${ICP_MODULE_DIR}/algs/blake3/blake3_generic.c"
     "${ICP_MODULE_DIR}/algs/blake3/blake3_impl.c"
-    "${ICP_MODULE_DIR}/algs/blake3/blake3_x86-64.c"
     "${ICP_MODULE_DIR}/algs/edonr/edonr.c"
     "${ICP_MODULE_DIR}/algs/modes/cbc.c"
     "${ICP_MODULE_DIR}/algs/modes/ccm.c"
@@ -22,7 +21,9 @@ add_library(libicp
     "${ICP_MODULE_DIR}/algs/modes/gcm_generic.c"
     "${ICP_MODULE_DIR}/algs/modes/gcm_pclmulqdq.c"
     "${ICP_MODULE_DIR}/algs/modes/modes.c"
-    "${ICP_MODULE_DIR}/algs/sha2/sha2.c"
+    "${ICP_MODULE_DIR}/algs/sha2/sha2_generic.c"
+    "${ICP_MODULE_DIR}/algs/sha2/sha256_impl.c"
+    "${ICP_MODULE_DIR}/algs/sha2/sha512_impl.c"
     "${ICP_MODULE_DIR}/algs/skein/skein.c"
     "${ICP_MODULE_DIR}/algs/skein/skein_block.c"
     "${ICP_MODULE_DIR}/algs/skein/skein_iv.c"
@@ -46,13 +47,14 @@ add_library(libicp
     "${ICP_MODULE_DIR}/asm-x86_64/modes/aesni-gcm-x86_64.S"
     "${ICP_MODULE_DIR}/asm-x86_64/modes/gcm_pclmulqdq.S"
     "${ICP_MODULE_DIR}/asm-x86_64/modes/ghash-x86_64.S"
-    "${ICP_MODULE_DIR}/asm-x86_64/sha2/sha256_impl.S"
-    "${ICP_MODULE_DIR}/asm-x86_64/sha2/sha512_impl.S"
 
     "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_avx2.S"
     "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_avx512.S"
     "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_sse2.S"
     "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_sse41.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/sha2/sha256-x86_64.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/sha2/sha512-x86_64.S"
+
 )
 
 # Add windows/assembler sources here too.

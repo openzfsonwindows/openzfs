@@ -1893,13 +1893,9 @@ ENTRY_ALIGN(zfs_blake3_compress_in_place_sse41, 64)
         movups  xmmword ptr [rdi], xmm0
         movups  xmmword ptr [rdi+0x10], xmm1
         RET
-<<<<<<< HEAD
-ENTRY_NP(zfs_blake3_compress_xof_sse41)
-=======
 SET_SIZE(zfs_blake3_compress_in_place_sse41)
 
 ENTRY_ALIGN(zfs_blake3_compress_xof_sse41, 64)
->>>>>>> 58ca7b1011... IPC: blake3 x86 asm: fix placement of .size directives
         ENDBR
         movups  xmm0, xmmword ptr [rdi]
         movups  xmm1, xmmword ptr [rdi+0x10]

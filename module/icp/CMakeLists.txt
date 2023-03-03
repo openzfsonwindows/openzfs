@@ -10,8 +10,8 @@ wdk_add_library(icpkern
   algs/blake3/blake3.c
   algs/blake3/blake3_generic.c 
   algs/blake3/blake3_impl.c 
-  algs/blake3/blake3_x86-64.c
   algs/edonr/edonr.c
+  algs/edonr/edonr_byteorder.h
   algs/modes/cbc.c
   algs/modes/ccm.c
   algs/modes/ctr.c
@@ -20,11 +20,12 @@ wdk_add_library(icpkern
   algs/modes/gcm_generic.c
   algs/modes/gcm_pclmulqdq.c
   algs/modes/modes.c
-  algs/sha2/sha2.c
+  algs/sha2/sha2_generic.c
+  algs/sha2/sha256_impl.c
+  algs/sha2/sha512_impl.c
   algs/skein/skein.c
   algs/skein/skein_block.c
   algs/skein/skein_iv.c
-  algs/edonr/edonr_byteorder.h
   algs/skein/skein_impl.h
   algs/skein/skein_port.h
   api/kcf_cipher.c
@@ -37,12 +38,12 @@ wdk_add_library(icpkern
   asm-x86_64/modes/ghash-x86_64.S
   asm-x86_64/modes/aesni-gcm-x86_64.S
 #  asm-x86_64/sha1/sha1-x86_64.S
-  asm-x86_64/sha2/sha256_impl.S
-  asm-x86_64/sha2/sha512_impl.S
   asm-x86_64/blake3/blake3_avx2.S
   asm-x86_64/blake3/blake3_avx512.S
   asm-x86_64/blake3/blake3_sse2.S
   asm-x86_64/blake3/blake3_sse41.S
+  asm-x86_64/sha2/sha256-x86_64.S
+  asm-x86_64/sha2/sha512-x86_64.S
   core/kcf_callprov.c
   core/kcf_mech_tabs.c
   core/kcf_prov_lib.c

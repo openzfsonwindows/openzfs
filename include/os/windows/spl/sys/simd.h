@@ -733,6 +733,18 @@ zfs_movbe_available(void)
 #endif
 }
 
+/*
+ * Check if SHA_NI instruction set is available
+ */
+static inline boolean_t
+zfs_shani_available(void)
+{
+#if defined(HAVE_SHA_NI)
+	return (!!(spl_cpuid_features() & CPUID_FEATURE_SHA_NI));
+#else
+	return (B_FALSE);
+#endif
+}
 
 #endif /* defined(__x86) */
 

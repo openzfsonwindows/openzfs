@@ -59,7 +59,7 @@ wdk_add_library(zfskern
   refcount.c
   rrwlock.c
   sa.c
-  sha256.c
+  sha2_zfs.c
   skein_zfs.c
   spa.c
   spa_checkpoint.c
@@ -112,6 +112,7 @@ wdk_add_library(zfskern
   zfs_chksum.c
   zfs_fm.c
   zfs_fuid.c
+  zfs_impl.c
   zfs_ioctl.c
   zfs_log.c
   zfs_onexit.c

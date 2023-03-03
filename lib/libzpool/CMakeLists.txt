@@ -101,7 +101,7 @@ add_library(libzpool
     "${MODULE_DIR}/zfs/refcount.c"
     "${MODULE_DIR}/zfs/rrwlock.c"
     "${MODULE_DIR}/zfs/sa.c"
-    "${MODULE_DIR}/zfs/sha256.c"
+    "${MODULE_DIR}/zfs/sha2_zfs.c"
     "${MODULE_DIR}/zfs/skein_zfs.c"
     "${MODULE_DIR}/zfs/spa.c"
     "${MODULE_DIR}/zfs/space_map.c"

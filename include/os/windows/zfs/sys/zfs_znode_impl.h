@@ -81,6 +81,7 @@ extern int zfs_zget_ext(zfsvfs_t *zfsvfs, uint64_t obj_num,
 	uint64_t		z_atime[2];	\
 	uint64_t		z_links;	\
 	uint32_t		z_vid;	\
+	boolean_t		z_is_mapped;	\
 	taskq_ent_t		z_attach_taskq;	\
 	kcondvar_t		z_attach_cv;	\
 	kmutex_t		z_attach_lock;	\
@@ -135,7 +136,7 @@ extern minor_t zfsdev_minor_alloc(void);
 #define	Z_ISLNK(type)	((type) == VLNK)
 #define	Z_ISDIR(type)	((type) == VDIR)
 
-#define	zn_has_cached_data(zp)	((zp)->z_is_mapped)
+#define	zn_has_cached_data(zp, start, end)	(zp->z_is_mapped)
 #define	zn_flush_cached_data(zp, sync)	/* find solution */
 
 #define	zn_rlimit_fsize(zp, uio)	(0)

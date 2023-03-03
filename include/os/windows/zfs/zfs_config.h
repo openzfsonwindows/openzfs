@@ -71,6 +71,7 @@
 #define	HAVE_AVX2 1
 #define	HAVE_PCLMULQDQ 1
 #define	HAVE_MOVBE 1
+#define	HAVE_SHA_NI 1
 #define	HAVE_AES 1
 #define	HAVE_AVX512F 1
 #define	HAVE_AVX512CD 1

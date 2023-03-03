@@ -140,6 +140,12 @@ x:	MCOUNT(x)
 	.globl	x; \
 x:
 
+#define	ENTRY_ALIGN(x, a) \
+	.text; \
+	.balign	a; \
+	.globl	x; \
+x:
+
 #define	FUNCTION(x) \
 x:
 

@@ -14,6 +14,7 @@ typedef int	processorid_t;
 #define	CPUID_FEATURE_XSAVE		(1<<26)
 #define	CPUID_FEATURE_OSXSAVE		(1<<27)
 #define	CPUID_FEATURE_AVX1_0		(1<<28)
+#define	CPUID_FEATURE_SHA_NI		(1<<29)
 
 #define	CPUID_FEATURE_SSE		(1<<25)
 #define	CPUID_FEATURE_SSE2		(1<<26)

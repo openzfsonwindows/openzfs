@@ -370,18 +370,16 @@ win32_blake3_param_set(ZFS_MODULE_PARAM_ARGS)
 	*type = ZT_TYPE_STRING;
 
 	if (set == B_FALSE) {
-		if (blake3_initialized)
-			blake3_param_get(str, NULL);
-		*ptr = str;
-		*len = strlen(str);
+		char buffer[PAGE_SIZE]; /* Looks like they use page size */
+		blake3_param_get(buffer, NULL);
+		*ptr = buffer;
+		*len = strlen(buffer);
 		return (0);
 	}
 
 	ASSERT3P(ptr, !=, NULL);
 
-	blake3_impl_setname(*ptr);
-
-	return (0);
+	return (-generic_impl_setname(*ptr));
 }
 
 #elif defined(__FreeBSD__)
