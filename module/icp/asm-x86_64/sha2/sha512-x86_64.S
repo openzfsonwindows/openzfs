@@ -27,7 +27,7 @@
 SECTION_STATIC
 
 .align	64
-.type	K512,@object
+SET_OBJ(K512)
 K512:
 .quad	0x428a2f98d728ae22,0x7137449123ef65cd
 .quad	0x428a2f98d728ae22,0x7137449123ef65cd

@@ -27,7 +27,7 @@
 SECTION_STATIC
 
 .align	64
-.type	K256,@object
+SET_OBJ(K256)
 K256:
 .long	0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5
 .long	0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5
