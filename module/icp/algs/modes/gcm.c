@@ -990,7 +990,7 @@ gcm_init_ctx_impl(boolean_t gmac_mode, gcm_ctx_t *gcm_ctx, char *param,
 		}
 		gcm_ctx->gcm_htab_len = htab_len;
 		gcm_ctx->gcm_Htable =
-		    (uint64_t *)kmem_alloc(htab_len, KM_SLEEP);
+		    kmem_alloc(htab_len, KM_SLEEP);
 
 		if (gcm_ctx->gcm_Htable == NULL) {
 			return (CRYPTO_HOST_MEMORY);
@@ -999,85 +999,12 @@ gcm_init_ctx_impl(boolean_t gmac_mode, gcm_ctx_t *gcm_ctx, char *param,
 	/* Avx and non avx context initialization differ from here on. */
 	if (gcm_ctx->gcm_simd_impl == GSI_NONE) {
 #endif /* ifdef CAN_USE_GCM_ASM */
-		if (gcm_init(gcm_ctx, gcm_param->pIv, gcm_param->ulIvLen,
-		    gcm_param->pAAD, gcm_param->ulAADLen, block_size,
-		    encrypt_block, copy_block, xor_block) != 0) {
-			rv = CRYPTO_MECHANISM_PARAM_INVALID;
-		}
-#ifdef CAN_USE_GCM_ASM
-	} else {
-		if (gcm_init_avx(gcm_ctx, gcm_param->pIv, gcm_param->ulIvLen,
-		    gcm_param->pAAD, gcm_param->ulAADLen, block_size) != 0) {
-			rv = CRYPTO_MECHANISM_PARAM_INVALID;
-		}
-	}
-#endif /* ifdef CAN_USE_GCM_ASM */
-
-	return (rv);
-}
-
-int
-gmac_init_ctx(gcm_ctx_t *gcm_ctx, char *param, size_t block_size,
-    int (*encrypt_block)(const void *, const uint8_t *, uint8_t *),
-    void (*copy_block)(uint8_t *, uint8_t *),
-    void (*xor_block)(uint8_t *, uint8_t *))
-{
-	int rv;
-	CK_AES_GMAC_PARAMS *gmac_param;
-
-	if (param != NULL) {
-		gmac_param = (CK_AES_GMAC_PARAMS *)(void *)param;
-
-		gcm_ctx->gcm_tag_len = CRYPTO_BITS2BYTES(AES_GMAC_TAG_BITS);
-		gcm_ctx->gcm_processed_data_len = 0;
-
 		/* these values are in bits */
-		gcm_ctx->gcm_len_a_len_c[0]
-		    = htonll(CRYPTO_BYTES2BITS(gmac_param->ulAADLen));
+		gcm_ctx->gcm_len_a_len_c[0] =
+		    htonll(CRYPTO_BYTES2BITS(aad_len));
 
-		rv = CRYPTO_SUCCESS;
-		gcm_ctx->gcm_flags |= GMAC_MODE;
-	} else {
-		return (CRYPTO_MECHANISM_PARAM_INVALID);
-	}
-
-#ifdef CAN_USE_GCM_ASM
-	/*
-	 * Handle the "cycle" implementation by creating avx and non avx
-	 * contexts alternately.
-	 */
-	if (GCM_IMPL_READ(icp_gcm_impl) != IMPL_CYCLE) {
-		gcm_ctx->gcm_use_avx = GCM_IMPL_USE_AVX;
-	} else {
-		gcm_ctx->gcm_use_avx = gcm_toggle_avx();
-	}
-	/* We don't handle byte swapped key schedules in the avx code path. */
-	aes_key_t *ks = (aes_key_t *)gcm_ctx->gcm_keysched;
-	if (ks->ops->needs_byteswap == B_TRUE) {
-		gcm_ctx->gcm_use_avx = B_FALSE;
-	}
-	/* Allocate Htab memory as needed. */
-	if (gcm_ctx->gcm_use_avx == B_TRUE) {
-		size_t htab_len = gcm_simd_get_htab_size(gcm_ctx->gcm_use_avx);
-
-		if (htab_len == 0) {
-			return (CRYPTO_MECHANISM_PARAM_INVALID);
-		}
-		gcm_ctx->gcm_htab_len = htab_len;
-		gcm_ctx->gcm_Htable =
-		    (uint64_t *)kmem_alloc(htab_len, KM_SLEEP);
-
-		if (gcm_ctx->gcm_Htable == NULL) {
-			return (CRYPTO_HOST_MEMORY);
-		}
-	}
-
-	/* Avx and non avx context initialization differs from here on. */
-	if (gcm_ctx->gcm_use_avx == B_FALSE) {
-#endif	/* ifdef CAN_USE_GCM_ASM */
-		if (gcm_init(gcm_ctx, gmac_param->pIv, AES_GMAC_IV_LEN,
-		    gmac_param->pAAD, gmac_param->ulAADLen, block_size,
-		    encrypt_block, copy_block, xor_block) != 0) {
+		if (gcm_init(gcm_ctx, iv, iv_len, aad, aad_len, block_size,
+		    encrypt_block, copy_block, xor_block) != CRYPTO_SUCCESS) {
 			rv = CRYPTO_MECHANISM_PARAM_INVALID;
 		}
 #ifdef CAN_USE_GCM_ASM
@@ -1371,7 +1298,6 @@ gcm_impl_set(const char *val)
 
 #if defined(_KERNEL)
 #if defined(__linux__) || defined(_WIN32)
-
 static int
 icp_gcm_impl_set(const char *val, zfs_kernel_param_t *kp)
 {
@@ -1415,7 +1341,28 @@ icp_gcm_impl_get(char *buffer, zfs_kernel_param_t *kp)
 
 	return (cnt);
 }
-#endif /* linux || windows */
+#endif /* defined(Linux) || defined(APPLE) */
+
+#if defined(__APPLE__)
+/* get / set function */
+int
+param_icp_gcm_impl_set(ZFS_MODULE_PARAM_ARGS)
+{
+	char buf[1024]; /* Linux module string limit */
+	int rc = 0;
+
+	/* Always fill in value before calling sysctl_handle_*() */
+	if (req->newptr == (user_addr_t)NULL)
+		(void) icp_gcm_impl_get(buf, NULL);
+
+	rc = sysctl_handle_string(oidp, buf, sizeof (buf), req);
+	if (rc || req->newptr == (user_addr_t)NULL)
+		return (rc);
+
+	rc = gcm_impl_set(buf);
+	return (rc);
+}
+#endif /* defined(APPLE) */
 
 #ifdef _WIN32
 int
@@ -1440,7 +1387,7 @@ win32_icp_gcm_impl_set(ZFS_MODULE_PARAM_ARGS)
 
 	return (0);
 }
-#endif
+#endif /* WIN32 */
 
 module_param_call(icp_gcm_impl, icp_gcm_impl_set, icp_gcm_impl_get,
     NULL, 0644);
@@ -2165,7 +2112,10 @@ gcm_init_isalc(gcm_ctx_t *ctx, const uint8_t *iv, size_t iv_len,
 
 	int impl = get_isalc_gcm_impl_index((const gcm_ctx_t *)ctx);
 	int keylen = get_isalc_gcm_keylen_index((const gcm_ctx_t *)ctx);
-
+	kfpu_vars;
+#ifdef _KERNEL
+	DbgBreakPoint();
+#endif
 	kfpu_begin();
 	(*(isalc_ops.igo_precomp[impl][keylen]))(ctx);	/* Init H and Htab */
 	(*(isalc_ops.igo_init[impl][keylen]))(ctx, iv, aad, aad_len, tag_len);
@@ -2187,6 +2137,7 @@ gcm_mode_encrypt_contiguous_blocks_isalc(gcm_ctx_t *ctx, const uint8_t *data,
 	size_t chunk_size = (size_t)GCM_ISALC_CHUNK_SIZE_READ;
 	uint8_t *ct_buf = NULL;
 	int ct_buf_size;
+	kfpu_vars;
 
 	/*
 	 * XXXX: It may make sense to allocate a multiple of 'chunk_size'
@@ -2275,6 +2226,7 @@ gcm_decrypt_final_isalc(gcm_ctx_t *ctx, crypto_data_t *out)
 	size_t chunk_size = (size_t)GCM_ISALC_CHUNK_SIZE_READ;
 	size_t pt_len = ctx->gcm_processed_data_len - ctx->gcm_tag_len;
 	uint8_t *datap = ctx->gcm_pt_buf;
+	kfpu_vars;
 
 	/*
 	 * The isalc routines will increment ctx->gcm_processed_data_len
@@ -2352,6 +2304,7 @@ gcm_encrypt_final_isalc(gcm_ctx_t *ctx, crypto_data_t *out)
 
 	int impl = get_isalc_gcm_impl_index((const gcm_ctx_t *)ctx);
 	int keylen = get_isalc_gcm_keylen_index((const gcm_ctx_t *)ctx);
+	kfpu_vars;
 
 	kfpu_begin();
 	(*(isalc_ops.igo_enc_finalize[impl][keylen]))(ctx);
@@ -2426,6 +2379,35 @@ param_icp_gcm_isalc_set_chunk_size(ZFS_MODULE_PARAM_ARGS)
 }
 #endif
 
+#ifdef _WIN32
+int
+win32_icp_gcm_isalc_set_chunk_size(ZFS_MODULE_PARAM_ARGS)
+{
+	uint32_t val;
+
+	*type = ZT_TYPE_INT;
+
+	if (set == B_FALSE) {
+		*ptr = gcm_isalc_chunk_size;
+		*len = sizeof (val);
+		return (0);
+	}
+
+	ASSERT3P(ptr, !=, NULL);
+
+	val = *(uint32_t *)ptr;
+	val = val & ~(512UL - 1UL);
+
+	if (val < GCM_ISALC_MIN_CHUNK_SIZE || val > GCM_ISALC_MAX_CHUNK_SIZE)
+		return (-EINVAL);
+
+	gcm_isalc_chunk_size = val;
+
+	return (0);
+}
+#endif /* WIN32 */
+
+
 module_param_call(icp_gcm_isalc_chunk_size, icp_gcm_isalc_set_chunk_size,
     param_get_uint, &gcm_isalc_chunk_size, 0644);
 
@@ -2454,35 +2436,67 @@ icp_gcm_avx_set_chunk_size(const char *buf, zfs_kernel_param_t *kp)
 	return (error);
 }
 
-#ifdef _WIN32
+#ifdef __APPLE__
+
 /* Lives in here to have access to GCM macros */
+int
+param_icp_gcm_avx_set_chunk_size(ZFS_MODULE_PARAM_ARGS)
+{
+	unsigned long val;
+	char buf[16];
+	int rc = 0;
+
+	/* Always fill in value before calling sysctl_handle_*() */
+	if (req->newptr == (user_addr_t)NULL)
+		snprintf(buf, sizeof (buf), "%u", gcm_avx_chunk_size);
+
+	rc = sysctl_handle_string(oidp, buf, sizeof (buf), req);
+	if (rc || req->newptr == (user_addr_t)NULL)
+		return (rc);
+
+	rc = kstrtoul(buf, 0, &val);
+	if (rc)
+		return (rc);
+
+	val = (val / GCM_AVX_MIN_DECRYPT_BYTES) * GCM_AVX_MIN_DECRYPT_BYTES;
+
+	if (val < GCM_AVX_MIN_ENCRYPT_BYTES || val > GCM_AVX_MAX_CHUNK_SIZE)
+		return (EINVAL);
+
+	gcm_avx_chunk_size = val;
+	return (rc);
+}
+
+#endif
+
+#ifdef _WIN32
 int
 win32_icp_gcm_avx_set_chunk_size(ZFS_MODULE_PARAM_ARGS)
 {
 	uint32_t val;
 
-	*type = ZT_TYPE_UINT;
+	*type = ZT_TYPE_INT;
 
 	if (set == B_FALSE) {
-		*ptr = &gcm_avx_chunk_size;
-		*len = sizeof (gcm_avx_chunk_size);
+		*ptr = gcm_avx_chunk_size;
+		*len = sizeof (val);
 		return (0);
 	}
 
-	ASSERT3U(*len, >=, sizeof (gcm_avx_chunk_size));
+	ASSERT3P(ptr, !=, NULL);
 
-	val = *(uint32_t *)(*ptr);
+	val = *(uint32_t *)ptr;
+	val = val & ~(512UL - 1UL);
 
-	val = (val / GCM_AVX_MIN_DECRYPT_BYTES) * GCM_AVX_MIN_DECRYPT_BYTES;
-
-	if (val < GCM_AVX_MIN_ENCRYPT_BYTES || val > GCM_AVX_MAX_CHUNK_SIZE)
+	if (val < GCM_ISALC_MIN_CHUNK_SIZE || val > GCM_ISALC_MAX_CHUNK_SIZE)
 		return (-EINVAL);
 
 	gcm_avx_chunk_size = val;
 
 	return (0);
 }
-#endif
+#endif /* WIN32 */
+
 
 module_param_call(icp_gcm_avx_chunk_size, icp_gcm_avx_set_chunk_size,
     param_get_uint, &gcm_avx_chunk_size, 0644);

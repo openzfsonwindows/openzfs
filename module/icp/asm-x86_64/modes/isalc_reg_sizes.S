@@ -87,23 +87,23 @@
 
 .macro bytereg reg
 	.if \reg == %r8 || \reg == %r9 || \reg == %r10 || \reg == %r11 || \reg == %r12 || \reg == %r13 || \reg == %r14 || \reg == %r15
-		.set breg, \reg\()b
+		.set .Lbreg, \reg\()b
 	.elseif \reg == %rax
-		.set breg, %al
+		.set .Lbreg, %al
 	.elseif \reg == %rcx
-		.set breg, %cl
+		.set .Lbreg, %cl
 	.elseif \reg == %rdx
-		.set breg, %dl
+		.set .Lbreg, %dl
 	.elseif \reg == %rbx
-		.set breg, %bl
+		.set .Lbreg, %bl
 	.elseif \reg == rsp
-		.set breg, %spl
+		.set .Lbreg, %spl
 	.elseif \reg == %rbp
-		.set breg, %bpl
+		.set .Lbreg, %bpl
 	.elseif \reg == rsi
-		.set breg, %sil
+		.set .Lbreg, %sil
 	.elseif \reg == rdi
-		.set breg, %dil
+		.set .Lbreg, %dil
 	.else
 		.error "Invalid register '\reg\()' while expanding macro 'bytereg\()'"
 	.endif

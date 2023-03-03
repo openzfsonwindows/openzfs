@@ -137,31 +137,31 @@
 
 #ifdef GCM192_MODE
 #define FN_NAME(x,y) ENTRY(icp_isalc_gcm_ ## x ## _192 ## y ## sse)
-#define _FN_NAME(x,y) ENTRY(icp_isalc_gcm_ ## x ## _192 ## y ## sse)
+//#define _FN_NAME(x,y) ENTRY(icp_isalc_gcm_ ## x ## _192 ## y ## sse)
 #define NROUNDS 11
 #endif
 
 #ifdef GCM256_MODE
 #define FN_NAME(x,y) ENTRY(icp_isalc_gcm_ ## x ## _256 ## y ## sse)
-#define _FN_NAME(x,y) ENTRY(icp_isalc_gcm_ ## x ## _256 ## y ## sse)
+//#define _FN_NAME(x,y) ENTRY(icp_isalc_gcm_ ## x ## _256 ## y ## sse)
 #define NROUNDS 13
 #endif
 #else
 #ifdef GCM128_MODE
 #define FN_NAME(x,y) icp_isalc_gcm_ ## x ## _128 ## y ## sse
-#define _FN_NAME(x,y) _icp_isalc_gcm_ ## x ## _128 ## y ## sse
+//#define _FN_NAME(x,y) _icp_isalc_gcm_ ## x ## _128 ## y ## sse
 #define NROUNDS 9
 #endif
 
 #ifdef GCM192_MODE
 #define FN_NAME(x,y) icp_isalc_gcm_ ## x ## _192 ## y ## sse
-#define _FN_NAME(x,y) _icp_isalc_gcm_ ## x ## _192 ## y ## sse
+//#define _FN_NAME(x,y) _icp_isalc_gcm_ ## x ## _192 ## y ## sse
 #define NROUNDS 11
 #endif
 
 #ifdef GCM256_MODE
 #define FN_NAME(x,y) icp_isalc_gcm_ ## x ## _256 ## y ## sse
-#define _FN_NAME(x,y) _icp_isalc_gcm_ ## x ## _256 ## y ## sse
+//#define _FN_NAME(x,y) _icp_isalc_gcm_ ## x ## _256 ## y ## sse
 #define NROUNDS 13
 #endif
 #endif
@@ -359,7 +359,7 @@ _byte_loop_1_\@:		//Read in data 1 byte at a time while data is left
 
 	////  mov	BYTE(\TMP1), BYTE [\END_READ_LOCATION]
 	bytereg \TMP1
-	movb	(\END_READ_LOCATION), breg
+	movb	(\END_READ_LOCATION), .Lbreg
 	dec	\COUNTER
 	jg	_byte_loop_1_\@
 	pinsrq	$1, \TMP1, \OUTPUT
@@ -372,7 +372,7 @@ _byte_loop_2_\@:		//Read in data 1 byte at a time while data is left
 	dec	\END_READ_LOCATION
 	//// mov	BYTE(\TMP1), BYTE [\END_READ_LOCATION]
 	bytereg \TMP1
-	movb	(\END_READ_LOCATION), breg
+	movb	(\END_READ_LOCATION), .Lbreg
 	dec	\COUNTER
 	jg	_byte_loop_2_\@
 	pinsrq	$0, \TMP1, \OUTPUT
@@ -591,7 +591,7 @@ _partial_block_done_\@:
 .altmacro
 .set i, (8-\num_initial_blocks)
 		xmmreg	i, %i
-		movdqu	\XMM8, xmmi	// move AAD_HASH to temp reg
+		movdqu	\XMM8, .Lxmmi	// move AAD_HASH to temp reg
 
 		// start AES for \num_initial_blocks blocks
 		movdqu	CurCount(\GDATA_CTX), \CTR	// \CTR = Y0
@@ -601,8 +601,8 @@ _partial_block_done_\@:
 .rept \num_initial_blocks
 		xmmreg	i, %i
 		paddd	ONE(%rip), \CTR		// INCR Y0
-		movdqa	\CTR, xmmi
-		pshufb	SHUF_MASK(%rip), xmmi	// perform a 16Byte swap
+		movdqa	\CTR, .Lxmmi
+		pshufb	SHUF_MASK(%rip), .Lxmmi	// perform a 16Byte swap
 .set i, (i+1)
 .endr
 
@@ -610,7 +610,7 @@ movdqu	16*0(\KEYSCHED), \T_key
 .set i, (9-\num_initial_blocks)
 .rept \num_initial_blocks
 		xmmreg	i, %i
-		pxor	\T_key, xmmi
+		pxor	\T_key, .Lxmmi
 .set i, (i+1)
 .endr
 
@@ -620,7 +620,7 @@ movdqu	16*j(\KEYSCHED), \T_key
 .set i, (9-\num_initial_blocks)
 .rept \num_initial_blocks
 		xmmreg	i, %i
-		aesenc	\T_key, xmmi
+		aesenc	\T_key, .Lxmmi
 .set i, (i+1)
 .endr
 
@@ -631,7 +631,7 @@ movdqu	16*j(\KEYSCHED), \T_key		// encrypt with last (14th) key round (12 for GC
 .set i, (9-\num_initial_blocks)
 .rept \num_initial_blocks
 		xmmreg	i, %i
-		aesenclast	\T_key, xmmi
+		aesenclast	\T_key, .Lxmmi
 .set i, (i+1)
 .endr
 
@@ -639,13 +639,13 @@ movdqu	16*j(\KEYSCHED), \T_key		// encrypt with last (14th) key round (12 for GC
 .rept \num_initial_blocks
 		xmmreg	i, %i
 		XLDR	(\PLAIN_CYPH_IN, \DATA_OFFSET), \T1
-		pxor	\T1, xmmi
-		XSTR	xmmi, (\CYPH_PLAIN_OUT, \DATA_OFFSET)	// write back ciphertext for \num_initial_blocks blocks
+		pxor	\T1, .Lxmmi
+		XSTR	.Lxmmi, (\CYPH_PLAIN_OUT, \DATA_OFFSET)	// write back ciphertext for \num_initial_blocks blocks
 		add	$(0x10), \DATA_OFFSET
 		.ifc \ENC_DEC, DEC
-		movdqa	\T1, xmmi
+		movdqa	\T1, .Lxmmi
 		.endif
-		pshufb	SHUF_MASK(%rip), xmmi      // prepare ciphertext for GHASH computations
+		pshufb	SHUF_MASK(%rip), .Lxmmi      // prepare ciphertext for GHASH computations
 .set i, (i+1)
 .endr
 
@@ -655,8 +655,8 @@ movdqu	16*j(\KEYSCHED), \T_key		// encrypt with last (14th) key round (12 for GC
 .rept \num_initial_blocks
 	xmmreg	i, %i
 	xmmreg	j, %j
-	pxor	xmmi, xmmj
-	GHASH_MUL xmmj, <\HASH_KEY>, <\T1>, <\T3>, <\T4>, <\T5>, <\T6>	// apply GHASH on \num_initial_blocks blocks
+	pxor	.Lxmmi, .Lxmmj
+	GHASH_MUL .Lxmmj, <\HASH_KEY>, <\T1>, <\T3>, <\T4>, <\T5>, <\T6>	// apply GHASH on \num_initial_blocks blocks
 .set i, (i+1)
 .set j, (j+1)
 .endr
@@ -1201,11 +1201,11 @@ _initial_blocks_done_\@:
 		.endif
 
 		pxor	\T5, \T1
-		aesenclast	\T1, xmmj				// XMM1:XMM8
-		XSTR	xmmj, 16*i(\CYPH_PLAIN_OUT, \DATA_OFFSET)	// Write to the Output buffer
+		aesenclast	\T1, .Lxmmj				// XMM1:XMM8
+		XSTR	.Lxmmj, 16*i(\CYPH_PLAIN_OUT, \DATA_OFFSET)	// Write to the Output buffer
 
 		.ifc \ENC_DEC, DEC
-		movdqa	\T3, xmmj
+		movdqa	\T3, .Lxmmj
 		.endif
 .set i, (i+1)
 .set j, (j+1)

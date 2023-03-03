@@ -289,7 +289,7 @@ SECTION_TEXT
 #endif
 
 .macro xmmreg name, num
-	.set xmm\name, %xmm\num
+	.set .Lxmm\name, %xmm\num
 .endm
 
 // Push a 64 bit register to the stack and generate the needed CFI directives.

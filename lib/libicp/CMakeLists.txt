@@ -46,6 +46,11 @@ add_library(libicp
     "${ICP_MODULE_DIR}/asm-x86_64/modes/aesni-gcm-x86_64.S"
     "${ICP_MODULE_DIR}/asm-x86_64/modes/gcm_pclmulqdq.S"
     "${ICP_MODULE_DIR}/asm-x86_64/modes/ghash-x86_64.S"
+
+    "${ICP_MODULE_DIR}/asm-x86_64/modes/isalc_gcm128_sse.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/modes/isalc_gcm192_sse.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/modes/isalc_gcm256_sse.S"
+
     "${ICP_MODULE_DIR}/asm-x86_64/sha2/sha256_impl.S"
     "${ICP_MODULE_DIR}/asm-x86_64/sha2/sha512_impl.S"
 
