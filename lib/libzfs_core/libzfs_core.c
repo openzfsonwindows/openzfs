@@ -92,19 +92,20 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/zfs_ioctl.h>
+
 #if __FreeBSD__
 #define	BIG_PIPE_SIZE (64 * 1024) /* From sys/pipe.h */
 #endif
+
 #ifdef _WIN32
-#define	BIG_PIPE_SIZE (64 * 1024)
-#endif
 /*
  * 64k aswell
  * https://stackoverflow.com/q/33553837
  * https://docs.microsoft.com/en-au/windows/win32/api/namedpipeapi/
  * nf-namedpipeapi-transactnamedpipe
  */
-
+#define	BIG_PIPE_SIZE (64 * 1024)
+#endif
 
 static int g_fd = -1;
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
