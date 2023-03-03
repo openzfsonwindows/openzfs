@@ -66,7 +66,7 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 	char driveletter[100] = "off";
 	int hasprop = 0;
 
-	// mount 'spec' "tank/joe" on path 'dir' "/home/joe".
+	/* mount 'spec' "tank/joe" on path 'dir' "/home/joe". */
 #ifdef DEBUG
 	fprintf(stderr,
 	    "zmount running, emulating Unix mount: '%s'\r\n",
@@ -89,10 +89,11 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 		    strncmp("-", driveletter, sizeof (driveletter)) == 0)
 			hasprop = 0;
 	}
-
-	// if !hasprop and ispool -> hasprop=1 & driveletter=on
-	// if hasprop = on -> driveletter = ?
-	// if hasprop = off
+	/*
+	 * if !hasprop and ispool -> hasprop=1 & driveletter=on
+	 * if hasprop = on -> driveletter = ?
+	 * if hasprop = off
+	 */
 	if (!hasprop && ispool) {
 		strcpy(driveletter, "on");
 		hasprop = 1;
@@ -107,15 +108,19 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 
 
 	if (zhp->zfs_type != ZFS_TYPE_SNAPSHOT) {
-		// If hasprop is set, use 'driveletter' and ignore mountpoint
-		// path. if !hasprop && rootds same
+		/*
+		 * If hasprop is set, use 'driveletter' and ignore mountpoint
+		 * path. if !hasprop && rootds same
+		 */
 		if (hasprop) {
-			// We just pass "\\??\\X:" to kernel.
+			/* We just pass "\\??\\X:" to kernel. */
 			snprintf(zc.zc_value, sizeof (zc.zc_value), "\\??\\%c:",
 			    tolower(driveletter[0]));
 		} else {
-			// We are to mount with path. Attempt to find parent
-			// driveletter, if any. Otherwise assume c:/
+			/*
+			 * We are to mount with path. Attempt to find parent
+			 * driveletter, if any. Otherwise assume c:/
+			 */
 			driveletter[0] = 'c';
 
 			if (!ispool) {
@@ -163,16 +168,16 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 			    "\\??\\%c:%s", tolower(driveletter[0]), dir);
 		}
 	} else {
-		// snapshot
+		/* snapshot */
 		snprintf(zc.zc_value, sizeof (zc.zc_value), "\\??\\%s",
 		    dir);
 		zc.zc_cleanup_fd = MNT_RDONLY;
 	}
 
-	// Convert Unix slash to Win32 backslash
+	/* Convert Unix slash to Win32 backslash */
 	for (int i = 0; zc.zc_value[i]; i++)
 		if (zc.zc_value[i] == '/')
-			zc.zc_value[i] = '\\'; // "\\??\\c:\\BOOM\\lower"
+			zc.zc_value[i] = '\\'; /* "\\??\\c:\\BOOM\\lower" */
 #ifdef DEBUG
 	fprintf(stderr, "zmount(%s,'%s') hasprop %d ispool %d\n",
 	    zhp->zfs_name, zc.zc_value, hasprop, ispool);
@@ -182,18 +187,21 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 
 
 	if (ret == 0) {
-		// Tell Explorer we have a new drive
-		// Whats the deal here with this header file -
-		// did not like to be included.
-		// #include <Shlobj.h>
+		/*
+		 * Tell Explorer we have a new drive
+		 * Whats the deal here with this header file -
+		 * did not like to be included.
+		 * #include <Shlobj.h>
+		 */
 		struct mnttab entry;
 
-		// Locate this mount
+		/* Locate this mount */
 		if (libzfs_mnttab_find(zhp->zfs_hdl, zhp->zfs_name,
 		    &entry) == 0) {
-
-			// If we get a driveletter, we tell Explorer.
-			// Otherwise not required.
+			/*
+			 * If we get a driveletter, we tell Explorer.
+			 * Otherwise not required.
+			 */
 			if (entry.mnt_mountp[1] == ':') { // "E:\ " -> "E:"
 				entry.mnt_mountp[2] = 0;
 				SHChangeNotify(SHCNE_DRIVEADD, SHCNF_PATH,
@@ -208,55 +216,16 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 
 	fprintf(stderr, "'%s' mounted on %s\r\n", zc.zc_name, zc.zc_value);
 #endif
-
-	// For BOOM, we get back
-	// "\\Device\\Volume{0b1bb601-af0b-32e8-a1d2-54c167af6277}\\"
-	// which is the volume name, and the FS device attached to it is:
-	// "\\\??\\\Volume{7cc383a0-beac-11e7-b56d-02150b22a130}"
-	// and if change that to
-	// "\\\\?\\Volume{7cc383a0-beac-11e7-b56d-02150b22a130}\\";
-	// we can use GetVolumePathNamesForVolumeName()
-	// to get back "\\DosDevices\\E".
-#if 0
-	char out[MAXPATHLEN];
-	DWORD outlen;
-
-	// if (QueryDosDevice(
-	//	"G:",
-	//	out, MAXPATHLEN) > 0)
-	// fprintf(stderr, "'%s' mounted on %s\r\n", zc.zc_name, zc.zc_value);
-	// else
-	//	fprintf(stderr, "QueryDos getlast 0x%x\n", GetLastError());
-
-	outlen = 0;
-	char *name = zc.zc_value;
-
-	// Kernel returns
-	// "\\Device\\Volume{0b1bb601-af0b-32e8-a1d2-54c167af6277}\\"
-	if (strncmp(name, "\\Device\\Volume{", 15) == 0) {
-		strlcpy(&name[0], "\\\\?\\", sizeof (zc.zc_value));
-		strlcpy(&name[4], &name[8], sizeof (zc.zc_value));
-		strlcat(name, "\\", sizeof (zc.zc_value));
-	}
-
-	fprintf(stderr, "Looking up '%s'\r\n", name);
-	ret = GetVolumePathNamesForVolumeName(name, out, MAXPATHLEN, &outlen);
-
-	if (ret != 1)
-		fprintf(stderr,
-		    "GetVolumePathNamesForVolumeName ret %d out %d Err 0x%x\n",
-		    ret, outlen, GetLastError());
-	if (outlen > 0 && ret > 0) {
-		char *NameIdx;
-		fprintf(stderr, "%s: ", zc.zc_name);
-		for (NameIdx = out;
-		    NameIdx[0] != '\0';
-		    NameIdx += strlen(NameIdx) + 1) {
-			fprintf(stderr, "  %s", NameIdx);
-		}
-		fprintf(stderr, "\r\n");
-	}
-#endif
+	/*
+	 * For BOOM, we get back
+	 * "\\Device\\Volume{0b1bb601-af0b-32e8-a1d2-54c167af6277}\\"
+	 * which is the volume name, and the FS device attached to it is:
+	 * "\\\??\\\Volume{7cc383a0-beac-11e7-b56d-02150b22a130}"
+	 * and if change that to
+	 * "\\\\?\\Volume{7cc383a0-beac-11e7-b56d-02150b22a130}\\";
+	 *  we can use GetVolumePathNamesForVolumeName()
+	 * to get back "\\DosDevices\\E".
+	 */
 
 	return (ret);
 }
@@ -267,7 +236,7 @@ do_unmount_impl(zfs_handle_t *zhp, const char *mntpt, int flags)
 {
 	int ret = 0;
 
-	// mount 'spec' "tank/joe" on path 'dir' "/home/joe".
+	/* mount 'spec' "tank/joe" on path 'dir' "/home/joe". */
 	fprintf(stderr, "zunmount(%s,%s) running\r\n",
 	    zhp->zfs_name, mntpt);
 	fflush(stderr);
@@ -279,19 +248,23 @@ do_unmount_impl(zfs_handle_t *zhp, const char *mntpt, int flags)
 	ret = zfs_ioctl(zhp->zfs_hdl, ZFS_IOC_UNMOUNT, &zc);
 
 	if (!ret) {
-		// if mountpoint is a folder, we need to turn it back
-		// from JUNCTION to a real folder
+		/*
+		 * if mountpoint is a folder, we need to turn it back
+		 * from JUNCTION to a real folder
+		 */
 		char mtpt_prop[ZFS_MAXPROPLEN];
 		char driveletter[MAX_PATH];
-		// snapshots dont have mountpoint property
+		/* snapshots dont have mountpoint property */
 		if (zfs_prop_get(zhp, ZFS_PROP_MOUNTPOINT, mtpt_prop,
 		    sizeof (mtpt_prop), NULL, NULL, 0, B_FALSE) == 0) {
 			verify(zfs_prop_get(zhp, ZFS_PROP_DRIVELETTER,
 			    driveletter, sizeof (driveletter), NULL,
 			    NULL, 0, B_FALSE) == 0);
-			// if mountpoint starts with '/' we assume that it is a
-			// path to a directory make sure we didn't mount as
-			// driveletter
+			/*
+			 * if mountpoint starts with '/' we assume that it is a
+			 * path to a directory make sure we didn't mount as
+			 * driveletter
+			 */
 			if (mtpt_prop && mtpt_prop[0] == '/' &&
 			    (strstr(driveletter, "-") != 0 ||
 			    strstr(driveletter, "off") != 0) &&
@@ -465,7 +438,7 @@ zfs_snapshot_unmount(zfs_handle_t *zhp, int flags)
 	char *mountpoint;
 
 	if (!zfs_is_mounted(zhp, NULL)) {
-	//	return (ENOENT);
+		return (ENOENT);
 	}
 
 	mountpoint = zfs_snapshot_mountpoint(zhp);
