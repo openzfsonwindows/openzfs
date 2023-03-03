@@ -750,47 +750,6 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 #endif
 	} // while SetupDiEnumDeviceInterfaces
 
-#if 1
-	/* Now lets iterate the partitions (volumes) */
-	HANDLE vol;
-	vol = FindFirstVolume(rdsk, sizeof (rdsk));
-	while (vol != INVALID_HANDLE_VALUE) {
-
-		// If it ends with a \, we need to eat it.
-		char *r;
-		r = &rdsk[strlen(rdsk) - 1];
-		if (*r == '\\' || *r == '/')
-			*r = 0;
-
-		fprintf(stderr, "Processing volume '%s'\n", rdsk);
-		fflush(stderr);
-
-		slice = zutil_alloc(hdl, sizeof (rdsk_node_t));
-
-		slice->rn_name = zutil_strdup(hdl, rdsk);
-		slice->rn_vdev_guid = 0;
-		slice->rn_lock = lock;
-		slice->rn_avl = *slice_cache;
-		slice->rn_hdl = hdl;
-		slice->rn_labelpaths = B_TRUE;
-		slice->rn_order = IMPORT_ORDER_SCAN_OFFSET + i;
-
-		pthread_mutex_lock(lock);
-		if (avl_find(*slice_cache, slice, &where)) {
-			free(slice->rn_name);
-			free(slice);
-		} else {
-			avl_insert(*slice_cache, slice, where);
-		}
-		pthread_mutex_unlock(lock);
-
-
-		if (!FindNextVolume(vol, rdsk, sizeof (rdsk))) {
-			FindVolumeClose(vol);
-			vol = INVALID_HANDLE_VALUE;
-		}
-	}
-#endif
 	return (0);
 }
 
