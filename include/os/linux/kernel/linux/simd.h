@@ -25,8 +25,6 @@
 #ifndef _LINUX_SIMD_H
 #define	_LINUX_SIMD_H
 
-#define	kfpu_vars
-
 #if defined(__x86)
 #include <linux/simd_x86.h>
 

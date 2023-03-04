@@ -359,7 +359,6 @@ raidz_generate_p_impl(raidz_row_t * const rr)
 	abd_t *pabd = rr->rr_col[CODE_P].rc_abd;
 	size_t size;
 	abd_t *dabd;
-	raidz_math_vars;
 
 	raidz_math_begin();
 
@@ -430,7 +429,6 @@ raidz_generate_pq_impl(raidz_row_t * const rr)
 		rr->rr_col[CODE_P].rc_abd,
 		rr->rr_col[CODE_Q].rc_abd
 	};
-	raidz_math_vars;
 
 	raidz_math_begin();
 
@@ -505,7 +503,6 @@ raidz_generate_pqr_impl(raidz_row_t * const rr)
 		rr->rr_col[CODE_Q].rc_abd,
 		rr->rr_col[CODE_R].rc_abd
 	};
-	raidz_math_vars;
 
 	raidz_math_begin();
 
@@ -597,7 +594,6 @@ raidz_reconstruct_p_impl(raidz_row_t *rr, const int *tgtidx)
 	abd_t *xabd = rr->rr_col[x].rc_abd;
 	size_t size;
 	abd_t *dabd;
-	raidz_math_vars;
 
 	if (xabd == NULL)
 		return (1 << CODE_P);
@@ -676,7 +672,6 @@ raidz_reconstruct_q_impl(raidz_row_t *rr, const int *tgtidx)
 	abd_t *xabd = rr->rr_col[x].rc_abd;
 	const size_t xsize = rr->rr_col[x].rc_size;
 	abd_t *tabds[] = { xabd };
-	raidz_math_vars;
 
 	if (xabd == NULL)
 		return (1 << CODE_Q);
@@ -771,7 +766,6 @@ raidz_reconstruct_r_impl(raidz_row_t *rr, const int *tgtidx)
 	const size_t xsize = rr->rr_col[x].rc_size;
 	abd_t *xabd = rr->rr_col[x].rc_abd;
 	abd_t *tabds[] = { xabd };
-	raidz_math_vars;
 
 	if (xabd == NULL)
 		return (1 << CODE_R);
@@ -919,7 +913,6 @@ raidz_reconstruct_pq_impl(raidz_row_t *rr, const int *tgtidx)
 		rr->rr_col[CODE_P].rc_abd,
 		rr->rr_col[CODE_Q].rc_abd
 	};
-	raidz_math_vars;
 
 	if (xabd == NULL)
 		return ((1 << CODE_P) | (1 << CODE_Q));
@@ -1080,7 +1073,6 @@ raidz_reconstruct_pr_impl(raidz_row_t *rr, const int *tgtidx)
 		rr->rr_col[CODE_P].rc_abd,
 		rr->rr_col[CODE_R].rc_abd
 	};
-	raidz_math_vars;
 
 	if (xabd == NULL)
 		return ((1 << CODE_P) | (1 << CODE_R));
@@ -1248,7 +1240,6 @@ raidz_reconstruct_qr_impl(raidz_row_t *rr, const int *tgtidx)
 		rr->rr_col[CODE_Q].rc_abd,
 		rr->rr_col[CODE_R].rc_abd
 	};
-	raidz_math_vars;
 
 	if (xabd == NULL)
 		return ((1 << CODE_Q) | (1 << CODE_R));
@@ -1440,7 +1431,6 @@ raidz_reconstruct_pqr_impl(raidz_row_t *rr, const int *tgtidx)
 		rr->rr_col[CODE_Q].rc_abd,
 		rr->rr_col[CODE_R].rc_abd
 	};
-	raidz_math_vars;
 
 	if (xabd == NULL)
 		return ((1 << CODE_P) | (1 << CODE_Q) | (1 << CODE_R));

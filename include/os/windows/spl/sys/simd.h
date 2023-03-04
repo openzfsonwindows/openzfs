@@ -107,11 +107,9 @@ extern uint64_t spl_cpuid_leaf7_features(void);
 
 extern uint32_t kfpu_state;
 
-#define	kfpu_vars \
-	NTSTATUS saveStatus = STATUS_INVALID_PARAMETER; \
-	XSTATE_SAVE SaveState;
-
 #define	kfpu_begin() \
+	NTSTATUS saveStatus = STATUS_INVALID_PARAMETER; \
+	XSTATE_SAVE SaveState; \
 	saveStatus = KeSaveExtendedProcessorState(kfpu_state, &SaveState);
 
 #define	kfpu_end() \

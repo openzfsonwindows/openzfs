@@ -52,7 +52,6 @@ extern ASMABI void aes_decrypt_intel(const uint32_t rk[], int Nr,
 static void
 aes_aesni_generate(aes_key_t *key, const uint32_t *keyarr32, int keybits)
 {
-	kfpu_vars;
 	kfpu_begin();
 	key->nr = rijndael_key_setup_enc_intel(&(key->encr_ks.ks32[0]),
 	    keyarr32, keybits);
@@ -79,7 +78,6 @@ static void
 aes_aesni_encrypt(const uint32_t rk[], int Nr, const uint32_t pt[4],
     uint32_t ct[4])
 {
-	kfpu_vars;
 	kfpu_begin();
 	aes_encrypt_intel(rk, Nr, pt, ct);
 	kfpu_end();
@@ -103,7 +101,6 @@ static void
 aes_aesni_decrypt(const uint32_t rk[], int Nr, const uint32_t ct[4],
     uint32_t pt[4])
 {
-	kfpu_vars;
 	kfpu_begin();
 	aes_decrypt_intel(rk, Nr, ct, pt);
 	kfpu_end();

@@ -34,7 +34,7 @@
 #define	TF(E, N) \
 	extern void ASMABI E(uint32_t s[8], const void *, size_t); \
 	static inline void N(uint32_t s[8], const void *d, size_t b) { \
-	kfpu_vars; kfpu_begin(); E(s, d, b); kfpu_end(); \
+	kfpu_begin(); E(s, d, b); kfpu_end(); \
 }
 
 /* some implementation is always okay */

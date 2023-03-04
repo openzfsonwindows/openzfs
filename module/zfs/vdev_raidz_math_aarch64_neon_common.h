@@ -531,7 +531,6 @@ typedef struct v {
 	}								\
 }
 
-#define	raidz_math_vars		kfpu_vars
 #define	raidz_math_begin()	kfpu_begin()
 #define	raidz_math_end()	kfpu_end()
 

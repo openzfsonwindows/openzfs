@@ -95,7 +95,6 @@ fletcher_4_avx512f_native(fletcher_4_ctx_t *ctx, const void *buf, uint64_t size)
 {
 	const uint32_t *ip = buf;
 	const uint32_t *ipend = (uint32_t *)((uint8_t *)ip + size);
-	kfpu_vars;
 
 	kfpu_begin();
 
@@ -122,7 +121,6 @@ fletcher_4_avx512f_byteswap(fletcher_4_ctx_t *ctx, const void *buf,
 	static const uint64_t byteswap_mask = 0xFFULL;
 	const uint32_t *ip = buf;
 	const uint32_t *ipend = (uint32_t *)((uint8_t *)ip + size);
-	kfpu_vars;
 
 	kfpu_begin();
 
@@ -190,7 +188,6 @@ fletcher_4_avx512bw_byteswap(fletcher_4_ctx_t *ctx, const void *buf,
 	};
 	const uint32_t *ip = buf;
 	const uint32_t *ipend = (uint32_t *)((uint8_t *)ip + size);
-	kfpu_vars;
 
 	kfpu_begin();
 

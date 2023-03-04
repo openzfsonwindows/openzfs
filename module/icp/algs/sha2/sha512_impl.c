@@ -34,7 +34,7 @@
 #define	TF(E, N) \
 	extern void ASMABI E(uint64_t s[8], const void *, size_t); \
 	static inline void N(uint64_t s[8], const void *d, size_t b) { \
-	kfpu_vars; kfpu_begin(); E(s, d, b); kfpu_end(); \
+	kfpu_begin(); E(s, d, b); kfpu_end(); \
 }
 
 /* some implementation is always okay */
@@ -47,10 +47,10 @@ static inline boolean_t sha2_is_supported(void)
 
 /* Users of ASMABI requires all calls to be from wrappers */
 extern void ASMABI
-zfs_sha512_transform_x64(uint32_t s[8], const void *, size_t);
+zfs_sha512_transform_x64(uint64_t s[8], const void *, size_t);
 
 static inline void
-tf_sha512_transform_x64(uint32_t s[8], const void *d, size_t b)
+tf_sha512_transform_x64(uint64_t s[8], const void *d, size_t b)
 {
 	zfs_sha512_transform_x64(s, d, b);
 }
