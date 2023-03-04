@@ -740,7 +740,7 @@ static inline boolean_t
 zfs_shani_available(void)
 {
 #if defined(HAVE_SHA_NI)
-	return (!!(spl_cpuid_features() & CPUID_FEATURE_SHA_NI));
+	return (!!(spl_cpuid_leaf7_features() & CPUID_LEAF7_FEATURE_SHA_NI));
 #else
 	return (B_FALSE);
 #endif
