@@ -28,17 +28,20 @@ stack = run("k ; q")
 
 cbuf = run("dt OpenZFS!cbuf ; q")
 # print(cbuf)
-b = re.search(r"'dt OpenZFS!cbuf ; q'[\s\S]+?(0x[0-9A-Za-z]{8}`[0-9A-Za-z]{8})", cbuf)
+b = re.search(r"'dt OpenZFS!cbuf ; q'"
+              "[\s\S]+?(0x[0-9A-Za-z]{8}`[0-9A-Za-z]{8})"
+              , cbuf)
 cbufaddr = b.group()[-19:]
 
 cbuf2 = run(
-    ".writemem C:\cbuf.txt " + cbufaddr + " L100000 ; q",
+    ".writemem C:\\cbuf.txt " + cbufaddr + " L100000 ; q",
 )
 
-with open("C:\stack.txt", "w") as file:
+with open("C:\\stack.txt", "w") as file:
     file.write(analyze)
     file.write("\n")
     file.write(stack)
 
 
-print("Please upload C:\\stack.txt and C:\\cbuf.txt when creating an issue on GitHub")
+print("Please upload C:\\stack.txt and C:\\cbuf.txt "
+      "when creating an issue on GitHub")
