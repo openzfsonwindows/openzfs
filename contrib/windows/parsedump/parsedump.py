@@ -1,5 +1,7 @@
 # https://apps.microsoft.com/store/detail/python-39/9P7QFQMJRFP7
-# https://download.microsoft.com/download/7/9/6/7962e9ce-cd69-4574-978c-1202654bd729/windowssdk/Installers/X64 Debuggers And Tools-x64_en-us.msi
+# https://download.microsoft.com/download/7/9/6/
+# 7962e9ce-cd69-4574-978c-1202654bd729/windowssdk/
+# Installers/X64 Debuggers And Tools-x64_en-us.msi
 
 import re
 import subprocess
