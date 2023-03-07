@@ -91,10 +91,14 @@ typedef struct zfs_fletcher_aarch64_neon {
 	uint64_t v[2] __attribute__((aligned(16)));
 } zfs_fletcher_aarch64_neon_t;
 
-
 typedef union fletcher_4_ctx {
 	zio_cksum_t scalar;
 	zfs_fletcher_superscalar_t superscalar[4];
+
+#if defined(_WIN32) && defined(_KERNEL) /* kfpu_begin_ctx() */
+	NTSTATUS saveStatus;
+	XSTATE_SAVE SaveState;
+#endif
 
 #if defined(HAVE_SSE2) || (defined(HAVE_SSE2) && defined(HAVE_SSSE3))
 	zfs_fletcher_sse_t sse[4];

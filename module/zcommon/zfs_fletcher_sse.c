@@ -53,7 +53,7 @@ ZFS_NO_SANITIZE_UNDEFINED
 static void
 fletcher_4_sse2_init(fletcher_4_ctx_t *ctx)
 {
-	kfpu_begin();
+	kfpu_begin_ctx(ctx);
 	memset(ctx->sse, 0, 4 * sizeof (zfs_fletcher_sse_t));
 }
 
@@ -81,7 +81,7 @@ fletcher_4_sse2_fini(fletcher_4_ctx_t *ctx, zio_cksum_t *zcp)
 	    8 * ctx->sse[2].v[1] + ctx->sse[1].v[1];
 
 	ZIO_SET_CHECKSUM(zcp, A, B, C, D);
-	kfpu_end();
+	kfpu_end_ctx(ctx);
 }
 
 #define	FLETCHER_4_SSE_RESTORE_CTX(ctx)					\
@@ -105,6 +105,8 @@ fletcher_4_sse2_native(fletcher_4_ctx_t *ctx, const void *buf, uint64_t size)
 {
 	const uint64_t *ip = buf;
 	const uint64_t *ipend = (uint64_t *)((uint8_t *)ip + size);
+
+	kfpu_begin_ctx(ctx);
 
 	FLETCHER_4_SSE_RESTORE_CTX(ctx);
 
@@ -133,6 +135,8 @@ fletcher_4_sse2_byteswap(fletcher_4_ctx_t *ctx, const void *buf, uint64_t size)
 {
 	const uint32_t *ip = buf;
 	const uint32_t *ipend = (uint32_t *)((uint8_t *)ip + size);
+
+	kfpu_begin_ctx(ctx);
 
 	FLETCHER_4_SSE_RESTORE_CTX(ctx);
 
@@ -179,6 +183,8 @@ fletcher_4_ssse3_byteswap(fletcher_4_ctx_t *ctx, const void *buf, uint64_t size)
 
 	const uint64_t *ip = buf;
 	const uint64_t *ipend = (uint64_t *)((uint8_t *)ip + size);
+
+	kfpu_begin_ctx(ctx);
 
 	FLETCHER_4_SSE_RESTORE_CTX(ctx);
 

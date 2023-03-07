@@ -60,6 +60,8 @@ extern unsigned long getauxval(unsigned long type);
 #define	kfpu_end()		do {} while (0)
 #define	kfpu_init()		0
 #define	kfpu_fini()		((void) 0)
+#define	kfpu_begin_ctx(CTX) kfpu_begin()
+#define	kfpu_end_ctx(CTX) kfpu_end()
 
 /*
  * CPUID feature tests for user-space.

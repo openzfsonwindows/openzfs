@@ -45,10 +45,14 @@
 		fpu_kern_enter(curthread, NULL, FPU_KERN_NOCTX);\
 }
 
+#define	kfpu_begin_ctx(CTX) kfpu_begin()
+
 #define	kfpu_end()	{			\
 	if (__predict_false(curpcb->pcb_flags & PCB_FPUNOSAVE))	\
 		fpu_kern_leave(curthread, NULL);	\
 }
+
+#define	kfpu_end_ctx(CTX) kfpu_end()
 
 /*
  * Check if OS supports AVX and AVX2 by checking XCR0

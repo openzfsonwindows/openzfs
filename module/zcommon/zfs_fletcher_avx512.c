@@ -39,7 +39,7 @@ ZFS_NO_SANITIZE_UNDEFINED
 static void
 fletcher_4_avx512f_init(fletcher_4_ctx_t *ctx)
 {
-	kfpu_begin();
+	kfpu_begin_ctx(ctx);
 	memset(ctx->avx512, 0, 4 * sizeof (zfs_fletcher_avx512_t));
 }
 
@@ -73,7 +73,7 @@ fletcher_4_avx512f_fini(fletcher_4_ctx_t *ctx, zio_cksum_t *zcp)
 	}
 
 	ZIO_SET_CHECKSUM(zcp, A, B, C, D);
-	kfpu_end();
+	kfpu_end_ctx(ctx);
 }
 
 #define	FLETCHER_4_AVX512_RESTORE_CTX(ctx)				\
@@ -98,6 +98,8 @@ fletcher_4_avx512f_native(fletcher_4_ctx_t *ctx, const void *buf, uint64_t size)
 	const uint32_t *ip = buf;
 	const uint32_t *ipend = (uint32_t *)((uint8_t *)ip + size);
 
+	kfpu_begin_ctx(ctx);
+
 	FLETCHER_4_AVX512_RESTORE_CTX(ctx);
 
 	do {
@@ -119,6 +121,8 @@ fletcher_4_avx512f_byteswap(fletcher_4_ctx_t *ctx, const void *buf,
 	static const uint64_t byteswap_mask = 0xFFULL;
 	const uint32_t *ip = buf;
 	const uint32_t *ipend = (uint32_t *)((uint8_t *)ip + size);
+
+	kfpu_begin_ctx(ctx);
 
 	FLETCHER_4_AVX512_RESTORE_CTX(ctx);
 
@@ -182,6 +186,8 @@ fletcher_4_avx512bw_byteswap(fletcher_4_ctx_t *ctx, const void *buf,
 	};
 	const uint32_t *ip = buf;
 	const uint32_t *ipend = (uint32_t *)((uint8_t *)ip + size);
+
+	kfpu_begin_ctx(ctx);
 
 	FLETCHER_4_AVX512_RESTORE_CTX(ctx);
 
