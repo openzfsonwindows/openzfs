@@ -282,7 +282,8 @@ zfs_log_session_create(int argc, char **argv)
 				return (ret);
 		}
 
-		sprintf_s(command, "logman create trace %s -p {%s} %s %s"
+		sprintf_s(command, MAX_PATH_LEN,
+			"logman create trace %s -p {%s} %s %s"
 			" -nb 1 1 -bs 1 -mode Circular -max %d -o \"%s\" ",
 			LOGGER_SESSION, OPEN_ZFS_GUID, flags.c_str(),
 			levels.c_str(), size_in_mb, etl_file.c_str());
@@ -303,14 +304,14 @@ zfs_log_session_create(int argc, char **argv)
 	return (0);
 }
 
-int perf_counters(char* inf_path, int type) {
+int perf_counters(char *inf_path, int type) {
 	int error = 0;
 	fs::path path = std::string(inf_path);
 	std::string final_path;
 
 	char driver_path[MAX_PATH_LEN] = { 0 };
 	strncpy_s(driver_path, inf_path, MAX_PATH_LEN);
-	char* slash = strrchr(driver_path, '\\');
+	char *slash = strrchr(driver_path, '\\');
 	*slash = '\0';
 
 	if (path.is_absolute())
@@ -336,12 +337,12 @@ int perf_counters(char* inf_path, int type) {
 	return (system(command));
 }
 
-int perf_counters_install(char* inf_path) {
+int perf_counters_install(char *inf_path) {
 	return (perf_counters(inf_path, MAN_INSTALL));
 }
 
 
-int perf_counters_uninstall(char* inf_path) {
+int perf_counters_uninstall(char *inf_path) {
 	return (perf_counters(inf_path, MAN_UNINSTALL));
 }
 

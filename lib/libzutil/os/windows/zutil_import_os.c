@@ -576,7 +576,7 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 			break;
 		case PARTITION_STYLE_GPT:
 			fprintf(stderr,
-			    "    gpt %d: type %x off 0x%llx len 0x%llx\n", i,
+			    "    gpt %d: type %llx off 0x%llx len 0x%llx\n", i,
 			    partitions->PartitionEntry[i].Gpt.PartitionType,
 			    partitions->PartitionEntry[i].
 			    StartingOffset.QuadPart,
