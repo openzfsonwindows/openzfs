@@ -8814,8 +8814,8 @@ main(int argc, char **argv)
 	 * ZDB does not typically re-read blocks; therefore limit the ARC
 	 * to 256 MB, which can be used entirely for metadata.
 	 */
-	zfs_arc_min = zfs_arc_meta_min = 2ULL << SPA_MAXBLOCKSHIFT;
-	zfs_arc_max = zfs_arc_meta_limit = 256 * 1024 * 1024;
+	zfs_arc_min = 2ULL << SPA_MAXBLOCKSHIFT;
+	zfs_arc_max = 256 * 1024 * 1024;
 #endif
 
 	/*
