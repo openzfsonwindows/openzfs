@@ -29,8 +29,8 @@ stack = run("k ; q")
 cbuf = run("dt OpenZFS!cbuf ; q")
 # print(cbuf)
 b = re.search(r"'dt OpenZFS!cbuf ; q'"
-              "[\s\S]+?(0x[0-9A-Za-z]{8}`[0-9A-Za-z]{8})"
-              , cbuf)
+              "[\\s\\S]+?(0x[0-9A-Za-z]{8}`[0-9A-Za-z]{8})",
+              cbuf)
 cbufaddr = b.group()[-19:]
 
 cbuf2 = run(
