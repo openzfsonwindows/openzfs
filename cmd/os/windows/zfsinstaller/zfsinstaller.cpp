@@ -282,7 +282,7 @@ zfs_log_session_create(int argc, char **argv)
 				return (ret);
 		}
 
-		sprintf_s(command, MAX_PATH_LEN,
+		snprintf(command, MAX_PATH_LEN,
 			"logman create trace %s -p {%s} %s %s"
 			" -nb 1 1 -bs 1 -mode Circular -max %d -o \"%s\" ",
 			LOGGER_SESSION, OPEN_ZFS_GUID, flags.c_str(),
