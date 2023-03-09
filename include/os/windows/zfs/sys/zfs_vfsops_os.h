@@ -20,6 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright(c) 2015 Jorgen Lundman <lundman@lundman.net>
  * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  */
 

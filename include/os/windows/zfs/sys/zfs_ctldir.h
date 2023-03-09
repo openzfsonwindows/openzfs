@@ -26,6 +26,7 @@
  * Rewritten for Linux by:
  *   Rohan Puri <rohan.puri15@gmail.com>
  *   Brian Behlendorf <behlendorf1@llnl.gov>
+ * Copyright(c) 2022 Jorgen Lundman <lundman@lundman.net>
  */
 
 #ifndef	_ZFS_CTLDIR_H

@@ -18,6 +18,9 @@
  *
  * CDDL HEADER END
  */
+
+/* Copyright (c) 2015 Jorgen Lundman <lundman@lundman.net> */
+
 #ifndef _SYS_ZVOL_OS_h
 #define	_SYS_ZVOL_OS_h
 

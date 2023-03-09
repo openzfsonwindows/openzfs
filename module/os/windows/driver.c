@@ -18,6 +18,11 @@
  *
  * CDDL HEADER END
  */
+
+/*
+ * Copyright (c) 2017 Jorgen Lundman <lundman@lundman.net>
+ */
+
 // Get "_daylight: has bad storage class" in time.h
 #define	_INC_TIME
 

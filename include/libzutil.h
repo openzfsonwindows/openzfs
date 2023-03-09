@@ -106,7 +106,7 @@ _LIBZUTIL_H int zfs_device_get_physical(struct udev_device *, char *, size_t);
 _LIBZUTIL_H void update_vdev_config_dev_strs(nvlist_t *);
 
 /*
- * Default device paths: Trailing slash included.
+ * Default device paths
  */
 #ifdef _WIN32
 #define	DISK_ROOT	"\\\\?\\"

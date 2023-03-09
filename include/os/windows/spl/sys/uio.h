@@ -26,7 +26,6 @@
  *
  * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2015, Joyent, Inc.  All rights reserved.
- * Copyright 2017 Jorgen Lundman <lundman@lundman.net>
  */
 
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/

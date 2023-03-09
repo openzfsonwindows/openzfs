@@ -39,14 +39,6 @@ typedef struct ucred cred_t;
 #define	KUID_TO_SUID(x)	(x)
 #define	KGID_TO_SGID(x)	(x)
 
-// Older OSX API
-#if !(MAC_OS_X_VERSION_MIN_REQUIRED >= 1070)
-#define	kauth_cred_getruid(x) (x)->cr_ruid
-#define	kauth_cred_getrgid(x) (x)->cr_rgid
-#define	kauth_cred_getsvuid(x) (x)->cr_svuid
-#define	kauth_cred_getsvgid(x) (x)->cr_svgid
-#endif
-
 extern void crhold(cred_t *cr);
 extern void crfree(cred_t *cr);
 extern uid_t crgetuid(const cred_t *cr);

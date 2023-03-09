@@ -19,8 +19,6 @@
  *
  * CDDL HEADER END
  *
- * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
- *
  */
 
 #ifndef _SYS_VDEV_FILE_H
@@ -32,22 +30,13 @@
 extern "C" {
 #endif
 
-#ifdef _WIN32
 typedef struct vdev_file {
 	zfs_file_t	*vf_file;
+#ifdef _WIN32
 	uint64_t	vdev_win_offset; /* soft partition start */
 	uint64_t	vdev_win_length; /* soft partition length */
-} vdev_file_t;
-#else
-/*
- * Grabbed from https://github.com/openzfs/zfs/blob/
- * 1d3ba0bf01020f5459b1c28db3979129088924c0/include/sys/vdev_file.h#L36
- */
-
-typedef struct vdev_file {
-	zfs_file_t	*vf_file;
-} vdev_file_t;
 #endif
+} vdev_file_t;
 
 extern void vdev_file_init(void);
 extern void vdev_file_fini(void);

@@ -18,6 +18,11 @@
  *
  * CDDL HEADER END
  */
+
+/*
+ * Copyright (c) 2017 Jorgen Lundman <lundman@lundman.net>
+ */
+
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/zfs_ioctl.h>
@@ -90,7 +95,7 @@ zcmd_ioctl_compat(int fd, int request, zfs_cmd_t *zc, const int cflag)
 }
 
 /*
- * This is the macOS version of ioctl(). Because the XNU kernel
+ * This is the Windows version of ioctl(). Because the XNU kernel
  * handles copyin() and copyout(), we must return success from the
  * ioctl() handler (or it will not copyout() for userland),
  * and instead embed the error return value in the zc structure.

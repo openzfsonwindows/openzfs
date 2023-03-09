@@ -20,6 +20,10 @@
  * CDDL HEADER END
  */
 
+/*
+ * Copyright (c) 2017 Jorgen Lundman <lundman@lundman.net>
+ */
+
 #define	_WINDOWS_MEAN_AND_LEAN
 #include <Windows.h>
 

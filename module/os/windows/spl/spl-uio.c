@@ -25,13 +25,6 @@
  *
  */
 
-/*
- * Provides an implementation of the union of Illumos and OSX UIO struct
- * and API calls. That is to say the OsX API calls are kept, to keep
- * the UIO structure as opaque, but the internals are more like Illumos
- * to avoid the OsX 32bit vs 64bit logic.
- */
-
 #include <sys/uio.h>
 #include <sys/kmem.h>
 

@@ -21,6 +21,7 @@
 /*
  * Copyright 2006 Sun Microsystems, Inc. All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2013, 2020 Jorgen Lundman <lundman@lundman.net>
  * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
  */
 

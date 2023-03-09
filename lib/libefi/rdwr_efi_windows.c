@@ -23,6 +23,8 @@
  * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
+/* Copyright(c) 2015 Jorgen Lundman <lundman@lundman.net> */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -40,14 +42,6 @@
 #include <umem.h>
 #if defined(__linux__)
 #include <linux/fs.h>
-#endif
-
-#ifdef __APPLE__
-#include <sys/disk.h>
-#include <sys/fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
-int osx_device_isvirtual(char *pathbuf);
 #endif
 
 static struct uuid_to_ptag {

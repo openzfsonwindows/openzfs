@@ -41,6 +41,7 @@
 #include <os/windows/zfs/sys/zfs_ioctl_compat.h>
 #include <sys/mman.h>
 
+/* Magic instruction to compiler to add library */
 #pragma comment(lib, "ws2_32.lib")
 
 void
@@ -1386,7 +1387,7 @@ wosix_ftruncate(int fd, off_t length)
 const char *
 check_file_mode(const char *mode)
 {
-	/* Unknown mode cauises abort() */
+	/* Unknown mode causes abort() */
 	if (strcmp(mode, "re") == 0)
 		return ("rb");
 	if (strcmp(mode, "r") == 0)

@@ -9,7 +9,7 @@ include_directories(PRIVATE "${CMAKE_SOURCE_DIR}/include/os/windows/zfs")
 set(MODULE_DIR "../../module")
 
 add_library(libzpool
-	"${MODULE_DIR}/lua/lapi.c"
+    "${MODULE_DIR}/lua/lapi.c"
     "${MODULE_DIR}/lua/lauxlib.c"
     "${MODULE_DIR}/lua/lbaselib.c"
     "${MODULE_DIR}/lua/lcode.c"
@@ -34,7 +34,7 @@ add_library(libzpool
     "${MODULE_DIR}/lua/lvm.c"
     "${MODULE_DIR}/lua/lzio.c"
     "${MODULE_DIR}/zcommon/cityhash.c"
-	"${MODULE_DIR}/zcommon/zfeature_common.c"
+    "${MODULE_DIR}/zcommon/zfeature_common.c"
     "${MODULE_DIR}/zcommon/zfs_comutil.c"
     "${MODULE_DIR}/zcommon/zfs_deleg.c"
     "${MODULE_DIR}/zcommon/zfs_fletcher.c"

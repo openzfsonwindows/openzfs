@@ -19,8 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2013 Jorgen Lundan <lundman@lundman.net>.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright 2013 Jorgen Lundan <lundman@lundman.net>.
  */
 
 #ifndef	_SYS_ZFS_IOCTL_COMPAT_H
@@ -72,7 +71,7 @@ typedef struct zfs_iocparm {
 
 	/*
 	 * ioctl() return codes can not be used to communicate -
-	 * as XNU will skip copyout() if there is an error, so it
+	 * as Windows will skip copyout() if there is an error, so it
 	 * is passed along in this wrapping structure.
 	 */
 	int			zfs_ioc_error;	/* ioctl error value */
@@ -121,7 +120,7 @@ typedef struct zfs_cmd_1_9_4
 	uint64_t	zc_fromobj;
 	uint64_t	zc_createtxg;
 	zfs_stat_t	zc_stat;
-    int		zc_ioc_error; /* ioctl error value */
+	int		zc_ioc_error; /* ioctl error value */
 	uint64_t	zc_dev;	/* OSX doesn't have ddi_driver_major */
 } zfs_cmd_1_9_4_t;
 

@@ -19,6 +19,10 @@
  * CDDL HEADER END
  */
 
+/*
+ * Copyright(c) 2019 Jorgen Lundman <lundman@lundman.net>
+ */
+
 #ifndef _SPL_SYSTM_H
 #define	_SPL_SYSTM_H
 

@@ -20,6 +20,7 @@
  */
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, Jorgen Lundman <lundman@lundman.net>
  */
 
 #ifndef	_SYS_FS_ZFS_VNOPS_OS_H
@@ -101,7 +102,7 @@ extern int zfs_readlink(vnode_t *vp, zfs_uio_t *uio, cred_t *cr);
 
 extern void   zfs_inactive(vnode_t *vp);
 
-/* zfs_vops_osx.c calls */
+/* zfs_vops_windows.c calls */
 extern int zfs_znode_getvnode(znode_t *zp, znode_t *dzp, zfsvfs_t *zfsvfs);
 
 extern void   getnewvnode_reserve(int num);
@@ -112,7 +113,7 @@ extern int    zfs_znode_asyncgetvnode(znode_t *zp, zfsvfs_t *zfsvfs);
 extern void   zfs_znode_asyncput(znode_t *zp);
 extern int    zfs_znode_asyncwait(znode_t *zp);
 
-/* zfs_vnops_osx_lib calls */
+/* zfs_vnops_windows_lib calls */
 extern int    zfs_ioflags(int ap_ioflag);
 extern int    zfs_getattr_znode_unlocked(struct vnode *vp, vattr_t *vap);
 extern int    ace_trivial_common(void *acep, int aclcnt,
@@ -133,13 +134,7 @@ extern int zfs_obtain_xattr(znode_t *, const char *, mode_t, cred_t *,
 
 
 /*
- * OSX ACL Helper funcions
- *
- * OSX uses 'guids' for the 'who' part of ACLs, and uses a 'well known'
- * binary sequence to signify the special rules of "owner", "group" and
- * "everybody". We translate between this "well-known" guid and ZFS'
- * flags ACE_OWNER, ACE_GROUP and ACE_EVERYBODY.
- *
+ * Windows ACL Helper funcions
  */
 #define	KAUTH_WKG_NOT	0	/* not a well-known GUID */
 #define	KAUTH_WKG_OWNER	1

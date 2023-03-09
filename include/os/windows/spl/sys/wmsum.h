@@ -20,6 +20,8 @@
  * infrequently read statistic counters, not requiring exact precision.
  *
  * Find a Windows variant of whatever this is
+ *
+ * Copyright (c) 2017 Jorgen Lundman <lundman@lundman.net>
  */
 
 #ifndef	_SYS_WMSUM_H

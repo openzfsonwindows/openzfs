@@ -19,6 +19,9 @@
  *
  * CDDL HEADER END
  */
+
+/* Copyright(c) 2015 Jorgen Lundman <lundman@lundman.net> */
+
 #ifndef _SPL_ZFS_CONTEXT_OS_H
 #define	_SPL_ZFS_CONTEXT_OS_H
 
@@ -158,10 +161,10 @@ hlist_del(struct hlist_node *n)
 #define	INIT_HLIST_HEAD(head) (head)->first = NULL
 
 /* BEGIN CSTYLED */
-#define	INIT_HLIST_NODE(node)											\
-	do {																\
-		(node)->next = NULL;											\
-		(node)->pprev = NULL;											\
+#define	INIT_HLIST_NODE(node)	\
+	do {	\
+		(node)->next = NULL;	\
+		(node)->pprev = NULL;	\
 	} while (0)
 
 /* END CSTYLED */

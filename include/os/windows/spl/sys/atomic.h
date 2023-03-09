@@ -21,7 +21,7 @@
 
 /*
  *
- * OSX Atomic functions using GCC builtins.
+ * Windows Atomic functions using GCC builtins.
  *
  * Jorgen Lundman <lundman@lundman.net>
  * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
@@ -36,13 +36,6 @@
 #ifdef	__cplusplus
 extern "C" {
 #endif
-
-
-/*
- *
- * GCC atomic versions. These are preferrable once we sort out compatibility
- * issues with GCC versions?
- */
 
 /* The _nv variants return the NewValue */
 

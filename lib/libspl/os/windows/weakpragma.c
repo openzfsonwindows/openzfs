@@ -19,6 +19,10 @@
  * CDDL HEADER END
  */
 
+/*
+ * Copyright (c) 2017 Jorgen Lundman <lundman@lundman.net>
+ */
+
 #include <sys/types.h>
 #include <sys/dmu.h>
 #include <sys/dbuf.h>

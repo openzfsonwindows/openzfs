@@ -23,6 +23,7 @@
  * Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
  * Copyright 2006 Ricardo Correia.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright(c) 2017 Jorgen Lundman <lundman@lundman.net>
  */
 
 /*	Copyright (c) 1988 AT&T	*/

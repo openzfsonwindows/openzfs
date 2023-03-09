@@ -75,7 +75,7 @@ int cv_timedwait_hires(kcondvar_t *cvp, struct kmutex *mp,
 
 /*
  * Linux provides a cv_wait_io so the schedular will know why we block.
- * find OSX equivalent?
+ * find Windows equivalent?
  */
 #define	cv_wait_io(cvp, mp)                     \
 	(void) spl_cv_wait((cvp), (mp), PRIBIO, #cvp)

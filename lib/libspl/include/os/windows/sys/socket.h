@@ -1,8 +1,8 @@
 /*
  * CDDL HEADER START
  *
- *   The contents of this file are subject to the terms of the
- * C  ommon Development and Distribution License, Version 1.0 only
+ * The contents of this file are subject to the terms of the
+ * Common Development and Distribution License, Version 1.0 only
  * (t  he "License").  You may not use this file except in compliance
  * wit h the License.
  *
