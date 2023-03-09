@@ -59,7 +59,8 @@ static const int TRACE_NOISY = 8;
 #define	WPP_CHECK_INIT
 #endif
 
-
+#ifdef _KERNEL
 void ZFSWppInit(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pRegistryPath);
 
 void ZFSWppCleanup(PDRIVER_OBJECT pDriverObject);
+#endif

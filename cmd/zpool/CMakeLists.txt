@@ -3,6 +3,10 @@ use_clang()
 
 include_directories(PRIVATE "${CMAKE_SOURCE_DIR}/cmd/zpool")
 
+file(GLOB CSOURCES CONFIGURE_DEPENDS "*.c")
+set(TMH_FILE_LIST "")
+tmh_generation_for_usermode("${CSOURCES}" TMH_FILE_LIST)
+
 um_add_executable(zpool
 	zpool_iter.c
 	zpool_main.c
@@ -11,6 +15,7 @@ um_add_executable(zpool
 	zpool_util.h
 	os/windows/zpool_vdev_os.c
 	os/windows/resource.rc
+	${TMH_FILE_LIST}
 )
 target_link_libraries(zpool PRIVATE
 	libnvpair

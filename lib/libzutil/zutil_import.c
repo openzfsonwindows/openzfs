@@ -68,6 +68,7 @@
 #include <libnvpair.h>
 
 #include "zutil_import.h"
+#include "os/windows/Trace.h"
 
 /*PRINTFLIKE2*/
 static void
@@ -466,6 +467,7 @@ static nvlist_t *
 get_configs(libpc_handle_t *hdl, pool_list_t *pl, boolean_t active_ok,
     nvlist_t *policy)
 {
+	TraceEvent(TRACE_INFO,"get_configs function started");
 	pool_entry_t *pe;
 	vdev_entry_t *ve;
 	config_entry_t *ce;
@@ -501,6 +503,7 @@ get_configs(libpc_handle_t *hdl, pool_list_t *pl, boolean_t active_ok,
 		 * from the first one we find, and then go through the rest and
 		 * add them as necessary to the 'vdevs' member of the config.
 		 */
+		TraceEvent(TRACE_INFO,"Going to iterate the Vdevs");
 		for (ve = pe->pe_vdevs; ve != NULL; ve = ve->ve_next) {
 
 			/*
@@ -1411,13 +1414,16 @@ zpool_find_import_impl(libpc_handle_t *hdl, importargs_t *iarg,
 	 * validating labels, a large number of threads can be used due to
 	 * minimal contention.
 	 */
+	TraceEvent(TRACE_INFO,"num of entries in slice_cache:%d.", &cache->avl_numnodes);
 	t = tpool_create(1, 2 * sysconf(_SC_NPROCESSORS_ONLN), 0, NULL);
 	for (slice = avl_first(cache); slice;
 	    (slice = avl_walk(cache, slice, AVL_AFTER)))
 		(void) tpool_dispatch(t, zpool_open_func, slice);
-
+	TraceEvent(TRACE_INFO,"Main thread going to wait for tpool thread to complete all zpool_open_func");
 	tpool_wait(t);
+	TraceEvent(TRACE_INFO,"Main thread going to wait for tpool destroy() to complete");
 	tpool_destroy(t);
+	TraceEvent(TRACE_INFO,"Main thread.All tpool zpool_open_func operation completed");
 
 	/*
 	 * Process the cache, filtering out any entries which are not
@@ -1507,7 +1513,7 @@ zpool_find_import_impl(libpc_handle_t *hdl, importargs_t *iarg,
 		free(ne->ne_name);
 		free(ne);
 	}
-
+	TraceEvent(TRACE_INFO, "zpool_find_import_impl function returns");
 	return (ret);
 }
 
@@ -1770,6 +1776,7 @@ nvlist_t *
 zpool_search_import(void *hdl, importargs_t *import,
     const pool_config_ops_t *pco)
 {
+	TraceEvent(TRACE_INFO,"zpool_search_import function called");
 	libpc_handle_t handle = { 0 };
 	nvlist_t *pools = NULL;
 

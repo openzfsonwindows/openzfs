@@ -115,7 +115,27 @@ function(tmh_generation CSOURCES TMH_FILE_LIST)
 		-func:${DPRINT} -gen:{km-default.tpl}*.tmh ${C_FILE}
 		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" DEPENDS ${C_FILE})
 
-		message(STATUS "FILES_IN ======: ${CMAKE_SOURCE_DIR}/out/build/${OUTPUT_FILE_WE}.tmh")
+		message(STATUS "Kernel Mode FILES_IN ======: ${CMAKE_SOURCE_DIR}/out/build/${OUTPUT_FILE_WE}.tmh")
+	endforeach()
+	set(TMH_FILE_LIST ${LOCAL_TMH_FILE_LIST} PARENT_SCOPE)
+endfunction()
+
+function(tmh_generation_for_usermode CSOURCES TMH_FILE_LIST)
+	foreach (C_FILE ${CSOURCES})
+		get_filename_component(OUTPUT_FILE_WE ${C_FILE} NAME_WE)
+		get_filename_component(WORK_DIRECTORY ${C_FILE} DIRECTORY)
+		set(TMH_FILE  ${CMAKE_SOURCE_DIR}/out/build/${OUTPUT_FILE_WE}.tmh)
+		set_source_files_properties(${C_FILE} PROPERTIES COMPILE_FLAGS -DWPPFILE=${TMH_FILE})
+		set(LOCAL_TMH_FILE_LIST ${LOCAL_TMH_FILE_LIST} ${TMH_FILE})
+
+		add_custom_command(OUTPUT ${TMH_FILE}
+		COMMAND         "${WPP_DIR}/${WDK_PLATFORM}/tracewpp.exe"
+		-scan:${SCAN} /D${WPP_MACRO}
+		-cfgdir:${CFGDIR} -I${CMAKE_CURRENT_BINARY_DIR} -odir:"${CMAKE_SOURCE_DIR}/out/build" -p:usermode -func:${TRACE}
+		-func:${DPRINT} ${C_FILE}
+		WORKING_DIRECTORY "${WORK_DIRECTORY}" DEPENDS ${C_FILE})
+
+		message(STATUS "User Mode FILES_IN ======: ${CMAKE_SOURCE_DIR}/out/build/${OUTPUT_FILE_WE}.tmh")
 	endforeach()
 	set(TMH_FILE_LIST ${LOCAL_TMH_FILE_LIST} PARENT_SCOPE)
 endfunction()

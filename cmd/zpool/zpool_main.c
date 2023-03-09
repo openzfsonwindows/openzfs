@@ -78,6 +78,7 @@
 #include "zfeature_common.h"
 
 #include "statcommon.h"
+#include "os/windows/Trace.h"
 
 libzfs_handle_t *g_zfs;
 
@@ -10628,6 +10629,7 @@ zpool_do_load_compat(const char *compat, boolean_t *list)
 int
 main(int argc, char **argv)
 {
+	WPP_INIT_TRACING(L"zpool");
 	int ret = 0;
 	int i = 0;
 	char *cmdname;
@@ -10730,6 +10732,6 @@ main(int argc, char **argv)
 		(void) printf("dumping core by request\n");
 		abort();
 	}
-
+	WPP_CLEANUP();
 	return (ret);
 }

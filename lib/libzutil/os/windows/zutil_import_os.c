@@ -70,6 +70,7 @@
 #include <sys/efi_partition.h>
 
 #include "zutil_import.h"
+#include "os/windows/Trace.h"
 
 #ifdef HAVE_LIBUDEV
 #include <libudev.h>
@@ -289,6 +290,8 @@ static int
 zpool_read_label_win(HANDLE h, off_t offset, uint64_t len,
     nvlist_t **config, int *num_labels)
 {
+	DWORD threadID = GetCurrentThreadId();
+	TraceEvent(TRACE_INFO," zpool_read_label_win function started ThreadID:%lu", threadID);
 	int l, count = 0;
 	vdev_label_t *label;
 	nvlist_t *expected_config = NULL;
@@ -301,8 +304,10 @@ zpool_read_label_win(HANDLE h, off_t offset, uint64_t len,
 	drivesize = len;
 	size = P2ALIGN_TYPED(drivesize, sizeof (vdev_label_t), uint64_t);
 
-	if ((label = malloc(sizeof (vdev_label_t))) == NULL)
-		return (-1);
+	if ((label = malloc(sizeof(vdev_label_t))) == NULL) {
+	    TraceEvent(TRACE_INFO,"zpool_read_label_win func return.malloc() failed ThreadID:%lu", threadID);
+	    return (-1);
+	}
 
 	for (l = 0; l < VDEV_LABELS; l++) {
 		uint64_t state, guid, txg;
@@ -351,7 +356,7 @@ zpool_read_label_win(HANDLE h, off_t offset, uint64_t len,
 
 	free(label);
 	*config = expected_config;
-
+	TraceEvent(TRACE_INFO,"zpool_read_label_win func return.ThreadID:%lu", threadID);
 	return (0);
 }
 
@@ -383,6 +388,8 @@ zpool_open_func(void *arg)
 	uint64_t len = 0;
 	uint64_t drive_len;
 
+	DWORD threadID = GetCurrentThreadId();
+	TraceEvent(TRACE_INFO, "zpool_open_func_win started ThreadID:%lu", threadID);
 	// Check if this filename is encoded with "#start#len#name"
 	if (rn->rn_name[0] == '#') {
 		char *end = NULL;
@@ -391,6 +398,8 @@ zpool_open_func(void *arg)
 		while (end && *end == '#') end++;
 		len = strtoull(end, &end, 10);
 		while (end && *end == '#') end++;
+
+		TraceEvent(TRACE_INFO,"calling createfile for rn->rn_name:%s ThreadID:%lu", rn->rn_name, threadID);
 		fd = CreateFile(end,
 		    GENERIC_READ,
 		    FILE_SHARE_READ /* | FILE_SHARE_WRITE */,
@@ -400,12 +409,19 @@ zpool_open_func(void *arg)
 		    NULL);
 		if (fd == INVALID_HANDLE_VALUE) {
 			int error = GetLastError();
+			TraceEvent(TRACE_INFO,"zpool_open_func func return.CreateFile failed with error %lu.rn->rn_name:%s ThreadID:%lu", error, rn->rn_name, threadID);
 			return;
 		}
 		LARGE_INTEGER place;
 		place.QuadPart = offset;
 		// If it fails, we cant read label
-		SetFilePointerEx(fd, place, NULL, FILE_BEGIN);
+		TraceEvent(TRACE_INFO,"Call SetFilePointerEx: offset:%lld,rn->rn_name:%s ThreadID:%lu", place.QuadPart, rn->rn_name, threadID);
+		BOOL retval = SetFilePointerEx(fd, place, NULL, FILE_BEGIN);
+
+		if (retval)
+		    TraceEvent(TRACE_INFO,"SetFilePointerEx:success. rn->rn_name:%s ThreadID:%lu", rn->rn_name, threadID);
+		else
+		    TraceEvent(TRACE_INFO,"SetFilePointerEx:failed with error.%lu rn->rn_name:%s ThreadID:%lu", GetLastError(), rn->rn_name, threadID);
 		drive_len = len;
 
 	} else {
@@ -414,6 +430,7 @@ zpool_open_func(void *arg)
 		// snprintf(fullpath, sizeof (fullpath), "%s%s",
 		// 	"", rn->rn_name);
 		zfs_backslashes(rn->rn_name);
+		TraceEvent(TRACE_INFO,"calling createfile() rn->rn_name :%s ThreadID:%lu", rn->rn_name, threadID);
 		fd = CreateFile(rn->rn_name,
 		    GENERIC_READ,
 		    FILE_SHARE_READ /* | FILE_SHARE_WRITE */,
@@ -423,18 +440,23 @@ zpool_open_func(void *arg)
 		    NULL);
 		if (fd == INVALID_HANDLE_VALUE) {
 			int error = GetLastError();
+			TraceEvent(TRACE_INFO,"func return.CreateFile() failed with error %lu.FullPath:%s ThreadID:%lu", error, rn->rn_name, threadID);
 			return;
 		}
 
+		TraceEvent(TRACE_INFO,"Get GetFileDriveSize().FullPath:%s ThreadID:%lu", rn->rn_name, threadID);
 		drive_len = GetFileDriveSize(fd);
 	}
 
+	TraceEvent(TRACE_INFO,"GetFileType() ThreadID:%lu", threadID);
 	DWORD type = GetFileType(fd);
 
+	TraceEvent(TRACE_INFO,"GetDriveType(),filetype=%d ThreadID:%lu", type, threadID);
 	/* this file is too small to hold a zpool */
 	if (type == FILE_TYPE_DISK &&
 	    drive_len < SPA_MINDEVSIZE) {
 		CloseHandle(fd);
+		TraceEvent(TRACE_INFO,"zpool_open_func function returning");
 		return;
 	}
 // else if (type != FILE_TYPE_DISK) {
@@ -449,12 +471,16 @@ zpool_open_func(void *arg)
 	    &num_labels)) != 0) {
 		CloseHandle(fd);
 		(void) no_memory(rn->rn_hdl);
+		TraceEvent(TRACE_INFO, "func return.zpool_read_label_win failed. ThreadID:%lu", threadID);
 		return;
 	}
 
+	TraceEvent(TRACE_INFO,"num_labels %d ThreadID:%lu", num_labels, threadID);
 	if (num_labels == 0) {
 		CloseHandle(fd);
+		TraceEvent(TRACE_INFO,"Freeing nvlist. num_labels=0 ThreadID:%lu", threadID);
 		nvlist_free(config);
+		TraceEvent(TRACE_INFO,"func return.num_labels=0 ThreadID:%lu", threadID);
 		return;
 	}
 
@@ -476,6 +502,7 @@ zpool_open_func(void *arg)
 	rn->rn_config = config;
 	rn->rn_num_labels = num_labels;
 
+	TraceEvent(TRACE_INFO, "rn->rn_labelpaths %d", rn->rn_labelpaths);
 	/*
 	 * Add additional entries for paths described by this label.
 	 */
@@ -669,6 +696,7 @@ int
 zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
     avl_tree_t **slice_cache)
 {
+	TraceEvent(TRACE_INFO,"zpool_find_import_blkid function started");
 	int i, dirs;
 	struct dirent *dp;
 	char path[MAXPATHLEN];
@@ -715,7 +743,7 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 	ZeroMemory(&deviceInterfaceData, sizeof (SP_DEVICE_INTERFACE_DATA));
 	deviceInterfaceData.cbSize = sizeof (SP_DEVICE_INTERFACE_DATA);
 	deviceIndex = 0;
-
+	TraceEvent(TRACE_INFO, "Before enumerating the devices");
 	while (SetupDiEnumDeviceInterfaces(diskClassDevices,
 	    NULL,
 	    &diskClassDeviceInterfaceGuid,
@@ -781,7 +809,8 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 		fflush(stderr);
 		snprintf(rdsk, MAXPATHLEN, "\\\\.\\PHYSICALDRIVE%d",
 		    diskNumber.DeviceNumber);
-
+		TraceEvent(TRACE_INFO,"path '%s' and '\\\\?\\PhysicalDrive%d' rdsk %s :", deviceInterfaceDetailData->DevicePath,
+		    diskNumber.DeviceNumber, rdsk);
 		// CloseHandle(disk);
 
 #if 0
@@ -804,6 +833,7 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 			    partitions->PartitionCount);
 			fflush(stderr);
 
+			TraceEvent(TRACE_INFO," Partion count :%d", partitions->PartitionCount);
 			for (int i = 0; i < partitions->PartitionCount; i++) {
 				int add = 0;
 		switch (partitions->PartitionEntry[i].PartitionStyle) {
@@ -815,6 +845,10 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 			    StartingOffset.QuadPart,
 			    partitions->PartitionEntry[i].
 			    PartitionLength.QuadPart);
+			TraceEvent(TRACE_INFO,"mbr %d: type %x off 0x%llx len 0x%llx", i,
+			    partitions->PartitionEntry[i].Mbr.PartitionType,
+			    partitions->PartitionEntry[i].StartingOffset.QuadPart,
+			    partitions->PartitionEntry[i].PartitionLength.QuadPart);
 			fflush(stderr);
 			add = 1;
 			break;
@@ -826,6 +860,9 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 			    StartingOffset.QuadPart,
 			    partitions->PartitionEntry[i].PartitionLength.
 			    QuadPart);
+			TraceEvent(TRACE_INFO,"gpt %d: off 0x%llx len 0x%llx", i,
+			    partitions->PartitionEntry[i].StartingOffset.QuadPart,
+			    partitions->PartitionEntry[i].PartitionLength.QuadPart);
 			fflush(stderr);
 			add = 1;
 			break;
@@ -874,7 +911,7 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 				    "#%llu#%llu#%s",
 				    0ULL, size,
 				    deviceInterfaceDetailData->DevicePath);
-
+				TraceEvent(TRACE_INFO,"diskname::::%s errorcode:%d", slice->rn_name, error);
 				if (error == -1) {
 					free(slice);
 					continue;
@@ -901,6 +938,7 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 			free(partitions);
 		} else {
 			fprintf(stderr, "read partitions ng\n");
+			TraceEvent(TRACE_INFO,"read partitions ng");
 			fflush(stderr);
 		}
 
@@ -923,6 +961,7 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 		// 0x8410 "version" "name" "testpool" ZFS label
 		if (disk != INVALID_HANDLE_VALUE) {
 			fprintf(stderr, "asking libefi to read label\n");
+			TraceEvent(TRACE_INFO,"asking libefi to read label");
 			fflush(stderr);
 			int error;
 			struct dk_gpt *vtoc;
@@ -931,6 +970,7 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 				fprintf(stderr,
 				    "EFI read OK, max partitions %d\n",
 				    vtoc->efi_nparts);
+				TraceEvent(TRACE_INFO,"EFI read OK, max partitions %d", vtoc->efi_nparts);
 				fflush(stderr);
 				for (int i = 0; i < vtoc->efi_nparts; i++) {
 
@@ -942,6 +982,11 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 			    "    part %d:  offset %llx:    len %llx:    "
 			    "tag: %x    name: '%s'\n",
 			    i, vtoc->efi_parts[i].p_start,
+			    vtoc->efi_parts[i].p_size,
+			    vtoc->efi_parts[i].p_tag,
+			    vtoc->efi_parts[i].p_name);
+			TraceEvent(TRACE_INFO,"part %d:  offset %llx:    len %llx:    "
+			    "tag: %x    name: '%s' ", i, vtoc->efi_parts[i].p_start,
 			    vtoc->efi_parts[i].p_size,
 			    vtoc->efi_parts[i].p_tag,
 			    vtoc->efi_parts[i].p_name);
@@ -986,6 +1031,9 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 		} else { // Unable to open handle
 			fprintf(stderr,
 			    "Unable to open disk, are we Administrator? "
+			    "GetLastError() is 0x%x\n",
+			    GetLastError());
+			TraceEvent(TRACE_INFO,"Unable to open disk, are we Administrator ? "
 			    "GetLastError() is 0x%x\n",
 			    GetLastError());
 			fflush(stderr);
@@ -1203,6 +1251,7 @@ update_vdev_config_dev_strs(nvlist_t *nv)
 		fflush(stderr);
 		fprintf(stderr, "setting physpath here '%s'\r\n", path);
 		fflush(stderr);
+		TraceEvent(TRACE_INFO, "setting path here '%s'\r\n", vdev_path);
 		if (nvlist_add_string(nv, ZPOOL_CONFIG_PHYS_PATH, path) != 0)
 			return;
 		// This call frees the original path.

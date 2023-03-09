@@ -39,6 +39,7 @@
 #include "libzfs_impl.h"
 #include <libzutil.h>
 #include <sys/arc_impl.h>
+#include "os/windows/Trace.h"
 
 /*
  * Returns true if the named pool matches the given GUID.
@@ -84,6 +85,7 @@ refresh_config(libzfs_handle_t *hdl, nvlist_t *config)
 		return (NULL);
 	}
 
+	TraceEvent(TRACE_INFO,"Going to call ZFS_IOC_POOL_TRYIMPORT IOCTL");
 	while ((err = zfs_ioctl(hdl, ZFS_IOC_POOL_TRYIMPORT,
 	    &zc)) != 0 && errno == ENOMEM) {
 		if (zcmd_expand_dst_nvlist(hdl, &zc) != 0) {
@@ -91,7 +93,7 @@ refresh_config(libzfs_handle_t *hdl, nvlist_t *config)
 			return (NULL);
 		}
 	}
-
+	TraceEvent(TRACE_INFO,"After ZFS_IOC_POOL_TRYIMPORT IOCTL");
 	if (err) {
 		zcmd_free_nvlists(&zc);
 		return (NULL);
