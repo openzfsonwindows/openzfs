@@ -272,7 +272,7 @@ mappedread(struct znode *zp, int nbytes, zfs_uio_t *uio)
 }
 #endif
 
-unsigned long zfs_delete_blocks = DMU_MAX_DELETEBLKCNT;
+uint64_t zfs_delete_blocks = DMU_MAX_DELETEBLKCNT;
 
 /*
  * Write the bytes to a file.
