@@ -372,9 +372,8 @@ zfs_version_kernel(void)
 }
 
 /* Called from the tail end of zfs_rollback() */
-int
+void
 zfs_rollback_os(zfs_handle_t *zhp)
 {
 	(void) zhp;
-	return (0);
 }
