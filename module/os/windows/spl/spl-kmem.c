@@ -2772,7 +2772,8 @@ kmem_reap_timeout(void *flag_arg)
 {
 	uint32_t *flag = (uint32_t *)flag_arg;
 
-	ASSERT(flag == &kmem_reaping || flag == &kmem_reaping_idspace);
+	ASSERT(flag == (uint32_t *)&kmem_reaping ||
+	    flag == (uint32_t *)&kmem_reaping_idspace);
 	*flag = 0;
 }
 
@@ -2785,7 +2786,8 @@ kmem_reap_done(void *flag)
 static void
 kmem_reap_start(void *flag)
 {
-	ASSERT(flag == &kmem_reaping || flag == &kmem_reaping_idspace);
+	ASSERT(flag == (uint32_t *)&kmem_reaping ||
+	    (uint32_t *)flag == &kmem_reaping_idspace);
 
 	if (flag == &kmem_reaping) {
 		kmem_cache_applyall(kmem_cache_reap, kmem_taskq, TQ_NOSLEEP);
@@ -4484,8 +4486,8 @@ spl_free_thread()
 		 *
 		 */
 
-		uint32_t pages_reclaimed = 0;
-		uint32_t pages_wanted = 0;
+		// uint32_t pages_reclaimed = 0;
+		// uint32_t pages_wanted = 0;
 
 /* get pressure here */
 

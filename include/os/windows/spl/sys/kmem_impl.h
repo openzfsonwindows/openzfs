@@ -305,9 +305,9 @@ typedef struct kmem_cpu_cache {
  */
 typedef struct kmem_maglist {
 	kmem_magazine_t	*ml_list;	/* magazine list */
-	long		ml_total;	/* number of magazines */
-	long		ml_min;		/* min since last update */
-	long		ml_reaplimit;	/* max reapable magazines */
+	uint64_t	ml_total;	/* number of magazines */
+	uint64_t	ml_min;		/* min since last update */
+	uint64_t	ml_reaplimit;	/* max reapable magazines */
 	uint64_t	ml_alloc;	/* allocations from this list */
 } kmem_maglist_t;
 
@@ -463,12 +463,12 @@ typedef struct kmem_cpu_log_header {
 typedef struct kmem_log_header {
 	kmutex_t	lh_lock;
 	char		*lh_base;
-	int		*lh_free;
+	uint32_t	*lh_free;
 	uint32_t	lh_chunksize;
-	int		lh_nchunks;
-	int		lh_head;
-	int		lh_tail;
-	int		lh_hits;
+	uint32_t	lh_nchunks;
+	uint32_t	lh_head;
+	uint32_t	lh_tail;
+	uint32_t	lh_hits;
 	kmem_cpu_log_header_t lh_cpu[1];	/* ncpus actually allocated */
 } kmem_log_header_t;
 

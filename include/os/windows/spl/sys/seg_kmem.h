@@ -61,6 +61,8 @@ extern void *segkmem_zio_alloc(vmem_t *, uint32_t, int);
 extern void segkmem_zio_free(vmem_t *, void *, uint32_t);
 extern void segkmem_zio_init(void);
 extern void segkmem_zio_fini(void);
+extern void segkmem_abd_init(void);
+extern void segkmem_abd_fini(void);
 
 /*
  * Flags for segkmem_xalloc().
