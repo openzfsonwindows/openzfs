@@ -250,6 +250,19 @@ arg_parser(int argc, char **argv, std::string &flags,
 	return (0);
 }
 
+void
+sanitize(char *s)
+{
+	static char ok_chars[] = "abcdefghijklmnopqrstuvwxyz"
+	    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	    "1234567890_-.@";
+	char *cp = s;
+	const char *end = s + strlen(s);
+	for (cp += strspn(cp, ok_chars); cp != end; cp += strspn(cp, ok_chars)) {
+		*cp = '_';
+	}
+}
+
 int
 zfs_log_session_create(int argc, char **argv)
 {
@@ -287,6 +300,9 @@ zfs_log_session_create(int argc, char **argv)
 			" -nb 1 1 -bs 1 -mode Circular -max %d -o \"%s\" ",
 			LOGGER_SESSION, OPEN_ZFS_GUID, flags.c_str(),
 			levels.c_str(), size_in_mb, etl_file.c_str());
+
+		/* sanitize */
+		sanitize(command);
 
 		ret = system(command);
 		if (ret != 0)
