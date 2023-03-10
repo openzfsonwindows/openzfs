@@ -590,7 +590,7 @@
     <elf-symbol name='fletcher_4_superscalar_ops' size='64' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='libzfs_config_ops' size='16' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='sa_protocol_names' size='16' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
-    <elf-symbol name='spa_feature_table' size='2072' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
+    <elf-symbol name='spa_feature_table' size='2128' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zfeature_checks_disable' size='4' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zfs_deleg_perm_tab' size='512' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zfs_history_event_names' size='328' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
@@ -6086,6 +6086,225 @@
       <parameter type-id='80f4b756'/>
       <return type-id='95e97e5e'/>
     </function-decl>
+  </abi-instr>
+  <abi-instr address-size='64' path='lib/libzfs/libzfs_pool.c' language='LANG_C99'>
+    <class-decl name='splitflags' size-in-bits='64' is-struct='yes' visibility='default' id='dc01bf52'>
+      <data-member access='public' layout-offset-in-bits='0'>
+        <var-decl name='dryrun' type-id='95e97e5e' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='1'>
+        <var-decl name='import' type-id='95e97e5e' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='32'>
+        <var-decl name='name_flags' type-id='95e97e5e' visibility='default'/>
+      </data-member>
+    </class-decl>
+    <typedef-decl name='splitflags_t' type-id='dc01bf52' id='325c1e34'/>
+    <class-decl name='trimflags' size-in-bits='192' is-struct='yes' visibility='default' id='8ef58008'>
+      <data-member access='public' layout-offset-in-bits='0'>
+        <var-decl name='fullpool' type-id='c19b74c3' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='32'>
+        <var-decl name='secure' type-id='c19b74c3' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='64'>
+        <var-decl name='wait' type-id='c19b74c3' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='128'>
+        <var-decl name='rate' type-id='9c313c2d' visibility='default'/>
+      </data-member>
+    </class-decl>
+    <typedef-decl name='trimflags_t' type-id='8ef58008' id='a093cbb8'/>
+    <enum-decl name='zpool_compat_status_t' naming-typedef-id='901b78d1' id='20676925'>
+      <underlying-type type-id='9cac1fee'/>
+      <enumerator name='ZPOOL_COMPATIBILITY_OK' value='0'/>
+      <enumerator name='ZPOOL_COMPATIBILITY_WARNTOKEN' value='1'/>
+      <enumerator name='ZPOOL_COMPATIBILITY_BADTOKEN' value='2'/>
+      <enumerator name='ZPOOL_COMPATIBILITY_BADFILE' value='3'/>
+      <enumerator name='ZPOOL_COMPATIBILITY_NOFILES' value='4'/>
+    </enum-decl>
+    <typedef-decl name='zpool_compat_status_t' type-id='20676925' id='901b78d1'/>
+    <enum-decl name='zpool_prop_t' naming-typedef-id='5d0c23fb' id='af1ba157'>
+      <underlying-type type-id='9cac1fee'/>
+      <enumerator name='ZPOOL_PROP_INVAL' value='-1'/>
+      <enumerator name='ZPOOL_PROP_NAME' value='0'/>
+      <enumerator name='ZPOOL_PROP_SIZE' value='1'/>
+      <enumerator name='ZPOOL_PROP_CAPACITY' value='2'/>
+      <enumerator name='ZPOOL_PROP_ALTROOT' value='3'/>
+      <enumerator name='ZPOOL_PROP_HEALTH' value='4'/>
+      <enumerator name='ZPOOL_PROP_GUID' value='5'/>
+      <enumerator name='ZPOOL_PROP_VERSION' value='6'/>
+      <enumerator name='ZPOOL_PROP_BOOTFS' value='7'/>
+      <enumerator name='ZPOOL_PROP_DELEGATION' value='8'/>
+      <enumerator name='ZPOOL_PROP_AUTOREPLACE' value='9'/>
+      <enumerator name='ZPOOL_PROP_CACHEFILE' value='10'/>
+      <enumerator name='ZPOOL_PROP_FAILUREMODE' value='11'/>
+      <enumerator name='ZPOOL_PROP_LISTSNAPS' value='12'/>
+      <enumerator name='ZPOOL_PROP_AUTOEXPAND' value='13'/>
+      <enumerator name='ZPOOL_PROP_DEDUPDITTO' value='14'/>
+      <enumerator name='ZPOOL_PROP_DEDUPRATIO' value='15'/>
+      <enumerator name='ZPOOL_PROP_FREE' value='16'/>
+      <enumerator name='ZPOOL_PROP_ALLOCATED' value='17'/>
+      <enumerator name='ZPOOL_PROP_READONLY' value='18'/>
+      <enumerator name='ZPOOL_PROP_ASHIFT' value='19'/>
+      <enumerator name='ZPOOL_PROP_COMMENT' value='20'/>
+      <enumerator name='ZPOOL_PROP_EXPANDSZ' value='21'/>
+      <enumerator name='ZPOOL_PROP_FREEING' value='22'/>
+      <enumerator name='ZPOOL_PROP_FRAGMENTATION' value='23'/>
+      <enumerator name='ZPOOL_PROP_LEAKED' value='24'/>
+      <enumerator name='ZPOOL_PROP_MAXBLOCKSIZE' value='25'/>
+      <enumerator name='ZPOOL_PROP_TNAME' value='26'/>
+      <enumerator name='ZPOOL_PROP_MAXDNODESIZE' value='27'/>
+      <enumerator name='ZPOOL_PROP_MULTIHOST' value='28'/>
+      <enumerator name='ZPOOL_PROP_CHECKPOINT' value='29'/>
+      <enumerator name='ZPOOL_PROP_LOAD_GUID' value='30'/>
+      <enumerator name='ZPOOL_PROP_AUTOTRIM' value='31'/>
+      <enumerator name='ZPOOL_PROP_COMPATIBILITY' value='32'/>
+      <enumerator name='ZPOOL_PROP_BCLONEUSED' value='33'/>
+      <enumerator name='ZPOOL_PROP_BCLONESAVED' value='34'/>
+      <enumerator name='ZPOOL_PROP_BCLONERATIO' value='35'/>
+      <enumerator name='ZPOOL_NUM_PROPS' value='36'/>
+    </enum-decl>
+    <typedef-decl name='zpool_prop_t' type-id='af1ba157' id='5d0c23fb'/>
+    <enum-decl name='vdev_prop_t' naming-typedef-id='5aa5c90c' id='1573bec8'>
+      <underlying-type type-id='9cac1fee'/>
+      <enumerator name='VDEV_PROP_INVAL' value='-1'/>
+      <enumerator name='VDEV_PROP_USERPROP' value='-1'/>
+      <enumerator name='VDEV_PROP_NAME' value='0'/>
+      <enumerator name='VDEV_PROP_CAPACITY' value='1'/>
+      <enumerator name='VDEV_PROP_STATE' value='2'/>
+      <enumerator name='VDEV_PROP_GUID' value='3'/>
+      <enumerator name='VDEV_PROP_ASIZE' value='4'/>
+      <enumerator name='VDEV_PROP_PSIZE' value='5'/>
+      <enumerator name='VDEV_PROP_ASHIFT' value='6'/>
+      <enumerator name='VDEV_PROP_SIZE' value='7'/>
+      <enumerator name='VDEV_PROP_FREE' value='8'/>
+      <enumerator name='VDEV_PROP_ALLOCATED' value='9'/>
+      <enumerator name='VDEV_PROP_COMMENT' value='10'/>
+      <enumerator name='VDEV_PROP_EXPANDSZ' value='11'/>
+      <enumerator name='VDEV_PROP_FRAGMENTATION' value='12'/>
+      <enumerator name='VDEV_PROP_BOOTSIZE' value='13'/>
+      <enumerator name='VDEV_PROP_PARITY' value='14'/>
+      <enumerator name='VDEV_PROP_PATH' value='15'/>
+      <enumerator name='VDEV_PROP_DEVID' value='16'/>
+      <enumerator name='VDEV_PROP_PHYS_PATH' value='17'/>
+      <enumerator name='VDEV_PROP_ENC_PATH' value='18'/>
+      <enumerator name='VDEV_PROP_FRU' value='19'/>
+      <enumerator name='VDEV_PROP_PARENT' value='20'/>
+      <enumerator name='VDEV_PROP_CHILDREN' value='21'/>
+      <enumerator name='VDEV_PROP_NUMCHILDREN' value='22'/>
+      <enumerator name='VDEV_PROP_READ_ERRORS' value='23'/>
+      <enumerator name='VDEV_PROP_WRITE_ERRORS' value='24'/>
+      <enumerator name='VDEV_PROP_CHECKSUM_ERRORS' value='25'/>
+      <enumerator name='VDEV_PROP_INITIALIZE_ERRORS' value='26'/>
+      <enumerator name='VDEV_PROP_OPS_NULL' value='27'/>
+      <enumerator name='VDEV_PROP_OPS_READ' value='28'/>
+      <enumerator name='VDEV_PROP_OPS_WRITE' value='29'/>
+      <enumerator name='VDEV_PROP_OPS_FREE' value='30'/>
+      <enumerator name='VDEV_PROP_OPS_CLAIM' value='31'/>
+      <enumerator name='VDEV_PROP_OPS_TRIM' value='32'/>
+      <enumerator name='VDEV_PROP_BYTES_NULL' value='33'/>
+      <enumerator name='VDEV_PROP_BYTES_READ' value='34'/>
+      <enumerator name='VDEV_PROP_BYTES_WRITE' value='35'/>
+      <enumerator name='VDEV_PROP_BYTES_FREE' value='36'/>
+      <enumerator name='VDEV_PROP_BYTES_CLAIM' value='37'/>
+      <enumerator name='VDEV_PROP_BYTES_TRIM' value='38'/>
+      <enumerator name='VDEV_PROP_REMOVING' value='39'/>
+      <enumerator name='VDEV_PROP_ALLOCATING' value='40'/>
+      <enumerator name='VDEV_PROP_FAILFAST' value='41'/>
+      <enumerator name='VDEV_PROP_CHECKSUM_N' value='42'/>
+      <enumerator name='VDEV_PROP_CHECKSUM_T' value='43'/>
+      <enumerator name='VDEV_PROP_IO_N' value='44'/>
+      <enumerator name='VDEV_PROP_IO_T' value='45'/>
+      <enumerator name='VDEV_NUM_PROPS' value='46'/>
+    </enum-decl>
+    <typedef-decl name='vdev_prop_t' type-id='1573bec8' id='5aa5c90c'/>
+    <enum-decl name='vdev_state' id='21566197'>
+      <underlying-type type-id='9cac1fee'/>
+      <enumerator name='VDEV_STATE_UNKNOWN' value='0'/>
+      <enumerator name='VDEV_STATE_CLOSED' value='1'/>
+      <enumerator name='VDEV_STATE_OFFLINE' value='2'/>
+      <enumerator name='VDEV_STATE_REMOVED' value='3'/>
+      <enumerator name='VDEV_STATE_CANT_OPEN' value='4'/>
+      <enumerator name='VDEV_STATE_FAULTED' value='5'/>
+      <enumerator name='VDEV_STATE_DEGRADED' value='6'/>
+      <enumerator name='VDEV_STATE_HEALTHY' value='7'/>
+    </enum-decl>
+    <typedef-decl name='vdev_state_t' type-id='21566197' id='35acf840'/>
+    <enum-decl name='vdev_aux' id='7f5bcca4'>
+      <underlying-type type-id='9cac1fee'/>
+      <enumerator name='VDEV_AUX_NONE' value='0'/>
+      <enumerator name='VDEV_AUX_OPEN_FAILED' value='1'/>
+      <enumerator name='VDEV_AUX_CORRUPT_DATA' value='2'/>
+      <enumerator name='VDEV_AUX_NO_REPLICAS' value='3'/>
+      <enumerator name='VDEV_AUX_BAD_GUID_SUM' value='4'/>
+      <enumerator name='VDEV_AUX_TOO_SMALL' value='5'/>
+      <enumerator name='VDEV_AUX_BAD_LABEL' value='6'/>
+      <enumerator name='VDEV_AUX_VERSION_NEWER' value='7'/>
+      <enumerator name='VDEV_AUX_VERSION_OLDER' value='8'/>
+      <enumerator name='VDEV_AUX_UNSUP_FEAT' value='9'/>
+      <enumerator name='VDEV_AUX_SPARED' value='10'/>
+      <enumerator name='VDEV_AUX_ERR_EXCEEDED' value='11'/>
+      <enumerator name='VDEV_AUX_IO_FAILURE' value='12'/>
+      <enumerator name='VDEV_AUX_BAD_LOG' value='13'/>
+      <enumerator name='VDEV_AUX_EXTERNAL' value='14'/>
+      <enumerator name='VDEV_AUX_SPLIT_POOL' value='15'/>
+      <enumerator name='VDEV_AUX_BAD_ASHIFT' value='16'/>
+      <enumerator name='VDEV_AUX_EXTERNAL_PERSIST' value='17'/>
+      <enumerator name='VDEV_AUX_ACTIVE' value='18'/>
+      <enumerator name='VDEV_AUX_CHILDREN_OFFLINE' value='19'/>
+      <enumerator name='VDEV_AUX_ASHIFT_TOO_BIG' value='20'/>
+    </enum-decl>
+    <typedef-decl name='vdev_aux_t' type-id='7f5bcca4' id='9d774e0b'/>
+    <enum-decl name='pool_scan_func' id='1b092565'>
+      <underlying-type type-id='9cac1fee'/>
+      <enumerator name='POOL_SCAN_NONE' value='0'/>
+      <enumerator name='POOL_SCAN_SCRUB' value='1'/>
+      <enumerator name='POOL_SCAN_RESILVER' value='2'/>
+      <enumerator name='POOL_SCAN_FUNCS' value='3'/>
+    </enum-decl>
+    <typedef-decl name='pool_scan_func_t' type-id='1b092565' id='7313fbe2'/>
+    <enum-decl name='pool_scrub_cmd' id='a1474cbd'>
+      <underlying-type type-id='9cac1fee'/>
+      <enumerator name='POOL_SCRUB_NORMAL' value='0'/>
+      <enumerator name='POOL_SCRUB_PAUSE' value='1'/>
+      <enumerator name='POOL_SCRUB_FLAGS_END' value='2'/>
+    </enum-decl>
+    <typedef-decl name='pool_scrub_cmd_t' type-id='a1474cbd' id='b51cf3c2'/>
+    <enum-decl name='pool_initialize_func' id='5c246ad4'>
+      <underlying-type type-id='9cac1fee'/>
+      <enumerator name='POOL_INITIALIZE_START' value='0'/>
+      <enumerator name='POOL_INITIALIZE_CANCEL' value='1'/>
+      <enumerator name='POOL_INITIALIZE_SUSPEND' value='2'/>
+      <enumerator name='POOL_INITIALIZE_FUNCS' value='3'/>
+    </enum-decl>
+    <typedef-decl name='pool_initialize_func_t' type-id='5c246ad4' id='7063e1ab'/>
+    <enum-decl name='pool_trim_func' id='54ed608a'>
+      <underlying-type type-id='9cac1fee'/>
+      <enumerator name='POOL_TRIM_START' value='0'/>
+      <enumerator name='POOL_TRIM_CANCEL' value='1'/>
+      <enumerator name='POOL_TRIM_SUSPEND' value='2'/>
+      <enumerator name='POOL_TRIM_FUNCS' value='3'/>
+    </enum-decl>
+    <typedef-decl name='pool_trim_func_t' type-id='54ed608a' id='b1146b8d'/>
+    <enum-decl name='zpool_wait_activity_t' naming-typedef-id='73446457' id='849338e3'>
+      <underlying-type type-id='9cac1fee'/>
+      <enumerator name='ZPOOL_WAIT_CKPT_DISCARD' value='0'/>
+      <enumerator name='ZPOOL_WAIT_FREE' value='1'/>
+      <enumerator name='ZPOOL_WAIT_INITIALIZE' value='2'/>
+      <enumerator name='ZPOOL_WAIT_REPLACE' value='3'/>
+      <enumerator name='ZPOOL_WAIT_REMOVE' value='4'/>
+      <enumerator name='ZPOOL_WAIT_RESILVER' value='5'/>
+      <enumerator name='ZPOOL_WAIT_SCRUB' value='6'/>
+      <enumerator name='ZPOOL_WAIT_TRIM' value='7'/>
+      <enumerator name='ZPOOL_WAIT_NUM_ACTIVITIES' value='8'/>
+    </enum-decl>
+    <typedef-decl name='zpool_wait_activity_t' type-id='849338e3' id='73446457'/>
+    <qualified-type-def type-id='8e8d4be3' const='yes' id='693c3853'/>
+    <pointer-type-def type-id='693c3853' size-in-bits='64' id='22cce67b'/>
+    <pointer-type-def type-id='a093cbb8' size-in-bits='64' id='b13f38c3'/>
+    <pointer-type-def type-id='35acf840' size-in-bits='64' id='17f3480d'/>
+>>>>>>> 67a1b03791... Implementation of block cloning for ZFS
     <function-decl name='zpool_props_refresh' mangled-name='zpool_props_refresh' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='zpool_props_refresh'>
       <parameter type-id='4c81de99' name='zhp'/>
       <return type-id='95e97e5e'/>
@@ -8634,6 +8853,7 @@
       <return type-id='c19b74c3'/>
     </function-decl>
   </abi-instr>
+<<<<<<< HEAD
   <abi-instr address-size='64' path='module/zcommon/cityhash.c' language='LANG_C99'>
     <function-decl name='cityhash4' mangled-name='cityhash4' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='cityhash4'>
       <parameter type-id='9c313c2d' name='w1'/>
@@ -8647,6 +8867,55 @@
     <array-type-def dimensions='1' type-id='83f29ca2' size-in-bits='16576' id='d95b2b0b'>
       <subrange length='37' type-id='7359adad' id='aa6426fb'/>
     </array-type-def>
+=======
+  <abi-instr address-size='64' path='module/zcommon/zfeature_common.c' language='LANG_C99'>
+    <array-type-def dimensions='1' type-id='83f29ca2' size-in-bits='17024' id='d95b2b0b'>
+      <subrange length='38' type-id='7359adad' id='aa6426fb'/>
+    </array-type-def>
+    <enum-decl name='spa_feature' id='33ecb627'>
+      <underlying-type type-id='9cac1fee'/>
+      <enumerator name='SPA_FEATURE_NONE' value='-1'/>
+      <enumerator name='SPA_FEATURE_ASYNC_DESTROY' value='0'/>
+      <enumerator name='SPA_FEATURE_EMPTY_BPOBJ' value='1'/>
+      <enumerator name='SPA_FEATURE_LZ4_COMPRESS' value='2'/>
+      <enumerator name='SPA_FEATURE_MULTI_VDEV_CRASH_DUMP' value='3'/>
+      <enumerator name='SPA_FEATURE_SPACEMAP_HISTOGRAM' value='4'/>
+      <enumerator name='SPA_FEATURE_ENABLED_TXG' value='5'/>
+      <enumerator name='SPA_FEATURE_HOLE_BIRTH' value='6'/>
+      <enumerator name='SPA_FEATURE_EXTENSIBLE_DATASET' value='7'/>
+      <enumerator name='SPA_FEATURE_EMBEDDED_DATA' value='8'/>
+      <enumerator name='SPA_FEATURE_BOOKMARKS' value='9'/>
+      <enumerator name='SPA_FEATURE_FS_SS_LIMIT' value='10'/>
+      <enumerator name='SPA_FEATURE_LARGE_BLOCKS' value='11'/>
+      <enumerator name='SPA_FEATURE_LARGE_DNODE' value='12'/>
+      <enumerator name='SPA_FEATURE_SHA512' value='13'/>
+      <enumerator name='SPA_FEATURE_SKEIN' value='14'/>
+      <enumerator name='SPA_FEATURE_EDONR' value='15'/>
+      <enumerator name='SPA_FEATURE_USEROBJ_ACCOUNTING' value='16'/>
+      <enumerator name='SPA_FEATURE_ENCRYPTION' value='17'/>
+      <enumerator name='SPA_FEATURE_PROJECT_QUOTA' value='18'/>
+      <enumerator name='SPA_FEATURE_DEVICE_REMOVAL' value='19'/>
+      <enumerator name='SPA_FEATURE_OBSOLETE_COUNTS' value='20'/>
+      <enumerator name='SPA_FEATURE_POOL_CHECKPOINT' value='21'/>
+      <enumerator name='SPA_FEATURE_SPACEMAP_V2' value='22'/>
+      <enumerator name='SPA_FEATURE_ALLOCATION_CLASSES' value='23'/>
+      <enumerator name='SPA_FEATURE_RESILVER_DEFER' value='24'/>
+      <enumerator name='SPA_FEATURE_BOOKMARK_V2' value='25'/>
+      <enumerator name='SPA_FEATURE_REDACTION_BOOKMARKS' value='26'/>
+      <enumerator name='SPA_FEATURE_REDACTED_DATASETS' value='27'/>
+      <enumerator name='SPA_FEATURE_BOOKMARK_WRITTEN' value='28'/>
+      <enumerator name='SPA_FEATURE_LOG_SPACEMAP' value='29'/>
+      <enumerator name='SPA_FEATURE_LIVELIST' value='30'/>
+      <enumerator name='SPA_FEATURE_DEVICE_REBUILD' value='31'/>
+      <enumerator name='SPA_FEATURE_ZSTD_COMPRESS' value='32'/>
+      <enumerator name='SPA_FEATURE_DRAID' value='33'/>
+      <enumerator name='SPA_FEATURE_ZILSAXATTR' value='34'/>
+      <enumerator name='SPA_FEATURE_HEAD_ERRLOG' value='35'/>
+      <enumerator name='SPA_FEATURE_BLAKE3' value='36'/>
+      <enumerator name='SPA_FEATURE_BLOCK_CLONING' value='37'/>
+      <enumerator name='SPA_FEATURES' value='38'/>
+    </enum-decl>
+    <typedef-decl name='spa_feature_t' type-id='33ecb627' id='d6618c78'/>
     <enum-decl name='zfeature_flags' id='6db816a4'>
       <underlying-type type-id='9cac1fee'/>
       <enumerator name='ZFEATURE_FLAG_READONLY_COMPAT' value='1'/>
