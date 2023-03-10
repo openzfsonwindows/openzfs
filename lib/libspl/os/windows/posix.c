@@ -50,7 +50,6 @@ clock_gettime(clock_type_t t, struct timespec *ts)
 	LARGE_INTEGER time;
 	LARGE_INTEGER frequency;
 	FILETIME ft;
-	ULONGLONG tmp;
 
 	switch (t) {
 	case CLOCK_MONOTONIC:
@@ -640,7 +639,7 @@ getpwuid(uid_t uid)
 const char *
 win_ctime_r(char *buffer, size_t bufsize, time_t cur_time)
 {
-	errno_t e = ctime_s(buffer, bufsize, &cur_time);
+	ctime_s(buffer, bufsize, &cur_time);
 	return (buffer);
 }
 
@@ -724,7 +723,7 @@ strlcpy(register char *s, register const char *t, register size_t n)
 				*s = 0;
 				break;
 			}
-		} while (*s++ = *t++);
+		} while ((*s++ = *t++));
 		if (!n)
 			while (*t++)
 				;
@@ -737,7 +736,7 @@ strlcat(register char *s, register const char *t, register size_t n)
 	register size_t m;
 	const char *o = t;
 
-	if (m = n) {
+	if ((m = n)) {
 		while (n && *s)	{
 			n--;
 			s++;
@@ -749,7 +748,7 @@ strlcat(register char *s, register const char *t, register size_t n)
 					*s = 0;
 					break;
 				}
-			} while (*s++ = *t++);
+			} while ((*s++ = *t++));
 		else
 			*s = 0;
 	}
@@ -907,7 +906,7 @@ wosix_open(const char *inpath, int oflag, ...)
 	if (oflag&O_APPEND) mode |= FILE_APPEND_DATA;
 
 #ifdef O_EXLOCK
-	if (!oflag&O_EXLOCK) share |= FILE_SHARE_WRITE;
+	if (!(oflag&O_EXLOCK)) share |= FILE_SHARE_WRITE;
 #endif
 
 	// Win users might not supply \\?\ paths, make them so
@@ -985,7 +984,7 @@ wosix_open(const char *inpath, int oflag, ...)
 			errno = EBUSY; // BSD: EWOULDBLOCK
 			// fall through
 		default:
-			fprintf(stderr, "wosix_open(%s): error %d / 0x%x\n",
+			fprintf(stderr, "wosix_open(%s): error %lu / 0x%lx\n",
 			    path, GetLastError(), GetLastError());
 		}
 		free(copy_path);
@@ -1134,7 +1133,7 @@ wosix_isatty(int fd)
 {
 	DWORD mode;
 	HANDLE h = ITOH(fd);
-	int ret;
+	// int ret;
 
 	// First, check if we are in a regular dos box, if yes, return.
 	// If not, check for cygwin ...
@@ -1296,7 +1295,6 @@ wosix_fstat_blk(int fd, struct _stat64 *st)
 int
 pread_win(HANDLE h, void *buf, size_t nbyte, off_t offset)
 {
-	uint64_t off;
 	DWORD red;
 	LARGE_INTEGER large;
 	LARGE_INTEGER lnew;
@@ -1336,7 +1334,6 @@ int
 wosix_pwrite(int fd, const void *buf, size_t nbyte, off_t offset)
 {
 	HANDLE h = ITOH(fd);
-	uint64_t off;
 	DWORD wrote;
 	LARGE_INTEGER large;
 	LARGE_INTEGER lnew;
@@ -1581,9 +1578,9 @@ wosix_munmap(void *addr, size_t len)
 
 
 
-static long GetLogicalProcessors(void);
+static uint64_t GetLogicalProcessors(void);
 
-long
+uint64_t
 sysconf(int name)
 {
 	SYSTEM_INFO info;
@@ -1627,7 +1624,7 @@ CountSetBits(ULONG_PTR bitMask)
 	return (bitSetCount);
 }
 
-static long
+static uint64_t
 GetLogicalProcessors(void)
 {
 	LPFN_GLPI glpi;
@@ -1635,7 +1632,7 @@ GetLogicalProcessors(void)
 	PSYSTEM_LOGICAL_PROCESSOR_INFORMATION buffer = NULL;
 	PSYSTEM_LOGICAL_PROCESSOR_INFORMATION ptr = NULL;
 	DWORD returnLength = 0;
-	DWORD logicalProcessorCount = 0;
+	uint64_t logicalProcessorCount = 0;
 	DWORD numaNodeCount = 0;
 	DWORD processorCoreCount = 0;
 	DWORD processorL1CacheCount = 0;
@@ -1649,7 +1646,7 @@ GetLogicalProcessors(void)
 	    GetModuleHandle(TEXT("kernel32")),
 	    "GetLogicalProcessorInformation");
 	if (NULL == glpi)
-		return (-1);
+		return (0);
 
 	while (!done) {
 		DWORD rc = glpi(buffer, &returnLength);
@@ -1663,9 +1660,9 @@ GetLogicalProcessors(void)
 				    malloc(returnLength);
 
 				if (NULL == buffer)
-					return (-1);
+					return (0);
 			} else {
-				return (-1);
+				return (0);
 			}
 		} else {
 			done = TRUE;
@@ -1756,11 +1753,11 @@ uname(struct utsname *buf)
 		strcpy(buf->nodename, "localhost");
 
 	versionex.dwOSVersionInfoSize = sizeof (OSVERSIONINFOEX);
-	GetVersionEx(&versionex);
+	// GetVersionEx(&versionex);
+	VerifyVersionInfo(&versionex, VER_MAJORVERSION | VER_MINORVERSION, 0);
 	snprintf(buf->sysname, sizeof (buf->sysname), "Windows_NT-%u.%u",
 	    (unsigned int) versionex.dwMajorVersion,
 	    (unsigned int) versionex.dwMinorVersion);
-
 
 	GetSystemInfo(&info);
 
