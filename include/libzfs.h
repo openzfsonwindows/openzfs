@@ -695,6 +695,7 @@ _LIBZFS_H int zfs_snapshot(libzfs_handle_t *, const char *, boolean_t,
 _LIBZFS_H int zfs_snapshot_nvl(libzfs_handle_t *hdl, nvlist_t *snaps,
     nvlist_t *props);
 _LIBZFS_H int zfs_rollback(zfs_handle_t *, zfs_handle_t *, boolean_t);
+_LIBZFS_H void zfs_rollback_os(struct zfs_handle *zhp);
 
 typedef struct renameflags {
 	/* recursive rename */

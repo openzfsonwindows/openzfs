@@ -39,7 +39,6 @@ struct zfs_handle;
 
 #define	noinline		__attribute__((noinline))
 
-extern void zfs_rollback_os(struct zfs_handle *zhp);
 extern void libzfs_macos_wrapfd(int *srcfd, boolean_t send);
 
 #define	FSCTL_ZFS_VOLUME_MOUNTPOINT CTL_CODE(FILE_DEVICE_UNKNOWN, \
