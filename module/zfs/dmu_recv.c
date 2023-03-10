@@ -1138,7 +1138,7 @@ dmu_recv_begin(char *tofs, char *tosnap, dmu_replay_record_t *drr_begin,
     zfs_file_t *fp, offset_t *voffp)
 {
 	dmu_recv_begin_arg_t drba = { 0 };
-	int err;
+	int err = 0;
 
 	bzero(drc, sizeof (dmu_recv_cookie_t));
 	drc->drc_drr_begin = drr_begin;
