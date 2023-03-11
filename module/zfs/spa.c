@@ -550,7 +550,7 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 	elem = NULL;
 	while ((elem = nvlist_next_nvpair(props, elem)) != NULL) {
 		uint64_t intval;
-		char *strval, *slash, *check, *fname;
+		const char *strval, *slash, *check, *fname;
 		const char *propname = nvpair_name(elem);
 		zpool_prop_t prop = zpool_name_to_prop(propname);
 
@@ -752,7 +752,7 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 void
 spa_configfile_set(spa_t *spa, nvlist_t *nvp, boolean_t need_sync)
 {
-	char *cachefile;
+	const char *cachefile;
 	spa_config_dirent_t *dp;
 
 	if (nvlist_lookup_string(nvp, zpool_prop_to_name(ZPOOL_PROP_CACHEFILE),
@@ -3353,7 +3353,7 @@ static int
 spa_verify_host(spa_t *spa, nvlist_t *mos_config)
 {
 	uint64_t hostid;
-	char *hostname;
+	const char *hostname;
 	uint64_t myhostid = 0;
 
 	if (!spa_is_root(spa) && nvlist_lookup_uint64(mos_config,
@@ -3388,8 +3388,8 @@ spa_ld_parse_config(spa_t *spa, spa_import_type_t type)
 	int parse;
 	vdev_t *rvd;
 	uint64_t pool_guid;
-	char *comment;
-	char *compatibility;
+	const char *comment;
+	const char *compatibility;
 
 	/*
 	 * Versioning wasn't explicitly added to the label until later, so if
@@ -5799,7 +5799,7 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
     nvlist_t *zplprops, dsl_crypto_params_t *dcp)
 {
 	spa_t *spa;
-	char *altroot = NULL;
+	const char *altroot = NULL;
 	vdev_t *rvd;
 	dsl_pool_t *dp;
 	dmu_tx_t *tx;
@@ -5812,8 +5812,8 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	boolean_t has_encryption;
 	boolean_t has_allocclass;
 	spa_feature_t feat;
-	char *feat_name;
-	char *poolname;
+	const char *feat_name;
+	const char *poolname;
 	nvlist_t *nvl;
 
 	if (props == NULL ||
@@ -6112,7 +6112,7 @@ int
 spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 {
 	spa_t *spa;
-	char *altroot = NULL;
+	const char *altroot = NULL;
 	spa_load_state_t state = SPA_LOAD_IMPORT;
 	zpool_load_policy_t policy;
 	spa_mode_t mode = spa_mode_global;
@@ -6292,7 +6292,7 @@ nvlist_t *
 spa_tryimport(nvlist_t *tryconfig)
 {
 	nvlist_t *config = NULL;
-	char *poolname, *cachefile;
+	const char *poolname, *cachefile;
 	spa_t *spa;
 	uint64_t state;
 	int error;
@@ -7565,7 +7565,7 @@ spa_vdev_split_mirror(spa_t *spa, const char *newname, nvlist_t *config,
 	uint_t c, children, lastlog;
 	nvlist_t **child, *nvl, *tmp;
 	dmu_tx_t *tx;
-	char *altroot = NULL;
+	const char *altroot = NULL;
 	vdev_t *rvd, **vml = NULL;			/* vdev modify list */
 	boolean_t activate_slog;
 
@@ -8785,7 +8785,7 @@ spa_sync_props(void *arg, dmu_tx_t *tx)
 
 	while ((elem = nvlist_next_nvpair(nvp, elem))) {
 		uint64_t intval;
-		char *strval, *fname;
+		const char *strval, *fname;
 		zpool_prop_t prop;
 		const char *propname;
 		zprop_type_t proptype;
