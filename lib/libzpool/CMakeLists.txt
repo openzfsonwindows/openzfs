@@ -57,6 +57,7 @@ add_library(libzpool
     "${MODULE_DIR}/zfs/bptree.c"
     "${MODULE_DIR}/zfs/btree.c"
     "${MODULE_DIR}/zfs/bqueue.c"
+    "${MODULE_DIR}/zfs/brt.c"
     "${MODULE_DIR}/zfs/dbuf.c"
     "${MODULE_DIR}/zfs/dbuf_stats.c"
     "${MODULE_DIR}/zfs/ddt.c"

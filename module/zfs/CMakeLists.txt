@@ -13,6 +13,7 @@ wdk_add_library(zfskern
   bpobj.c
   bptree.c
   bqueue.c
+  brt.c
   btree.c
   dataset_kstats.c
   dbuf.c

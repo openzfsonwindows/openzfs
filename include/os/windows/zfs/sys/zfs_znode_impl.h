@@ -140,7 +140,8 @@ extern minor_t zfsdev_minor_alloc(void);
 #define	zn_has_cached_data(zp, start, end)	(zp->z_is_mapped)
 #define	zn_flush_cached_data(zp, sync)	/* find solution */
 
-#define	zn_rlimit_fsize(zp, uio)	(0)
+#define	zn_rlimit_fsize(size)		(0)
+#define	zn_rlimit_fsize_uio(zp, uio)	(0)
 
 /* Called on entry to each ZFS inode and vfs operation. */
 static inline int
