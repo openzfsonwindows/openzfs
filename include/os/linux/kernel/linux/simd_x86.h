@@ -401,9 +401,6 @@ out:
 #endif /* defined(HAVE_KERNEL_FPU_INTERNAL */
 #endif /* defined(KERNEL_EXPORTS_X86_FPU) */
 
-#define	kfpu_begin_ctx(CTX) kfpu_begin()
-#define	kfpu_end_ctx(CTX) kfpu_end()
-
 /*
  * Linux kernel provides an interface for CPU feature testing.
  */

@@ -51,7 +51,7 @@ ZFS_NO_SANITIZE_UNDEFINED
 static void
 fletcher_4_avx2_init(fletcher_4_ctx_t *ctx)
 {
-	kfpu_begin_ctx(ctx);
+	kfpu_begin();
 	memset(ctx->avx, 0, 4 * sizeof (zfs_fletcher_avx_t));
 }
 
@@ -82,7 +82,7 @@ fletcher_4_avx2_fini(fletcher_4_ctx_t *ctx, zio_cksum_t *zcp)
 	    64 * ctx->avx[3].v[3];
 
 	ZIO_SET_CHECKSUM(zcp, A, B, C, D);
-	kfpu_end_ctx(ctx);
+	kfpu_end();
 }
 
 #define	FLETCHER_4_AVX2_RESTORE_CTX(ctx)				\
@@ -108,8 +108,6 @@ fletcher_4_avx2_native(fletcher_4_ctx_t *ctx, const void *buf, uint64_t size)
 	const uint64_t *ip = buf;
 	const uint64_t *ipend = (uint64_t *)((uint8_t *)ip + size);
 
-	kfpu_begin_ctx(ctx);
-
 	FLETCHER_4_AVX2_RESTORE_CTX(ctx);
 
 	do {
@@ -133,8 +131,6 @@ fletcher_4_avx2_byteswap(fletcher_4_ctx_t *ctx, const void *buf, uint64_t size)
 	};
 	const uint64_t *ip = buf;
 	const uint64_t *ipend = (uint64_t *)((uint8_t *)ip + size);
-
-	kfpu_begin_ctx(ctx);
 
 	FLETCHER_4_AVX2_RESTORE_CTX(ctx);
 

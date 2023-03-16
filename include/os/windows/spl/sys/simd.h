@@ -116,14 +116,6 @@ extern uint32_t kfpu_state;
 	if (NT_SUCCESS(saveStatus)) \
 		KeRestoreExtendedProcessorState(&SaveState);
 
-#define	kfpu_begin_ctx(CTX) \
-	(CTX)->saveStatus = KeSaveExtendedProcessorState(kfpu_state, \
-	    &(CTX)->SaveState);
-
-#define	kfpu_end_ctx(CTX) \
-	if (NT_SUCCESS((CTX)->saveStatus)) \
-		KeRestoreExtendedProcessorState(&(CTX)->SaveState);
-
 /*
  * CPUID feature tests for user-space. Linux kernel provides an interface for
  * CPU feature testing.
