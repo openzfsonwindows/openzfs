@@ -108,6 +108,7 @@ sysctl_os_write_registry(HANDLE regfd, ztunable_t *zt, UNICODE_STRING *entry)
 		    &length, val, len);
 		if (!NT_SUCCESS(Status))
 			goto skip;
+		if (length == 0) length++;
 		str.Length = str.MaximumLength = length;
 		str.Buffer = ExAllocatePoolWithTag(PagedPool, length,
 		    'ZTST');
