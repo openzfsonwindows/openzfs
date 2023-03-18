@@ -1,0 +1,137 @@
+name: zfs-windows
+
+on:
+  push:
+  pull_request:
+
+jobs:
+
+  build:
+    name: Build
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [latest]
+    runs-on: windows-${{ matrix.os }}
+    steps:
+    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+    - name: Import signing certificate
+      run: |
+        $plaintextpwd = 'password1234'
+        $pwd = ConvertTo-SecureString -String $plaintextpwd -Force -AsPlainText
+        Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pwd -Exportable
+
+    - name: Checkout openssl
+      uses: actions/checkout@v3
+      with:
+        repository: andrewc12/openssl # optional, default is ${{ github.repository }}
+        path: openssl # optional
+
+    - name: Configure CMake
+      # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
+      # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
+      run: cmake -G "Ninja" -B ${{github.workspace}}/out/build/x64-Debug ${{github.workspace}}  -DOPENSSL_ROOT_DIR=${{github.workspace}}/openssl/ -DCRYPTO_STATIC_TEST=${{github.workspace}}/openssl/lib/VC/static/libcrypto64MTd.lib -DLIB_EAY_DEBUG=${{github.workspace}}/openssl/lib/VC/static/libcrypto64MTd.lib -DLIB_EAY_RELEASE=${{github.workspace}}/openssl/lib/VC/static/libcrypto64MT.lib -DOPENSSL_INCLUDE_DIR=${{github.workspace}}/openssl/include -DSSL_EAY_DEBUG=${{github.workspace}}/openssl/lib/VC/static/libssl64MTd.lib -DSSL_EAY_RELEASE=${{github.workspace}}/openssl/lib/VC/static/libssl64MT.lib
+
+    - name: Build
+      working-directory: ${{github.workspace}}/out/build/x64-Debug
+      # Build your program with the given configuration
+      run: cmake --build ${{github.workspace}}/out/build/x64-Debug
+
+    - name: Download Inno Setup istaller
+      uses: suisei-cn/actions-download-file@v1.3.0
+      id: innoinstaller
+      with:
+        url: 'https://jrsoftware.org/download.php/is.exe'
+        target: ${{github.workspace}}/
+
+    - name: install inno
+      run: 'Start-Process -FilePath "${{github.workspace}}\${{ steps.innoinstaller.outputs.filename }}" -Wait -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Install.log`""'
+
+    - name: debug - print log
+      run: cat "${{github.workspace}}\InnoSetup-Install.log"
+
+    - name: run ISCC.exe to construct OpenZFS installer
+      run: '&"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\ZFSInstall-debug.iss "/Ssigntoolc=C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe sign /v /fd sha256 /n `$qOpenZFS Test Signing Certificate`$q /t http://timestamp.digicert.com `$f" | Tee-Object -FilePath "${{github.workspace}}\iscc.log"'
+      working-directory: ${{github.workspace}}\contrib\windows\Inno.Setup
+
+    - name: get installer exe name
+      id: innoout
+    # https://stackoverflow.com/questions/4426442/unix-tail-equivalent-command-in-windows-powershell
+    #https://www.jamescroft.co.uk/setting-github-actions-environment-variables-in-powershell/
+      run: |
+        $p = Get-Content "${{github.workspace}}\iscc.log" -Tail 1
+        echo $p
+        $f = (Get-Item $p ).Name
+        echo $f
+        echo installername=$f
+        #echo "installername=$f" >> $GITHUB_ENV
+        #echo "installername=$f" >> $GITHUB_OUTPUT
+        echo "installername=$f" | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append
+      #shell: pwsh
+
+    - name: Upload a Build Artifact
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v3.1.0
+      with:
+        name: build_output
+        path: ${{github.workspace}}/out
+        retention-days: 14
+
+    - name: Collect dev build
+      if: ${{ failure() }}
+      run: |
+        mkdir ${{github.workspace}}/zfs_collect
+        copy ${{github.workspace}}/out/build/x64-Debug/module/os/windows/driver/* ${{github.workspace}}/zfs_collect
+        copy ${{github.workspace}}/out/build/x64-Debug/cmd/os/windows/kstat/kstat.exe ${{github.workspace}}/zfs_collect/kstat.exe
+        copy ${{github.workspace}}/out/build/x64-Debug/cmd/os/windows/zfsinstaller/zfsinstaller.exe ${{github.workspace}}/zfs_collect/zfsinstaller.exe
+        copy ${{github.workspace}}/out/build/x64-Debug/cmd/zdb/zdb.exe ${{github.workspace}}/zfs_collect/zdb.exe
+        copy ${{github.workspace}}/out/build/x64-Debug/cmd/zfs/zfs.exe ${{github.workspace}}/zfs_collect/zfs.exe
+        copy ${{github.workspace}}/out/build/x64-Debug/cmd/zpool/zpool.exe ${{github.workspace}}/zfs_collect/zpool.exe
+        copy ${{github.workspace}}/out/build/x64-Debug/cmd/zstream/zstreamdump.exe ${{github.workspace}}/zfs_collect/zstreamdump.exe
+
+    - name: Upload dev build
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v3.1.0
+      with:
+        name: dev_build
+        path: ${{github.workspace}}/zfs_collect/*
+        retention-days: 14
+
+    - name: Upload dev build with Inno Setup
+      uses: actions/upload-artifact@v3.1.0
+      with:
+        name: dev_build_inno
+        path: ${{github.workspace}}\contrib\windows\${{ steps.innoout.outputs.name }}
+        retention-days: 14
+
+
+
+
+
+    # https://github.com/MicrosoftDocs/windows-powershell-docs/issues/266
+    - name: Import root certificate
+      run: |
+        $plaintextpwd = 'password1234'
+        $pwd = ConvertTo-SecureString -String $plaintextpwd -Force -AsPlainText
+        Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\LocalMachine\Root -Password $pwd
+        Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $pwd
+
+    - name: install zfs
+      run: 'Start-Process -FilePath "${{github.workspace}}\contrib\windows\${{ steps.innoout.outputs.installername }}" -Wait -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Install.log`""'
+      timeout-minutes: 5
+
+
+  testings:
+    name: Testing
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [latest]
+    needs: build
+    uses: ./.github/workflows/zfs-windows-tests.yml
+    with:
+      os: ${{ matrix.os }}
