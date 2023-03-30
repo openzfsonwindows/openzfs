@@ -7296,7 +7296,6 @@ void
 arc_tuning_update(boolean_t verbose)
 {
 	uint64_t allmem = arc_all_memory();
-	uint64_t limit;
 
 	/* Valid range: 32M - <arc_c_max> */
 	if ((zfs_arc_min) && (zfs_arc_min != arc_c_min) &&
