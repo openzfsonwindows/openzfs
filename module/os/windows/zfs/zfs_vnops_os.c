@@ -2554,7 +2554,7 @@ zfs_rename(znode_t *sdzp, char *snm, znode_t *tdzp, char *tnm,
 	 */
 	// Can't we use zp->z_zfsvfs in place of zp->vp->v_vfs ?
 	if (VTOM(ZTOV(tdzp)) != VTOM(ZTOV(sdzp)) ||
-	    zfsctl_is_node(ZTOV(tdzp))) {
+	    zfsctl_is_node(tdzp)) {
 		zfs_exit(zfsvfs, FTAG);
 		return (SET_ERROR(EXDEV));
 	}
