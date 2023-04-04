@@ -5395,13 +5395,15 @@ spa_add_spares(spa_t *spa, nvlist_t *config)
 		for (i = 0; i < nspares; i++) {
 			guid = fnvlist_lookup_uint64(spares[i],
 			    ZPOOL_CONFIG_GUID);
+			VERIFY0(nvlist_lookup_uint64_array(spares[i],
+			    ZPOOL_CONFIG_VDEV_STATS, (uint64_t **)&vs, &vsc));
 			if (spa_spare_exists(guid, &pool, NULL) &&
 			    pool != 0ULL) {
-				VERIFY0(nvlist_lookup_uint64_array(spares[i],
-				    ZPOOL_CONFIG_VDEV_STATS, (uint64_t **)&vs,
-				    &vsc));
 				vs->vs_state = VDEV_STATE_CANT_OPEN;
 				vs->vs_aux = VDEV_AUX_SPARED;
+			} else {
+				vs->vs_state =
+				    spa->spa_spares.sav_vdevs[i]->vdev_state;
 			}
 		}
 	}
@@ -9449,6 +9451,9 @@ spa_sync(spa_t *spa, uint64_t txg)
 	spa_sync_close_syncing_log_sm(spa);
 
 	spa_update_dspace(spa);
+
+	if (spa_get_autotrim(spa) == SPA_AUTOTRIM_ON)
+		vdev_autotrim_kick(spa);
 
 	/*
 	 * It had better be the case that we didn't dirty anything

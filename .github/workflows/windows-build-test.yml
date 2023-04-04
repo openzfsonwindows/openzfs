@@ -595,7 +595,7 @@ jobs:
 
     - name: get pool mount
       id: drive  # Remember to give an ID if you need the output filename
-      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe"  mount | Select-String -Pattern "^tank +([A-Za-z]:\\)"  | % {"drive=$($_.matches.groups[1].value)"} | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append'
+      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe"  mount | Select-String -Pattern "^tank +([A-Za-z]):[/\\]"  | % {"drive=$($_.matches.groups[1].value):\"} | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append'
 
 
     - name: echo
@@ -1493,11 +1493,11 @@ jobs:
 
     - name: get pool mount
       id: drive  # Remember to give an ID if you need the output filename
-      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe"  mount | Select-String -Pattern "^tank +([A-Za-z]:\\)"  | % {"drive=$($_.matches.groups[1].value)"} | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append'
+      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe"  mount | Select-String -Pattern "^tank +([A-Za-z]):[/\\]"  | % {"drive=$($_.matches.groups[1].value):\"} | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append'
 
     - name: get pool mount
       id: drivenoslash  # Remember to give an ID if you need the output filename
-      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe"  mount | Select-String -Pattern "^tank +([A-Za-z]:)\\"  | % {"drive=$($_.matches.groups[1].value)"} | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append'
+      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe"  mount | Select-String -Pattern "^tank +([A-Za-z]):[/\\]"  | % {"drive=$($_.matches.groups[1].value):"} | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append'
 
     - name: echo
       run: echo ${{ steps.drive.outputs.drive }}
@@ -1823,7 +1823,7 @@ jobs:
 
     - name: get pool mount
       id: drive  # Remember to give an ID if you need the output filename
-      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe"  mount | Select-String -Pattern "^tank +([A-Za-z]:\\)"  | % {"drive=$($_.matches.groups[1].value)"} | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append'
+      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe"  mount | Select-String -Pattern "^tank +([A-Za-z]):[/\\]"  | % {"drive=$($_.matches.groups[1].value):\"} | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append'
 
     - name: echo
       run: echo ${{ steps.drive.outputs.drive }}
