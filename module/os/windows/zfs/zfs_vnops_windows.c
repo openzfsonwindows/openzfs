@@ -469,8 +469,13 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 		 * and pass the "zp" back for caller to do more processing,
 		 * which might include returning "zp" (FILE_OPEN_REPARSE_POINT)
 		 * and ReparseTag.
+		 * But, if IRP->zfsvfs is the same as zp->zfsvfs, the lookup
+		 * was already requested for "us" specifically, so keep going.
+		 * This could fail with nested dirmounts? Only check lowest
+		 * directory to bail.
 		 */
-		if (zp->z_pflags & ZFS_REPARSE) {
+		if ((zp->z_pflags & ZFS_REPARSE) &&
+		    (zfsvfs != zp->z_zfsvfs)) {
 
 			// Indicate if reparse was final part
 			if (lastname)
