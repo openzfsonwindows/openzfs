@@ -24,10 +24,10 @@
  * Copyright (c) 2017 Jorgen Lundman <lundman@lundman.net>
  */
 
+#include <sys/simd.h>
 #include <sys/zfs_context.h>
 #include <sys/zfs_impl.h>
 #include <sys/blake3.h>
-#include <sys/simd.h>
 
 #include "blake3_impl.h"
 
