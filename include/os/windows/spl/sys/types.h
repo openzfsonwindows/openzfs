@@ -74,7 +74,7 @@ typedef uint64_t ino64_t;
 
 typedef unsigned char uuid_t[16];
 
-typedef void	zuserns_t;
+typedef void	zidmap_t;
 
 // clang spits out "atomics are disabled" - change code to use atomic() calls.
 // #define	_Atomic

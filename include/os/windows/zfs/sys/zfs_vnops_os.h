@@ -61,23 +61,23 @@ typedef struct emitdir_ptr emitdir_ptr_t;
 extern int zfs_remove(znode_t *dzp, char *name, cred_t *cr, int flags);
 extern int zfs_mkdir(znode_t *dzp, char *dirname, vattr_t *vap,
 	znode_t **zpp, cred_t *cr, int flags, vsecattr_t *vsecp,
-	zuserns_t *mnt_ns);
+	zidmap_t *mnt_ns);
 extern int zfs_rmdir(znode_t *dzp, char *name, znode_t *cwd,
 	cred_t *cr, int flags);
 extern int zfs_setattr(znode_t *zp, vattr_t *vap, int flag, cred_t *cr,
-	zuserns_t *mnt_ns);
+	zidmap_t *mnt_ns);
 extern int zfs_rename(znode_t *sdzp, char *snm, znode_t *tdzp,
 	char *tnm, cred_t *cr, int flags, uint64_t rflags, vattr_t *wo_vap,
-	zuserns_t *mnt_ns);
+	zidmap_t *mnt_ns);
 extern int zfs_symlink(znode_t *dzp, char *name, vattr_t *vap,
-	char *link, znode_t **zpp, cred_t *cr, int flags, zuserns_t *mnt_ns);
+	char *link, znode_t **zpp, cred_t *cr, int flags, zidmap_t *mnt_ns);
 extern int zfs_link(znode_t *tdzp, znode_t *sp,
 	char *name, cred_t *cr, int flags);
 extern int zfs_space(znode_t *zp, int cmd, struct flock *bfp, int flag,
 	offset_t offset, cred_t *cr);
 extern int zfs_create(znode_t *dzp, char *name, vattr_t *vap, int excl,
 	int mode, znode_t **zpp, cred_t *cr, int flag, vsecattr_t *vsecp,
-	zuserns_t *mnt_ns);
+	zidmap_t *mnt_ns);
 extern int zfs_setsecattr(znode_t *zp, vsecattr_t *vsecp, int flag,
 	cred_t *cr);
 extern int zfs_write_simple(znode_t *zp, const void *data, size_t len,
