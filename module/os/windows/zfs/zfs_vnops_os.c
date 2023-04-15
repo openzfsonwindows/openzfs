@@ -1430,6 +1430,7 @@ zfs_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr, zfs_dirlist_t *zccb,
 				break;
 			} else {
 				/* other error, skip over entry */
+				skip_this_entry = 1;
 			}
 		} // !skip_this_entry
 

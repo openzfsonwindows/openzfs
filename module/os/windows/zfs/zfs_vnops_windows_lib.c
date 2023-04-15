@@ -1186,7 +1186,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		// tmpnamelen / sizeof(WCHAR), tmpname, zap.za_name);
 
 		thisname.Buffer = nameptr;
-		thisname.Length = thisname.MaximumLength = namelen;
+		thisname.Length = thisname.MaximumLength = namelenholder2;
 		// wildcard?
 		if (zccb->ContainsWildCards) {
 			if (!FsRtlIsNameInExpression(&zccb->searchname,
@@ -4365,6 +4365,21 @@ ioctl_query_device_name(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	zmo = (mount_t *)DeviceObject->DeviceExtension;
+
+	/* If given a file, it must be root */
+	if (IrpSp->FileObject != NULL && IrpSp->FileObject->FsContext != NULL) {
+		struct vnode *vp = IrpSp->FileObject->FsContext;
+		if (vp != NULL) {
+			znode_t *zp = VTOZ(vp);
+			if (zp != NULL) {
+				if (zp->z_id != zp->z_zfsvfs->z_root) {
+					dprintf("%s on file which isn't root\n",
+					    __func__);
+					return (STATUS_INVALID_PARAMETER);
+				}
+			}
+		}
+	}
 
 	name = Irp->AssociatedIrp.SystemBuffer;
 
