@@ -219,6 +219,10 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 	    0,
 	    &length);
 
+	/* Some tunables need to always be written, think zfs_version */
+	if (zt->zt_flag & ZT_FLAG_WRITEONLY)
+		Status = STATUS_OBJECT_NAME_NOT_FOUND;
+
 	if (Status == STATUS_OBJECT_NAME_NOT_FOUND) {
 
 		Status = sysctl_os_write_registry(regfd, zt, &entry);
