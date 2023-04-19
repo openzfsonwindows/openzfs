@@ -80,8 +80,8 @@ ZFS_MODULE_RAW(, zfs_vdev_protection_filter, zfs_vdev_protection_filter,
     STRING, ZMOD_RW, ZT_FLAG_STATIC, "vdev_protection_filter");
 
 static uchar_t zfs_version[] = ZFS_META_GITREV;
-ZFS_MODULE_RAW(, zfs_version, zfs_version,
-    STRING, ZMOD_RD, ZT_FLAG_STATIC, "OpenZFS Windows Driver Version");
+ZFS_MODULE_RAW(, zfs_version, zfs_version, STRING, ZMOD_RD,
+    ZT_FLAG_STATIC | ZT_FLAG_WRITEONLY, "OpenZFS Windows Driver Version");
 
 #if defined(__clang__)
 /*

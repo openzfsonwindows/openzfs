@@ -112,6 +112,7 @@ typedef enum {
 typedef enum {
 	ZT_FLAG_ALLOCATED = 0,
 	ZT_FLAG_STATIC = (1<<0),
+	ZT_FLAG_WRITEONLY = (1<<1),
 } ztunable_flag;
 
 /*
