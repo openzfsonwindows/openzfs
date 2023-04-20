@@ -1964,6 +1964,10 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 #if defined(ZFS_FS_ATTRIBUTE_CLEANUP_INFO)
 		ffai->FileSystemAttributes |= FILE_RETURNS_CLEANUP_RESULT_INFO;
 #endif
+#if defined(FILE_SUPPORTS_BLOCK_REFCOUNTING)
+		/* Block-cloning, from FSCTL_DUPLICATE_EXTENTS */
+		ffai->FileSystemAttributes |= FILE_SUPPORTS_BLOCK_REFCOUNTING;
+#endif
 
 		/*
 		 * NTFS has these:
@@ -3076,6 +3080,335 @@ create_or_get_object_id(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (Status);
 }
 
+NTSTATUS
+set_sparse(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	uint64_t datalen =
+	    IrpSp->Parameters.FileSystemControl.InputBufferLength;
+	boolean_t set = B_TRUE;
+	struct vnode *vp;
+	znode_t *zp;
+
+	if (!IrpSp->FileObject)
+		return (STATUS_INVALID_PARAMETER);
+
+	/* Buffer is optional */
+	if (Irp->AssociatedIrp.SystemBuffer != NULL &&
+	    datalen < sizeof (FILE_SET_SPARSE_BUFFER))
+		return (STATUS_INVALID_PARAMETER);
+
+	/* if given */
+	FILE_SET_SPARSE_BUFFER *fssb = Irp->AssociatedIrp.SystemBuffer;
+
+	vp = IrpSp->FileObject->FsContext;
+	if (vp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	zp = VTOZ(vp);
+	if (zp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (fssb != NULL)
+		set = fssb->SetSparse;
+
+	/* We should at least send events */
+
+	return (STATUS_SUCCESS);
+}
+
+#ifndef FSCTL_GET_INTEGRITY_INFORMATION_BUFFER
+typedef struct _FSCTL_GET_INTEGRITY_INFORMATION_BUFFER {
+    USHORT ChecksumAlgorithm;
+    USHORT Reserved;
+    ULONG Flags;
+    ULONG ChecksumChunkSizeInBytes;
+    ULONG ClusterSizeInBytes;
+} FSCTL_GET_INTEGRITY_INFORMATION_BUFFER,
+	*PFSCTL_GET_INTEGRITY_INFORMATION_BUFFER;
+#endif
+
+NTSTATUS
+get_integrity_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	uint64_t datalen =
+	    IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+	FSCTL_GET_INTEGRITY_INFORMATION_BUFFER *fgiib;
+
+	fgiib = (FSCTL_GET_INTEGRITY_INFORMATION_BUFFER *)
+	    Irp->AssociatedIrp.SystemBuffer;
+
+	if (!IrpSp->FileObject)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (!fgiib ||
+	    datalen < sizeof (FSCTL_GET_INTEGRITY_INFORMATION_BUFFER))
+		return (STATUS_INVALID_PARAMETER);
+
+	fgiib->ChecksumAlgorithm = 0;
+	fgiib->Reserved = 0;
+	fgiib->Flags = 0;
+	fgiib->ChecksumChunkSizeInBytes = 512;
+	fgiib->ClusterSizeInBytes = 512;
+
+	Irp->IoStatus.Information =
+	    sizeof (FSCTL_GET_INTEGRITY_INFORMATION_BUFFER);
+
+	return (STATUS_SUCCESS);
+}
+
+#ifndef FSCTL_SET_INTEGRITY_INFORMATION_BUFFER
+typedef struct _FSCTL_SET_INTEGRITY_INFORMATION_BUFFER {
+    USHORT ChecksumAlgorithm;
+    USHORT Reserved;
+    ULONG Flags;
+} FSCTL_SET_INTEGRITY_INFORMATION_BUFFER,
+	*PFSCTL_SET_INTEGRITY_INFORMATION_BUFFER;
+#endif
+
+NTSTATUS
+set_integrity_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	uint64_t datalen =
+	    IrpSp->Parameters.DeviceIoControl.InputBufferLength;
+
+	if (!IrpSp->FileObject)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (!Irp->AssociatedIrp.SystemBuffer ||
+	    datalen < sizeof (FSCTL_SET_INTEGRITY_INFORMATION_BUFFER))
+		return (STATUS_INVALID_PARAMETER);
+
+	return (STATUS_SUCCESS);
+}
+
+NTSTATUS
+duplicate_extents_to_file(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp, boolean_t extended)
+{
+	NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
+	PFILE_OBJECT sourcefo = NULL;
+	PFILE_OBJECT FileObject = IrpSp->FileObject;
+	DWORD datalen = IrpSp->Parameters.DeviceIoControl.InputBufferLength;
+	void *buffer = Irp->AssociatedIrp.SystemBuffer;
+	struct vnode *outvp = NULL, *invp = NULL;
+	znode_t *outzp = NULL, *inzp = NULL;
+	zfsvfs_t *zfsvfs;
+	uint64_t inoff, outoff;
+	uint64_t length;
+
+	dprintf("%s\n", extended ? "duplicate_extents_to_file_ex" :
+	    "duplicate_extents_to_file");
+
+	if (!FileObject)
+		return (STATUS_INVALID_PARAMETER);
+	outvp = FileObject->FsContext;
+	if (outvp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	outzp = VTOZ(outvp);
+	if (outzp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	zfsvfs = outzp->z_zfsvfs;
+
+	if (vfs_isrdonly(zfsvfs->z_vfs))
+		return (STATUS_MEDIA_WRITE_PROTECTED);
+
+#if 0
+	if (Irp->RequestorMode == UserMode &&
+	    !(ccb->access & FILE_WRITE_DATA)) {
+		return (STATUS_ACCESS_DENIED);
+	}
+#endif
+	if (!vnode_isreg(outvp) && !vnode_islnk(outvp))
+		return (STATUS_INVALID_PARAMETER);
+
+
+	if (extended) {
+#ifndef _DUPLICATE_EXTENTS_DATA_EX
+		typedef struct _DUPLICATE_EXTENTS_DATA_EX {
+		    SIZE_T Size;
+		    HANDLE FileHandle;
+		    LARGE_INTEGER SourceFileOffset;
+		    LARGE_INTEGER TargetFileOffset;
+		    LARGE_INTEGER ByteCount;
+		    ULONG Flags;
+		} DUPLICATE_EXTENTS_DATA_EX, *PDUPLICATE_EXTENTS_DATA_EX;
+#endif
+		DUPLICATE_EXTENTS_DATA_EX *dede =
+		    (DUPLICATE_EXTENTS_DATA_EX *)buffer;
+
+		if (!buffer || datalen < sizeof (DUPLICATE_EXTENTS_DATA_EX) ||
+		    dede->Size != sizeof (DUPLICATE_EXTENTS_DATA_EX))
+			return (STATUS_BUFFER_TOO_SMALL);
+
+		if (dede->ByteCount.QuadPart == 0)
+			return (STATUS_SUCCESS);
+
+		inoff = dede->SourceFileOffset.QuadPart;
+		outoff = dede->TargetFileOffset.QuadPart;
+		length = dede->ByteCount.QuadPart;
+		Status = ObReferenceObjectByHandle(dede->FileHandle, 0,
+		    *IoFileObjectType, Irp->RequestorMode,
+		    (void **)&sourcefo, NULL);
+
+	} else {
+#ifndef _DUPLICATE_EXTENTS_DATA
+		typedef struct _DUPLICATE_EXTENTS_DATA {
+		    HANDLE FileHandle;
+		    LARGE_INTEGER SourceFileOffset;
+		    LARGE_INTEGER TargetFileOffset;
+		    LARGE_INTEGER ByteCount;
+		} DUPLICATE_EXTENTS_DATA, *PDUPLICATE_EXTENTS_DATA;
+#endif
+
+		DUPLICATE_EXTENTS_DATA *ded =
+		    (DUPLICATE_EXTENTS_DATA *)buffer;
+		if (!buffer || datalen < sizeof (DUPLICATE_EXTENTS_DATA))
+			return (STATUS_BUFFER_TOO_SMALL);
+		if (ded->ByteCount.QuadPart == 0)
+			return (STATUS_SUCCESS);
+
+		inoff = ded->SourceFileOffset.QuadPart;
+		outoff = ded->TargetFileOffset.QuadPart;
+		length = ded->ByteCount.QuadPart;
+		Status = ObReferenceObjectByHandle(ded->FileHandle, 0,
+		    *IoFileObjectType, Irp->RequestorMode,
+		    (void **)&sourcefo, NULL);
+	}
+
+	if (!NT_SUCCESS(Status)) {
+		dprintf("ObReferenceObjectByHandle returned %08lx\n", Status);
+		return (Status);
+	}
+
+	invp = sourcefo->FsContext;
+	if (invp == NULL || VN_HOLD(invp) != 0) {
+		Status = STATUS_INVALID_PARAMETER;
+		goto out;
+	}
+	/* Holding invp */
+
+	inzp = VTOZ(invp);
+	if (inzp == NULL) {
+		Status = STATUS_INVALID_PARAMETER;
+		goto out;
+	}
+
+	/* From here, release sourcefo */
+
+	/*
+	 * zfs_clone_range(znode_t *inzp, uint64_t *inoffp, znode_t *outzp,
+	 *    uint64_t *outoffp, uint64_t *lenp, cred_t *cr)
+	 */
+
+	Status = zfs_clone_range(inzp, &inoff, outzp, &outoff,
+	    &length, NULL);
+
+out:
+	ObDereferenceObject(sourcefo);
+	if (invp != NULL)
+		VN_RELE(invp);
+	return (SET_ERROR(Status));
+}
+
+/*
+ * Thought this was needed for clone, but it is not
+ * but keeping it around in case one day we will need it
+ */
+#if 0
+#ifndef FILE_REGION_INFO
+typedef struct _FILE_REGION_INFO {
+    LONGLONG FileOffset;
+    LONGLONG Length;
+    ULONG Usage;
+    ULONG Reserved;
+} FILE_REGION_INFO, *PFILE_REGION_INFO;
+#endif
+
+#ifndef FILE_REGION_OUTPUT
+typedef struct _FILE_REGION_OUTPUT {
+    ULONG Flags;
+    ULONG TotalRegionEntryCount;
+    ULONG RegionEntryCount;
+    ULONG Reserved;
+    FILE_REGION_INFO Region[1];
+} FILE_REGION_OUTPUT, *PFILE_REGION_OUTPUT;
+#endif
+
+#ifndef FILE_REGION_USAGE_VALID_CACHED_DATA
+#define	FILE_REGION_USAGE_VALID_CACHED_DATA	0x00000001
+#endif
+#endif
+
+NTSTATUS
+query_file_regions(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+#if 0
+	uint64_t inlen = IrpSp->Parameters.DeviceIoControl.InputBufferLength;
+	uint64_t outlen = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+	if (!IrpSp->FileObject)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (Irp->AssociatedIrp.SystemBuffer != NULL &&
+	    inlen < sizeof (FILE_REGION_INFO)) {
+		return (STATUS_BUFFER_TOO_SMALL);
+	}
+
+	if (Irp->AssociatedIrp.SystemBuffer == NULL ||
+	    outlen < sizeof (FILE_REGION_OUTPUT)) {
+		Irp->IoStatus.Information = sizeof (FILE_REGION_OUTPUT);
+		return (STATUS_BUFFER_TOO_SMALL);
+	}
+
+	struct vnode *vp = IrpSp->FileObject->FsContext;
+	if (vp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	znode_t *zp = VTOZ(vp);
+	if (zp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (inlen == 0) {
+
+	} else {
+		FILE_REGION_INFO *fri =
+		    (FILE_REGION_INFO *)Irp->AssociatedIrp.SystemBuffer;
+		if (fri->FileOffset > INT64_MAX || fri->Length > INT64_MAX)
+			return (STATUS_INVALID_PARAMETER);
+		if ((fri->FileOffset + fri->Length) > INT64_MAX)
+			return (STATUS_INVALID_PARAMETER);
+		if ((fri->Usage & 3) == 0)
+			return (STATUS_INVALID_PARAMETER);
+		fri->Reserved = 0;
+	}
+
+
+	FILE_REGION_OUTPUT *fro =
+	    (FILE_REGION_OUTPUT *)Irp->AssociatedIrp.SystemBuffer;
+
+	fro->Flags = 0;
+	fro->TotalRegionEntryCount = 1;
+	fro->RegionEntryCount = 0;
+	fro->Reserved = 0;
+
+	Irp->IoStatus.Information = sizeof (FILE_REGION_OUTPUT);
+	fro->RegionEntryCount = 1;
+	fro->Region[0].FileOffset = 0;
+	fro->Region[0].Length = zp->z_size;
+	fro->Region[0].Usage = FILE_REGION_USAGE_VALID_CACHED_DATA;
+	fro->Region[0].Reserved = 0;
+
+	return (STATUS_SUCCESS);
+#endif
+	return (STATUS_INVALID_PARAMETER);
+}
+
 typedef BOOLEAN
 	(__stdcall *tFsRtlCheckLockForOplockRequest)
 	(PFILE_LOCK FileLock, PLARGE_INTEGER AllocationSize);
@@ -3411,6 +3744,55 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		}
 		break;
 
+	case FSCTL_SET_SPARSE:
+		dprintf("    FSCTL_SET_SPARSE\n");
+		Status = set_sparse(DeviceObject, Irp, IrpSp);
+		break;
+
+#ifndef FSCTL_GET_INTEGRITY_INFORMATION
+#define	FSCTL_GET_INTEGRITY_INFORMATION CTL_CODE(FILE_DEVICE_FILE_SYSTEM, \
+	159, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#endif
+
+#ifndef FSCTL_SET_INTEGRITY_INFORMATION
+#define	FSCTL_SET_INTEGRITY_INFORMATION CTL_CODE(FILE_DEVICE_FILE_SYSTEM, \
+	160, METHOD_BUFFERED, FILE_READ_DATA | FILE_WRITE_DATA)
+#endif
+	case FSCTL_GET_INTEGRITY_INFORMATION:
+		dprintf("    FSCTL_GET_INTEGRITY_INFORMATION_BUFFER\n");
+		Status = get_integrity_information(DeviceObject, Irp, IrpSp);
+		break;
+
+	case FSCTL_SET_INTEGRITY_INFORMATION:
+		dprintf("    FSCTL_SET_INTEGRITY_INFORMATION_BUFFER\n");
+		Status = set_integrity_information(DeviceObject, Irp, IrpSp);
+		break;
+
+#ifndef FSCTL_DUPLICATE_EXTENTS_TO_FILE
+#define	FSCTL_DUPLICATE_EXTENTS_TO_FILE	CTL_CODE(FILE_DEVICE_FILE_SYSTEM, \
+	209, METHOD_BUFFERED, FILE_WRITE_DATA)
+#endif
+	case FSCTL_DUPLICATE_EXTENTS_TO_FILE:
+		dprintf("    FSCTL_DUPLICATE_EXTENTS_TO_FILE\n");
+		Status = duplicate_extents_to_file(DeviceObject, Irp, IrpSp,
+		    FALSE);
+		break;
+
+	case FSCTL_DUPLICATE_EXTENTS_TO_FILE_EX:
+		dprintf("    FSCTL_DUPLICATE_EXTENTS_TO_FILE_EX\n");
+		Status = duplicate_extents_to_file(DeviceObject, Irp, IrpSp,
+		    TRUE);
+		break;
+
+#ifndef FSCTL_QUERY_FILE_REGIONS
+#define	FSCTL_QUERY_FILE_REGIONS CTL_CODE(FILE_DEVICE_FILE_SYSTEM, \
+	161, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#endif
+	case FSCTL_QUERY_FILE_REGIONS:
+		dprintf("    FSCTL_QUERY_FILE_REGIONS\n");
+		Status = query_file_regions(DeviceObject, Irp, IrpSp);
+		break;
+
 	case FSCTL_ZFS_VOLUME_MOUNTPOINT:
 		dprintf("    FSCTL_ZFS_VOLUME_MOUNTPOINT\n");
 		Status = fsctl_zfs_volume_mountpoint(DeviceObject, Irp, IrpSp);
@@ -3706,7 +4088,12 @@ set_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	case FileDispositionInformation: // unlink
 		dprintf("* SET FileDispositionInformation\n");
 		Status = set_file_disposition_information(DeviceObject, Irp,
-		    IrpSp);
+		    IrpSp, B_FALSE);
+		break;
+	case FileDispositionInformationEx: // unlink
+		dprintf("* SET FileDispositionInformationEx\n");
+		Status = set_file_disposition_information(DeviceObject, Irp,
+		    IrpSp, B_TRUE);
 		break;
 	case FileEndOfFileInformation: // extend?
 		Status = set_file_endoffile_information(DeviceObject, Irp,
@@ -3724,10 +4111,6 @@ set_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 	case FileValidDataLengthInformation:  // truncate?
 		dprintf("* SET FileValidDataLengthInformation NOTIMP\n");
-		break;
-	case FileDispositionInformationEx:
-		Status = set_file_disposition_information_ex(DeviceObject, Irp,
-		    IrpSp);
 		break;
 	default:
 		dprintf("* %s: unknown type NOTIMPLEMENTED\n", __func__);

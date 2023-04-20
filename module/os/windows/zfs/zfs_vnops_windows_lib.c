@@ -2731,7 +2731,7 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 NTSTATUS
 set_file_disposition_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
-    PIO_STACK_LOCATION IrpSp)
+    PIO_STACK_LOCATION IrpSp, boolean_t ex)
 {
 	NTSTATUS Status = STATUS_INVALID_PARAMETER;
 
@@ -2741,8 +2741,8 @@ set_file_disposition_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	struct vnode *vp = FileObject->FsContext;
 	zfs_dirlist_t *zccb = FileObject->FsContext2;
-	FILE_DISPOSITION_INFORMATION *fdi = Irp->AssociatedIrp.SystemBuffer;
 	mount_t *zmo = DeviceObject->DeviceExtension;
+	ULONG flags = 0;
 
 	zfsvfs_t *zfsvfs = NULL;
 	if (zmo != NULL &&
@@ -2754,11 +2754,22 @@ set_file_disposition_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_INVALID_PARAMETER);
 
 	if (VN_HOLD(vp) == 0 && VTOZ(vp) != NULL) {
+
+		if (ex) {
+			FILE_DISPOSITION_INFORMATION_EX *fdie =
+			    Irp->AssociatedIrp.SystemBuffer;
+			flags = fdie->Flags;
+		} else {
+			FILE_DISPOSITION_INFORMATION *fdi =
+			    Irp->AssociatedIrp.SystemBuffer;
+			flags = fdi->DeleteFile ? FILE_DISPOSITION_DELETE : 0;
+		}
+
 		dprintf("Deletion %s on '%wZ'\n",
-		    fdi->DeleteFile ? "set" : "unset",
+		    flags & FILE_DISPOSITION_DELETE ? "set" : "unset",
 		    IrpSp->FileObject->FileName);
 		Status = STATUS_SUCCESS;
-		if (fdi->DeleteFile) {
+		if (flags & FILE_DISPOSITION_DELETE) {
 			Status = zfs_setunlink(IrpSp->FileObject, NULL);
 		} else {
 			if (zccb) zccb->deleteonclose = 0;
@@ -2766,60 +2777,10 @@ set_file_disposition_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 		// Dirs marked for Deletion should release all
 		// pending Notify events
-		if (Status == STATUS_SUCCESS && fdi->DeleteFile) {
+		if (Status == STATUS_SUCCESS &&
+		    (flags & FILE_DISPOSITION_DELETE)) {
 			FsRtlNotifyCleanup(zmo->NotifySync,
 			    &zmo->DirNotifyList, VTOZ(vp));
-		}
-
-		VN_RELE(vp);
-	}
-	return (Status);
-}
-
-NTSTATUS
-set_file_disposition_information_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
-    PIO_STACK_LOCATION IrpSp)
-{
-	NTSTATUS Status = STATUS_INVALID_PARAMETER;
-
-	if (IrpSp->FileObject == NULL || IrpSp->FileObject->FsContext == NULL)
-		return (STATUS_INVALID_PARAMETER);
-
-	PFILE_OBJECT FileObject = IrpSp->FileObject;
-	struct vnode *vp = FileObject->FsContext;
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
-	FILE_DISPOSITION_INFORMATION_EX *fdie = Irp->AssociatedIrp.SystemBuffer;
-	mount_t *zmo = DeviceObject->DeviceExtension;
-
-	zfsvfs_t *zfsvfs = NULL;
-	if (zmo != NULL &&
-	    (zfsvfs = vfs_fsprivate(zmo)) != NULL &&
-	    zfsvfs->z_rdonly)
-		return (STATUS_MEDIA_WRITE_PROTECTED);
-
-	if (zfsvfs == NULL)
-		return (STATUS_INVALID_PARAMETER);
-
-	if (VN_HOLD(vp) && VTOZ(vp) != NULL) {
-
-		Status = STATUS_SUCCESS;
-
-		dprintf("%s: Flags 0x%lx\n", __func__, fdie->Flags);
-
-		if (fdie->Flags | FILE_DISPOSITION_ON_CLOSE)
-			if (fdie->Flags | FILE_DISPOSITION_DELETE)
-				Status = zfs_setunlink(FileObject, NULL);
-			else
-				if (zccb) zccb->deleteonclose = 0;
-
-		// Do we care about FILE_DISPOSITION_POSIX_SEMANTICS ?
-
-		// Dirs marked for Deletion should release all
-		// pending Notify events
-		if (Status == STATUS_SUCCESS &&
-		    (fdie->Flags | FILE_DISPOSITION_DELETE)) {
-			FsRtlNotifyCleanup(zmo->NotifySync, &zmo->DirNotifyList,
-			    VTOZ(vp));
 		}
 
 		VN_RELE(vp);
@@ -2888,9 +2849,11 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	if (!zfsvfs->z_unmounted) {
 
-		// Can't be done on DeleteOnClose
-		if (zccb && zccb->deleteonclose)
+		// DeleteOnClose just returns OK.
+		if (zccb && zccb->deleteonclose) {
+			Status = STATUS_SUCCESS;
 			goto out;
+		}
 
 		// Advance only?
 		if (IrpSp->Parameters.SetFile.AdvanceOnly) {

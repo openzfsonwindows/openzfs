@@ -132,6 +132,8 @@ extern void zfs_zrele_async(znode_t *zp);
 extern int zfs_obtain_xattr(znode_t *, const char *, mode_t, cred_t *,
     vnode_t **, int);
 
+extern int zfsctl_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
+    zfs_dirlist_t *zccb, int flags);
 
 /*
  * Windows ACL Helper funcions

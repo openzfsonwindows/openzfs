@@ -132,7 +132,7 @@ extern ULONG get_reparse_tag(znode_t *zp);
 extern NTSTATUS set_file_basic_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
 extern NTSTATUS set_file_disposition_information(PDEVICE_OBJECT, PIRP,
-    PIO_STACK_LOCATION);
+    PIO_STACK_LOCATION, boolean_t);
 extern NTSTATUS set_file_disposition_information_ex(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
 extern NTSTATUS set_file_endoffile_information(PDEVICE_OBJECT, PIRP,
