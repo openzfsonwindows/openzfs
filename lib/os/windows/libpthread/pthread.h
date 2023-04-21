@@ -188,7 +188,7 @@ extern void (**_pthread_key_dest)(void *);
 
 #define	pthread_cleanup_push(F, A)\
 {\
-	const _pthread_cleanup _pthread_cup = {(F), (A), \
+	const _pthread_cleanup _pthread_cup = {(void (*)(void *))(F), (A), \
 	    pthread_self()->clean};	\
 	_ReadWriteBarrier();\
 	pthread_self()->clean = (_pthread_cleanup *) &_pthread_cup;\
@@ -561,7 +561,8 @@ static int pthread_set_concurrency(int val)
 #define	pthread_setschedparam(T, P, S) ENOTSUP
 #define	pthread_getcpuclockid(T, C) ENOTSUP
 
-static int pthread_exit(void *res)
+__declspec(noreturn) static int
+pthread_exit(void *res)
 {
 	pthread_t t = pthread_self();
 

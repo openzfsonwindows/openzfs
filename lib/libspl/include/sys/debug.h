@@ -29,7 +29,7 @@
 
 #include <assert.h>
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && !defined(__clang__)
 
 #ifndef	__printflike
 #define	__printflike(x, y)

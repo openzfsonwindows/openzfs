@@ -40,6 +40,7 @@ int secpolicy_fs_unmount(cred_t *, struct mount *);
 int secpolicy_nfs(const cred_t *);
 int secpolicy_sys_config(const cred_t *, boolean_t);
 int secpolicy_zfs(const cred_t *);
+int secpolicy_zfs_proc(const cred_t *, proc_t *);
 int secpolicy_zinject(const cred_t *);
 
 /*

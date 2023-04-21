@@ -37,6 +37,7 @@
 // pre-processor, so we need to push them here as well.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunknown-pragmas"
+#pragma GCC diagnostic ignored "-Wignored-attributes"
 #pragma GCC diagnostic ignored "-Wignored-pragma-intrinsic"
 #endif
 
