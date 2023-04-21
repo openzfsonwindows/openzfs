@@ -444,16 +444,15 @@ icp_aes_impl_get(char *buffer, zfs_kernel_param_t *kp)
 int
 win32_icp_aes_impl_set(ZFS_MODULE_PARAM_ARGS)
 {
-	uint32_t val;
 	static unsigned char str[1024] = "";
 
 	*type = ZT_TYPE_STRING;
 
 	if (set == B_FALSE) {
 		if (aes_impl_initialized)
-			icp_aes_impl_get(str, NULL);
+			icp_aes_impl_get((char *)str, NULL);
 		*ptr = str;
-		*len = strlen(str);
+		*len = strlen((const char *)str);
 		return (0);
 	}
 

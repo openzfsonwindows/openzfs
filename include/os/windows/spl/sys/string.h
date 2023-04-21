@@ -22,6 +22,8 @@
 #ifndef _SPL_STRING_H
 #define	_SPL_STRING_H
 
+size_t strlcpy(char *dst, const char *src, size_t dstsize);
+
 #include <string.h>
 
 #endif /* SPL_DISP_H */

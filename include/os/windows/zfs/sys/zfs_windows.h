@@ -33,8 +33,6 @@ extern PDEVICE_OBJECT fsDiskDeviceObject;
 
 #define	ZFS_SERIAL	(ULONG)'wZFS'
 #define	VOLUME_LABEL	L"ZFS"
-DECLARE_GLOBAL_CONST_UNICODE_STRING(ZFSVolumeName, VOLUME_LABEL);
-
 
 
 // We have to remember "query directory" related items, like index and

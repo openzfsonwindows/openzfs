@@ -51,7 +51,8 @@
 #define	DEV_BSHIFT			9 /* log2(DEV_BSIZE) */
 
 #define	proc_pageout			NULL
-#define	curproc		(struct proc *)PsGetCurrentProcess()
+// #define	curproc		(struct proc *)PsGetCurrentProcess()
+#define	curproc		(proc_t *)PsGetCurrentProcess()
 
 extern uint32_t cpu_number(void);
 #define	CPU_SEQID		(cpu_number())
@@ -246,6 +247,7 @@ extern void spl_cleanup(void);
 #define	IS_INDEXABLE(arg) (sizeof (arg[0]))
 #define	IS_ARRAY(arg) \
 	(IS_INDEXABLE(arg) && (((void *) &arg) == ((void *) arg)))
-#define	ARRAY_SIZE(arr) (IS_ARRAY(arr) ? (sizeof (arr) / sizeof (arr[0])) : 0)
+
+#define	ARRAY_SIZE(a) (sizeof (a) / sizeof (a[0]))
 
 #endif  /* _SPL_SYSMACROS_H */

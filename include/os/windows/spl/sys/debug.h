@@ -58,16 +58,15 @@
 #include <spl-debug.h>
 #include <stdio.h>
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && !defined(__clang__)
 
 #define	unlikely(X) X
 #define	likely(X) X
-#define	__maybe_unused
+#define	__maybe_unused [[maybe_unused]]
 #define	__printflike(X, Y)
-#define	__unused
+#define	__unused [[maybe_unused]]
 #define	always_inline __forceinline
 #define	_Noreturn __declspec(noreturn)
-
 
 #else
 

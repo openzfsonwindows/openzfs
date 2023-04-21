@@ -29,7 +29,7 @@ typedef struct _KPROCESS proc_t;
 extern proc_t p0;
 
 #define	current_proc PsGetCurrentProcess
-#define	getpid() (pid_t)PsGetProcessId(PsGetCurrentProcess())
+#define	getpid() (pid_t)(uintptr_t)PsGetProcessId(PsGetCurrentProcess())
 
 static inline boolean_t
 zfs_proc_is_caller(proc_t *p)

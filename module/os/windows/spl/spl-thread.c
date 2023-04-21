@@ -111,7 +111,9 @@ spl_current_thread(void)
 	return ((kthread_t *)cur_thread);
 }
 
-void
+extern __declspec(noreturn) NTSTATUS PsTerminateSystemThread(NTSTATUS);
+
+__declspec(noreturn) void
 spl_thread_exit(void)
 {
 	atomic_dec_64(&zfs_threads);

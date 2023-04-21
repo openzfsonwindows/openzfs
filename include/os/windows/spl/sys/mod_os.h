@@ -51,6 +51,7 @@ extern "C" {
 #endif /* __cplusplus */
 
 #include <sys/linker_set.h>
+#include <sys/string.h>
 
 #define	MODULE_INIT(s)
 #define	MODULE_AUTHOR(s)

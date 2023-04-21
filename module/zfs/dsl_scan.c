@@ -3049,8 +3049,9 @@ static void
 dsl_scan_visit_impl(dsl_scan_t *scn, dmu_tx_t *tx);
 
 void
-dsl_scan_visit_wrap(struct _win32_larger_stack *arg)
+dsl_scan_visit_wrap(void *arg1)
 {
+	struct _win32_larger_stack *arg = (struct _win32_larger_stack *)arg1;
 	dsl_scan_visit_impl(arg->scn, arg->tx);
 }
 
