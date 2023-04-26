@@ -6946,6 +6946,8 @@ dump_block_stats(spa_t *spa)
 		if (dump_opt['b'] >= 2) {
 			dump_size_histograms(zcb);
 		}
+
+		umem_free(mdstats, sizeof (zfs_blkstat_t));
 	}
 
 	(void) printf("\n");
