@@ -30,5 +30,5 @@ if '%errorlevel%' NEQ '0' (
 @echo on
 
 
-py parsedump.py
+python3 parsedump.py
 pause
