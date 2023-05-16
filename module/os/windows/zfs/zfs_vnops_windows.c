@@ -1412,20 +1412,24 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    &vp->share_access);
 				vnode_unlock(vp);
 
-				if (stream_name == NULL)
+				if (stream_name == NULL) {
 					zfs_send_notify(zfsvfs,
 					    zp->z_name_cache,
 					    zp->z_name_offset,
 					    FILE_NOTIFY_CHANGE_FILE_NAME,
 					    FILE_ACTION_ADDED);
-				else
-					zfs_send_notify_stream(zfsvfs,
+				} else {
+
+					zfs_build_path_stream(zp, NULL, NULL,
+					    NULL, NULL, stream_name);
+
+					zfs_send_notify_stream(zfsvfs, // WOOT
 					    zp->z_name_cache,
 					    zp->z_name_offset,
 					    FILE_NOTIFY_CHANGE_STREAM_NAME,
 					    FILE_ACTION_ADDED_STREAM,
 					    stream_name);
-
+				}
 			}
 			VN_RELE(vp);
 			VN_RELE(dvp);
@@ -2277,12 +2281,25 @@ query_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 	case FileNormalizedNameInformation:
 		dprintf("FileNormalizedNameInformation\n");
-		// IFSTEST AllInformationTest requires this name, and
-		// FileAllInformation to be identical, so we no longer
-		// return the fullpath.
+	/*
+	 * According to chatGPT, the difference between FileNameInformation
+	 * and FileNormalizedNameInformation is that the latter will
+	 * return a more "portable" name. For example;
+	 * "My Photos (2022)" -> "my_photos_2022", as the FS desires.
+	 * In this example, unified case, no spaces and limited charset.
+	 *
+	 * The complications start when the normalized name is passed to
+	 * lookup (CreateFile->zfs_vnop_lookup()) as it is expected to
+	 * work. Uniqueness would have to be guaranteed (per directory).
+	 * And filename matching would be more complicated.
+	 *
+	 * For now, let's return identical names for Normalized.
+	 *
+	 */
+
 		normalize = 1;
-		/* According to fastfat, this means never return shortnames */
-		/* fall through */
+
+		zfs_fallthrough;
 	case FileNameInformation:
 		//
 		// If overflow, set Information to input_size and NameLength
@@ -2439,15 +2456,20 @@ BufferUserBuffer(IN OUT PIRP Irp, IN ULONG BufferLength)
 // Return 0 for OK, 1 for overflow.
 int
 zfswin_insert_xattrname(struct vnode *vp, char *xattrname, uint8_t *outbuffer,
-    DWORD **lastNextEntryOffset, uint64_t availablebytes, uint64_t *spaceused)
+    FILE_FULL_EA_INFORMATION **previous_ea, uint64_t availablebytes,
+    uint64_t *spaceused)
 {
 	// The first xattr struct we assume is already aligned, but further ones
 	// should be padded here.
 	FILE_FULL_EA_INFORMATION *ea = NULL;
 	int overflow = 0;
+	znode_t *zp = VTOZ(vp);
+	uint64_t needed_total = 0;
 
 	// If not first struct, align outsize to 4 bytes - 0 aligns to 0.
-	*spaceused = (((*spaceused) + 3) & ~3);
+	uint64_t alignment;
+
+	alignment = (((*spaceused) + 3) & ~3) - (*spaceused);
 
 	// Convert filename, to get space required.
 	ULONG needed_xattrnamelen;
@@ -2457,95 +2479,112 @@ zfswin_insert_xattrname(struct vnode *vp, char *xattrname, uint8_t *outbuffer,
 	// xattrname, strlen(xattrname));
 	needed_xattrnamelen = strlen(xattrname);
 
-	// Is there room? We have to add the struct if there is room for it
-	// and fill it out as much as possible, and copy in as much of the name
-	// as we can.
+	// EaValueLength is a USHORT, so cap xattrs (in this IRP)
+	// to that max.
+	uint32_t readmax;
+	readmax = MIN(zp->z_size, 0xffff);
 
-	if (*spaceused + sizeof (FILE_FULL_EA_INFORMATION) <= availablebytes) {
-		ea = (FILE_FULL_EA_INFORMATION *)&outbuffer[*spaceused];
+	// Since we would only return whole records, work out how much space
+	// we need, so we can return it, and if things still fit, fill it in
+	needed_total =
+	    alignment +
+	    FIELD_OFFSET(FILE_FULL_EA_INFORMATION, EaName) +
+	    needed_xattrnamelen + 1 +
+	    readmax;
 
-		// Room for one more struct, update privious's next ptr
-		if (*lastNextEntryOffset != NULL) {
-			// Update previous structure to point to this one.
-			**lastNextEntryOffset = (DWORD)*spaceused;
-		}
+	// Is there room? We only deal with full records.
+	if (*spaceused + needed_total > availablebytes) {
 
-
-		// Directly set next to 0, assuming this will be last record
-		ea->NextEntryOffset = 0;
-		ea->Flags = 0; // Fix me?
-		ea->EaValueLength = 0;
-
-		// remember this struct's NextEntry, so the next one
-		// can fill it in.
-		*lastNextEntryOffset = &ea->NextEntryOffset;
-
-		// Return the total name length not counting null
-		ea->EaNameLength = needed_xattrnamelen;
-
-		// Consume the space of the struct
-		*spaceused += FIELD_OFFSET(FILE_FULL_EA_INFORMATION, EaName);
-
-		uint64_t roomforname;
-		if (*spaceused + ea->EaNameLength + 1 <= availablebytes) {
-			roomforname = ea->EaNameLength + 1;
-		} else {
-			roomforname = availablebytes - *spaceused;
-			overflow = 1;
-		}
-
-		// Consume the space of (partial?) filename
-		*spaceused += roomforname;
-
-		// Now copy out as much of the filename as can fit.
-		// We need to real full length in StreamNameLength
-		// There is always room for 1 char
-		strlcpy(ea->EaName, xattrname, roomforname);
-
-		// If still room, copy out the xattr value
-		uint64_t roomforvalue;
-		if (*spaceused >= availablebytes) {
-			overflow = 1;
-		} else {
-			roomforvalue = availablebytes - *spaceused;
-			if (overflow == 0 && vp != NULL) {
-
-				if (roomforvalue < VTOZ(vp)->z_size)
-					overflow = 1;
-
-				struct iovec iov;
-				iov.iov_base = (void *)&outbuffer[*spaceused];
-				iov.iov_len = roomforvalue;
-
-				zfs_uio_t uio;
-				zfs_uio_iovec_init(&uio, &iov, 1, 0,
-				    UIO_SYSSPACE, roomforvalue, 0);
-
-				zfs_read(VTOZ(vp), &uio, 0, NULL);
-				// Consume as many bytes as we read
-				*spaceused +=
-				    roomforvalue - zfs_uio_resid(&uio);
-				// Set the valuelen, should this be the full
-				// value or what we would need?
-				// That is how the names work.
-				ea->EaValueLength = VTOZ(vp)->z_size;
-			}
-		}
-		dprintf("%s: added %s xattrname '%s'\n", __func__,
-		    overflow ? "(partial)" : "", xattrname);
-	} else {
-		dprintf("%s: no room for  '%s'\n", __func__, xattrname);
-		overflow = 1;
+		// This logic should be up one level. If
+		// this is the first record, return error
+		// and spaceused is what is needed to hold it.
+		// If we already have valid records, just return
+		// OK, and deal with this one next time.
+		*spaceused += needed_total;
+		return (1); // Overflow
 	}
 
-	return (overflow);
+	// the data should now fit.
+	ea = &outbuffer[*spaceused + alignment];
+
+	// Room for one more struct, update previous's next ptr
+	if (*previous_ea != NULL) {
+		// Update previous structure to point to this one.
+		(*previous_ea)->NextEntryOffset =
+		    (uintptr_t)ea - (uintptr_t)(*previous_ea);
+	}
+
+	// Directly set next to 0, assuming this will be last record
+	ea->NextEntryOffset = 0;
+	ea->Flags = 0; // Fix me?
+	ea->EaValueLength = 0;
+
+	// remember this EA, so the next one
+	// can fill in the offset.
+	*previous_ea = ea;
+
+	// Return the total name length not counting null
+	ea->EaNameLength = needed_xattrnamelen;
+
+	// Now copy out as much of the filename as can fit.
+	// We need to real full length in StreamNameLength
+	// There is always room for 1 char
+	strlcpy(ea->EaName, xattrname, needed_xattrnamelen + 1);
+
+	if (vp != NULL) {
+		struct iovec iov;
+
+		// MSN: value(s) associated with each entry follows
+		// the EaName array.
+		// That is, an EA's values are located at
+		// EaName + (EaNameLength + 1).
+		iov.iov_base =
+		    (void *)&outbuffer[*spaceused + needed_total - readmax];
+		iov.iov_len = readmax;
+
+		zfs_uio_t uio;
+		zfs_uio_iovec_init(&uio, &iov, 1, 0,
+		    UIO_SYSSPACE, readmax, 0);
+
+		zfs_read(VTOZ(vp), &uio, 0, NULL);
+
+		// Set the valuelen, should this be the full
+		// value or what we would need?
+		// That is how the names work.
+		// ea->EaValueLength = VTOZ(vp)->z_size;
+		ea->EaValueLength = readmax;
+	}
+
+	*spaceused += needed_total;
+
+	dprintf("%s: added xattrname '%s'\n", __func__,
+	    xattrname);
+
+	return (0); // No overflow
 }
 
 /*
+ * ** This is how I thought it worked:
  * Iterate through the XATTRs of an object, skipping streams. It works
  * like readdir, with saving index point, restart_scan and single_entry flags.
  * It can optionally supply QueryEa.EaList to query specific set of EAs.
  * Each output structure is 4 byte aligned
+ *
+ * 1: While EAs fit, including name and value-data, we keep packing them
+ * in. If we have a non-zero number of valid EAs in the output buffer,
+ * we return STATUS_SUCCESS, and IoStatus.Information is set to the
+ * number of bytes in the output buffer.
+ *
+ * 2: If we can't fit (the next) EA at all, and there are no prior valid
+ * EAs (they would handled by 1: above) we return STATUS_BUFFER_OVERFLOW
+ * and IoStatus.Information is set to what it needs to fit it.
+ *
+ * 3: If we finished with all EAs, we return the valid records
+ * with status STATUS_NO_MORE_EAS.
+ *
+ *
+ * ** But it actually wants everything in one-shot, fit all in the buffer
+ * or return STATUS_BUFFER_OVERFLOW.
  */
 NTSTATUS
 query_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
@@ -2561,7 +2600,7 @@ query_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	BOOLEAN RestartScan;
 	BOOLEAN ReturnSingleEntry;
 	BOOLEAN IndexSpecified;
-	DWORD *lastNextEntryOffset = NULL;
+	FILE_FULL_EA_INFORMATION *previous_ea = NULL;
 	uint64_t spaceused = 0;
 	znode_t *zp = NULL, *xdzp = NULL;
 	zfsvfs_t *zfsvfs = NULL;
@@ -2590,12 +2629,29 @@ query_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	dprintf("%s\n", __func__);
 
+	Buffer = MapUserBuffer(Irp);
+
 	// Grab the xattr dir - if any
 	if (zfs_get_xattrdir(zp, &xdzp, NULL, 0) != 0) {
+		Irp->IoStatus.Information = 0;
 		return (STATUS_NO_EAS_ON_FILE);
 	}
 	xdvp = ZTOV(xdzp);
-	Buffer = MapUserBuffer(Irp);
+
+	if (UserBufferLength < sizeof (FILE_FULL_EA_INFORMATION)) {
+		VN_RELE(xdvp);
+
+		if (UserBufferLength == 0) {
+			Irp->IoStatus.Information = 0;
+			return (STATUS_NO_MORE_EAS);
+		}
+
+		Irp->IoStatus.Information = sizeof (FILE_FULL_EA_INFORMATION);
+		return (STATUS_BUFFER_OVERFLOW);
+		// Docs say to return too-small, but some callers get stuck
+		// calling this in a cpu loop if we return it.
+		return (STATUS_BUFFER_TOO_SMALL);
+	}
 
 	znode_t *xzp = NULL;
 	FILE_GET_EA_INFORMATION *ea;
@@ -2625,18 +2681,18 @@ query_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 			    0, NULL, NULL);
 			if (error == 0) {
 				overflow += zfswin_insert_xattrname(ZTOV(xzp),
-				    ea->EaName, Buffer, &lastNextEntryOffset,
+				    ea->EaName, Buffer, &previous_ea,
 				    UserBufferLength, &spaceused);
 				zrele(xzp);
 			} else {
 				// No such xattr, we then "dummy" up an ea
 				overflow += zfswin_insert_xattrname(NULL,
-				    ea->EaName, Buffer, &lastNextEntryOffset,
+				    ea->EaName, Buffer, &previous_ea,
 				    UserBufferLength, &spaceused);
 			}
 
-			if (overflow != 0)
-				break;
+			// if (overflow != 0)
+			//	break;
 
 			zccb->ea_index++;
 
@@ -2671,11 +2727,11 @@ query_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 			    0, NULL, NULL);
 			if (error == 0) {
 				overflow += zfswin_insert_xattrname(ZTOV(xzp),
-				    za.za_name, Buffer, &lastNextEntryOffset,
+				    za.za_name, Buffer, &previous_ea,
 				    UserBufferLength, &spaceused);
 				zrele(xzp);
-				if (overflow != 0)
-					break;
+				// if (overflow != 0)
+				//	break;
 				zccb->ea_index++;
 			}
 			if (ReturnSingleEntry)
@@ -2688,11 +2744,14 @@ query_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 out:
 
 	if (xdvp) VN_RELE(xdvp);
+
 	Irp->IoStatus.Information = spaceused;
+
+	// Didn't fit even one
 	if (overflow)
 		Status = STATUS_BUFFER_OVERFLOW;
-	else if (spaceused == 0)
-		Status = STATUS_NO_MORE_EAS;
+	else
+		Status = STATUS_SUCCESS;
 
 	return (Status);
 }
@@ -2735,13 +2794,12 @@ set_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	    input_len, &eaErrorOffset);
 	// (Information is ULONG_PTR; as win64 is a LLP64 platform,
 	// ULONG isn't the right length.)
-	Irp->IoStatus.Information = eaErrorOffset;
+	Irp->IoStatus.Information = 0;
 	if (!NT_SUCCESS(Status)) {
 		dprintf("%s: failed vnode_apply_eas: 0x%lx\n",
 		    __func__, Status);
 		return (Status);
 	}
-
 	return (Status);
 }
 
@@ -4335,7 +4393,7 @@ out:
 	    (fileObject->Flags & FO_SYNCHRONOUS_IO) &&
 	    !(Irp->Flags & IRP_PAGING_IO)) {
 		// update current byte offset only when synchronous IO
-		// and not pagind IO
+		// and not paging IO
 		fileObject->CurrentByteOffset.QuadPart =
 		    byteOffset.QuadPart + Irp->IoStatus.Information;
 	}
@@ -4781,7 +4839,7 @@ query_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		Irp->IoStatus.Information = buflen;
 	} else if (NT_SUCCESS(Status)) {
 		Irp->IoStatus.Information =
-		    IrpSp->Parameters.QuerySecurity.Length;
+		    buflen;
 	} else {
 		Irp->IoStatus.Information = 0;
 	}
