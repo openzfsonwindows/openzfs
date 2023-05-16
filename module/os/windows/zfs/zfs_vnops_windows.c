@@ -3651,7 +3651,7 @@ NTSTATUS
 user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
     PIO_STACK_LOCATION IrpSp)
 {
-	NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
+	NTSTATUS Status = STATUS_INVALID_DEVICE_REQUEST;
 	PIRP Irp = *PIrp;
 
 	switch (IrpSp->Parameters.FileSystemControl.FsControlCode) {
@@ -3854,6 +3854,11 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 	case FSCTL_ZFS_VOLUME_MOUNTPOINT:
 		dprintf("    FSCTL_ZFS_VOLUME_MOUNTPOINT\n");
 		Status = fsctl_zfs_volume_mountpoint(DeviceObject, Irp, IrpSp);
+		break;
+
+	case FSCTL_READ_FILE_USN_DATA:
+		dprintf("    FSCTL_READ_FILE_USN_DATA\n");
+		Status = STATUS_INVALID_DEVICE_REQUEST;
 		break;
 
 	default:
