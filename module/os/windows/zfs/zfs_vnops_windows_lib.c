@@ -314,6 +314,8 @@ common_status_str(NTSTATUS Status)
 		return ("OK");
 	case STATUS_BUFFER_OVERFLOW:
 		return ("Overflow");
+	case STATUS_BUFFER_TOO_SMALL:
+		return ("BufferTooSmall");
 	case STATUS_END_OF_FILE:
 		return ("EOF");
 	case STATUS_NO_MORE_FILES:
@@ -703,6 +705,8 @@ out:
 	if (xdvp != NULL) {
 		VN_RELE(xdvp);
 	}
+
+	vnode_clear_easize(vp);
 
 	return (Status);
 }
@@ -2069,6 +2073,36 @@ failed:
 }
 
 /*
+ * Eventually, build_path above could handle streams, but for now lets
+ * just set the stream name.
+ * Using FileTest on NTFS file:Zone.Identifier:$DATA returns the
+ * name "/src/openzfs/zpool.exe:Zone.Identifier"
+ */
+int
+zfs_build_path_stream(znode_t *start_zp, znode_t *start_parent, char **fullpath,
+    uint32_t *returnsize, uint32_t *start_zp_offset, char *stream)
+{
+
+	if (start_zp == NULL)
+		return (EINVAL);
+
+	if (stream == NULL)
+		return (EINVAL);
+
+	if (start_zp->z_name_cache != NULL) {
+		kmem_free(start_zp->z_name_cache, start_zp->z_name_len);
+		start_zp->z_name_cache = NULL;
+		start_zp->z_name_len = 0;
+	}
+	start_zp->z_name_len = strlen(stream) + 1;
+	start_zp->z_name_cache = kmem_alloc(start_zp->z_name_len, KM_SLEEP);
+	strlcpy(start_zp->z_name_cache, stream, start_zp->z_name_len);
+	start_zp->z_name_offset = 0;
+
+	return (0);
+}
+
+/*
  * This is connected to IRP_MN_NOTIFY_DIRECTORY_CHANGE
  * and sending the notifications of changes
  */
@@ -2443,9 +2477,16 @@ xattr_getsize(struct vnode *vp)
 	if (vp == NULL)
 		return (0);
 
+#if 0
+	boolean_t cached = B_FALSE;
+	uint64_t cached_size = 0ULL;
+	// To test the caching is correct
+	cached = vnode_easize(vp, &cached_size);
+#else
 	// Cached? Easy, use it
 	if (vnode_easize(vp, &ret))
 		return (ret);
+#endif
 
 	zp = VTOZ(vp);
 	zfsvfs = zp->z_zfsvfs;
@@ -2486,6 +2527,14 @@ xattr_getsize(struct vnode *vp)
 	VN_RELE(xdvp);
 
 out:
+
+#if 0
+	if (cached) {
+		if (ret != cached_size)
+			DbgBreakPoint();
+	}
+#endif
+
 	// Cache result, even if failure (cached as 0).
 	vnode_set_easize(vp, ret);
 
@@ -3139,7 +3188,7 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    error != STATUS_SOME_NOT_MAPPED) {
 		return (STATUS_ILLEGAL_CHARACTER);
 	}
-
+	SetFlag(FileObject->Flags, FO_FILE_MODIFIED);
 	// Output string is only null terminated if input is, so do so now.
 	buffer[outlen] = 0;
 	filename = buffer;
@@ -3967,9 +4016,15 @@ file_name_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		// Safety
 		if (zp->z_name_cache != NULL) {
+#if 0
+			// Just name
+			strlcpy(strname, &zp->z_name_cache[zp->z_name_offset],
+			    MAXPATHLEN);
+#else
+			// Full path name
 			strlcpy(strname, zp->z_name_cache,
 			    MAXPATHLEN);
-
+#endif
 			// If it is a DIR, make sure it ends with "\",
 			// except for root, that is just "\"
 			if (S_ISDIR(zp->z_mode))
@@ -4004,6 +4059,9 @@ file_name_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		Status = STATUS_BUFFER_OVERFLOW;
 	else
 		Status = STATUS_SUCCESS;
+
+	// Would this go one byte too far?
+	name->FileName[name->FileNameLength / sizeof (name->FileName)] = 0;
 
 	// Return how much of the filename we copied after the first wchar
 	// which is used with sizeof (struct) to work out how much
@@ -4051,9 +4109,13 @@ file_remote_protocol_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 // StreamNameLength is always the FULL name length, even when we only
 // fit partial.
 // Return 0 for OK, 1 for overflow.
+// ADS are returned as ":Zone.Identifier:$DATA".
+// EAs are returned as "Zone.Identifier".
+// OK, this should only return Streams, but keeping
+// the EA code around in case..
 int
 zfswin_insert_streamname(char *streamname, uint8_t *outbuffer,
-    DWORD **lastNextEntryOffset, uint64_t availablebytes,
+    FILE_STREAM_INFORMATION **previous_stream, uint64_t availablebytes,
     uint64_t *spaceused, uint64_t streamsize)
 {
 	/*
@@ -4069,6 +4131,16 @@ zfswin_insert_streamname(char *streamname, uint8_t *outbuffer,
 	// but further ones should be padded here.
 	FILE_STREAM_INFORMATION *stream = NULL;
 	int overflow = 0;
+	boolean_t isADS = B_FALSE;
+
+	int len = strlen(streamname);
+	if ((toupper(streamname[len - 6]) == ':') &&
+	    (toupper(streamname[len - 5]) == '$') &&
+	    (toupper(streamname[len - 4]) == 'D') &&
+	    (toupper(streamname[len - 3]) == 'A') &&
+	    (toupper(streamname[len - 2]) == 'T') &&
+	    (toupper(streamname[len - 1]) == 'A'))
+		isADS = B_TRUE;
 
 	// If not first struct, align outsize to 8 byte - 0 aligns to 0.
 	*spaceused = (((*spaceused) + 7) & ~7);
@@ -4086,12 +4158,17 @@ zfswin_insert_streamname(char *streamname, uint8_t *outbuffer,
 	// as we can.
 
 	if (*spaceused + sizeof (FILE_STREAM_INFORMATION) <= availablebytes) {
+
 		stream = (FILE_STREAM_INFORMATION *)&outbuffer[*spaceused];
 
-		// Room for one more struct, update privious's next ptr
-		if (*lastNextEntryOffset != NULL) {
+		// Room for one more struct, update previous' next ptr
+		if (*previous_stream != NULL) {
 			// Update previous structure to point to this one.
-			**lastNextEntryOffset = (DWORD)*spaceused;
+			// It is not offset from the buffer, but offset from
+			// last "stream" struct.
+			// **lastNextEntryOffset = (DWORD)*spaceused;
+			(*previous_stream)->NextEntryOffset =
+			    (uintptr_t)stream - (uintptr_t)(*previous_stream);
 		}
 
 
@@ -4100,16 +4177,19 @@ zfswin_insert_streamname(char *streamname, uint8_t *outbuffer,
 
 		// remember this struct's NextEntry, so the next one can
 		// fill it in.
-		*lastNextEntryOffset = &stream->NextEntryOffset;
+		*previous_stream = stream;
 
 		// Set all the fields now
 		stream->StreamSize.QuadPart = streamsize;
 		stream->StreamAllocationSize.QuadPart =
 		    P2ROUNDUP(streamsize, 512);
 
-		// Return the total name length
+		// Return the total name length, "needed" is in bytes,
+		// so add 2 to fit the ":"
 		stream->StreamNameLength =
-		    needed_streamnamelen + 1 * sizeof (WCHAR); // + ":"
+		    needed_streamnamelen;
+		if (isADS) // + ":"
+			stream->StreamNameLength += sizeof (WCHAR);
 
 		// Consume the space of the struct
 		*spaceused += FIELD_OFFSET(FILE_STREAM_INFORMATION, StreamName);
@@ -4128,11 +4208,16 @@ zfswin_insert_streamname(char *streamname, uint8_t *outbuffer,
 		// Now copy out as much of the filename as can fit.
 		// We need to real full length in StreamNameLength
 		// There is always room for 1 char
-		stream->StreamName[0] = L':';
-		roomforname -= sizeof (WCHAR);
+		PWSTR out = &stream->StreamName[0];
+
+		if (isADS) {
+			*out = L':';
+			out++;
+			roomforname -= sizeof (WCHAR);
+		}
 
 		// Convert as much as we can, accounting for the start ":"
-		error = RtlUTF8ToUnicodeN(&stream->StreamName[1], roomforname,
+		error = RtlUTF8ToUnicodeN(out, roomforname,
 		    NULL, streamname, strlen(streamname));
 
 		dprintf("%s: added %s streamname '%s'\n", __func__,
@@ -4157,7 +4242,7 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	NTSTATUS Status;
 	void *outbuffer = Irp->AssociatedIrp.SystemBuffer;
 	uint64_t availablebytes = IrpSp->Parameters.QueryFile.Length;
-	DWORD *lastNextEntryOffset = NULL;
+	FILE_STREAM_INFORMATION *previous_stream = NULL;
 	int overflow = 0;
 	int error = 0;
 
@@ -4194,7 +4279,7 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	// count of how much space would need.
 	// insert_xattrname adds first ":" and ":$DATA"
 	overflow = zfswin_insert_streamname(":$DATA", outbuffer,
-	    &lastNextEntryOffset, availablebytes, &spaceused, zp->z_size);
+	    &previous_stream, availablebytes, &spaceused, zp->z_size);
 
 	/* Grab the hidden attribute directory vnode. */
 	if (zfs_get_xattrdir(zp, &xdzp, cr, 0) != 0) {
@@ -4203,6 +4288,8 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	xdvp = ZTOV(xdzp);
 	os = zfsvfs->z_os;
+
+	stream = (FILE_STREAM_INFORMATION *)outbuffer;
 
 	for (zap_cursor_init(&zc, os, VTOZ(xdvp)->z_id);
 	    zap_cursor_retrieve(&zc, &za) == 0; zap_cursor_advance(&zc)) {
@@ -4215,7 +4302,7 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    NULL, NULL);
 
 		overflow += zfswin_insert_streamname(za.za_name, outbuffer,
-		    &lastNextEntryOffset, availablebytes, &spaceused,
+		    &previous_stream, availablebytes, &spaceused,
 		    xzp ? xzp->z_size : 0);
 
 		if (error == 0)

@@ -99,6 +99,8 @@ extern int	zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp,
 
 extern int	zfs_build_path(znode_t *start_zp, znode_t *start_parent,
     char **fullpath, uint32_t *returnsize, uint32_t *start_zp_offset);
+extern int	zfs_build_path_stream(znode_t *start_zp, znode_t *start_parent,
+    char **fullpath, uint32_t *returnsize, uint32_t *start_zp_offset, char *);
 
 extern int	xattr_protected(char *name);
 extern int	xattr_stream(char *name);
