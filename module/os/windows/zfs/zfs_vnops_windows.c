@@ -1424,8 +1424,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 					    NULL, NULL, stream_name);
 
 					zfs_send_notify_stream(zfsvfs, // WOOT
-					    zp->z_name_cache,
-					    zp->z_name_offset,
+					    VTOZ(dvp)->z_name_cache,
+					    VTOZ(dvp)->z_name_offset,
 					    FILE_NOTIFY_CHANGE_STREAM_NAME,
 					    FILE_ACTION_ADDED_STREAM,
 					    stream_name);
@@ -1991,6 +1991,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			    FILE_READ_ONLY_VOLUME);
 		}
 		ffai->MaximumComponentNameLength = MAXNAMELEN - 1;
+		// ffai->FileSystemAttributes = 0x3E706FF; // ntfs 2023
 
 		// There is room for one char in the struct
 		// Alas, many things compare string to "NTFS".
@@ -2007,7 +2008,10 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    FIELD_OFFSET(FILE_FS_ATTRIBUTE_INFORMATION,
 		    FileSystemName) + space;
 
-		Status = STATUS_SUCCESS;
+		if (space < name.Length)
+			Status = STATUS_BUFFER_OVERFLOW;
+		else
+			Status = STATUS_SUCCESS;
 
 		ASSERT(Irp->IoStatus.Information <=
 		    IrpSp->Parameters.QueryVolume.Length);
@@ -2216,13 +2220,13 @@ query_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    &all->EaInformation);
 		if (Status != STATUS_SUCCESS)
 			break;
-#if 0
+#if 1
+		zfs_dirlist_t *zccb = IrpSp->FileObject->FsContext2;
 		all->AccessInformation.AccessFlags =
 		    GENERIC_ALL | GENERIC_EXECUTE |
 		    GENERIC_READ | GENERIC_WRITE;
-		if (vp)
-			all->ModeInformation.Mode =
-			    vnode_unlink(vp) ? FILE_DELETE_ON_CLOSE : 0;
+		all->ModeInformation.Mode =
+		    zccb && zccb->deleteonclose ? FILE_DELETE_ON_CLOSE : 0;
 #endif
 		Status = file_alignment_information(DeviceObject, Irp, IrpSp,
 		    &all->AlignmentInformation);
@@ -3858,7 +3862,42 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 
 	case FSCTL_READ_FILE_USN_DATA:
 		dprintf("    FSCTL_READ_FILE_USN_DATA\n");
+
 		Status = STATUS_INVALID_DEVICE_REQUEST;
+		break;
+
+	case FSCTL_QUERY_PERSISTENT_VOLUME_STATE:
+		dprintf("    FSCTL_QUERY_PERSISTENT_VOLUME_STATE\n");
+		PVOID Buffer = Irp->AssociatedIrp.SystemBuffer;
+		ULONG InputBufferLength =
+		    IrpSp->Parameters.FileSystemControl.InputBufferLength;
+		ULONG OutputBufferLength =
+		    IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+		PFILE_FS_PERSISTENT_VOLUME_INFORMATION Info;
+
+		if (NULL == Buffer)
+			return (STATUS_INVALID_PARAMETER);
+
+		if (sizeof (FILE_FS_PERSISTENT_VOLUME_INFORMATION) >
+		    InputBufferLength ||
+		    sizeof (FILE_FS_PERSISTENT_VOLUME_INFORMATION) >
+		    OutputBufferLength)
+			return (STATUS_BUFFER_TOO_SMALL);
+
+		Info = Buffer;
+		if (1 != Info->Version ||
+		    !FlagOn(Info->FlagMask,
+		    PERSISTENT_VOLUME_STATE_SHORT_NAME_CREATION_DISABLED))
+			return (STATUS_INVALID_PARAMETER);
+
+		RtlZeroMemory(Info,
+		    sizeof (FILE_FS_PERSISTENT_VOLUME_INFORMATION));
+		Info->VolumeFlags =
+		    PERSISTENT_VOLUME_STATE_SHORT_NAME_CREATION_DISABLED;
+		Irp->IoStatus.Information =
+		    sizeof (FILE_FS_PERSISTENT_VOLUME_INFORMATION);
+
+		Status = STATUS_SUCCESS;
 		break;
 
 	default:
@@ -4108,12 +4147,13 @@ notify_change_directory(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	dprintf("%s: '%s' for %wZ\n", __func__,
 	    zp&&zp->z_name_cache?zp->z_name_cache:"", &fileObject->FileName);
-	FsRtlNotifyFullChangeDirectory(
-	    zmo->NotifySync, &zmo->DirNotifyList, zp,
+
+	FsRtlNotifyFilterChangeDirectory(
+	    zmo->NotifySync, &zmo->DirNotifyList, zccb,
 	    (PSTRING)&fileObject->FileName,
-	    (IrpSp->Flags & SL_WATCH_TREE) ? TRUE : FALSE, FALSE,
+	    (IrpSp->Flags & SL_WATCH_TREE), FALSE,
 	    IrpSp->Parameters.NotifyDirectory.CompletionFilter, Irp,
-	    NULL, NULL);
+	    NULL, NULL, NULL);
 
 	VN_RELE(vp);
 	return (STATUS_PENDING);
@@ -4669,6 +4709,14 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	// Update bytes written
 	Irp->IoStatus.Information = bufferLength - zfs_uio_resid(&uio);
 
+
+	if (Irp->IoStatus.Information) {
+		zfs_send_notify(zp->z_zfsvfs, zp->z_name_cache,
+		    zp->z_name_offset,
+		    FILE_NOTIFY_CHANGE_SIZE,
+		    FILE_ACTION_MODIFIED);
+	}
+
 	// Update the file offset
 out:
 	if ((Status == STATUS_SUCCESS) &&
@@ -4713,6 +4761,7 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	char filename[MAXNAMELEN];
 	ULONG outlen;
 	znode_t *zp = NULL;
+	mount_t *zmo = DeviceObject->DeviceExtension;
 
 	if (IrpSp->FileObject->FsContext == NULL ||
 	    IrpSp->FileObject->FileName.Buffer == NULL ||
@@ -5132,6 +5181,7 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 				Irp->IoStatus.Information =
 				    FILE_CLEANUP_FILE_DELETED;
 #endif
+
 			} else {
 				// fastfat zeros end of file here if last
 				// open closed
@@ -5139,18 +5189,13 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		}
 
-		/* The use of "zp" is only used as identity, not referenced. */
-		if (isdir) {
+		if (isdir && IrpSp->FileObject) {
 			dprintf("Removing all notifications for "
 			    "directory: %p\n", zp);
+
 			FsRtlNotifyCleanup(zmo->NotifySync, &zmo->DirNotifyList,
-			    zp);
+			    IrpSp->FileObject->FsContext2);
 		}
-		// Finish with Notifications
-		dprintf("Removing notifications for file\n");
-		FsRtlNotifyFullChangeDirectory(zmo->NotifySync,
-		    &zmo->DirNotifyList, zp, NULL, FALSE, FALSE, 0, NULL,
-		    NULL, NULL);
 
 		// dprintf("cleanup: vp %p attempt to ditch CCMgr\n", vp);
 		// if (vnode_flushcache(vp, IrpSp->FileObject, TRUE) == 1) {
@@ -5159,8 +5204,8 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		// }
 		// vnode_fileobject_remove(vp, IrpSp->FileObject);
 		// zfs_decouplefileobject(vp, IrpSp->FileObject);
-
-		IrpSp->FileObject->Flags |= FO_CLEANUP_COMPLETE;
+		if (IrpSp->FileObject)
+			IrpSp->FileObject->Flags |= FO_CLEANUP_COMPLETE;
 		Status = STATUS_SUCCESS;
 	}
 
@@ -5200,6 +5245,7 @@ zfs_fileobject_close(PDEVICE_OBJECT DeviceObject, PIRP Irp,
  * First encourage Windows to release the FileObject, CcMgr etc,
  * flush everything.
  */
+
 			// FileObject should/could no longer point to vp.
 			// this also frees zccb
 			zfs_decouplefileobject(vp, IrpSp->FileObject);

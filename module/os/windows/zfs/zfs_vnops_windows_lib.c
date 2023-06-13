@@ -657,8 +657,10 @@ vnode_apply_eas(struct vnode *vp, PFILE_FULL_EA_INFORMATION eas,
 		}
 	}
 
-	// We can land here without a sahdl, for example .zfs
-	if (VTOZ(vp)->z_sa_hdl == NULL)
+	znode_t *zp = VTOZ(vp);
+
+	// We can land here without a sa_hdl, for example .zfs
+	if (zp->z_sa_hdl == NULL)
 		return (Status);
 
 	struct vnode *xdvp = NULL;
@@ -677,7 +679,7 @@ vnode_apply_eas(struct vnode *vp, PFILE_FULL_EA_INFORMATION eas,
 			// the first standard EA
 			if (xdvp == NULL) {
 				// Open (or Create) the xattr directory
-				if (zfs_get_xattrdir(VTOZ(vp), &xdzp, NULL,
+				if (zfs_get_xattrdir(zp, &xdzp, NULL,
 				    CREATE_XATTR_DIR) != 0) {
 					Status = STATUS_EA_CORRUPT_ERROR;
 					goto out;
@@ -699,7 +701,12 @@ vnode_apply_eas(struct vnode *vp, PFILE_FULL_EA_INFORMATION eas,
 
 	// Update zp based on LX eas.
 	if (vap.va_active != 0)
-		zfs_setattr(VTOZ(vp), &vap, 0, NULL, NULL);
+		zfs_setattr(zp, &vap, 0, NULL, NULL);
+
+	zfs_send_notify(xdzp->z_zfsvfs, zp->z_name_cache,
+	    zp->z_name_offset,
+	    FILE_NOTIFY_CHANGE_EA,
+	    FILE_ACTION_MODIFIED);
 
 out:
 	if (xdvp != NULL) {
@@ -2060,6 +2067,13 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 	*fullpath = kmem_alloc(size, KM_SLEEP);
 	memmove(*fullpath, &work[index], size);
 	kmem_free(work, MAXPATHLEN * 2);
+
+	// If "/" we don't want offset to be "1", but "0".
+	if ((*fullpath)[0] == '\\' &&
+	    (*fullpath)[1] == 0 &&
+	    start_zp_offset)
+		*start_zp_offset = 0;
+
 	dprintf("%s: set '%s' as name\n", __func__, *fullpath);
 	return (0);
 
@@ -2105,6 +2119,8 @@ zfs_build_path_stream(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 /*
  * This is connected to IRP_MN_NOTIFY_DIRECTORY_CHANGE
  * and sending the notifications of changes
+ *
+ * Should be sent as "file0:streamname"
  */
 void
 zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
@@ -2129,17 +2145,20 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 		dprintf("%s: with stream '%wZ'\n", __func__, &ustream);
 	}
 
-	FsRtlNotifyFullReportChange(zmo->NotifySync, &zmo->DirNotifyList,
-	    (PSTRING)&ustr, nameoffset * sizeof (WCHAR),
+	/* Is nameoffset in bytes, or in characters? */
+	FsRtlNotifyFilterReportChange(zmo->NotifySync, &zmo->DirNotifyList,
+	    (PSTRING)&ustr,
+	    nameoffset * sizeof (WCHAR),
 	    stream == NULL ? NULL : (PSTRING)&ustream, // StreamName
-	    NULL, // NormalizedParentName
-	    FilterMatch, Action,
-	    NULL); // TargetContext
+	    NULL, FilterMatch, Action, NULL, NULL);
+
 	FreeUnicodeString(&ustr);
 	if (stream != NULL)
 		FreeUnicodeString(&ustream);
 }
 
+// Filenames should be "/dir/filename:streamname"
+// currently it is "streamname:$DATA"
 void
 zfs_send_notify(zfsvfs_t *zfsvfs, char *name, int nameoffset,
     ULONG FilterMatch, ULONG Action)
@@ -2711,6 +2730,7 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	struct vnode *vp = FileObject->FsContext;
 	mount_t *zmo = DeviceObject->DeviceExtension;
+	ULONG NotifyFilter = 0;
 
 	zfsvfs_t *zfsvfs = NULL;
 	if (zmo != NULL &&
@@ -2747,6 +2767,7 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			va.va_modify_time.tv_sec = unixtime[0];
 			va.va_modify_time.tv_nsec = unixtime[1];
 			va.va_active |= ATTR_MTIME;
+			NotifyFilter |= FILE_NOTIFY_CHANGE_LAST_WRITE;
 		}
 		if (fbi->CreationTime.QuadPart > 0) {
 			TIME_WINDOWS_TO_UNIX(fbi->CreationTime.QuadPart,
@@ -2754,23 +2775,33 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			va.va_create_time.tv_sec = unixtime[0];
 			va.va_create_time.tv_nsec = unixtime[1];
 			va.va_active |= ATTR_CRTIME;  // ATTR_CRTIME
+			NotifyFilter |= FILE_NOTIFY_CHANGE_CREATION;
 		}
-		if (fbi->LastAccessTime.QuadPart > 0)
+		if (fbi->LastAccessTime.QuadPart > 0) {
 			TIME_WINDOWS_TO_UNIX(
 			    fbi->LastAccessTime.QuadPart,
 			    zp->z_atime);
-
+			NotifyFilter |= FILE_NOTIFY_CHANGE_LAST_ACCESS;
+		}
 		if (fbi->FileAttributes)
 			if (zfs_setwinflags(VTOZ(vp),
-			    fbi->FileAttributes))
+			    fbi->FileAttributes)) {
 				va.va_active |= ATTR_MODE;
-
+				NotifyFilter |= FILE_NOTIFY_CHANGE_ATTRIBUTES;
+			}
 		Status = zfs_setattr(zp, &va, 0, NULL, NULL);
 
 		// zfs_setattr will turn ARCHIVE back on, when perhaps
 		// it is set off by this call
 		if (fbi->FileAttributes)
 			zfs_setwinflags(zp, fbi->FileAttributes);
+
+		if (NotifyFilter != 0)
+			zfs_send_notify(zp->z_zfsvfs, zp->z_name_cache,
+			    zp->z_name_offset,
+			    NotifyFilter,
+			    FILE_ACTION_MODIFIED);
+
 
 		VN_RELE(vp);
 	}
@@ -2828,8 +2859,19 @@ set_file_disposition_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		// pending Notify events
 		if (Status == STATUS_SUCCESS &&
 		    (flags & FILE_DISPOSITION_DELETE)) {
-			FsRtlNotifyCleanup(zmo->NotifySync,
-			    &zmo->DirNotifyList, VTOZ(vp));
+//			FsRtlNotifyCleanup(zmo->NotifySync,
+//			    &zmo->DirNotifyList, vp);
+
+			FsRtlNotifyFullChangeDirectory(zmo->NotifySync,
+			    &zmo->DirNotifyList,
+			    FileObject->FsContext2,
+			    NULL,
+			    FALSE,
+			    FALSE,
+			    0,
+			    NULL,
+			    NULL,
+			    NULL);
 		}
 
 		VN_RELE(vp);
@@ -3331,10 +3373,15 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    NULL);
 
 	if (error == 0) {
-		// TODO: rename file in same directory, send OLD_NAME, NEW_NAME
-		// Moving to different directory, send:
+		// rename file in same directory:
+		// sned dir modified, send OLD_NAME, NEW_NAME
+		// Moving to different volume:
 		// FILE_ACTION_REMOVED, FILE_ACTION_ADDED
 		// send CHANGE_LAST_WRITE
+		znode_t *tdzp = VTOZ(tdvp);
+		zfs_send_notify(zfsvfs, tdzp->z_name_cache, tdzp->z_name_offset,
+		    FILE_NOTIFY_CHANGE_LAST_WRITE,
+		    FILE_ACTION_MODIFIED);
 
 		zfs_send_notify(zfsvfs, zp->z_name_cache, zp->z_name_offset,
 		    vnode_isdir(fvp) ?
@@ -3345,7 +3392,8 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		// Release fromname, and lookup new name
 		kmem_free(zp->z_name_cache, zp->z_name_len);
 		zp->z_name_cache = NULL;
-		if (zfs_build_path(zp, VTOZ(tdvp), &zp->z_name_cache,
+
+		if (zfs_build_path(zp, tdzp, &zp->z_name_cache,
 		    &zp->z_name_len, &zp->z_name_offset) == 0) {
 			zfs_send_notify(zfsvfs, zp->z_name_cache,
 			    zp->z_name_offset,
@@ -3354,11 +3402,6 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			    FILE_NOTIFY_CHANGE_FILE_NAME,
 			    FILE_ACTION_RENAMED_NEW_NAME);
 		}
-
-		znode_t *tdzp = VTOZ(tdvp);
-		zfs_send_notify(zfsvfs, tdzp->z_name_cache, tdzp->z_name_offset,
-		    FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_ACTION_MODIFIED);
-
 	}
 	// Release all holds
 out:
@@ -3676,7 +3719,7 @@ file_alignment_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
 
-	fai->AlignmentRequirement = FILE_WORD_ALIGNMENT;
+	fai->AlignmentRequirement = 0; /* FILE_WORD_ALIGNMENT; */
 	return (STATUS_SUCCESS);
 }
 
@@ -4060,8 +4103,11 @@ file_name_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	else
 		Status = STATUS_SUCCESS;
 
+	// name->FileNameLength holds how much is actually there
+	// and usedspace how much we needed to have
+
 	// Would this go one byte too far?
-	name->FileName[name->FileNameLength / sizeof (name->FileName)] = 0;
+	// name->FileName[name->FileNameLength / sizeof (name->FileName)] = 0;
 
 	// Return how much of the filename we copied after the first wchar
 	// which is used with sizeof (struct) to work out how much
