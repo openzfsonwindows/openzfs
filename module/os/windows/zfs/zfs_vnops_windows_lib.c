@@ -658,6 +658,7 @@ vnode_apply_eas(struct vnode *vp, PFILE_FULL_EA_INFORMATION eas,
 	}
 
 	znode_t *zp = VTOZ(vp);
+	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
 	// We can land here without a sa_hdl, for example .zfs
 	if (zp->z_sa_hdl == NULL)
@@ -703,7 +704,7 @@ vnode_apply_eas(struct vnode *vp, PFILE_FULL_EA_INFORMATION eas,
 	if (vap.va_active != 0)
 		zfs_setattr(zp, &vap, 0, NULL, NULL);
 
-	zfs_send_notify(xdzp->z_zfsvfs, zp->z_name_cache,
+	zfs_send_notify(zfsvfs, zp->z_name_cache,
 	    zp->z_name_offset,
 	    FILE_NOTIFY_CHANGE_EA,
 	    FILE_ACTION_MODIFIED);
