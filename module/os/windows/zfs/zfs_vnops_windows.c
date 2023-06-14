@@ -4758,7 +4758,7 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	// and we do not have that here
 	struct vnode *vp = NULL, *dvp = NULL;
 	int error;
-	char filename[MAXNAMELEN];
+	char filename[MAXPATHLEN];
 	ULONG outlen;
 	znode_t *zp = NULL;
 	mount_t *zmo = DeviceObject->DeviceExtension;
@@ -4795,7 +4795,7 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	    (int)IrpSp->FileObject->FileName.Length / sizeof (WCHAR),
 	    IrpSp->FileObject->FileName.Buffer);
 
-	error = RtlUnicodeToUTF8N(filename, MAXNAMELEN, &outlen,
+	error = RtlUnicodeToUTF8N(filename, MAXPATHLEN, &outlen,
 	    IrpSp->FileObject->FileName.Buffer,
 	    IrpSp->FileObject->FileName.Length);
 
