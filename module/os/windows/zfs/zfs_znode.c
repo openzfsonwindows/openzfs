@@ -607,6 +607,9 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, int blksz,
 
 	zp->z_projid = projid;
 	zp->z_mode = mode;
+	/* Cache the xattr parent id */
+	if (zp->z_pflags & ZFS_XATTR)
+		zp->z_xattr_parent = parent;
 
 	mutex_enter(&zfsvfs->z_znodes_lock);
 	list_insert_tail(&zfsvfs->z_all_znodes, zp);
