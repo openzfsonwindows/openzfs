@@ -3588,11 +3588,34 @@ file_standard_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		standard->NumberOfLinks = zp->z_links;
 		standard->DeletePending = zccb &&
 		    zccb->deleteonclose ? TRUE : FALSE;
+		Irp->IoStatus.Information = sizeof (FILE_STANDARD_INFORMATION);
+
+#ifndef FILE_STANDARD_INFORMATION_EX
+		typedef struct _FILE_STANDARD_INFORMATION_EX {
+		    LARGE_INTEGER AllocationSize;
+		    LARGE_INTEGER EndOfFile;
+		    ULONG NumberOfLinks;
+		    BOOLEAN DeletePending;
+		    BOOLEAN Directory;
+		    BOOLEAN AlternateStream;
+		    BOOLEAN MetadataAttribute;
+		} FILE_STANDARD_INFORMATION_EX, *PFILE_STANDARD_INFORMATION_EX;
+#endif
+		if (IrpSp->Parameters.QueryFile.Length >=
+		    sizeof (FILE_STANDARD_INFORMATION_EX)) {
+			FILE_STANDARD_INFORMATION_EX *estandard;
+			estandard = (FILE_STANDARD_INFORMATION_EX *)standard;
+			estandard->AlternateStream = zp->z_pflags & ZFS_XATTR;
+			estandard->MetadataAttribute = FALSE;
+			Irp->IoStatus.Information =
+			    sizeof (FILE_STANDARD_INFORMATION_EX);
+		}
+
 		VN_RELE(vp);
 		dprintf("Returning size %llu and allocsize %llu\n",
 		    standard->EndOfFile.QuadPart,
 		    standard->AllocationSize.QuadPart);
-		Irp->IoStatus.Information = sizeof (FILE_STANDARD_INFORMATION);
+
 		return (STATUS_SUCCESS);
 	}
 	return (STATUS_OBJECT_NAME_NOT_FOUND);
