@@ -205,5 +205,6 @@ extern NTSTATUS ioctl_mountdev_query_stable_guid(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
 extern NTSTATUS ioctl_query_stable_guid(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
+extern void strupper(char *s, size_t max);
 
 #endif

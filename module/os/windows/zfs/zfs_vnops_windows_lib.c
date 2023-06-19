@@ -357,6 +357,16 @@ common_status_str(NTSTATUS Status)
 	}
 }
 
+void
+strupper(char *s, size_t max)
+{
+	while ((max > 0) && *s) {
+		*s = toupper(*s);
+		s++;
+		max--;
+	}
+}
+
 char *
 create_options(ULONG Options)
 {
@@ -597,24 +607,7 @@ vnode_apply_single_ea(struct vnode *vp, struct vnode *xdvp,
 	dprintf("%s: xattr '%.*s' valuelen %u\n", __func__,
 	    ea->EaNameLength, ea->EaName, ea->EaValueLength);
 
-	if (ea->EaValueLength == 0) {
-
-		// Remove EA
-		error = zfs_remove(VTOZ(xdvp), ea->EaName, NULL, /* flags */0);
-
-	} else {
-		// Add replace EA
-
-		error = zfs_obtain_xattr(VTOZ(xdvp), ea->EaName,
-		    VTOZ(vp)->z_mode, NULL, &xvp, 0);
-		if (error)
-			goto out;
-		xzp = VTOZ(xvp);
-		if (xzp->z_sa_hdl == NULL || ZTOV(xzp) == NULL)
-			goto out;
-		/* Truncate, if it was existing */
-		error = zfs_freesp(xzp, 0, 0, VTOZ(vp)->z_mode, TRUE);
-
+	if (ea->EaValueLength > 0) {
 		/* Write data */
 		struct iovec iov;
 		iov.iov_base = (void *)(ea->EaName + ea->EaNameLength + 1);
@@ -623,13 +616,11 @@ vnode_apply_single_ea(struct vnode *vp, struct vnode *xdvp,
 		zfs_uio_t uio;
 		zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE,
 		    ea->EaValueLength, 0);
-		error = zfs_write(xzp, &uio, 0, NULL);
+
+		error = zpl_xattr_set(vp, ea->EaName, &uio, 0, NULL);
+	} else {
+		error = zpl_xattr_set(vp, ea->EaName, NULL, 0, NULL);
 	}
-
-out:
-	if (xzp != NULL)
-		zrele(xzp);
-
 	return (error);
 }
 
@@ -676,17 +667,7 @@ vnode_apply_eas(struct vnode *vp, PFILE_FULL_EA_INFORMATION eas,
 			dprintf("  encountered special attrs EA '%.*s'\n",
 			    ea->EaNameLength, ea->EaName);
 		} else {
-			// optimization: defer creating an xattr dir until
-			// the first standard EA
-			if (xdvp == NULL) {
-				// Open (or Create) the xattr directory
-				if (zfs_get_xattrdir(zp, &xdzp, NULL,
-				    CREATE_XATTR_DIR) != 0) {
-					Status = STATUS_EA_CORRUPT_ERROR;
-					goto out;
-				}
-				xdvp = ZTOV(xdzp);
-			}
+
 			error = vnode_apply_single_ea(vp, xdvp, ea);
 			if (error != 0)
 				dprintf("failed to process xattr: %d\n", error);
@@ -710,9 +691,6 @@ vnode_apply_eas(struct vnode *vp, PFILE_FULL_EA_INFORMATION eas,
 	    FILE_ACTION_MODIFIED);
 
 out:
-	if (xdvp != NULL) {
-		VN_RELE(xdvp);
-	}
 
 	vnode_clear_easize(vp);
 
@@ -1164,11 +1142,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 	 * Will this entry fit in the buffer?
 	 * This time with alignment
 	 */
-	if (ctx->outcount + reclen > ctx->bufsize) {
-
-		if (!ctx->outcount) { // Nothing found at all?
-			return (EINVAL);
-		}
+	if (ctx->outcount + rawsize > ctx->bufsize) {
 		return (ENOSPC);
 	}
 
@@ -2486,13 +2460,9 @@ xattr_stream(char *name)
 uint64_t
 xattr_getsize(struct vnode *vp)
 {
-	uint64_t ret = 0;
-	struct vnode *xdvp = NULL;
-	znode_t *zp, *xdzp = NULL, *xzp = NULL;
+	znode_t *zp;
 	zfsvfs_t *zfsvfs;
-	zap_cursor_t  zc;
-	zap_attribute_t  za;
-	objset_t  *os;
+	ssize_t retsize = 0;
 
 	if (vp == NULL)
 		return (0);
@@ -2504,8 +2474,8 @@ xattr_getsize(struct vnode *vp)
 	cached = vnode_easize(vp, &cached_size);
 #else
 	// Cached? Easy, use it
-	if (vnode_easize(vp, &ret))
-		return (ret);
+	if (vnode_easize(vp, &retsize))
+		return (retsize);
 #endif
 
 	zp = VTOZ(vp);
@@ -2514,51 +2484,19 @@ xattr_getsize(struct vnode *vp)
 	if (!zp->z_is_sa || zp->z_sa_hdl == NULL)
 		return (0);
 
-/*
- * Iterate through all the xattrs, adding up namelengths and value sizes.
- * There was some suggestion that this should be 4 + (5 + name + valuelen)
- * but that no longer appears to be true. The returned value is used directly
- * with IRP_MJ_QUERY_EA and we will have to return short.
- * We will return the true space needed.
- */
-	if (zfs_get_xattrdir(zp, &xdzp, NULL, 0) != 0) {
-		goto out;
-	}
-	xdvp = ZTOV(xdzp);
-	os = zfsvfs->z_os;
+	zfs_uio_t uio;
+	zfs_uio_iovec_init(&uio, NULL, 0, 0,
+	    UIO_SYSSPACE, 0, 0);
 
-	for (zap_cursor_init(&zc, os, VTOZ(xdvp)->z_id);
-	    zap_cursor_retrieve(&zc, &za) == 0; zap_cursor_advance(&zc)) {
+	zpl_xattr_list(vp, &uio, &retsize, NULL);
 
-		if (xattr_protected(za.za_name))
-			continue;	 /* skip */
-		if (xattr_stream(za.za_name))
-			continue;	 /* skip */
-
-		if (zfs_dirlook(VTOZ(xdvp), za.za_name, &xzp, 0, NULL,
-		    NULL) == 0) {
-			ret = ((ret + 3) & ~3); // aligned to 4 bytes.
-			ret += offsetof(FILE_FULL_EA_INFORMATION, EaName) +
-			    strlen(za.za_name) + 1 + xzp->z_size;
-			zrele(xzp);
-		}
-	}
-	zap_cursor_fini(&zc);
-	VN_RELE(xdvp);
-
-out:
-
-#if 0
-	if (cached) {
-		if (ret != cached_size)
-			DbgBreakPoint();
-	}
-#endif
+	// It appears I should round it up here:
+	retsize += (((retsize)+3) & ~3) - (retsize);
 
 	// Cache result, even if failure (cached as 0).
-	vnode_set_easize(vp, ret);
+	vnode_set_easize(vp, retsize);
 
-	return (ret);
+	return (retsize);
 }
 
 /*

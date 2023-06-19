@@ -120,17 +120,18 @@ extern int    ace_trivial_common(void *acep, int aclcnt,
     uintptr_t (*walk)(void *, uintptr_t, int aclcnt,
     uint16_t *, uint16_t *, uint32_t *));
 
-extern int    zpl_obtain_xattr(struct znode *, const char *name, mode_t mode,
+extern int zpl_obtain_xattr(struct znode *, const char *name, mode_t mode,
     cred_t *cr, struct vnode **vpp, int flag);
+extern int zpl_xattr_filldir(struct vnode *, zfs_uio_t *uio, const char *,
+    int name_len, FILE_FULL_EA_INFORMATION **previous_ea);
+extern int zpl_xattr_list(struct vnode *, zfs_uio_t *, ssize_t *, cred_t *);
+extern int zpl_xattr_get(struct vnode *ip, const char *name, zfs_uio_t *uio,
+    ssize_t *retsize, cred_t *cr);
+extern int zpl_xattr_set(struct vnode *, const char *, zfs_uio_t *uio,
+    int flags, cred_t *cr);
 
 extern uint32_t getuseraccess(znode_t *zp, vfs_context_t ctx);
-extern int   zpl_xattr_set_sa(struct vnode *vp, const char *name,
-    const void *value, size_t size, int flags, cred_t *cr);
-extern int zpl_xattr_get_sa(struct vnode *vp, const char *name, void *value,
-    size_t size);
 extern void zfs_zrele_async(znode_t *zp);
-extern int zfs_obtain_xattr(znode_t *, const char *, mode_t, cred_t *,
-    vnode_t **, int);
 
 extern int zfsctl_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
     zfs_dirlist_t *zccb, int flags);

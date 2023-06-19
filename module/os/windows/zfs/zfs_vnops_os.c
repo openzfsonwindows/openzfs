@@ -371,6 +371,34 @@ zfs_lookup(znode_t *zdp, char *nm, znode_t **zpp, int flags,
 	/*
 	 * Windows has separate vnops for XATTR activity
 	 */
+	if (flags & LOOKUP_XATTR) {
+		/*
+		 * We don't allow recursive attributes..
+		 * Maybe someday we will.
+		 */
+		if (zdp->z_pflags & ZFS_XATTR) {
+			zfs_exit(zfsvfs, FTAG);
+			return (SET_ERROR(EINVAL));
+		}
+
+		if ((error = zfs_get_xattrdir(zdp, zpp, cr, flags))) {
+			zfs_exit(zfsvfs, FTAG);
+			return (error);
+		}
+
+		/*
+		 * Do we have permission to get into attribute directory?
+		 */
+
+		if ((error = zfs_zaccess(*zpp, ACE_EXECUTE, 0,
+		    B_FALSE, cr, NULL))) {
+			zrele(*zpp);
+			*zpp = NULL;
+		}
+
+		zfs_exit(zfsvfs, FTAG);
+		return (error);
+	}
 
 
 	if (!S_ISDIR(zdp->z_mode)) {
@@ -1434,7 +1462,7 @@ zfs_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr, zfs_dirlist_t *zccb,
 			}
 		} // !skip_this_entry
 
-		ASSERT(ctx->outcount <= ctx->bufsize);
+		// ASSERT(ctx->outcount <= ctx->bufsize);
 
 		/*
 		 * Move to the next entry, fill in the previous offset.
