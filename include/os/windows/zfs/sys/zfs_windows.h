@@ -48,6 +48,7 @@ struct zfs_dirlist {
 	UNICODE_STRING searchname;	// Search pattern
 
 	uint64_t cacheinit;
+	uint64_t real_file_id;
 };
 
 typedef struct zfs_dirlist zfs_dirlist_t;

@@ -309,6 +309,17 @@ zfs_decouplefileobject(vnode_t *vp, FILE_OBJECT *fileobject)
 	vnode_decouplefileobject(vp, fileobject);
 }
 
+void
+check_and_set_stream_parent(char *stream_name, PFILE_OBJECT FileObject,
+    uint64_t id)
+{
+	if (stream_name != NULL && FileObject != NULL &&
+	    FileObject->FsContext2 != NULL) {
+		zfs_dirlist_t *zccb = FileObject->FsContext2;
+		zccb->real_file_id = id;
+	}
+}
+
 /*
  * Take filename, look for colons ":".
  * No colon, return OK.
@@ -1379,6 +1390,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			zfs_couplefileobject(vp, FileObject,
 			    zp ? zp->z_size : 0ULL);
 			vnode_ref(vp); // Hold open reference, until CLOSE
+
+			check_and_set_stream_parent(stream_name, FileObject,
+			    VTOZ(dvp)->z_xattr_parent);
 
 			if (DeleteOnClose)
 				Status = zfs_setunlink(FileObject, dvp);

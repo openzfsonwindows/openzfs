@@ -3384,6 +3384,7 @@ NTSTATUS
 file_attribute_tag_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp, FILE_ATTRIBUTE_TAG_INFORMATION *tag)
 {
+	dprintf("   %s\n", __func__);
 	if (IrpSp->Parameters.QueryFile.Length <
 	    sizeof (FILE_ATTRIBUTE_TAG_INFORMATION)) {
 		Irp->IoStatus.Information =
@@ -3410,6 +3411,7 @@ NTSTATUS
 file_internal_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp, FILE_INTERNAL_INFORMATION *infernal)
 {
+	dprintf("   %s\n", __func__);
 	if (IrpSp->Parameters.QueryFile.Length <
 	    sizeof (FILE_INTERNAL_INFORMATION)) {
 		Irp->IoStatus.Information = sizeof (FILE_INTERNAL_INFORMATION);
@@ -3418,8 +3420,13 @@ file_internal_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	if (IrpSp->FileObject && IrpSp->FileObject->FsContext) {
 		struct vnode *vp = IrpSp->FileObject->FsContext;
+		zfs_dirlist_t *zccb = IrpSp->FileObject->FsContext2;
 		znode_t *zp = VTOZ(vp);
-		infernal->IndexNumber.QuadPart = zp->z_id;
+		/* For streams, we need to reply with parent file */
+		if (zccb && zp->z_pflags & ZFS_XATTR)
+			infernal->IndexNumber.QuadPart = zccb->real_file_id;
+		else
+			infernal->IndexNumber.QuadPart = zp->z_id;
 		Irp->IoStatus.Information = sizeof (FILE_INTERNAL_INFORMATION);
 		return (STATUS_SUCCESS);
 	}
