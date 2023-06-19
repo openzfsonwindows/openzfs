@@ -82,6 +82,7 @@ typedef enum zfs_uio_seg { UIO_USERSPACE, UIO_SYSSPACE, UIO_USERISPACE }
 typedef struct zfs_uio {
 	const struct iovec	*uio_iov;
 	int		uio_iovcnt;
+	int		uio_index;
 	off_t		uio_loffset;
 	zfs_uio_seg_t	uio_segflg;
 	boolean_t	uio_fault_disable;
@@ -115,10 +116,34 @@ zfs_uio_resid(zfs_uio_t *uio)
 	return (uio->uio_resid);
 }
 
+static inline int
+zfs_uio_skip(zfs_uio_t *uio)
+{
+	return (uio->uio_skip);
+}
+
+static inline int /* lundman extension */
+zfs_uio_index(zfs_uio_t *uio)
+{
+	return (uio->uio_index);
+}
+
 static inline void
 zfs_uio_setoffset(zfs_uio_t *uio, off_t off)
 {
 	uio->uio_loffset = off;
+}
+
+static inline void
+zfs_uio_setskip(zfs_uio_t *uio, int skip)
+{
+	uio->uio_skip = skip;
+}
+
+static inline void /* lundman extension */
+zfs_uio_setindex(zfs_uio_t *uio, int index)
+{
+	uio->uio_index = index;
 }
 
 static inline void

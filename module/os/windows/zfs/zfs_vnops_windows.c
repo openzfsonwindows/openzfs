@@ -2454,119 +2454,6 @@ BufferUserBuffer(IN OUT PIRP Irp, IN ULONG BufferLength)
 	return (Irp->AssociatedIrp.SystemBuffer);
 }
 
-// Insert an EA into an output buffer, if there is room,
-// EAName is always the FULL name length, even when we only
-// fit partial.
-// Return 0 for OK, 1 for overflow.
-int
-zfswin_insert_xattrname(struct vnode *vp, char *xattrname, uint8_t *outbuffer,
-    FILE_FULL_EA_INFORMATION **previous_ea, uint64_t availablebytes,
-    uint64_t *spaceused)
-{
-	// The first xattr struct we assume is already aligned, but further ones
-	// should be padded here.
-	FILE_FULL_EA_INFORMATION *ea = NULL;
-	int overflow = 0;
-	znode_t *zp = VTOZ(vp);
-	uint64_t needed_total = 0;
-
-	// If not first struct, align outsize to 4 bytes - 0 aligns to 0.
-	uint64_t alignment;
-
-	alignment = (((*spaceused) + 3) & ~3) - (*spaceused);
-
-	// Convert filename, to get space required.
-	ULONG needed_xattrnamelen;
-
-	// Check error? Do we care about convertion errors?
-	// error = RtlUTF8ToUnicodeN(NULL, 0, &needed_xattrnamelen,
-	// xattrname, strlen(xattrname));
-	needed_xattrnamelen = strlen(xattrname);
-
-	// EaValueLength is a USHORT, so cap xattrs (in this IRP)
-	// to that max.
-	uint32_t readmax;
-	readmax = MIN(zp->z_size, 0xffff);
-
-	// Since we would only return whole records, work out how much space
-	// we need, so we can return it, and if things still fit, fill it in
-	needed_total =
-	    alignment +
-	    FIELD_OFFSET(FILE_FULL_EA_INFORMATION, EaName) +
-	    needed_xattrnamelen + 1 +
-	    readmax;
-
-	// Is there room? We only deal with full records.
-	if (*spaceused + needed_total > availablebytes) {
-
-		// This logic should be up one level. If
-		// this is the first record, return error
-		// and spaceused is what is needed to hold it.
-		// If we already have valid records, just return
-		// OK, and deal with this one next time.
-		*spaceused += needed_total;
-		return (1); // Overflow
-	}
-
-	// the data should now fit.
-	ea = &outbuffer[*spaceused + alignment];
-
-	// Room for one more struct, update previous's next ptr
-	if (*previous_ea != NULL) {
-		// Update previous structure to point to this one.
-		(*previous_ea)->NextEntryOffset =
-		    (uintptr_t)ea - (uintptr_t)(*previous_ea);
-	}
-
-	// Directly set next to 0, assuming this will be last record
-	ea->NextEntryOffset = 0;
-	ea->Flags = 0; // Fix me?
-	ea->EaValueLength = 0;
-
-	// remember this EA, so the next one
-	// can fill in the offset.
-	*previous_ea = ea;
-
-	// Return the total name length not counting null
-	ea->EaNameLength = needed_xattrnamelen;
-
-	// Now copy out as much of the filename as can fit.
-	// We need to real full length in StreamNameLength
-	// There is always room for 1 char
-	strlcpy(ea->EaName, xattrname, needed_xattrnamelen + 1);
-
-	if (vp != NULL) {
-		struct iovec iov;
-
-		// MSN: value(s) associated with each entry follows
-		// the EaName array.
-		// That is, an EA's values are located at
-		// EaName + (EaNameLength + 1).
-		iov.iov_base =
-		    (void *)&outbuffer[*spaceused + needed_total - readmax];
-		iov.iov_len = readmax;
-
-		zfs_uio_t uio;
-		zfs_uio_iovec_init(&uio, &iov, 1, 0,
-		    UIO_SYSSPACE, readmax, 0);
-
-		zfs_read(VTOZ(vp), &uio, 0, NULL);
-
-		// Set the valuelen, should this be the full
-		// value or what we would need?
-		// That is how the names work.
-		// ea->EaValueLength = VTOZ(vp)->z_size;
-		ea->EaValueLength = readmax;
-	}
-
-	*spaceused += needed_total;
-
-	dprintf("%s: added xattrname '%s'\n", __func__,
-	    xattrname);
-
-	return (0); // No overflow
-}
-
 /*
  * ** This is how I thought it worked:
  * Iterate through the XATTRs of an object, skipping streams. It works
@@ -2635,15 +2522,7 @@ query_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	Buffer = MapUserBuffer(Irp);
 
-	// Grab the xattr dir - if any
-	if (zfs_get_xattrdir(zp, &xdzp, NULL, 0) != 0) {
-		Irp->IoStatus.Information = 0;
-		return (STATUS_NO_EAS_ON_FILE);
-	}
-	xdvp = ZTOV(xdzp);
-
 	if (UserBufferLength < sizeof (FILE_FULL_EA_INFORMATION)) {
-		VN_RELE(xdvp);
 
 		if (UserBufferLength == 0) {
 			Irp->IoStatus.Information = 0;
@@ -2665,83 +2544,84 @@ query_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	zfs_dirlist_t *zccb = IrpSp->FileObject->FsContext2;
 
-	if (RestartScan)
+	if (RestartScan) {
 		start_index = 0;
-	else if (IndexSpecified)
+		zccb->ea_index = 0;
+	} else if (IndexSpecified)
 		start_index = UserEaIndex;
 	else
 		start_index = zccb->ea_index;
 
+	struct iovec iov;
+	iov.iov_base =
+	    (void *)Buffer;
+	iov.iov_len = UserBufferLength;
+
+	zfs_uio_t uio;
+	zfs_uio_iovec_init(&uio, &iov, 1, 0,
+	    UIO_SYSSPACE, UserBufferLength, 0);
+
+	// Pass Flags along for ReturnSingleEntry, so
+	// lets abuse uio->extflg - no idea what it is for
+	// it got copied across to Windows so it's there.
+	uio.uio_extflg = IrpSp->Flags;
 
 	/* ********************** */
 	if (UserEaList != NULL) {
 
 		uint64_t offset = 0;
+		uint64_t current_index = 0;
 
 		do {
-			ea = (FILE_GET_EA_INFORMATION *)&Buffer[offset];
-			// Lookup ea if we can
-			error = zfs_dirlook(VTOZ(xdvp), ea->EaName, &xzp,
-			    0, NULL, NULL);
-			if (error == 0) {
-				overflow += zfswin_insert_xattrname(ZTOV(xzp),
-				    ea->EaName, Buffer, &previous_ea,
-				    UserBufferLength, &spaceused);
-				zrele(xzp);
-			} else {
-				// No such xattr, we then "dummy" up an ea
-				overflow += zfswin_insert_xattrname(NULL,
-				    ea->EaName, Buffer, &previous_ea,
-				    UserBufferLength, &spaceused);
+			/* bounds check: offset is on INPUT list */
+			if (offset > UserEaListLength) {
+				if (xdvp) VN_RELE(xdvp);
+				return (STATUS_INVALID_PARAMETER);
 			}
 
+			ea = (FILE_GET_EA_INFORMATION *)&UserEaList[offset];
+
+			if (offset + ea->EaNameLength > UserEaListLength) {
+				if (xdvp) VN_RELE(xdvp);
+				return (STATUS_INVALID_PARAMETER);
+			}
+
+			/* scan until we get to the index wanted */
+			if (current_index >= start_index) {
+
+				error = zpl_xattr_filldir(vp, &uio, ea->EaName,
+				    ea->EaNameLength, &previous_ea);
+
+				if (error == ENOENT)
+					error = 0;
+				else if (error != 0)
+					break;
+
+				if (ReturnSingleEntry) {
+					current_index++;
+					break;
+				}
+			}
 			// if (overflow != 0)
 			//	break;
 
-			zccb->ea_index++;
+			current_index++;
+			offset += ea->NextEntryOffset;
 
-			offset = ea->NextEntryOffset;
-			if (ReturnSingleEntry)
+			if (ea->NextEntryOffset == 0)
 				break;
 
 		} while (offset != 0);
 
+		if (current_index >= start_index)
+			zccb->ea_index = current_index;
 
 		/* ********************** */
 	} else {
 
-		objset_t  *os;
-		os = zfsvfs->z_os;
-
-		if (start_index == 0)
-			zap_cursor_init(&zc, os, VTOZ(xdvp)->z_id);
-		else
-			zap_cursor_init_serialized(&zc, os, zp->z_id,
-			    start_index);
-
-
-		for (/* empty */;
-		    zap_cursor_retrieve(&zc, &za) == 0;
-		    zap_cursor_advance(&zc)) {
-			if (xattr_protected(za.za_name))
-				continue;	 /* skip */
-			if (xattr_stream(za.za_name))
-				continue;	 /* skip */
-			error = zfs_dirlook(VTOZ(xdvp), za.za_name, &xzp,
-			    0, NULL, NULL);
-			if (error == 0) {
-				overflow += zfswin_insert_xattrname(ZTOV(xzp),
-				    za.za_name, Buffer, &previous_ea,
-				    UserBufferLength, &spaceused);
-				zrele(xzp);
-				// if (overflow != 0)
-				//	break;
-				zccb->ea_index++;
-			}
-			if (ReturnSingleEntry)
-				break;
-		}
-		zap_cursor_fini(&zc);
+		zfs_uio_setindex(&uio, start_index);
+		Status = zpl_xattr_list(vp, &uio, &spaceused, NULL);
+		zccb->ea_index = zfs_uio_index(&uio);
 	}
 
 
@@ -2754,8 +2634,8 @@ out:
 	// Didn't fit even one
 	if (overflow)
 		Status = STATUS_BUFFER_OVERFLOW;
-	else
-		Status = STATUS_SUCCESS;
+	else if (spaceused == 0 && Status == 0)
+		Status = STATUS_NO_EAS_ON_FILE;
 
 	return (Status);
 }
@@ -4033,8 +3913,16 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 		zccb->dir_eof = 1;
 		ret = 0;
 	} else if (ret == ENOSPC) {
-		/* not finished, but ran out of room? */
-		ret = 0;
+
+		/*
+		 * If we have no "outcount" then buffer is too small
+		 * for the first record. If we do have "outcount", we
+		 * return what we have, and wait to be called again.
+		 */
+		if (ctx.outcount > 0)
+			ret = 0;
+		else
+			ret = STATUS_BUFFER_OVERFLOW;
 	}
 
 	if (ret == 0) {

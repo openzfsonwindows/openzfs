@@ -25,6 +25,7 @@ zfs_vnops_os.c
 zfs_vnops_windows.c
 zfs_vnops_windows_lib.c
 zfs_vnops_windows_mount.c
+zfs_vnops_windows_xattr.c
 zfs_windows_zvol.c
 zfs_windows_zvol_scsi.c
 zfs_windows_zvol_wmi.c
