@@ -4273,6 +4273,7 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	struct vnode *vp = FileObject->FsContext;
+	zfs_dirlist_t *zccb = FileObject->FsContext2;
 	znode_t *zp = VTOZ(vp), *xzp = NULL;
 	znode_t *xdzp = NULL;
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
@@ -4289,12 +4290,28 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	zap_attribute_t  za;
 
 	// Iterate the xattrs.
+	// Windows can call this on a stream zp, in this case, we
+	// need to go find the real parent, and iterate on that.
+	if (zccb && zp->z_pflags & ZFS_XATTR) {
+
+		error = zfs_zget(zfsvfs, zccb->real_file_id, &zp);
+		if (error)
+			goto out;
+	} else {
+		VN_HOLD(vp);
+	}
 
 	// Add a record for this name, if there is room. Keep a
 	// count of how much space would need.
 	// insert_xattrname adds first ":" and ":$DATA"
-	overflow = zfswin_insert_streamname(":$DATA", outbuffer,
-	    &previous_stream, availablebytes, &spaceused, zp->z_size);
+	if (vnode_isdir(vp))
+		overflow = zfswin_insert_streamname("", outbuffer,
+		    &previous_stream, availablebytes, &spaceused,
+		    vnode_isdir(vp) ? 0 : zp->z_size);
+	else
+		overflow = zfswin_insert_streamname(":$DATA", outbuffer,
+		    &previous_stream, availablebytes, &spaceused,
+		    vnode_isdir(vp) ? 0 : zp->z_size);
 
 	/* Grab the hidden attribute directory vnode. */
 	if (zfs_get_xattrdir(zp, &xdzp, cr, 0) != 0) {
@@ -4331,6 +4348,8 @@ out:
 	if (xdvp) {
 		VN_RELE(xdvp);
 	}
+
+	zrele(zp);
 
 	zfs_exit(zfsvfs, FTAG);
 
@@ -5059,4 +5078,94 @@ fsctl_zfs_volume_mountpoint(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    sizeof (fsctl_zfs_volume_mountpoint_t) +
 	    zmo->mountpoint.Length;
 	return (STATUS_SUCCESS);
+}
+
+NTSTATUS
+fsctl_set_zero_data(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	FILE_ZERO_DATA_INFORMATION *fzdi = Irp->AssociatedIrp.SystemBuffer;
+	ULONG length = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+	PFILE_OBJECT FileObject = IrpSp->FileObject;
+	NTSTATUS Status;
+	LARGE_INTEGER time;
+	uint64_t start, end;
+	IO_STATUS_BLOCK iosb;
+	zfs_dirlist_t *zccb;
+
+	if (!fzdi || length < sizeof (FILE_ZERO_DATA_INFORMATION))
+		return (STATUS_INVALID_PARAMETER);
+
+	if (!FileObject)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (fzdi->BeyondFinalZero.QuadPart <= fzdi->FileOffset.QuadPart) {
+		dprintf("BeyondFinalZero was <= to Offset (%I64x <= %I64x)\n",
+		    fzdi->BeyondFinalZero.QuadPart, fzdi->FileOffset.QuadPart);
+		return (STATUS_INVALID_PARAMETER);
+	}
+
+	struct vnode *vp = FileObject->FsContext;
+
+	if (!vp)
+		return (STATUS_INVALID_PARAMETER);
+
+	zccb = FileObject->FsContext2;
+
+	if (!zccb)
+		return (STATUS_INVALID_PARAMETER);
+
+//	if (Irp->RequestorMode == UserMode &&
+//	    !(ccb->access & FILE_WRITE_DATA)) {
+//		WARN("insufficient privileges\n");
+//		return STATUS_ACCESS_DENIED;
+//	}
+
+	znode_t *zp = VTOZ(vp);
+
+	// ExAcquireResourceSharedLite(&zmo->tree_lock, true);
+	ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, TRUE);
+
+	CcFlushCache(FileObject->SectionObjectPointer, NULL, 0, &iosb);
+
+	if (!vnode_isreg(vp)) {
+		dprintf("FileObject did not point to a file\n");
+		Status = STATUS_INVALID_PARAMETER;
+		goto end;
+	}
+
+	/*
+	 * btrfs has this test, but MS "test.exe streams" tests that this
+	 * works, so we will leave it in.
+	 */
+#if 0
+	if (zp->z_pflags & ZFS_XATTR) {
+		dprintf("FileObject is stream\n");
+		Status = STATUS_INVALID_PARAMETER;
+		goto end;
+	}
+#endif
+
+	if ((uint64_t)fzdi->FileOffset.QuadPart >= zp->z_size) {
+		Status = STATUS_SUCCESS;
+		goto end;
+	}
+
+	Status = zfs_freesp(zp, fzdi->FileOffset.QuadPart,
+	    fzdi->BeyondFinalZero.QuadPart - fzdi->FileOffset.QuadPart,
+	    O_RDWR, TRUE);
+
+	CcPurgeCacheSection(FileObject->SectionObjectPointer,
+	    &fzdi->FileOffset,
+	    (ULONG)(fzdi->BeyondFinalZero.QuadPart - fzdi->FileOffset.QuadPart),
+	    FALSE);
+
+	Status = STATUS_SUCCESS;
+
+end:
+
+	ExReleaseResourceLite(vp->FileHeader.Resource);
+	// ExReleaseResourceLite(&Vcb->tree_lock);
+
+	return (Status);
 }

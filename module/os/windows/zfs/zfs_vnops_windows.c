@@ -340,7 +340,7 @@ stream_parse(char *filename, char **streamname)
 		return (0);
 
 	// Regular file, with "::$DATA" end?
-	if (strcmp(colon, "::$DATA") == 0) {
+	if (strcasecmp(colon, "::$DATA") == 0) {
 		*colon = 0; // Terminate before colon
 		return (0);
 	}
@@ -356,11 +356,11 @@ stream_parse(char *filename, char **streamname)
 		// We now ADD ":$DATA" to the stream name.
 		strcat(*streamname, ":$DATA");
 
-		return (0);
+		goto checkname;
 	}
 
 	// Have second colon, better be ":$DATA".
-	if (strcmp(second, ":$DATA") == 0) {
+	if (strcasecmp(second, ":$DATA") == 0) {
 
 		// Terminate at second colon, set streamname
 		// We now keep the ":$DATA" extension in the xattr name
@@ -368,12 +368,27 @@ stream_parse(char *filename, char **streamname)
 
 		*streamname = &colon[1];
 		*colon = 0; // Cut of streamname from filename
-		return (0);
+
+		goto checkname;
 	}
 
 	// Not $DATA
 	dprintf("%s: Not handling StreamType '%s'\n", __func__, second);
 	return (EINVAL);
+
+checkname:
+	if (strlen(*streamname) >= 512)
+		return (STATUS_OBJECT_NAME_INVALID);
+
+	if (strchr(*streamname, '/') ||
+	    /* strchr(&colon[2], ':') || there is one at ":$DATA" */
+	    !strcasecmp("DOSATTRIB:$DATA", *streamname) ||
+	    !strcasecmp("EA:$DATA", *streamname) ||
+	    !strcasecmp("reparse:$DATA", *streamname) ||
+	    !strcasecmp("casesensitive:$DATA", *streamname))
+		return (STATUS_OBJECT_NAME_INVALID);
+
+	return (0);
 }
 
 /*
@@ -537,6 +552,9 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 	if (!word && finalpartmustnotexist && dvp && !vp) {
 		dprintf("CREATE with existing dir exit?\n");
 		VN_RELE(dvp);
+
+		if (zp && ZTOV(zp) && !vnode_isdir(ZTOV(zp)))
+			return (ENOTDIR);
 		return (EEXIST);
 	}
 
@@ -855,7 +873,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		error = stream_parse(filename, &stream_name);
 		if (error) {
 			Irp->IoStatus.Information = 0;
-			return (STATUS_INVALID_PARAMETER);
+			return (error);
 		}
 		if (stream_name != NULL)
 			dprintf("%s: Parsed out streamname '%s'\n",
@@ -998,7 +1016,14 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		if (error == EEXIST) {
 			dprintf("%s: dir exists, wont create\n", __func__);
 			Irp->IoStatus.Information = FILE_EXISTS;
-			return (STATUS_OBJECT_NAME_COLLISION);
+			if (OpenTargetDirectory)
+				return (STATUS_NOT_A_DIRECTORY);
+			return (STATUS_FILE_IS_A_DIRECTORY); // 2
+		}
+		if (error == ENOTDIR) {
+			dprintf("%s: file exists, wont create\n", __func__);
+			Irp->IoStatus.Information = FILE_EXISTS;
+			return (STATUS_OBJECT_NAME_COLLISION); // 3
 		}
 		// A directory component did not exist, or was a file
 		if ((dvp == NULL) || (error == ENOTDIR)) {
@@ -1036,7 +1061,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		vp = NULL;
 		dvp = ZTOV(dzp);
 		int direntflags = 0; // To detect ED_CASE_CONFLICT
-		error = zfs_dirlook(dzp, stream_name, &zp, 0 /* FIGNORECASE */,
+		error = zfs_dirlook(dzp, stream_name, &zp, FIGNORECASE,
 		    &direntflags, NULL);
 		if (!CreateFile && error) {
 			Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
@@ -1096,6 +1121,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		VN_RELE(vp);
 		VN_RELE(dvp);
 		Irp->IoStatus.Information = FILE_EXISTS;
+		if (CreateDirectory && !vnode_isdir(vp))
+			return (STATUS_NOT_A_DIRECTORY);
 		return (STATUS_OBJECT_NAME_COLLISION); // create file error
 	}
 
@@ -1249,7 +1276,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 //		NTSTATUS Status;
 
 		// Streams do not call SeAccessCheck?
-		if (stream_name != NULL) {
+		if (stream_name != NULL && vp != NULL) {
 			IoSetShareAccess(
 			    IrpSp->Parameters.Create.SecurityContext->
 			    DesiredAccess,
@@ -1384,18 +1411,22 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		    CreateDisposition == FILE_CREATE, vap->va_mode,
 		    &zp, NULL, 0, NULL, NULL);
 		if (error == 0) {
+			boolean_t reenter_for_xattr = B_FALSE;
+
+			// Creating two things? Don't attach until 2nd item.
+			if (!(zp->z_pflags & ZFS_XATTR) && stream_name != NULL)
+				reenter_for_xattr = B_TRUE;
 
 			vp = ZTOV(zp);
 
-			zfs_couplefileobject(vp, FileObject,
-			    zp ? zp->z_size : 0ULL);
-			vnode_ref(vp); // Hold open reference, until CLOSE
+			if (!reenter_for_xattr) {
+				zfs_couplefileobject(vp, FileObject,
+				    zp ? zp->z_size : 0ULL);
+				vnode_ref(vp);
 
-			check_and_set_stream_parent(stream_name, FileObject,
-			    VTOZ(dvp)->z_xattr_parent);
-
-			if (DeleteOnClose)
-				Status = zfs_setunlink(FileObject, dvp);
+				if (DeleteOnClose)
+					Status = zfs_setunlink(FileObject, dvp);
+			}
 
 			if (Status == STATUS_SUCCESS) {
 
@@ -1426,13 +1457,17 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    &vp->share_access);
 				vnode_unlock(vp);
 
-				if (stream_name == NULL) {
+				// Did we create file, or stream?
+				if (!(zp->z_pflags & ZFS_XATTR)) {
 					zfs_send_notify(zfsvfs,
 					    zp->z_name_cache,
 					    zp->z_name_offset,
 					    FILE_NOTIFY_CHANGE_FILE_NAME,
 					    FILE_ACTION_ADDED);
 				} else {
+					check_and_set_stream_parent(stream_name,
+					    FileObject,
+					    VTOZ(dvp)->z_xattr_parent);
 
 					zfs_build_path_stream(zp, NULL, NULL,
 					    NULL, NULL, stream_name);
@@ -1444,9 +1479,17 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 					    FILE_ACTION_ADDED_STREAM,
 					    stream_name);
 				}
+
+		/* Windows lets you create a file, and stream, in one. */
+		/* Call this function again, lets hope, only once */
+				if (reenter_for_xattr) {
+					Status = EAGAIN;
+				}
+
 			}
 			VN_RELE(vp);
 			VN_RELE(dvp);
+
 			return (Status);
 		}
 		if (error == EEXIST)
@@ -1628,11 +1671,12 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 	}
 
 
+	do {
 
-	// Call ZFS
-	status = zfs_vnop_lookup_impl(Irp, IrpSp, zmo, filename, &vap);
+		// Call ZFS
+		status = zfs_vnop_lookup_impl(Irp, IrpSp, zmo, filename, &vap);
 
-
+	} while (status == EAGAIN);
 
 #if defined(NTDDI_WIN10_RS5) && (NTDDI_VERSION >= NTDDI_WIN10_RS5)
 	// Did ECP ask for getattr to be returned? None, one or both can be set.
@@ -3794,6 +3838,11 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		Status = STATUS_SUCCESS;
 		break;
 
+	case FSCTL_SET_ZERO_DATA:
+		dprintf("    FSCTL_SET_ZERO_DATA\n");
+		Status = fsctl_set_zero_data(DeviceObject, Irp, IrpSp);
+		break;
+
 	default:
 		dprintf("* %s: unknown class 0x%lx\n", __func__,
 		    IrpSp->Parameters.FileSystemControl.FsControlCode);
@@ -4705,6 +4754,7 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	    error != STATUS_SOME_NOT_MAPPED) {
 		VN_RELE(dvp);
 		dprintf("%s: some illegal characters\n", __func__);
+		return (STATUS_INVALID_PARAMETER); // test.exe
 		return (STATUS_ILLEGAL_CHARACTER);
 	}
 	while (outlen > 0 && filename[outlen - 1] == '\\') outlen--;
