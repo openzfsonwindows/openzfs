@@ -629,6 +629,8 @@ jobs:
     - name: debug - dummy status
       run: echo ${{ steps.dummy.conclusion }}
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     #https://github.com/maharmstone/btrfs/blob/master/src/tests/test.cpp#L453
     - name: run winbtrfs create tests
@@ -636,115 +638,184 @@ jobs:
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" create ${{ steps.drive.outputs.drive }}'
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
+
     - name: run winbtrfs supersede tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" supersede ${{ steps.drive.outputs.drive }}'
+
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     - name: run winbtrfs overwrite tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" overwrite ${{ steps.drive.outputs.drive }}'
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
+
     - name: run winbtrfs open_id tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" open_id ${{ steps.drive.outputs.drive }}'
+
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     - name: run winbtrfs io tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" io ${{ steps.drive.outputs.drive }}'
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
+
     - name: run winbtrfs mmap tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" mmap ${{ steps.drive.outputs.drive }}'
+
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     - name: run winbtrfs rename tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" rename ${{ steps.drive.outputs.drive }}'
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
+
     - name: run winbtrfs rename_ex tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" rename_ex ${{ steps.drive.outputs.drive }}'
+
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     - name: run winbtrfs delete tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" delete ${{ steps.drive.outputs.drive }}'
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
+
     - name: run winbtrfs delete_ex tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" delete_ex ${{ steps.drive.outputs.drive }}'
+
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     - name: run winbtrfs links tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" links ${{ steps.drive.outputs.drive }}'
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
+
     - name: run winbtrfs links_ex tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" links_ex ${{ steps.drive.outputs.drive }}'
+
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     - name: run winbtrfs oplock_i tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" oplock_i ${{ steps.drive.outputs.drive }}'
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
+
     - name: run winbtrfs oplock_ii tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" oplock_ii ${{ steps.drive.outputs.drive }}'
+
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     - name: run winbtrfs oplock_batch tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" oplock_batch ${{ steps.drive.outputs.drive }}'
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
+
     - name: run winbtrfs oplock_filter tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" oplock_filter ${{ steps.drive.outputs.drive }}'
+
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     - name: run winbtrfs oplock_r tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" oplock_r ${{ steps.drive.outputs.drive }}'
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
+
     - name: run winbtrfs oplock_rw tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" oplock_rw ${{ steps.drive.outputs.drive }}'
+
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     - name: run winbtrfs oplock_rh tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" oplock_rh ${{ steps.drive.outputs.drive }}'
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
+
     - name: run winbtrfs oplock_rwh tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" oplock_rwh ${{ steps.drive.outputs.drive }}'
+
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     - name: run winbtrfs cs tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" cs ${{ steps.drive.outputs.drive }}'
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
+
     - name: run winbtrfs reparse tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" reparse ${{ steps.drive.outputs.drive }}'
 
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
+
     - name: run winbtrfs streams tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" streams ${{ steps.drive.outputs.drive }}'
+
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     #- name: run winbtrfs ea tests
     #  if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' }}
@@ -754,6 +825,9 @@ jobs:
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
       timeout-minutes: 1
       run: '& "${{github.workspace}}\winbtrfs\test.exe" fileinfo ${{ steps.drive.outputs.drive }}'
+
+    - run: Start-Sleep -Seconds 10
+      timeout-minutes: 1
 
     - name: run winbtrfs ea tests
       if: ${{ ( success() || failure() ) && steps.dummy.conclusion == 'success' && inputs.run-failing }}
