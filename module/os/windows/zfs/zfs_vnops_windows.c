@@ -4573,10 +4573,11 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 			dprintf("%s: growing file\n", __func__);
 
 			// zfs_freesp() calls vnode_pager_setsize();
-			Status = zfs_freesp(zp,
+			error = zfs_freesp(zp,
 			    byteOffset.QuadPart,  bufferLength,
 			    FWRITE, B_TRUE);
-			ASSERT0(Status);
+			if (error)
+				goto fail;
 		} else {
 			// vnode_pager_setsize(vp, zp->z_size);
 		}
@@ -4655,7 +4656,7 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		error = zfs_write(zp, &uio, 0, NULL);
 	else
 		error = zfs_write(zp, &uio, 0, NULL);
-
+fail:
 	// if (error == 0)
 	//	zp->z_pflags |= ZFS_ARCHIVE;
 	switch (error) {
