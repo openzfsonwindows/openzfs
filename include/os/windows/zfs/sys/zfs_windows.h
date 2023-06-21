@@ -142,6 +142,10 @@ extern NTSTATUS set_file_link_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
 extern NTSTATUS set_file_rename_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
+extern NTSTATUS set_file_valid_data_length_information(
+    PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp);
+extern NTSTATUS set_file_position_information(PDEVICE_OBJECT DeviceObject,
+    PIRP Irp, PIO_STACK_LOCATION IrpSp);
 
 /* IRP_MJ_GET_INFORMATION helpers */
 extern NTSTATUS file_basic_information(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION,
@@ -173,11 +177,13 @@ extern NTSTATUS file_name_information(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION,
 extern NTSTATUS file_remote_protocol_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION,	FILE_REMOTE_PROTOCOL_INFORMATION *);
 extern NTSTATUS file_stream_information(PDEVICE_OBJECT, PIRP,
-	PIO_STACK_LOCATION,	FILE_STREAM_INFORMATION *, PULONG usedspace);
+	PIO_STACK_LOCATION,	FILE_STREAM_INFORMATION *);
 extern NTSTATUS file_attribute_tag_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION,	FILE_ATTRIBUTE_TAG_INFORMATION *tag);
 extern NTSTATUS file_internal_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION,	FILE_INTERNAL_INFORMATION *infernal);
+extern NTSTATUS file_hard_link_information(PDEVICE_OBJECT, PIRP,
+    PIO_STACK_LOCATION, FILE_LINKS_INFORMATION *links);
 
 /* IRP_MJ_DEVICE_CONTROL helpers */
 extern NTSTATUS QueryCapabilities(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION);
@@ -207,5 +213,9 @@ extern NTSTATUS ioctl_mountdev_query_stable_guid(PDEVICE_OBJECT, PIRP,
 extern NTSTATUS ioctl_query_stable_guid(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
 extern void strupper(char *s, size_t max);
+extern NTSTATUS fsctl_zfs_volume_mountpoint(PDEVICE_OBJECT DeviceObject,
+    PIRP Irp, PIO_STACK_LOCATION IrpSp);
+extern NTSTATUS fsctl_set_zero_data(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp);
 
 #endif

@@ -2390,11 +2390,11 @@ query_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 	case FileStreamInformation:
 		Status = file_stream_information(DeviceObject, Irp, IrpSp,
-		    Irp->AssociatedIrp.SystemBuffer, &usedspace);
+		    Irp->AssociatedIrp.SystemBuffer);
 		break;
 	case FileHardLinkInformation:
-		dprintf("* %s: FileHardLinkInformation NOT IMPLEMENTED\n",
-		    __func__);
+		Status = file_hard_link_information(DeviceObject, Irp, IrpSp,
+		    Irp->AssociatedIrp.SystemBuffer);
 		break;
 	// Not used - not handled by ntfs either
 	case FileRemoteProtocolInformation:
@@ -3985,7 +3985,7 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 		if (ctx.outcount > 0)
 			ret = 0;
 		else
-			ret = STATUS_BUFFER_OVERFLOW;
+			Status = STATUS_BUFFER_OVERFLOW;
 	}
 
 	if (ret == 0) {
