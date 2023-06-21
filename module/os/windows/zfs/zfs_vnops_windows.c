@@ -316,7 +316,24 @@ check_and_set_stream_parent(char *stream_name, PFILE_OBJECT FileObject,
 	if (stream_name != NULL && FileObject != NULL &&
 	    FileObject->FsContext2 != NULL) {
 		zfs_dirlist_t *zccb = FileObject->FsContext2;
+
 		zccb->real_file_id = id;
+
+		if (FileObject->FsContext != NULL) {
+			struct vnode *vp = FileObject->FsContext;
+			znode_t *dzp;
+			znode_t *zp = VTOZ(vp);
+			if (zp != NULL && zp->z_zfsvfs != NULL) {
+				// Fetch gparent (one above xattr dir)
+				int error = zfs_zget(zp->z_zfsvfs, id, &dzp);
+				if (!error) {
+					zfs_build_path_stream(zp, dzp,
+					    &zp->z_name_cache, &zp->z_name_len,
+					    &zp->z_name_offset, stream_name);
+					zrele(dzp);
+				}
+			}
+		}
 	}
 }
 
@@ -1469,15 +1486,12 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 					    FileObject,
 					    VTOZ(dvp)->z_xattr_parent);
 
-					zfs_build_path_stream(zp, NULL, NULL,
-					    NULL, NULL, stream_name);
-
 					zfs_send_notify_stream(zfsvfs, // WOOT
-					    VTOZ(dvp)->z_name_cache,
-					    VTOZ(dvp)->z_name_offset,
+					    zp->z_name_cache,
+					    zp->z_name_offset,
 					    FILE_NOTIFY_CHANGE_STREAM_NAME,
 					    FILE_ACTION_ADDED_STREAM,
-					    stream_name);
+					    NULL);
 				}
 
 		/* Windows lets you create a file, and stream, in one. */
