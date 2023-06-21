@@ -739,6 +739,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 	int force_formd_normalized_output = 0;
 	ushort_t reclen, rawsize;
 	ULONG *next_offset;
+	uint64_t guid;
 
 	// Windows combines vnop_readdir and vnop_getattr,
 	// so we need to lookup a bunch of values, we try
@@ -1068,10 +1069,11 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		    xattr_getsize(ZTOV(tzp));
 		fiedi->FileAttributes =
 		    zfs_getwinflags(tzp);
-		memset(&fiedi->FileId.Identifier[0], 0,
-		    sizeof (fiedi->FileId));
-		memcpy(&fiedi->FileId.Identifier[0],
-		    &tzp->z_id, sizeof (tzp->z_id));
+		RtlCopyMemory(&fiedi->FileId.Identifier[0], &tzp->z_id,
+		    sizeof (UINT64));
+		guid = dmu_objset_fsid_guid(zfsvfs->z_os);
+		RtlCopyMemory(&fiedi->FileId.Identifier[sizeof (UINT64)],
+		    &guid, sizeof (UINT64));
 		nameptr = fiedi->FileName;
 		fiedi->FileNameLength = namelenholder;
 		break;
@@ -1112,10 +1114,11 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		fiebdi->FileAttributes =
 		    zfs_getwinflags(tzp);
 		fiebdi->ShortNameLength = 0;
-		memset(&fiebdi->FileId.Identifier[0], 0,
-		    sizeof (fiebdi->FileId));
-		memcpy(&fiebdi->FileId.Identifier[0],
-		    &tzp->z_id, sizeof (tzp->z_id));
+		RtlCopyMemory(&fiebdi->FileId.Identifier[0], &tzp->z_id,
+		    sizeof (UINT64));
+		guid = dmu_objset_fsid_guid(zfsvfs->z_os);
+		RtlCopyMemory(&fiebdi->FileId.Identifier[sizeof (UINT64)],
+		    &guid, sizeof (UINT64));
 		nameptr = fiebdi->FileName;
 		fiebdi->FileNameLength = namelenholder;
 		break;
