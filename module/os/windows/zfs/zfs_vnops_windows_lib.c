@@ -3349,6 +3349,8 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 	}
 	// Release all holds
+	if (error == EBUSY)
+		error = STATUS_ACCESS_DENIED;
 out:
 	if (destParentHandle != 0)
 		ZwClose(destParentHandle);
@@ -4333,8 +4335,7 @@ zfswin_insert_streamname(char *streamname, uint8_t *outbuffer,
 //
 NTSTATUS
 file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
-    PIO_STACK_LOCATION IrpSp, FILE_STREAM_INFORMATION *stream,
-    PULONG usedspace)
+    PIO_STACK_LOCATION IrpSp, FILE_STREAM_INFORMATION *stream)
 {
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	NTSTATUS Status;
@@ -4447,6 +4448,35 @@ out:
 	return (Status);
 }
 
+NTSTATUS
+file_hard_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp, FILE_LINKS_INFORMATION *fhli)
+{
+	PFILE_OBJECT FileObject = IrpSp->FileObject;
+	NTSTATUS Status;
+	uint64_t availablebytes = IrpSp->Parameters.QueryFile.Length;
+
+	dprintf("%s: \n", __func__);
+
+	if (FileObject == NULL || FileObject->FsContext == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (IrpSp->Parameters.QueryFile.Length <
+	    sizeof (FILE_LINKS_INFORMATION)) {
+		Irp->IoStatus.Information = sizeof (FILE_LINKS_INFORMATION);
+		return (STATUS_BUFFER_TOO_SMALL);
+	}
+
+	struct vnode *vp = FileObject->FsContext;
+	zfs_dirlist_t *zccb = FileObject->FsContext2;
+
+	fhli->EntriesReturned = 0;
+	fhli->BytesNeeded = sizeof (FILE_LINKS_INFORMATION);
+
+	Irp->IoStatus.Information = sizeof (FILE_LINKS_INFORMATION);
+
+	return (STATUS_SUCCESS);
+}
 
 /* IRP_MJ_DEVICE_CONTROL helpers */
 
