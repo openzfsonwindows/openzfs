@@ -2844,6 +2844,9 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
+	if (vnode_isdir(vp))
+		return (STATUS_INVALID_PARAMETER);
+
 	dprintf("* File_EndOfFile_Information:\n");
 
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
@@ -3356,6 +3359,83 @@ out:
 	return (error);
 }
 
+NTSTATUS
+set_file_valid_data_length_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	NTSTATUS Status;
+	FILE_VALID_DATA_LENGTH_INFORMATION *fvdli =
+	    Irp->AssociatedIrp.SystemBuffer;
+	dprintf("* FileValidDataLengthInformation: \n");
+	mount_t *zmo = DeviceObject->DeviceExtension;
+	int error;
+
+	if (IrpSp->Parameters.SetFile.Length <
+	    sizeof (FILE_VALID_DATA_LENGTH_INFORMATION))
+		return (STATUS_INVALID_PARAMETER);
+
+	if (IrpSp->FileObject == NULL ||
+	    IrpSp->FileObject->FsContext == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	struct vnode *vp = IrpSp->FileObject->FsContext;
+	znode_t *zp = VTOZ(vp);
+
+	if (zmo == NULL || zp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+	if (zfsvfs == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
+
+	if (fvdli->ValidDataLength.QuadPart <=
+	    vp->FileHeader.ValidDataLength.QuadPart ||
+	    fvdli->ValidDataLength.QuadPart >
+	    vp->FileHeader.FileSize.QuadPart) {
+		dprintf("invalid VDL of %I64u (%I64u, file %I64u)\n",
+		    fvdli->ValidDataLength.QuadPart,
+		    vp->FileHeader.ValidDataLength.QuadPart,
+		    vp->FileHeader.FileSize.QuadPart);
+		Status = STATUS_INVALID_PARAMETER;
+		goto end;
+	}
+
+	vp->FileHeader.ValidDataLength = fvdli->ValidDataLength;
+	vnode_setsizechange(vp, 1);
+
+	zfs_send_notify(zp->z_zfsvfs, zp->z_name_cache,
+	    zp->z_name_offset,
+	    FILE_NOTIFY_CHANGE_SIZE,
+	    FILE_ACTION_MODIFIED);
+
+	Status = STATUS_SUCCESS;
+
+end:
+	zfs_exit(zfsvfs, FTAG);
+
+	return (Status);
+}
+
+NTSTATUS
+set_file_position_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	FILE_POSITION_INFORMATION *fpi = Irp->AssociatedIrp.SystemBuffer;
+	dprintf("* FilePositionInformation: \n");
+
+	if (IrpSp->FileObject == NULL || IrpSp->FileObject->FsContext == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (IrpSp->Parameters.SetFile.Length <
+	    sizeof (FILE_POSITION_INFORMATION))
+		return (STATUS_INVALID_PARAMETER);
+
+	IrpSp->FileObject->CurrentByteOffset = fpi->CurrentByteOffset;
+	return (STATUS_SUCCESS);
+}
 
 /* IRP_MJ_QUERY_INFORMATION helpers */
 ULONG
