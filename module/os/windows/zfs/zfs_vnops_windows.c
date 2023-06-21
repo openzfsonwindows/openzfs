@@ -4132,6 +4132,9 @@ set_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 // However, NTFS doesn't do that! It keeps the size the same.
 // Setting a FileAllocationInformation larger than current EOF size does
 // not have a observable affect from user space.
+			if (vnode_isdir(IrpSp->FileObject->FsContext))
+				return (STATUS_INVALID_PARAMETER);
+
 			Status = STATUS_SUCCESS;
 		}
 		break;
@@ -4157,14 +4160,16 @@ set_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		Status = set_file_link_information(DeviceObject, Irp, IrpSp);
 		break;
 	case FilePositionInformation: // seek
-		dprintf("* SET FilePositionInformation NOTIMPLEMENTED\n");
+		Status = set_file_position_information(DeviceObject, Irp,
+		    IrpSp);
 		break;
 	case FileRenameInformation: // vnop_rename
 	case FileRenameInformationEx:
 		Status = set_file_rename_information(DeviceObject, Irp, IrpSp);
 		break;
-	case FileValidDataLengthInformation:  // truncate?
-		dprintf("* SET FileValidDataLengthInformation NOTIMP\n");
+	case FileValidDataLengthInformation:
+		Status = set_file_valid_data_length_information(DeviceObject,
+		    Irp, IrpSp);
 		break;
 	default:
 		dprintf("* %s: unknown type NOTIMPLEMENTED\n", __func__);
