@@ -2086,10 +2086,13 @@ zfs_build_path_stream(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 		start_zp->z_name_cache = NULL;
 		start_zp->z_name_len = 0;
 	}
-	start_zp->z_name_len = strlen(stream) + 1;
-	start_zp->z_name_cache = kmem_alloc(start_zp->z_name_len, KM_SLEEP);
-	strlcpy(start_zp->z_name_cache, stream, start_zp->z_name_len);
-	start_zp->z_name_offset = 0;
+
+	// start_parent->name + ":" + streamname + null
+	start_zp->z_name_cache = kmem_asprintf("%s:%s",
+	    start_parent->z_name_cache, stream);
+	start_zp->z_name_len = strlen(start_zp->z_name_cache);
+	// start_zp->z_name_offset = start_parent->z_name_len + 1;
+	start_zp->z_name_offset = start_parent->z_name_offset;
 
 	return (0);
 }
