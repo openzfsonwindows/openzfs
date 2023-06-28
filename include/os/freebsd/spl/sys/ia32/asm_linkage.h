@@ -143,7 +143,6 @@ x:
 	.globl	x; \
 x:
 
-
 /*
  * ENTRY2 is identical to ENTRY but provides two labels for the entry point.
  */
