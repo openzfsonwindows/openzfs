@@ -6061,8 +6061,8 @@ construct_fsacl_list(boolean_t un, struct allow_opts *opts, nvlist_t **nvlp)
 				if (p != NULL)
 					rid = p->pw_uid;
 				else if (*endch != '\0') {
-					(void) snprintf(errbuf, 256, gettext(
-					    "invalid user %s\n"), curr);
+					(void) snprintf(errbuf, sizeof (errbuf),
+					    gettext("invalid user %s\n"), curr);
 					allow_usage(un, B_TRUE, errbuf);
 				}
 			} else if (opts->group) {
@@ -6075,8 +6075,9 @@ construct_fsacl_list(boolean_t un, struct allow_opts *opts, nvlist_t **nvlp)
 				if (g != NULL)
 					rid = g->gr_gid;
 				else if (*endch != '\0') {
-					(void) snprintf(errbuf, 256, gettext(
-					    "invalid group %s\n"),  curr);
+					(void) snprintf(errbuf, sizeof (errbuf),
+					    gettext("invalid group %s\n"),
+					    curr);
 					allow_usage(un, B_TRUE, errbuf);
 				}
 			} else {
@@ -6101,8 +6102,9 @@ construct_fsacl_list(boolean_t un, struct allow_opts *opts, nvlist_t **nvlp)
 					who_type = ZFS_DELEG_GROUP;
 					rid = g->gr_gid;
 				} else {
-					(void) snprintf(errbuf, 256, gettext(
-					    "invalid user/group %s\n"), curr);
+					(void) snprintf(errbuf, sizeof (errbuf),
+					    gettext("invalid user/group %s\n"),
+					    curr);
 					allow_usage(un, B_TRUE, errbuf);
 				}
 			}
