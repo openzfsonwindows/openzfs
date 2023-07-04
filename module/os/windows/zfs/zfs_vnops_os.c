@@ -322,6 +322,10 @@ void
 zfs_zrele_async(znode_t *zp)
 {
 	struct vnode *vp = ZTOV(zp);
+
+	if (vp == NULL)
+		return;
+
 	objset_t *os = ITOZSB(vp)->z_os;
 
 	ASSERT(os != NULL);
@@ -812,7 +816,8 @@ top:
 	zfs_sa_upgrade_txholds(tx, zp);
 	zfs_sa_upgrade_txholds(tx, dzp);
 	if (may_delete_now) {
-		toobig = zp->z_size > zp->z_blksz * zfs_delete_blocks;
+		toobig = zp->z_size > ((uint64_t)zp->z_blksz) *
+		    zfs_delete_blocks;
 		/* if the file is too big, only hold_free a token amount */
 		dmu_tx_hold_free(tx, zp->z_id, 0,
 		    (toobig ? DMU_MAX_ACCESS : DMU_OBJECT_END));
@@ -2850,6 +2855,9 @@ top:
 			error = sa_update(szp->z_sa_hdl, SA_ZPL_FLAGS(zfsvfs),
 			    (void *)&szp->z_pflags, sizeof (uint64_t), tx);
 			ASSERT0(error);
+
+			/* Update parent */
+			vnode_setparent(ZTOV(szp), ZTOV(tdzp));
 
 			error = zfs_link_destroy(sdl, szp, tx, ZRENAMING, NULL);
 			if (error == 0) {

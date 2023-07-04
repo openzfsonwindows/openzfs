@@ -879,6 +879,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			dvp_no_rele = 1;
 		}
 
+		if (filename && strstr(filename, ":casesensitive") != NULL)
+			dprintf("break here");
+
 /*
  * Here, we want to check for Streams, which come in the syntax
  * filename.ext:Stream:Type
@@ -927,22 +930,27 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 		error = zfs_zget(zfsvfs,
 		    *((uint64_t *)IrpSp->FileObject->FileName.Buffer), &zp);
-		// Code below assumed dvp is also open
+		// Code below assumed dvp is also , so we need to
+		// open parent. We can not trust vnode_parent() here since
+		// links can have different parents. Possibly speed this up
+		// in future with a z_links > 1 test?
 		if (error == 0) {
 			uint64_t parent;
-			znode_t *dzp;
 			error = sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
 			    &parent, sizeof (parent));
 			if (error == 0) {
 				error = zfs_zget(zfsvfs, parent, &dzp);
 			}
+			vp = ZTOV(zp);
 			if (error != 0) {
-				VN_RELE(ZTOV(zp));
+				VN_RELE(vp);
+				dprintf("Missing parent error\n");
 				return (error);
 			} // failed to get parentid, or find parent
 			// Copy over the vp info for below, both are held.
-			vp = ZTOV(zp);
+			// dzp/dvp held by zget()
 			dvp = ZTOV(dzp);
+			dprintf("getid start %d\n", vp->v_iocount);
 		}
 	}
 
@@ -1441,6 +1449,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    zp ? zp->z_size : 0ULL);
 				vnode_ref(vp);
 
+				vnode_setparent(vp, dvp);
+
 				if (DeleteOnClose)
 					Status = zfs_setunlink(FileObject, dvp);
 			}
@@ -1513,7 +1523,16 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 		UNDO_SHARE_ACCESS(dvp);
 		VN_RELE(dvp);
-		return (STATUS_OBJECT_NAME_COLLISION); // create file error
+		switch (error) {
+		case ENOSPC:
+			return (STATUS_DISK_FULL);
+		case EDQUOT:
+			return (STATUS_DISK_FULL);
+			// return (STATUS_DISK_QUOTA_EXCEEDED);
+		default:
+			// create file error
+			return (STATUS_OBJECT_NAME_COLLISION);
+		}
 	}
 
 
@@ -1543,12 +1562,24 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	} else {
 		// Technically, this should call zfs_open() -
 		// but zfs_open is mostly empty
+
 		zfs_couplefileobject(vp, FileObject, zp->z_size);
 		vnode_ref(vp); // Hold open reference, until CLOSE
+
+		// Now that vp is set, check delete
 		if (DeleteOnClose)
 			Status = zfs_setunlink(FileObject, dvp);
 
 		if (Status == STATUS_SUCCESS) {
+
+			/* When multiple links are involved, update parent */
+			vnode_setparent(vp, dvp);
+			if ((zp->z_links > 1) &&
+			    zfs_build_path(zp, dzp, &zp->z_name_cache,
+			    &zp->z_name_len,
+			    &zp->z_name_offset) == -1)
+				dprintf("%s: 2 failed to build fullpath\n",
+				    __func__);
 
 			Irp->IoStatus.Information = FILE_OPENED;
 			// Did they set the open flags (clearing archive?)
@@ -1784,19 +1815,24 @@ zfs_vnop_reclaim(struct vnode *vp)
 	dprintf("  zfs_vnop_recycle: releasing zp %p and vp %p: '%s'\n", zp, vp,
 	    zp->z_name_cache ? zp->z_name_cache : "");
 
-	void *sd = vnode_security(vp);
-	if (sd != NULL)
-		ExFreePool(sd);
-	vnode_setsecurity(vp, NULL);
-
 	// Decouple the nodes
 	ASSERT(ZTOV(zp) != (vnode_t *)0xdeadbeefdeadbeef);
 
 	mutex_enter(&zp->z_lock);
+	// lost the race?
+	if (VTOZ(vp) == NULL) {
+		mutex_exit(&zp->z_lock);
+		return (0);
+	}
 	ZTOV(zp) = NULL;
 	vnode_clearfsnode(vp); /* vp->v_data = NULL */
 	mutex_exit(&zp->z_lock);
 	// vnode_removefsref(vp); /* ADDREF from vnode_create */
+
+	void *sd = vnode_security(vp);
+	if (sd != NULL)
+		ExFreePool(sd);
+	vnode_setsecurity(vp, NULL);
 
 	vp = NULL;
 
@@ -1830,7 +1866,6 @@ zfs_vnop_reclaim(struct vnode *vp)
 	return (0);
 }
 
-
 /*
  */
 void
@@ -1856,6 +1891,7 @@ zfs_znode_getvnode(znode_t *zp, znode_t *dzp, zfsvfs_t *zfsvfs)
 {
 	struct vnode *vp = NULL;
 	int flags = 0;
+	struct vnode *parentvp = NULL;
 	// dprintf("getvnode zp %p with vp %p zfsvfs %p vfs %p\n", zp, vp,
 	//    zfsvfs, zfsvfs->z_vfs);
 
@@ -1865,13 +1901,38 @@ zfs_znode_getvnode(znode_t *zp, znode_t *dzp, zfsvfs_t *zfsvfs)
 	// "root" / mountpoint holds long term ref
 	if (zp->z_id == zfsvfs->z_root) {
 		flags |= VNODE_MARKROOT;
+	} else {
+
+		/*
+		 * To maintain a well-defined vnode tree,
+		 * we need the parent here.
+		 * This could cascade?
+		 */
+		if (dzp != NULL)
+			parentvp = ZTOV(dzp);
+		if (parentvp != NULL) {
+			VERIFY0(VN_HOLD(parentvp));
+		} else {
+			uint64_t parent;
+			znode_t *parentzp;
+			VERIFY(sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
+			    &parent, sizeof (parent)) == 0);
+			if (zfs_zget(zfsvfs, parent, &parentzp) != 0) {
+				return (NULL);
+			}
+			parentvp = ZTOV(parentzp);
+		}
 	}
 
 	/*
 	 * vnode_create() has a habit of calling both vnop_reclaim() and
 	 * vnop_fsync(), which can create havok as we are already holding locks.
 	 */
-	vnode_create(zfsvfs->z_vfs, zp, IFTOVT((mode_t)zp->z_mode), flags, &vp);
+	vnode_create(zfsvfs->z_vfs, parentvp,
+	    zp, IFTOVT((mode_t)zp->z_mode), flags, &vp);
+
+	if (parentvp != NULL)
+		VN_RELE(parentvp);
 
 	atomic_inc_64(&vnop_num_vnodes);
 
@@ -1885,6 +1946,10 @@ zfs_znode_getvnode(znode_t *zp, znode_t *dzp, zfsvfs_t *zfsvfs)
 	if (zfs_build_path(zp, dzp, &zp->z_name_cache, &zp->z_name_len,
 	    &zp->z_name_offset) == -1)
 		dprintf("%s: failed to build fullpath\n", __func__);
+
+	if (parentvp != NULL)
+		dprintf("Created '%s' with parent '%s'\n",
+		    zp->z_name_cache, VTOZ(parentvp)->z_name_cache);
 
 	// Assign security here. But, if we are XATTR, we do not? In Windows,
 	// it refers to Streams and they do not have Security?
@@ -4238,7 +4303,7 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	if (fileObject == NULL || fileObject->FsContext == NULL) {
 		dprintf("  fileObject == NULL\n");
 		// ASSERT0("fileobject == NULL");
-		return (STATUS_INVALID_PARAMETER);
+		return (SET_ERROR(STATUS_INVALID_PARAMETER));
 	}
 
 	struct vnode *vp = fileObject->FsContext;
@@ -4250,8 +4315,14 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		return (STATUS_ACCESS_DENIED);
 	}
 #endif
+	mount_t *zmo = DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (SET_ERROR(error));
 
 	VN_HOLD(vp);
+
 	znode_t *zp = VTOZ(vp);
 
 	if (IrpSp->Parameters.Read.ByteOffset.LowPart ==
@@ -4301,7 +4372,7 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
 		if (!NT_SUCCESS(Status))
-			return (Status);
+			return (Status); // bad, leak vp
 #endif
 	}
 	// Grab lock if paging
@@ -4403,6 +4474,10 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 out:
 
 	VN_RELE(vp);
+
+	zfs_exit(zfsvfs, FTAG);
+
+
 	// Update the file offset
 	if ((Status == STATUS_SUCCESS) &&
 	    (fileObject->Flags & FO_SYNCHRONOUS_IO) &&
@@ -4413,13 +4488,14 @@ out:
 		    byteOffset.QuadPart + Irp->IoStatus.Information;
 	}
 
-	if (releaselock) ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
+	if (releaselock)
+		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
 
 //	dprintf("  FileName: %wZ offset 0x%llx len 0x%lx mdl %p System %p\n",
 // &fileObject->FileName, byteOffset.QuadPart,
 // bufferLength, Irp->MdlAddress, Irp->AssociatedIrp.SystemBuffer);
 
-	return (Status);
+	return (SET_ERROR(Status));
 }
 
 
@@ -4466,13 +4542,19 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	if (fileObject == NULL || fileObject->FsContext == NULL) {
 		dprintf("  fileObject == NULL\n");
 		ASSERT0("fileObject == NULL");
-		return (STATUS_INVALID_PARAMETER);
+		return (SET_ERROR(STATUS_INVALID_PARAMETER));
 	}
 
 	struct vnode *vp = fileObject->FsContext;
 	zfs_dirlist_t *zccb = fileObject->FsContext2;
+	mount_t *zmo = DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 
-	VN_HOLD(vp);
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (SET_ERROR(error));
+
+	VERIFY3U(VN_HOLD(vp), ==, 0);
+
 	znode_t *zp = VTOZ(vp);
 	ASSERT(ZTOV(zp) == vp);
 	Irp->IoStatus.Information = 0;
@@ -4668,6 +4750,10 @@ fail:
 	case ENOSPC:
 		Status = STATUS_DISK_FULL;
 		break;
+	case EDQUOT:
+		// Status = STATUS_DISK_QUOTA_EXCEEDED;
+		Status = STATUS_DISK_FULL;
+		break;
 	default:
 		Status = STATUS_INVALID_PARAMETER;
 		break;
@@ -4699,11 +4785,13 @@ out:
 
 	VN_RELE(vp);
 
+	zfs_exit(zfsvfs, FTAG);
+
 //	dprintf("  FileName: %wZ offset 0x%llx len 0x%lx mdl %p System %p\n",
 // &fileObject->FileName, byteOffset.QuadPart, bufferLength,
 // Irp->MdlAddress, Irp->AssociatedIrp.SystemBuffer);
 
-	return (Status);
+	return (SET_ERROR(Status));
 }
 
 /*
@@ -4747,18 +4835,13 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	ASSERT(zp != NULL);
 
 	uint64_t parent = 0;
-	znode_t *dzp;
 
 	if (zp->z_is_ctldir)
 		return (STATUS_SUCCESS);
 
-	// No dvp, lookup parent
-	VERIFY(sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zp->z_zfsvfs),
-	    &parent, sizeof (parent)) == 0);
-	error = zfs_zget(zp->z_zfsvfs, parent, &dzp);
-	if (error)
-		return (STATUS_INSTANCE_NOT_AVAILABLE);  // FIXME
-	dvp = ZTOV(dzp);
+	dvp = vnode_parent(vp);
+	if ((dvp == NULL) || VN_HOLD(dvp) != 0)
+		return (STATUS_INSTANCE_NOT_AVAILABLE);
 
 	// Unfortunately, filename is littered with "\", clean it up,
 	// or search based on ID to get name?
@@ -4773,6 +4856,7 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	if (error != STATUS_SUCCESS &&
 	    error != STATUS_SOME_NOT_MAPPED) {
 		VN_RELE(dvp);
+		VN_RELE(vp);
 		dprintf("%s: some illegal characters\n", __func__);
 		return (STATUS_INVALID_PARAMETER); // test.exe
 		return (STATUS_ILLEGAL_CHARACTER);
@@ -4791,6 +4875,8 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	int isdir = vnode_isdir(vp);
 
 	/* ZFS deletes from filename, so RELE last hold on vp. */
+	vnode_flushcache(vp, IrpSp->FileObject, B_TRUE);
+
 	VN_RELE(vp);
 	vp = NULL;
 
@@ -5131,16 +5217,14 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 			// This releases zp!
 				Status = delete_entry(DeviceObject, Irp, IrpSp);
-				if (Status != 0)
+				if (Status != 0) {
 					dprintf("Deletion failed: %d\n",
 					    Status);
-
-				zp = NULL;
-
+				}
 				// delete_entry will always consume an IOCOUNT.
 				*hold_vp = NULL;
 
-				Status = STATUS_SUCCESS;
+				zp = NULL;
 
 // FILE_CLEANUP_UNKNOWN FILE_CLEANUP_WRONG_DEVICE FILE_CLEANUP_FILE_REMAINS
 // FILE_CLEANUP_FILE_DELETED FILE_CLEANUP_LINK_DELETED
@@ -5247,14 +5331,14 @@ zfs_fileobject_close(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 // Release vp - vnode_recycle expects iocount==1
 // we don't recycle root (unmount does) or RELE on
 // recycle error
-				if (vnode_isvroot(vp) ||
-				    (vnode_recycle(vp) != 0)) {
+//				if (vnode_isvroot(vp) ||
+//				    (vnode_recycle(vp) != 0)) {
 // If recycle failed, manually release dispatcher's HOLD
-					dprintf("IRP_CLOSE failed to recycle. "
-					    "is_empty %d\n",
-					    vnode_fileobject_empty(vp, 1));
+//					dprintf("IRP_CLOSE failed to recycle. "
+//					    "is_empty %d\n",
+//					    vnode_fileobject_empty(vp, 1));
 					VN_RELE(vp);
-				}
+//				}
 
 				Status = STATUS_SUCCESS;
 

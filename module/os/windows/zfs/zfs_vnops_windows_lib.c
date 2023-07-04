@@ -352,6 +352,8 @@ common_status_str(NTSTATUS Status)
 		return ("STATUS_DIRECTORY_IS_A_REPARSE_POINT");
 	case STATUS_REPARSE:
 		return ("STATUS_REPARSE");
+	case STATUS_DISK_QUOTA_EXCEEDED:
+		return ("STATUS_DISK_QUOTA_EXCEEDED");
 	default:
 		return ("<*****>");
 	}
@@ -1919,7 +1921,7 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 	zfsvfs_t *zfsvfs;
 	char name[MAXPATHLEN];
 	// No output? nothing to do
-	if (!fullpath)
+	if (!fullpath || !returnsize)
 		return (EINVAL);
 	// No input? nothing to do
 	if (!start_zp)
@@ -1947,7 +1949,9 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 		} else if (zp->z_sa_hdl != NULL) {
 			VERIFY(sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
 			    &parent, sizeof (parent)) == 0);
-			error = zfs_zget(zfsvfs, parent, &dzp);
+			// error = zfs_zget(zfsvfs, parent, &dzp);
+			error = zfs_zget_ext(zfsvfs, parent, &dzp,
+			    ZGET_FLAG_UNLINKED);
 			if (error) {
 				dprintf("%s: zget failed %d\n",
 				    __func__, error);
@@ -1993,13 +1997,17 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 				    __func__, error);
 				goto failed;
 			}
-		} else
-			if ((error = zap_value_search(zfsvfs->z_os, parent,
-			    zp->z_id, ZFS_DIRENT_OBJ(-1ULL), name)) != 0) {
-				dprintf("%s: zap_value_search failed %d\n",
-				    __func__, error);
-				goto failed;
-			}
+		} else {
+			do {
+				if ((error = zap_value_search(zfsvfs->z_os,
+				    parent, zp->z_id, ZFS_DIRENT_OBJ(-1ULL),
+				    name)) != 0) {
+					dprintf("%s: zap_value_search %d\n",
+					    __func__, error);
+					goto failed;
+				}
+			} while (error == EBUSY);
+		}
 		// Copy in name.
 		part = strlen(name);
 		// Check there is room
@@ -2039,8 +2047,8 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 	// Correct index
 	if (start_zp_offset)
 		*start_zp_offset = *start_zp_offset - index;
-	if (returnsize)
-		*returnsize = size;
+
+	*returnsize = size;
 	ASSERT(size != 0);
 	*fullpath = kmem_alloc(size, KM_SLEEP);
 	memmove(*fullpath, &work[index], size);
@@ -2061,7 +2069,7 @@ failed:
 	if (dzp != NULL)
 		VN_RELE(ZTOV(dzp));
 	kmem_free(work, MAXPATHLEN * 2);
-	return (-1);
+	return (SET_ERROR(-1));
 }
 
 /*
@@ -2090,7 +2098,7 @@ zfs_build_path_stream(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 	// start_parent->name + ":" + streamname + null
 	start_zp->z_name_cache = kmem_asprintf("%s:%s",
 	    start_parent->z_name_cache, stream);
-	start_zp->z_name_len = strlen(start_zp->z_name_cache);
+	start_zp->z_name_len = strlen(start_zp->z_name_cache) + 1;
 	// start_zp->z_name_offset = start_parent->z_name_len + 1;
 	start_zp->z_name_offset = start_parent->z_name_offset;
 
@@ -2517,14 +2525,14 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 
 	if (fo == NULL) {
 		Status = STATUS_INVALID_PARAMETER;
-		goto err;
+		goto out;
 	}
 
 	vp = fo->FsContext;
 
 	if (vp == NULL) {
 		Status = STATUS_INVALID_PARAMETER;
-		goto err;
+		goto out;
 	}
 
 	znode_t *zp = NULL;
@@ -2533,7 +2541,6 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 
 	zfsvfs_t *zfsvfs;
 
-	VN_HOLD(vp);
 	zp = VTOZ(vp);
 
 	// Holding vp, not dvp, use "out:" to leave
@@ -2579,29 +2586,18 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 	// if dvp == null, find it
 
 	if (dvp == NULL) {
-		uint64_t parent;
-
-		if (sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
-		    &parent, sizeof (parent)) != 0) {
-			goto err;
-		}
-		if (zfs_zget(zfsvfs, parent, &dzp)) {
-			dvp = NULL;
-			goto err;
-		}
-		dvp = ZTOV(dzp);
-	} else {
-		dzp = VTOZ(dvp);
-		VN_HOLD(dvp);
+		dvp = vnode_parent(vp);
 	}
 
+	dzp = VTOZ(dvp);
 
-	// Holding dvp, use "err:" to leave.
+	// Call out_unlock from now on
+	VN_HOLD(dvp);
 
 	// If we are root
 	if (zp->z_id == zfsvfs->z_root) {
 		Status = STATUS_CANNOT_DELETE;
-		goto err;
+		goto out_unlock;
 	}
 
 	// If we are a dir, and have more than "." and "..", we
@@ -2610,11 +2606,14 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 
 		if (zp->z_size > 2) {
 			Status = STATUS_DIRECTORY_NOT_EMPTY;
-			goto err;
+			goto out_unlock;
 		}
 	}
 
-	int error = zfs_zaccess_delete(dzp, zp, 0, NULL);
+	int error = 0;
+
+	if (dzp != NULL)
+		error = zfs_zaccess_delete(dzp, zp, 0, NULL);
 
 	if (error == 0) {
 		ASSERT3P(zccb, !=, NULL);
@@ -2625,18 +2624,13 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 		Status = STATUS_ACCESS_DENIED;
 	}
 
-err:
+out_unlock:
 	if (dvp) {
 		VN_RELE(dvp);
 		dvp = NULL;
 	}
 
 out:
-	if (vp) {
-		VN_RELE(vp);
-		vp = NULL;
-	}
-
 	return (Status);
 }
 
@@ -2858,7 +2852,7 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
 		return (error);
 
-	if (VN_HOLD(vp) != 0) {
+	if (!VTOZ(vp) || VN_HOLD(vp) != 0) {
 		zfs_exit(zfsvfs, FTAG);
 		return (STATUS_INVALID_PARAMETER);
 	}
@@ -3033,6 +3027,16 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	buffer[outlen] = 0;
 	filename = buffer;
 
+	if (strchr(filename, '/') ||
+	    strchr(filename, '\\') ||
+	    /* strchr(&colon[2], ':') || there is one at ":$DATA" */
+	    !strcasecmp("DOSATTRIB:$DATA", filename) ||
+	    !strcasecmp("EA:$DATA", filename) ||
+	    !strcasecmp("reparse:$DATA", filename) ||
+	    !strcasecmp("casesensitive:$DATA", filename))
+		return (STATUS_OBJECT_NAME_INVALID);
+
+
 	// Filename is often "\??\E:\name" so we want to eat everything
 	// up to the "\name"
 	if ((filename[0] == '\\') &&
@@ -3188,16 +3192,19 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	// SL_OPEN_TARGET_DIRECTORY set so we get the parent of where
 	// we are renaming to. This will give us "tdvp", and
 	// possibly "tvp" is we are to rename over an item.
-#if 0
-	if ((filename[0] == '\\') &&
-	    (filename[1] == '?') &&
-	    (filename[2] == '?') &&
-	    (filename[3] == '\\') &&
-	    /* [4] drive letter */
-	    (filename[5] == ':') &&
-	    (filename[6] == '\\'))
-		filename = &filename[6];
-#endif
+
+	/* Quick check to see if it ends in reserved names */
+	char *tail;
+	tail = strrchr(filename, '\\');
+	if (tail == NULL)
+		tail = filename;
+
+	if (strchr(tail, ':') ||
+	    !strcasecmp("DOSATTRIB", tail) ||
+	    !strcasecmp("EA", tail) ||
+	    !strcasecmp("reparse", tail) ||
+	    !strcasecmp("casesensitive", tail))
+		return (STATUS_OBJECT_NAME_INVALID);
 
 	// If it starts with "\" drive the lookup, if it is just a name
 	// like "HEAD", assume tdvp is same as fdvp.
@@ -4110,7 +4117,8 @@ file_name_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			    &zp->z_name_len, &zp->z_name_offset) == -1) {
 				dprintf("%s: failed to build fullpath\n",
 				    __func__);
-				return (STATUS_OBJECT_PATH_NOT_FOUND);
+				// VN_RELE(vp);
+				// return (STATUS_OBJECT_PATH_NOT_FOUND);
 			}
 		}
 
