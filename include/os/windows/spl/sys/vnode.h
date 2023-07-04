@@ -87,15 +87,18 @@ struct vnode {
 	kmutex_t v_mutex;
 
 	mount_t *v_mount;
+	struct vnode *v_parent;
+	void *v_data;
+	REPARSE_DATA_BUFFER *v_reparse;
+	SECURITY_DESCRIPTOR *security_descriptor;
+
 	uint32_t v_flags;
 	uint32_t v_iocount; // Short term holds
 	uint32_t v_usecount; // Long term holds
 	uint32_t v_type;
 	uint32_t v_unlink;
-	REPARSE_DATA_BUFFER *v_reparse;
-	size_t v_reparse_size;
 	uint32_t v_unused;
-	void *v_data;
+	size_t v_reparse_size;
 	uint64_t v_id;
 	uint64_t v_easize;
 	hrtime_t v_age;	// How long since entered DEAD
@@ -105,7 +108,6 @@ struct vnode {
 	ERESOURCE resource; // Holder for FileHeader.Resource
 	ERESOURCE pageio_resource; // Holder for FileHeader.PageIoResource
 	FILE_LOCK lock;
-	SECURITY_DESCRIPTOR *security_descriptor;
 	SHARE_ACCESS share_access;
 
 	list_node_t v_list; // vnode_all_list member node.
@@ -486,12 +488,15 @@ int vnode_recycle(vnode_t *vp);
 int vnode_isvroot(vnode_t *vp);
 mount_t *vnode_mount(vnode_t *vp);
 void vnode_clearfsnode(vnode_t *vp);
-void vnode_create(mount_t *, void *v_data, int type, int flags,
+void vnode_create(mount_t *, struct vnode *,
+    void *v_data, int type, int flags,
     struct vnode **vpp);
 int vnode_ref(vnode_t *vp);
 void vnode_rele(vnode_t *vp);
 void *vnode_sectionpointer(vnode_t *vp);
 void *vnode_security(vnode_t *vp);
+vnode_t *vnode_parent(vnode_t *vp);
+void vnode_setparent(vnode_t *vp, vnode_t *dvp);
 void vnode_setsecurity(vnode_t *vp, void *sd);
 void vnode_couplefileobject(vnode_t *vp, FILE_OBJECT *fileobject,
     uint64_t size);

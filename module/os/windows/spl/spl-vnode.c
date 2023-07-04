@@ -952,6 +952,46 @@ vnode_iocount(vnode_t *vp)
 	return (vp->v_iocount);
 }
 
+vnode_t *
+vnode_parent(vnode_t *vp)
+{
+	VERIFY3P(vp->v_parent, !=, NULL);
+	return (vp->v_parent);
+}
+
+/*
+ * Update a vnode's parent, this is typically not done
+ * by the FS, except after rename operation when there
+ * might be a new parent.
+ * We do not expect newparent to be NULL here, as you
+ * can not become root. If we need that, we should
+ * implement pivot_root()
+ */
+void
+vnode_setparent(vnode_t *vp, vnode_t *newparent)
+{
+	int error;
+	struct vnode *oldparent;
+
+	VERIFY((vp->v_parent != NULL) || (vp->v_flags & VNODE_MARKROOT));
+	VERIFY3P(newparent, !=, NULL);
+
+	oldparent = vp->v_parent;
+	if (oldparent == newparent)
+		return;
+
+	vnode_ref(newparent);
+	vp->v_parent = newparent;
+
+	// Try holding it, so we call vnode_put()
+	if (oldparent != NULL) {
+		error = VN_HOLD(oldparent);
+		vnode_rele(oldparent);
+		if (!error)
+			vnode_put(oldparent);
+	}
+}
+
 #ifdef DEBUG_IOCOUNT
 int
 vnode_getwithref(vnode_t *vp, char *file, int line)
@@ -1043,8 +1083,6 @@ int
 vnode_put(vnode_t *vp)
 #endif
 {
-	// KIRQL OldIrql;
-	int calldrain = 0;
 	ASSERT(!(vp->v_flags & VNODE_DEAD));
 	ASSERT(vp->v_iocount > 0);
 	ASSERT((vp->v_flags & ~VNODE_VALIDBITS) == 0);
@@ -1063,37 +1101,28 @@ vnode_put(vnode_t *vp)
 	// Now idle?
 	mutex_enter(&vp->v_mutex);
 
-	if (vp->v_iocount == 0) {
-
-		if (vp->v_usecount == 0)
-			calldrain = 1;
-
-		if (vp->v_flags & VNODE_NEEDINACTIVE) {
-			vp->v_flags &= ~VNODE_NEEDINACTIVE;
-			mutex_exit(&vp->v_mutex);
-			zfs_inactive(vp, NULL, NULL);
-			mutex_enter(&vp->v_mutex);
-		}
+	if ((vp->v_usecount == 0) && (vp->v_iocount == 0)) {
+		// XNU always calls inactive in vnode_put
+		vp->v_flags &= ~VNODE_NEEDINACTIVE;
+		mutex_exit(&vp->v_mutex);
+		zfs_inactive(vp, NULL, NULL);
+		mutex_enter(&vp->v_mutex);
 	}
 
 	vp->v_flags &= ~VNODE_NEEDINACTIVE;
 
-#if 0
+#if 1
 	// Re-test for idle, as we may have dropped lock for inactive
 	if ((vp->v_usecount == 0) && (vp->v_iocount == 0)) {
 		// Was it marked TERM, but we were waiting for last ref
-		if ((vp->v_flags & VNODE_MARKTERM)) {
-			KeReleaseSpinLock(&vp->v_spinlock, OldIrql);
-			vnode_recycle_int(vp, 0);  // OldIrql is lost!
+		if ((vp->v_flags & (VNODE_MARKTERM | VNODE_DEAD)) ==
+		    VNODE_MARKTERM) {
+			vnode_recycle_int(vp, VNODELOCKED);
 			return (0);
 		}
 	}
 #endif
 	mutex_exit(&vp->v_mutex);
-
-	// Temporarily - should perhaps be own thread?
-	// if (calldrain)
-	//	vnode_drain_delayclose(0);
 
 	return (0);
 }
@@ -1104,17 +1133,50 @@ vnode_recycle_int(vnode_t *vp, int flags)
 	// KIRQL OldIrql;
 	ASSERT((vp->v_flags & VNODE_DEAD) == 0);
 
-	// Mark it for recycle, if we are not ROOT.
-	if (!(vp->v_flags&VNODE_MARKROOT)) {
-		if (vp->v_flags & VNODE_MARKTERM)
-			dprintf("already marked\n");
-		vp->v_flags |= VNODE_MARKTERM; // Mark it terminating
-		dprintf("%s: marking %p VNODE_MARKTERM\n", __func__, vp);
-	}
-
 	// Already locked calling in...
 	if (!(flags & VNODELOCKED)) {
 		mutex_enter(&vp->v_mutex);
+	}
+
+	// Mark it for recycle, if we are not ROOT.
+	if (!(vp->v_flags&VNODE_MARKROOT)) {
+
+		if (vp->v_flags & VNODE_MARKTERM) {
+			dprintf("already marked\n");
+		} else {
+			vp->v_flags |= VNODE_MARKTERM; // Mark it terminating
+			dprintf("%s: marking %p VNODE_MARKTERM\n",
+			    __func__, vp);
+
+			// Call inactive?
+			mutex_exit(&vp->v_mutex);
+			if (vp->v_flags & VNODE_NEEDINACTIVE) {
+				vp->v_flags &= ~VNODE_NEEDINACTIVE;
+				zfs_inactive(vp, NULL, NULL);
+				VERIFY3U(vp->v_iocount, ==, 1);
+			}
+
+			// Call sync? If vnode_write
+			// zfs_fsync(vp, 0, NULL, NULL);
+
+		// Call reclaim and Tell FS to release node.
+		if (vp->v_data != NULL)
+			if (zfs_vnop_reclaim(vp))
+				panic("vnode_recycle: cannot reclaim\n");
+
+			// Remove parent hold.
+			VERIFY((vp->v_parent != NULL) ||
+			    (vp->v_flags & VNODE_MARKROOT));
+			// hold iocount cos of ASSERT in vnode_rele
+			if ((vp->v_parent != NULL) &&
+			    (vnode_getwithref(vp->v_parent) == 0)) {
+				vnode_rele(vp->v_parent);
+				vnode_put(vp->v_parent);
+			}
+			vp->v_parent = NULL;
+
+			mutex_enter(&vp->v_mutex);
+		}
 	}
 
 	// Doublecheck CcMgr is gone (should be if avl is empty)
@@ -1131,10 +1193,11 @@ vnode_recycle_int(vnode_t *vp, int flags)
 #endif
 
 	// We will only reclaim idle nodes, and not mountpoints(ROOT)
+	// lets try letting zfs reclaim, then linger nodes.
 	if ((flags & FORCECLOSE) ||
 	    ((vp->v_usecount == 0) &&
 	    (vp->v_iocount <= 1) &&
-	    avl_is_empty(&vp->v_fileobjects) &&
+	    /* avl_is_empty(&vp->v_fileobjects) && */
 	    ((vp->v_flags&VNODE_MARKROOT) == 0))) {
 
 		ASSERT3P(vp->SectionObjectPointers.DataSectionObject, ==, NULL);
@@ -1145,32 +1208,27 @@ vnode_recycle_int(vnode_t *vp, int flags)
 		vp->v_flags |= VNODE_DEAD; // Mark it dead
 // Since we might get swapped out (noticably FsRtlTeardownPerStreamContexts)
 // we hold a look until the very end.
-		vp->v_iocount = 1;
+		atomic_inc_32(&vp->v_iocount);
 
 		mutex_exit(&vp->v_mutex);
 
 		FsRtlTeardownPerStreamContexts(&vp->FileHeader);
 		FsRtlUninitializeFileLock(&vp->lock);
 
-		// Call sync? If vnode_write
-		// zfs_fsync(vp, 0, NULL, NULL);
-
-		// Call inactive?
-		if (vp->v_flags & VNODE_NEEDINACTIVE) {
-			vp->v_flags &= ~VNODE_NEEDINACTIVE;
-			zfs_inactive(vp, NULL, NULL);
-		}
-
-
-		// Tell FS to release node.
-		if (zfs_vnop_reclaim(vp))
-			panic("vnode_recycle: cannot reclaim\n");
-
 		// KIRQL OldIrql;
 		mutex_enter(&vp->v_mutex);
+
+		dprintf("Dropping %d references",
+		    avl_numnodes(&vp->v_fileobjects));
+		vnode_fileobjects_t *node;
+		while (node = avl_first(&vp->v_fileobjects)) {
+			avl_remove(&vp->v_fileobjects, node);
+			kmem_free(node, sizeof (*node));
+		}
 		ASSERT(avl_is_empty(&vp->v_fileobjects));
 		// We are all done with it.
-		vp->v_iocount = 0;
+		VERIFY3U(vp->v_iocount, ==, 1);
+		atomic_dec_32(&vp->v_iocount);
 		mutex_exit(&vp->v_mutex);
 
 #ifdef FIND_MAF
@@ -1229,7 +1287,7 @@ vp_oplock(struct vnode *vp)
 }
 
 void
-vnode_create(mount_t *mp, void *v_data, int type, int flags,
+vnode_create(mount_t *mp, struct vnode *dvp, void *v_data, int type, int flags,
     struct vnode **vpp)
 {
 	struct vnode *vp;
@@ -1240,6 +1298,7 @@ vnode_create(mount_t *mp, void *v_data, int type, int flags,
 	*vpp = vp;
 	vp->v_flags = 0;
 	vp->v_mount = mp;
+	vp->v_parent = dvp;
 	vp->v_data = v_data;
 	vp->v_type = type;
 	vp->v_id = atomic_inc_64_nv(&(vnode_vid_counter));
@@ -1257,6 +1316,10 @@ vnode_create(mount_t *mp, void *v_data, int type, int flags,
 	if (flags & VNODE_MARKROOT)
 		vp->v_flags |= VNODE_MARKROOT;
 
+	// Hold parent reference
+	VERIFY((dvp != NULL) || (vp->v_flags&VNODE_MARKROOT));
+	if (dvp != NULL)
+		vnode_ref(dvp);
 
 	// Initialise the Windows specific data.
 	memset(&vp->SectionObjectPointers, 0,
@@ -1430,6 +1493,13 @@ vnode_drain_delayclose(int force)
 
 			// dprintf("age is %llu %d\n", (curtime - vp->v_age),
 			// NSEC2SEC(curtime - vp->v_age));
+			dprintf("Dropping %d references 2",
+			    avl_numnodes(&vp->v_fileobjects));
+			vnode_fileobjects_t *node;
+			while (node = avl_first(&vp->v_fileobjects)) {
+				avl_remove(&vp->v_fileobjects, node);
+				kmem_free(node, sizeof (*node));
+			}
 
 			// Finally free vp.
 			list_remove(&vnode_all_list, vp);
@@ -1497,10 +1567,13 @@ vflush(struct mount *mp, struct vnode *skipvp, int flags)
 	vnode_fileobjects_t *node;
 	struct vnode *rvp;
 	int Status;
+	boolean_t filesonly = B_TRUE;
 
 	dprintf("vflush start\n");
 
 	mutex_enter(&vnode_all_list_lock);
+
+filesanddirs:
 	while (1) {
 		for (rvp = list_head(&vnode_all_list);
 		    rvp;
@@ -1508,6 +1581,9 @@ vflush(struct mount *mp, struct vnode *skipvp, int flags)
 
 			// skip vnodes not belonging to this mount
 			if (mp && rvp->v_mount != mp)
+				continue;
+
+			if (filesonly && vnode_isdir(rvp))
 				continue;
 
 			// If we aren't FORCE and asked to SKIPROOT, and node
@@ -1603,6 +1679,11 @@ restart:
 			break;
 	}
 
+	if (filesonly) {
+		filesonly = B_FALSE;
+		goto filesanddirs;
+	}
+
 	mutex_exit(&vnode_all_list_lock);
 
 	if (mp == NULL && reclaims > 0) {
@@ -1644,7 +1725,7 @@ restart:
 	if (FORCECLOSE)
 		vnode_drain_delayclose(1);
 
-	xprintf("vflush end: deadlisted %d nodes\n", deadlist);
+	dprintf("vflush end: deadlisted %d nodes\n", deadlist);
 
 	return (0);
 }

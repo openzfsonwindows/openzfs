@@ -144,6 +144,9 @@ struct zfsctl_unmount_delay {
 };
 typedef struct zfsctl_unmount_delay zfsctl_unmount_delay_t;
 
+static struct vnode *
+zfsctl_vnode_lookup(zfsvfs_t *zfsvfs, uint64_t id,
+    char *name);
 
 /*
  * Check if the given vnode is a part of the virtual .zfs directory.
@@ -233,8 +236,30 @@ zfsctl_vnode_alloc(zfsvfs_t *zfsvfs, uint64_t id,
 	 * Because of this, we need to call vnode_recycle() ourselves in destroy
 	 */
 
+	/* We need parent */
+	znode_t *parentzp = NULL;
+	struct vnode *parentvp = NULL;
+	int error = 0;
+	if (id == ZFSCTL_INO_ROOT)
+		error = zfs_zget(zfsvfs, zfsvfs->z_root, &parentzp);
+	else if (id == ZFSCTL_INO_SNAPDIR)
+		parentvp = zfsctl_root(zp);
+	else
+		parentvp = zfsctl_vnode_lookup(zfsvfs, ZFSCTL_INO_SNAPDIR,
+		    ZFS_SNAPDIR_NAME);
 
-	vnode_create(zfsvfs->z_vfs, zp, VDIR, flags, &vp);
+	if (error && !parentvp) {
+		dprintf("%s: unable to get parent?", __func__);
+		return (SET_ERROR(EINVAL));
+	}
+
+	if (!parentvp && parentzp)
+		parentvp = ZTOV(parentzp);
+
+	vnode_create(zfsvfs->z_vfs, parentvp,
+	    zp, VDIR, flags, &vp);
+
+	VN_RELE(parentvp);
 
 	dprintf("Assigned zp %p with vp %p zfsvfs %p\n", zp, vp, zp->z_zfsvfs);
 
