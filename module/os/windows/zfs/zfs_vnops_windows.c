@@ -965,6 +965,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	    (!finalname || !*finalname))
 		error = STATUS_SUCCESS;
 
+	if (error == STATUS_REPARSE && !FileOpenReparsePoint)
+		error = STATUS_IO_REPARSE_TAG_NOT_HANDLED;
+
 	if (error) {
 
 		/*
@@ -1035,6 +1038,11 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		}
 		if (error == STATUS_OBJECT_NAME_INVALID) {
 			dprintf("%s: filename component too long\n", __func__);
+			return (error);
+		}
+		if (error == STATUS_IO_REPARSE_TAG_NOT_HANDLED) {
+			dprintf("%s: reparse but asked not to handle\n",
+			    __func__);
 			return (error);
 		}
 		// Open dir with FILE_CREATE but it exists
@@ -2072,7 +2080,6 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		// If overflow, set Information to input_size and NameLength
 		// to what we fit.
 		//
-
 		dprintf("* %s: FileFsAttributeInformation\n", __func__);
 		if (IrpSp->Parameters.QueryVolume.Length <
 		    sizeof (FILE_FS_ATTRIBUTE_INFORMATION)) {
@@ -2490,6 +2497,8 @@ query_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    IrpSp, Irp->AssociatedIrp.SystemBuffer);
 		break;
 	case FileReparsePointInformation:
+		dprintf("* %s: FileReparsePointInformation NOT IMPLEMENTED\n",
+		    __func__);
 		break;
 	case FileIdInformation:
 		Status = file_id_information(DeviceObject, Irp, IrpSp,
@@ -2838,7 +2847,7 @@ get_reparse_point_impl(znode_t *zp, char *buffer, size_t outlen)
 			if (Status == 0)
 				memcpy(buffer, rdb, size);
 		} else {
-			int size = MIN(zp->z_size, outlen);
+			size = MIN(zp->z_size, outlen);
 			struct iovec iov;
 			iov.iov_base = (void *)buffer;
 			iov.iov_len = size;
@@ -2847,6 +2856,8 @@ get_reparse_point_impl(znode_t *zp, char *buffer, size_t outlen)
 			zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE,
 			    size, 0);
 			err = zfs_readlink(ZTOV(zp), &uio, NULL);
+			if (err)
+				size = 0;
 		}
 	}
 	return (size);
@@ -2860,30 +2871,55 @@ get_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	DWORD outlen = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
 	void *buffer = Irp->AssociatedIrp.SystemBuffer;
+	REPARSE_DATA_BUFFER *rdb = buffer;
 	struct vnode *vp;
+	DWORD reqlen;
 
 	if (FileObject == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
 	vp = FileObject->FsContext;
+	if (vp == NULL)
+		return (STATUS_INVALID_PARAMETER);
 
-	if (vp) {
-		VN_HOLD(vp);
-		znode_t *zp = VTOZ(vp);
+	VN_HOLD(vp);
+	znode_t *zp = VTOZ(vp);
 
-		if (zp->z_pflags & ZFS_REPARSE) {
-			int err;
-			size_t size = 0;
+	if (vnode_islnk(vp)) {
+		reqlen = offsetof(REPARSE_DATA_BUFFER,
+		    GenericReparseBuffer.DataBuffer) + sizeof (uint32_t);
 
-			size = get_reparse_point_impl(zp, buffer, outlen);
-			Irp->IoStatus.Information = size;
-			if (outlen < size)
-				Status = STATUS_BUFFER_OVERFLOW;
-			else
-				Status = STATUS_SUCCESS;
+		if (outlen < reqlen) {
+			Status = STATUS_BUFFER_OVERFLOW;
+			goto end;
 		}
-		VN_RELE(vp);
+
+		rdb->ReparseTag = IO_REPARSE_TAG_LX_SYMLINK;
+		rdb->ReparseDataLength = offsetof(REPARSE_DATA_BUFFER,
+		    GenericReparseBuffer.DataBuffer) + sizeof (uint32_t);
+		rdb->Reserved = 0;
+
+		*((uint32_t *)rdb->GenericReparseBuffer.DataBuffer) = 1;
+
+		Irp->IoStatus.Information = reqlen;
+		goto end;
 	}
+
+	if (zp->z_pflags & ZFS_REPARSE) {
+		int err;
+		size_t size = 0;
+
+		size = get_reparse_point_impl(zp, buffer, outlen);
+		Irp->IoStatus.Information = size;
+
+		if (outlen < size)
+			Status = STATUS_BUFFER_OVERFLOW;
+		else
+			Status = STATUS_SUCCESS;
+	}
+
+end:
+	VN_RELE(vp);
 	dprintf("%s: returning 0x%lx\n", __func__, Status);
 	return (Status);
 }
@@ -3049,6 +3085,11 @@ delete_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		VN_RELE(vp);
 		return (zfsctl_delete_reparse_point(zp));
 	}
+
+	// STATUS_IO_REPARSE_TAG_MISMATCH
+	// rdb->ReparseTag != zp->ReparseTag
+
+
 	// Like zfs_symlink, write the data as SA attribute.
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
@@ -4128,10 +4169,10 @@ query_directory(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		dprintf("   %s FileQuotaInformation *NotImplemented\n",
 		    __func__);
 		break;
-		break;
 	case FileReparsePointInformation:
 		dprintf("   %s FileReparsePointInformation *NotImplemented\n",
 		    __func__);
+		Status = STATUS_INVALID_INFO_CLASS;
 		break;
 	default:
 		dprintf("   %s unknown 0x%x *NotImplemented\n",
