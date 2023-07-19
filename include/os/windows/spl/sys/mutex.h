@@ -73,6 +73,9 @@ typedef struct {
 typedef struct kmutex {
 	mutex_t		m_lock;
 	void		*m_owner;
+	/*
+	 * If this struct is changed, also change kernel_mutex_t
+	 */
 	KSPIN_LOCK	m_destroy_lock;
 	unsigned int	m_initialised;
 } kmutex_t;
