@@ -80,7 +80,7 @@ typedef struct kstat_raw_ops {
  */
 struct kernel_mutex
 {
-	unsigned char opaque[0x28];
+	unsigned char opaque[0x30];
 };
 
 #pragma pack(4)
