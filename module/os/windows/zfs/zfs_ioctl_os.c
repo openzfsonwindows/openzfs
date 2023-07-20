@@ -785,6 +785,9 @@ zfsdev_open(dev_t dev, PIRP Irp)
 	error = zfsdev_state_init((void *)dev);
 	mutex_exit(&zfsdev_state_lock);
 
+	/* Store this dev_t in tsd, so zfs_get_private() can retrieve it */
+	tsd_set(zfsdev_private_tsd, (void *)(uintptr_t)dev);
+
 	return (-error);
 }
 
