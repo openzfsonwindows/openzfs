@@ -527,7 +527,8 @@ zfs_unlinked_drain_task(void *arg)
 		 * dmu_objset_zfs_unmounting() in dmu_free_long_range()
 		 * when an unmount is requested.
 		 */
-		zrele(zp);
+		if (ZTOV(zp) != NULL)
+			zrele(zp);
 		ASSERT3B(zfsvfs->z_unmounted, ==, B_FALSE);
 	}
 	zap_cursor_fini(&zc);
