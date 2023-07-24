@@ -762,13 +762,6 @@ ExecuteWmiMethod(
 		}
 
 				default:
-
-					__try {
-						DbgBreakPoint();
-					}
-					__except(EXCEPTION_EXECUTE_HANDLER) {
-					}
-
 					status = SRB_STATUS_INVALID_REQUEST;
 					break;
 			}
@@ -1036,12 +1029,6 @@ ExecuteWmiMethod(
 	}
 
 	default:
-		__try {
-			DbgBreakPoint();
-		}
-		__except(EXCEPTION_EXECUTE_HANDLER) {
-		}
-
 		status = SRB_STATUS_INVALID_REQUEST;
 		break;
 		}
