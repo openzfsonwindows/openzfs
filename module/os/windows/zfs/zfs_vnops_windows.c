@@ -566,11 +566,14 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 		return (ENOENT);
 	}
 
-	if (!word && finalpartmustnotexist && dvp && !vp) {
+	/* finalpartmustnotexist and we got a vp? */
+	if (!word && finalpartmustnotexist && dvp && vp) {
 		dprintf("CREATE with existing dir exit?\n");
+
+		VN_RELE(vp);
 		VN_RELE(dvp);
 
-		if (zp && ZTOV(zp) && !vnode_isdir(ZTOV(zp)))
+		if (zp && !S_ISDIR(zp->z_mode))
 			return (ENOTDIR);
 		return (EEXIST);
 	}
