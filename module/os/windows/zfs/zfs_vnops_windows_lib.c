@@ -89,7 +89,7 @@ static sid_header sid_ML =
 typedef struct {
 	UCHAR flags;
 	ACCESS_MASK mask;
-	sid_header* sid;
+	sid_header *sid;
 } dacl;
 
 /*
@@ -104,6 +104,7 @@ typedef struct {
  *	BUILTIN\Users:(RX)
  *	BUILTIN\Users:(OI)(CI)(IO)(GR,GE)
  */
+#if 0
 static dacl def_dacls[] = {
 	// BUILTIN\Administrators:(F)
 	{ 0, FILE_ALL_ACCESS, &sid_BA },
@@ -135,6 +136,29 @@ static dacl def_dacls[] = {
 	// END
 	{ 0, 0, NULL }
 };
+#endif
+
+/* Btrfs */
+
+static dacl def_dacls[] = {
+	{ 0, FILE_ALL_ACCESS, &sid_BA },
+	{ OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE,
+	FILE_ALL_ACCESS, &sid_BA },
+	{ 0, FILE_ALL_ACCESS, &sid_SY },
+	{ OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE,
+	FILE_ALL_ACCESS, &sid_SY },
+	{ OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,
+	FILE_GENERIC_READ | FILE_GENERIC_EXECUTE, &sid_BU },
+	{ OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE,
+	FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE,
+	&sid_AU },
+	{ 0,
+	FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE,
+	&sid_AU },
+	// FIXME - Mandatory Label\High Mandatory Level:(OI)(NP)(IO)(NW)
+	{ 0, 0, NULL }
+};
+
 
 // #define	USE_RECYCLE_ACL
 #ifdef USE_RECYCLE_ACL
@@ -2301,7 +2325,7 @@ zfs_set_acl(dacl *dacls)
 
 
 void
-zfs_set_security_root(struct vnode *vp)
+zfs_attach_security_root(struct vnode *vp)
 {
 	SECURITY_DESCRIPTOR sd;
 	SID *usersid = NULL, *groupsid = NULL;
@@ -2352,18 +2376,18 @@ err:
 }
 
 int
-zfs_set_security(struct vnode *vp, struct vnode *dvp)
+zfs_attach_security(struct vnode *vp, struct vnode *dvp)
 {
 	SECURITY_SUBJECT_CONTEXT subjcont;
-	NTSTATUS Status;
+	NTSTATUS Status = STATUS_INVALID_PARAMETER;
 	SID *usersid = NULL, *groupsid = NULL;
 	int error = 0;
 
 	if (vp == NULL)
-		return (0);
+		return (Status);
 
 	if (vp->security_descriptor != NULL)
-		return (0);
+		return (Status);
 
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
@@ -2371,7 +2395,7 @@ zfs_set_security(struct vnode *vp, struct vnode *dvp)
 	// If we are the rootvp, we don't have a parent, so do different setup
 	if (zp->z_id == zfsvfs->z_root ||
 	    zp->z_id == ZFSCTL_INO_ROOT) {
-		zfs_set_security_root(vp);
+		zfs_attach_security_root(vp);
 		return (0);
 	}
 
@@ -2382,28 +2406,13 @@ zfs_set_security(struct vnode *vp, struct vnode *dvp)
 	// dvp, either directly or from zget().
 	znode_t *dzp = NULL;
 	if (dvp == NULL) {
-		if (zp->z_sa_hdl != NULL) {
-			uint64_t parent;
-			if (sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
-			    &parent, sizeof (parent)) != 0) {
-				goto err;
-			}
-			if (zfs_zget(zfsvfs, parent, &dzp)) {
-				dvp = NULL;
-				goto err;
-			}
-			dvp = ZTOV(dzp);
-
-		} else { // What to do if no sa_hdl ?
+		dvp = vnode_parent(vp);
+		if (dvp == NULL)
 			goto err;
-		}
-	} else {
-		VN_HOLD(dvp);
-		dzp = VTOZ(dvp);
 	}
-
-	if (vnode_security(dvp) == NULL)
-		zfs_set_security(dvp, NULL);
+	if (VN_HOLD(dvp) != 0)
+		goto err;
+	dzp = VTOZ(dvp);
 
 	// We can fail here, if we are processing unlinked-list
 	if (vnode_security(dvp) == NULL)
@@ -2422,24 +2431,112 @@ zfs_set_security(struct vnode *vp, struct vnode *dvp)
 	if (Status != STATUS_SUCCESS)
 		goto err;
 
-	vnode_setsecurity(vp, sd);
+	/* Why do we do this rel -> abs -> rel ? */
+	ULONG buflen;
+	PSECURITY_DESCRIPTOR *abssd;
+	PSECURITY_DESCRIPTOR newsd;
+	PACL dacl, sacl;
+	PSID owner, group;
+	ULONG abssdlen = 0, dacllen = 0, sacllen = 0, ownerlen = 0,
+	    grouplen = 0;
+	uint8_t *buf = NULL;
+
+	Status = RtlSelfRelativeToAbsoluteSD(sd, NULL, &abssdlen, NULL,
+	    &dacllen, NULL, &sacllen, NULL, &ownerlen, NULL, &grouplen);
+	if (!NT_SUCCESS(Status) && Status != STATUS_BUFFER_TOO_SMALL) {
+		dprintf("RtlSelfRelativeToAbsoluteSD returned %08lx\n", Status);
+		goto err;
+	}
+
+	if (abssdlen + dacllen + sacllen + ownerlen + grouplen == 0) {
+		dprintf("RtlSelfRelativeToAbsoluteSD returned zero lengths\n");
+		goto err;
+	}
+
+	buf = (uint8_t *)ExAllocatePoolWithTag(PagedPool, abssdlen + dacllen +
+	    sacllen + ownerlen + grouplen, 'ZACL');
+	if (!buf) {
+		dprintf("out of memory\n");
+		goto err;
+	}
+
+	abssd = (PSECURITY_DESCRIPTOR)buf;
+	dacl = (PACL)(buf + abssdlen);
+	sacl = (PACL)(buf + abssdlen + dacllen);
+	owner = (PSID)(buf + abssdlen + dacllen + sacllen);
+	group = (PSID)(buf + abssdlen + dacllen + sacllen + ownerlen);
+
+	Status = RtlSelfRelativeToAbsoluteSD(sd, abssd, &abssdlen, dacl,
+	    &dacllen, sacl, &sacllen, owner, &ownerlen, group, &grouplen);
+	if (!NT_SUCCESS(Status) && Status != STATUS_BUFFER_TOO_SMALL) {
+		dprintf("RtlSelfRelativeToAbsoluteSD returned %08lx\n", Status);
+		goto err;
+	}
 
 	zfs_uid2sid(zp->z_uid, &usersid);
-	RtlSetOwnerSecurityDescriptor(&sd, usersid, FALSE);
+	if (!usersid) {
+		dprintf("uid_to_sid returned %08lx\n", Status);
+		Status = STATUS_NO_MEMORY;
+		goto err;
+	}
+
+	RtlSetOwnerSecurityDescriptor(abssd, usersid, FALSE);
 
 	zfs_gid2sid(zp->z_gid, &groupsid);
-	RtlSetGroupSecurityDescriptor(&sd, groupsid, FALSE);
+	if (!groupsid) {
+		dprintf("out of memory\n");
+		Status = STATUS_NO_MEMORY;
+		goto err;
+	}
+
+	RtlSetGroupSecurityDescriptor(abssd, groupsid, FALSE);
+
+	buflen = 0;
+
+	Status = RtlAbsoluteToSelfRelativeSD(abssd, NULL, &buflen);
+	if (!NT_SUCCESS(Status) && Status != STATUS_BUFFER_TOO_SMALL) {
+		dprintf("RtlAbsoluteToSelfRelativeSD returned %08lx\n", Status);
+		goto err;
+	}
+
+	if (buflen == 0) {
+		dprintf("RtlAbsoluteToSelfRelativeSD returned size of 0\n");
+		Status = STATUS_INVALID_PARAMETER;
+		goto err;
+	}
+
+	newsd = ExAllocatePoolWithTag(PagedPool, buflen, 'ZACL');
+	if (!newsd) {
+		dprintf("out of memory\n");
+		Status = STATUS_NO_MEMORY;
+		goto err;
+	}
+
+	Status = RtlAbsoluteToSelfRelativeSD(abssd, newsd, &buflen);
+	if (!NT_SUCCESS(Status)) {
+		dprintf("RtlAbsoluteToSelfRelativeSD returned %08lx\n", Status);
+		ExFreePool(newsd);
+		goto err;
+	}
+
+	void *oldsd = vnode_security(vp);
+	vnode_setsecurity(vp, newsd);
+	if (oldsd)
+		ExFreePool(oldsd);
 
 err:
+
 	if (dvp)
 		VN_RELE(dvp);
 	zfs_exit(zfsvfs, FTAG);
 
+	if (buf != NULL)
+		ExFreePool(buf);
 	if (usersid != NULL)
 		zfs_freesid(usersid);
 	if (groupsid != NULL)
 		zfs_freesid(groupsid);
-	return (0);
+	return (Status);
 }
 
 // return true if a XATTR name should be skipped
