@@ -1966,9 +1966,13 @@ zfs_znode_getvnode(znode_t *zp, znode_t *dzp, zfsvfs_t *zfsvfs)
 	// it refers to Streams and they do not have Security?
 	if (zp->z_pflags & ZFS_XATTR)
 		;
-	else
-		zfs_set_security(vp, dzp && ZTOV(dzp) ? ZTOV(dzp) : NULL);
-
+	else {
+		NTSTATUS Status;
+		Status = zfs_attach_security(vp, dzp && ZTOV(dzp) ?
+		    ZTOV(dzp) : NULL);
+		if (!NT_SUCCESS(Status))
+			dprintf("zfs_attach_security failed: 0x%x\n", Status);
+	}
 	return (0);
 }
 
@@ -4995,8 +4999,9 @@ query_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		Irp->IoStatus.Information = buflen;
 	} else if (NT_SUCCESS(Status)) {
 		Irp->IoStatus.Information =
-		    buflen;
+		    IrpSp->Parameters.QuerySecurity.Length; // why?
 	} else {
+		dprintf("%s: failed 0x%x\n", __func__, Status);
 		Irp->IoStatus.Information = 0;
 	}
 

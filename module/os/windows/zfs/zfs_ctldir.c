@@ -276,7 +276,7 @@ zfsctl_vnode_alloc(zfsvfs_t *zfsvfs, uint64_t id,
 		dprintf("%s: failed to build fullpath\n", __func__);
 	}
 
-	zfs_set_security(vp, NULL);
+	zfs_attach_security(vp, NULL);
 
 	mutex_enter(&zfsvfs->z_znodes_lock);
 	list_insert_tail(&zfsvfs->z_all_znodes, zp);
