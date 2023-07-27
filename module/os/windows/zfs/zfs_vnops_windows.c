@@ -415,7 +415,19 @@ checkname:
  * - HOLD on dvp
  * - HOLD on vp
  * - final parsed filename part in 'lastname' (in the case of creating an entry)
+ *
+ * IRP_MJ_CREATE calls
+ *
+ * zfsvfs  Filename
+ * --------------------------------------------------------
+ * IRP_MJ_CREATE(pool, "/lower/today.txt")
+ *     : lookup "lower", return STATUS_REPARSE
+ *     : Set unparsed length rdp->Reserved = 10 ("/today.txt") * 2
+ * --------------------------------------------------------
+ * IRP_MJ_CREATE(lower, "/today.txt")
+ *     : lookup "today.txt", return SUCCESS
  */
+
 int
 zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
     int finalpartmustnotexist, char **lastname, struct vnode **dvpp,
@@ -506,21 +518,21 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 		vp = ZTOV(zp);
 		ASSERT(zp != NULL);
 
-
 		/*
 		 * If we come across a REPARSE, we stop processing here
 		 * and pass the "zp" back for caller to do more processing,
 		 * which might include returning "zp" (FILE_OPEN_REPARSE_POINT)
 		 * and ReparseTag.
-		 * But, if IRP->zfsvfs is the same as zp->zfsvfs, the lookup
-		 * was already requested for "us" specifically, so keep going.
-		 * This could fail with nested dirmounts? Only check lowest
-		 * directory to bail.
+		 * If they requested FileOpenReparsePoint, AND we are at the
+		 * final-part, we open it normally.
+		 * Other cases we need to ask for redriving the query
 		 */
-		if ((zp->z_pflags & ZFS_REPARSE) &&
-		    (zfsvfs != zp->z_zfsvfs)) {
 
-			// Indicate if reparse was final part
+		if (zp->z_pflags & ZFS_REPARSE) {
+			/*
+			 * Indicate if reparse was final part,
+			 * caller will handle this case
+			 */
 			if (lastname)
 				*lastname = brkt;
 
@@ -528,7 +540,7 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 				*dvpp = dvp;
 			if (vpp != NULL)
 				*vpp = vp;
-			// VN_RELE(dvp);
+
 			return (STATUS_REPARSE);
 		}
 
@@ -968,9 +980,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	    (!finalname || !*finalname))
 		error = STATUS_SUCCESS;
 
-	if (error == STATUS_REPARSE && !FileOpenReparsePoint)
-		error = STATUS_IO_REPARSE_TAG_NOT_HANDLED;
-
 	if (error) {
 
 		/*
@@ -1002,12 +1011,16 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			    size, '!FSZ');
 			get_reparse_point_impl(zp, rpb, size);
 
-			// Return in Reserved the amount of path
-			// that was parsed.
-			/* FileObject->FileName.Length - parsed */
-			rpb->Reserved = (outlen -
-			    ((finalname - filename) +
-			    strlen(finalname))) * sizeof (WCHAR);
+			/*
+			 * Length, in bytes, of the unparsed portion of the
+			 * file name pointed to by the FileName member of the
+			 * associated file object.
+			 * Should include the leading "/", when finalname
+			 * here would be "lower".
+			 */
+			rpb->Reserved = strlen(finalname) * sizeof (WCHAR);
+			if (rpb->Reserved != 0)
+				rpb->Reserved += sizeof (WCHAR); // the slash
 
 			dprintf("%s: returning REPARSE\n", __func__);
 			Irp->IoStatus.Information = rpb->ReparseTag;
