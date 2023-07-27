@@ -845,6 +845,10 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		// Is it worth warning about failed lookup here?
 	}
 
+	ULONG reparse_tag = 0;
+	if (tzp->z_pflags & ZFS_REPARSE)
+		reparse_tag = get_reparse_tag(tzp);
+
 	structsize = 0; /* size of win struct desired */
 	/* bufptr : output memory area, incrementing */
 	/* outcount : amount written to output, incrementing */
@@ -883,7 +887,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		// Magic code to change dir icon to link
 		eodp->EaSize =
 		    tzp->z_pflags & ZFS_REPARSE ?
-		    0xa0000003 :
+		    reparse_tag :
 		    xattr_getsize(ZTOV(tzp));
 		eodp->FileAttributes =
 		    zfs_getwinflags(tzp);
@@ -921,7 +925,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		    fibdi->LastAccessTime.QuadPart);
 		fibdi->EaSize =
 		    tzp->z_pflags & ZFS_REPARSE ?
-		    0xa0000003 :
+		    reparse_tag :
 		    xattr_getsize(ZTOV(tzp));
 		fibdi->FileAttributes =
 		    zfs_getwinflags(tzp);
@@ -961,7 +965,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		    fbdi->LastAccessTime.QuadPart);
 		fbdi->EaSize =
 		    tzp->z_pflags & ZFS_REPARSE ?
-		    0xa0000003 :
+		    reparse_tag :
 		    xattr_getsize(ZTOV(tzp));
 		fbdi->FileAttributes =
 		    zfs_getwinflags(tzp);
@@ -1052,7 +1056,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		    fifdi->LastAccessTime.QuadPart);
 		fifdi->EaSize =
 		    tzp->z_pflags & ZFS_REPARSE ?
-		    0xa0000003 :
+		    reparse_tag :
 		    xattr_getsize(ZTOV(tzp));
 		fifdi->FileAttributes =
 		    zfs_getwinflags(tzp);
@@ -1090,11 +1094,8 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		TIME_UNIX_TO_WINDOWS(tzp->z_atime,
 		    fiedi->LastAccessTime.QuadPart);
 		fiedi->EaSize =
-		    tzp->z_pflags & ZFS_REPARSE ?
-		    0xa0000003 :
 		    xattr_getsize(ZTOV(tzp));
-		fiedi->FileAttributes =
-		    zfs_getwinflags(tzp);
+		fiedi->ReparsePointTag = reparse_tag;
 		RtlCopyMemory(&fiedi->FileId.Identifier[0], &tzp->z_id,
 		    sizeof (UINT64));
 		guid = dmu_objset_fsid_guid(zfsvfs->z_os);
@@ -1134,9 +1135,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		    fiebdi->LastAccessTime.QuadPart);
 		fiebdi->EaSize =
 		    xattr_getsize(ZTOV(tzp));
-		fiebdi->ReparsePointTag =
-		    tzp->z_pflags & ZFS_REPARSE ?
-		    get_reparse_tag(tzp) : 0;
+		fiebdi->ReparsePointTag = reparse_tag;
 		fiebdi->FileAttributes =
 		    zfs_getwinflags(tzp);
 		fiebdi->ShortNameLength = 0;
