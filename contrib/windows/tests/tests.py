@@ -16,18 +16,20 @@ import logging
 
 logging.basicConfig(level=logging.DEBUG)
 
-
 print("Printed immediately.")
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process command line arguments.')
     parser.add_argument('-path', type=dir_path, required=True)
     return parser.parse_args()
+
+
 def dir_path(path):
     if os.path.isdir(path):
         return path
     else:
         raise argparse.ArgumentTypeError(f"readable_dir:{path} is not a valid path")
-
 
 
 def get_DeviceId():
@@ -64,10 +66,12 @@ def get_DeviceId():
 
     return e
 
+
 def allocate_file(name, size):
     with open(name, 'wb') as f:
         f.seek(size)
         f.write(b'0')
+
 
 def delete_file(name):
     if os.path.exists(name):
@@ -103,7 +107,6 @@ def get_driveletters():
 #      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe" mount'
 
 
-
 def create_pool(name, file):
     magic_number_process = subprocess.run(
         ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", "create", "-f", name, file],
@@ -112,13 +115,13 @@ def create_pool(name, file):
     )
 
 
-
 def destroy_pool(name):
     magic_number_process = subprocess.run(
         ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", "destroy", "-f", name],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
+
 
 def zpool(*args):
     magic_number_process = subprocess.run(
@@ -153,13 +156,9 @@ def run(args):
     return result
 
 
-
 def tounc(name):
     q = "\\\\?\\" + str(name)
     return q
-
-
-
 
 
 def runWithPrint(cmd):
@@ -170,8 +169,8 @@ def runWithPrint(cmd):
     logging.debug(str("stdout={}".format(ret.stdout)))
     logging.debug(str("stderr={}".format(ret.stderr)))
 
-
     return ret
+
 
 def preTest(testName = None):
     print("=" * 20)
@@ -180,9 +179,11 @@ def preTest(testName = None):
 
     get_driveletters()
 
+
 def postTest():
     get_driveletters()
     print("=" * 20)
+
 
 def main():
     parsed_args = parse_arguments()
@@ -204,12 +205,6 @@ def main():
         f3 = PureWindowsPath(p, "test03.dat")
         allocate_file(f3, 1024*1024*1024)
 
-
-
-
-
-
-
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test01", tounc(f1)])
         time.sleep(10)
@@ -219,10 +214,6 @@ def main():
         runWithPrint(["zpool", "destroy", "-f", "test01"])
         time.sleep(10)
         postTest()
-
-
-
-
 
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test02", tounc(f1), tounc(f2)])
@@ -234,10 +225,6 @@ def main():
         time.sleep(10)
         postTest()
 
-
-
-
-
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test03", tounc(f1), tounc(f2), tounc(f3)])
         if ret.returncode != 0:
@@ -247,10 +234,6 @@ def main():
         runWithPrint(["zpool", "destroy", "-f", "test03"])
         time.sleep(10)
         postTest()
-
-
-
-
 
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test04", "mirror", tounc(f1), tounc(f2)])
@@ -262,10 +245,6 @@ def main():
         time.sleep(10)
         postTest()
 
-
-
-
-
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test05", "mirror", tounc(f1), tounc(f2), tounc(f3)])
         time.sleep(10)
@@ -275,10 +254,6 @@ def main():
         runWithPrint(["zpool", "destroy", "-f", "test05"])
         time.sleep(10)
         postTest()
-
-
-
-
 
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test06", "raidz", tounc(f1), tounc(f2), tounc(f3)])
@@ -290,10 +265,6 @@ def main():
         time.sleep(10)
         postTest()
 
-
-
-
-
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test07", "raidz1", tounc(f1), tounc(f2), tounc(f3)])
         if ret.returncode != 0:
@@ -303,23 +274,6 @@ def main():
         runWithPrint(["zpool", "destroy", "-f", "test07"])
         time.sleep(10)
         postTest()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
         preTest("snapshot no hang:")
 
@@ -348,11 +302,6 @@ def main():
 
         time.sleep(10)
         postTest()
-
-
-
-
-
 
         # preTest("snapshot hang")
         #
@@ -387,43 +336,6 @@ def main():
         # time.sleep(10)
         # postTest()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
         preTest("regex for key file")
 
         random_bytearray = bytearray(os.urandom(32))
@@ -435,7 +347,6 @@ def main():
 
         nx ="file://" + tounc(key01).replace("\\", "/")
         print(nx)
-
 
         ret = runWithPrint(["zpool", "create", "-f", "-O", "encryption=aes-256-ccm", "-O", "keylocation=" + nx, "-O", "keyformat=raw", "tank", tounc(f1)])
         if ret.returncode != 0:
@@ -452,35 +363,16 @@ def main():
             print("FAIL")
         time.sleep(10)
 
-
-
-
-
-
-
         print("Drive letters before pool create:", get_driveletters())
         ret = runWithPrint(["zpool", "import", "-f", "-l", "-O", "encryption=aes-256-ccm", "-O", "keylocation=" + nx, "-O", "keyformat=raw", tounc(f1)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
 
-
         print("Drive letters after pool create:", get_driveletters())
         runWithPrint(["zpool", "destroy", "-f", "tank"])
         time.sleep(10)
         postTest()
-
-
-
-
-
-
-
-
-
-
-
-
 
         preTest("run out of drive letters")
 
@@ -501,27 +393,11 @@ def main():
             runWithPrint(["zpool", "destroy", "-f", "tank" + str(i)])
             time.sleep(10)
 
-
         postTest()
-
-
-
-
-
-
-
 
         delete_file(f1)
         delete_file(f2)
         delete_file(f3)
 
-
-
-
 if __name__ == "__main__":
     main()
-
-
-
-
-

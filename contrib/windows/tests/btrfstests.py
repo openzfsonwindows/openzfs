@@ -18,16 +18,19 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 print("Printed immediately.")
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process command line arguments.')
     parser.add_argument('-path', type=dir_path, required=True)
     return parser.parse_args()
+
+
 def dir_path(path):
     if os.path.isdir(path):
         return path
     else:
         raise argparse.ArgumentTypeError(f"readable_dir:{path} is not a valid path")
-
 
 
 def get_DeviceId():
@@ -64,10 +67,12 @@ def get_DeviceId():
 
     return e
 
+
 def allocate_file(name, size):
     with open(name, 'wb') as f:
         f.seek(size)
         f.write(b'0')
+
 
 def delete_file(name):
     if os.path.exists(name):
@@ -83,7 +88,7 @@ def get_driveletters():
         stderr=subprocess.PIPE
     )
 
-    #b'test01                          H:\\ \r\ntest02                          I:\\ \r\n'
+#    b'test01                          H:\\ \r\ntest02                          I:\\ \r\n'
 
 
     a=magic_number_process.stdout.decode(encoding='UTF-8',errors='strict')
@@ -92,7 +97,7 @@ def get_driveletters():
 
     logging.debug("get_driveletters() {}".format(c))
 
-    #print("get_driveletters() debug",c)
+#    print("get_driveletters() debug",c)
 
     d = [x.split() for x in c]
 
@@ -103,7 +108,6 @@ def get_driveletters():
 #      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe" mount'
 
 
-
 def create_pool(name, file):
     magic_number_process = subprocess.run(
         ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", "create", "-f", name, file],
@@ -112,13 +116,13 @@ def create_pool(name, file):
     )
 
 
-
 def destroy_pool(name):
     magic_number_process = subprocess.run(
         ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", "destroy", "-f", name],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
+
 
 def zpool(*args):
     magic_number_process = subprocess.run(
@@ -156,13 +160,9 @@ def run(args):
     return result
 
 
-
 def tounc(name):
     q = "\\\\?\\" + str(name)
     return q
-
-
-
 
 
 def runWithPrint(cmd):
@@ -173,19 +173,21 @@ def runWithPrint(cmd):
     logging.debug(str("stdout={}".format(ret.stdout)))
     logging.debug(str("stderr={}".format(ret.stderr)))
 
-
     return ret
 
-def preTest(testName = None):
+
+def preTest(testName=None):
     print("=" * 20)
     if testName is not None:
         print("Name:", testName)
 
     get_driveletters()
 
+
 def postTest():
     get_driveletters()
     print("=" * 20)
+
 
 def main():
     parsed_args = parse_arguments()
@@ -203,7 +205,6 @@ def main():
         f1 = PureWindowsPath(p, "test01.dat")
         allocate_file(f1, 1024*1024*1024)
 
-
         with open(str(p.joinpath("winbtrfs.log")), "w") as log_file:
 
             preTest()
@@ -215,10 +216,8 @@ def main():
             time.sleep(10)
             postTest()
 
-
-
             for test in ['create', 'supersede', 'overwrite', 'open_id', 'io', 'mmap', 'rename', 'rename_ex', 'delete', 'delete_ex', 'links', 'links_ex', 'oplock_i', 'oplock_ii', 'oplock_batch', 'oplock_filter', 'oplock_r', 'oplock_rw', 'oplock_rh', 'oplock_rwh', 'cs', 'reparse', 'streams', 'fileinfo', 'ea']:
-                preTest(str(test) +" tests:")
+                preTest(str(test) + " tests:")
                 f = PureWindowsPath(get_driveletters()[0][1])
                 ret = runWithPrint([str(p.joinpath("winbtrfs", "test.exe")), str(test), str(f)])
                 time.sleep(10)
@@ -235,36 +234,11 @@ def main():
                 log_file.write("\n")
 
             preTest()
-            #runWithPrint(["zpool", "destroy", "-f", "test01"])
+#            runWithPrint(["zpool", "destroy", "-f", "test01"])
             time.sleep(10)
             postTest()
 
-
-
-
-
-            #delete_file(f1)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+#            delete_file(f1)
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
