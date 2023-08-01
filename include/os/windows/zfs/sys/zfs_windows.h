@@ -34,6 +34,7 @@ extern PDEVICE_OBJECT fsDiskDeviceObject;
 #define	ZFS_SERIAL	(ULONG)'wZFS'
 #define	VOLUME_LABEL	L"ZFS"
 
+#define	ZFS_HAVE_FASTIO
 
 // We have to remember "query directory" related items, like index and
 // search pattern. This is attached in IRP_MJ_CREATE to fscontext2
@@ -113,6 +114,7 @@ extern char *create_reply(NTSTATUS, ULONG reply);
 extern void latency_stats(uint64_t *histo, unsigned int buckets,
     stat_pair *lat);
 extern size_t get_reparse_point_impl(znode_t *zp, char *buffer, size_t outlen);
+extern void fastio_init(FAST_IO_DISPATCH **fast);
 
 /* zfs_vnop_windows_lib.h */
 extern int	AsciiStringToUnicodeString(char *in, PUNICODE_STRING out);
@@ -148,10 +150,14 @@ extern NTSTATUS set_file_position_information(PDEVICE_OBJECT DeviceObject,
     PIRP Irp, PIO_STACK_LOCATION IrpSp);
 
 /* IRP_MJ_GET_INFORMATION helpers */
+extern void file_basic_information_impl(PDEVICE_OBJECT, PFILE_OBJECT,
+    FILE_BASIC_INFORMATION *, PIO_STATUS_BLOCK);
 extern NTSTATUS file_basic_information(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION,
 	FILE_BASIC_INFORMATION *);
 extern NTSTATUS file_compression_information(PDEVICE_OBJECT, PIRP,
 	PIO_STACK_LOCATION, FILE_COMPRESSION_INFORMATION *);
+extern void file_standard_information_impl(PDEVICE_OBJECT, PFILE_OBJECT,
+    FILE_STANDARD_INFORMATION *, size_t, PIO_STATUS_BLOCK);
 extern NTSTATUS file_standard_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION,	FILE_STANDARD_INFORMATION *);
 extern NTSTATUS file_position_information(PDEVICE_OBJECT, PIRP,
@@ -160,6 +166,8 @@ extern NTSTATUS file_ea_information(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION,
 	FILE_EA_INFORMATION *);
 extern NTSTATUS file_alignment_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION, FILE_ALIGNMENT_INFORMATION *);
+extern void file_network_open_information_impl(PDEVICE_OBJECT, PFILE_OBJECT,
+    FILE_NETWORK_OPEN_INFORMATION *, PIO_STATUS_BLOCK);
 extern NTSTATUS file_network_open_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION,	FILE_NETWORK_OPEN_INFORMATION *);
 extern NTSTATUS file_standard_link_information(PDEVICE_OBJECT, PIRP,
