@@ -1148,6 +1148,8 @@ zfsdev_attach(void)
 	WIN_DriverObject->MajorFunction[IRP_MJ_SET_SECURITY] =
 	    (PDRIVER_DISPATCH)dispatcher;
 
+	fastio_init(&WIN_DriverObject->FastIoDispatch);
+
 	// Dump all registered filesystems
 	ntStatus = IoRegisterFsRegistrationChange(WIN_DriverObject,
 	    DriverNotificationRoutine);
