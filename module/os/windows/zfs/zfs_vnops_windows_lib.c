@@ -3625,6 +3625,72 @@ file_internal_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (STATUS_NO_SUCH_FILE);
 }
 
+/*
+ * Assumes NULL tests, and VN_HOLD(vp) has already been done.
+ */
+void
+file_basic_information_impl(PDEVICE_OBJECT DeviceObject,
+    PFILE_OBJECT FileObject, FILE_BASIC_INFORMATION *fbi,
+    PIO_STATUS_BLOCK IoStatus)
+{
+	struct vnode *vp = FileObject->FsContext;
+	znode_t *zp = VTOZ(vp);
+	mount_t *zmo = DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+
+	if (zp != NULL) {
+
+		if (zp->z_is_sa) {
+			sa_bulk_attr_t bulk[3];
+			int count = 0;
+			uint64_t mtime[2];
+			uint64_t ctime[2];
+			uint64_t crtime[2];
+			SA_ADD_BULK_ATTR(bulk, count,
+			    SA_ZPL_MTIME(zfsvfs),
+			    NULL, &mtime, 16);
+			SA_ADD_BULK_ATTR(bulk, count,
+			    SA_ZPL_CTIME(zfsvfs),
+			    NULL, &ctime, 16);
+			SA_ADD_BULK_ATTR(bulk, count,
+			    SA_ZPL_CRTIME(zfsvfs),
+			    NULL, &crtime, 16);
+			sa_bulk_lookup(zp->z_sa_hdl, bulk, count);
+
+			TIME_UNIX_TO_WINDOWS(mtime,
+			    fbi->LastWriteTime.QuadPart);
+			TIME_UNIX_TO_WINDOWS(ctime,
+			    fbi->ChangeTime.QuadPart);
+			TIME_UNIX_TO_WINDOWS(crtime,
+			    fbi->CreationTime.QuadPart);
+			TIME_UNIX_TO_WINDOWS(zp->z_atime,
+			    fbi->LastAccessTime.QuadPart);
+		}
+		// FileAttributes == 0 means don't set
+		// - undocumented, but seen in fastfat
+		// if (fbi->FileAttributes != 0)
+		fbi->FileAttributes = zfs_getwinflags(zp);
+		IoStatus->Information = sizeof (FILE_BASIC_INFORMATION);
+		IoStatus->Status = STATUS_SUCCESS;
+		return;
+	}
+
+	// This can be called from diskDispatcher, referring to the volume.
+	// if so, make something up. Is this the right thing to do?
+	// zp is NULL
+
+	LARGE_INTEGER JanOne1980 = { 0xe1d58000, 0x01a8e79f };
+	ExLocalTimeToSystemTime(&JanOne1980,
+	    &fbi->LastWriteTime);
+	fbi->CreationTime = fbi->LastAccessTime =
+	    fbi->LastWriteTime;
+	fbi->FileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+	if (zfsvfs->z_rdonly)
+		fbi->FileAttributes |= FILE_ATTRIBUTE_READONLY;
+	IoStatus->Information = sizeof (FILE_BASIC_INFORMATION);
+	IoStatus->Status = STATUS_SUCCESS;
+}
+
 NTSTATUS
 file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp, FILE_BASIC_INFORMATION *basic)
@@ -3637,70 +3703,21 @@ file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
 
-	if (IrpSp->FileObject && IrpSp->FileObject->FsContext) {
-		struct vnode *vp = IrpSp->FileObject->FsContext;
-		if (VN_HOLD(vp) == 0) {
-			znode_t *zp = VTOZ(vp);
-			zfsvfs_t *zfsvfs = zp->z_zfsvfs;
-			if (zp->z_is_sa) {
-				sa_bulk_attr_t bulk[3];
-				int count = 0;
-				uint64_t mtime[2];
-				uint64_t ctime[2];
-				uint64_t crtime[2];
-				SA_ADD_BULK_ATTR(bulk, count,
-				    SA_ZPL_MTIME(zfsvfs),
-				    NULL, &mtime, 16);
-				SA_ADD_BULK_ATTR(bulk, count,
-				    SA_ZPL_CTIME(zfsvfs),
-				    NULL, &ctime, 16);
-				SA_ADD_BULK_ATTR(bulk, count,
-				    SA_ZPL_CRTIME(zfsvfs),
-				    NULL, &crtime, 16);
-				sa_bulk_lookup(zp->z_sa_hdl, bulk, count);
-
-				TIME_UNIX_TO_WINDOWS(mtime,
-				    basic->LastWriteTime.QuadPart);
-				TIME_UNIX_TO_WINDOWS(ctime,
-				    basic->ChangeTime.QuadPart);
-				TIME_UNIX_TO_WINDOWS(crtime,
-				    basic->CreationTime.QuadPart);
-				TIME_UNIX_TO_WINDOWS(zp->z_atime,
-				    basic->LastAccessTime.QuadPart);
-			}
-			// FileAttributes == 0 means don't set
-			// - undocumented, but seen in fastfat
-			// if (basic->FileAttributes != 0)
-			basic->FileAttributes = zfs_getwinflags(zp);
-
-			VN_RELE(vp);
-		}
-		Irp->IoStatus.Information = sizeof (FILE_BASIC_INFORMATION);
-		return (STATUS_SUCCESS);
+	if (IrpSp->FileObject == NULL ||
+	    IrpSp->FileObject->FsContext == NULL ||
+	    IrpSp->FileObject->FsContext2 == NULL) {
+		Irp->IoStatus.Information = 0;
+		Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+		return (Irp->IoStatus.Status);
 	}
 
-	// This can be called from diskDispatcher, referring to the volume.
-	// if so, make something up. Is this the right thing to do?
+	// This function relies on VN_HOLD in dispatcher.
+	file_basic_information_impl(DeviceObject, IrpSp->FileObject,
+	    basic, &Irp->IoStatus);
 
-	if (IrpSp->FileObject && IrpSp->FileObject->FsContext == NULL) {
-		mount_t *zmo = DeviceObject->DeviceExtension;
-		zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
-
-		LARGE_INTEGER JanOne1980 = { 0xe1d58000, 0x01a8e79f };
-		ExLocalTimeToSystemTime(&JanOne1980,
-		    &basic->LastWriteTime);
-		basic->CreationTime = basic->LastAccessTime =
-		    basic->LastWriteTime;
-		basic->FileAttributes = FILE_ATTRIBUTE_DIRECTORY;
-		if (zfsvfs->z_rdonly)
-			basic->FileAttributes |= FILE_ATTRIBUTE_READONLY;
-		Irp->IoStatus.Information = sizeof (FILE_BASIC_INFORMATION);
-		return (STATUS_SUCCESS);
-	}
-
-	dprintf("   %s failing\n", __func__);
-	return (STATUS_OBJECT_NAME_NOT_FOUND);
+	return (Irp->IoStatus.Status);
 }
+
 NTSTATUS
 file_compression_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp, FILE_COMPRESSION_INFORMATION *fci)
@@ -3754,39 +3771,30 @@ zfs_blksz(znode_t *zp)
 	return (512ULL);
 }
 
-NTSTATUS
-file_standard_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
-    PIO_STACK_LOCATION IrpSp, FILE_STANDARD_INFORMATION *standard)
+void
+file_standard_information_impl(PDEVICE_OBJECT DeviceObject,
+    PFILE_OBJECT FileObject, FILE_STANDARD_INFORMATION *fsi,
+    size_t length, PIO_STATUS_BLOCK IoStatus)
 {
-	dprintf("   %s\n", __func__);
+	struct vnode *vp = FileObject->FsContext;
+	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	znode_t *zp = VTOZ(vp);
+	mount_t *zmo = DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 
-	if (IrpSp->Parameters.QueryFile.Length <
-	    sizeof (FILE_STANDARD_INFORMATION)) {
-		Irp->IoStatus.Information = sizeof (FILE_STANDARD_INFORMATION);
-		return (STATUS_BUFFER_TOO_SMALL);
-	}
-
-	standard->Directory = TRUE;
-	standard->AllocationSize.QuadPart = 512;
-	standard->EndOfFile.QuadPart = 512;
-	standard->DeletePending = FALSE;
-	standard->NumberOfLinks = 1;
-	if (IrpSp->FileObject && IrpSp->FileObject->FsContext) {
-		struct vnode *vp = IrpSp->FileObject->FsContext;
-		zfs_dirlist_t *zccb = IrpSp->FileObject->FsContext2;
-		VN_HOLD(vp);
-		znode_t *zp = VTOZ(vp);
-		standard->Directory = vnode_isdir(vp) ? TRUE : FALSE;
+	if (zp != NULL) {
+		fsi->Directory = vnode_isdir(vp) ? TRUE : FALSE;
 		// sa_object_size(zp->z_sa_hdl, &blksize, &nblks);
 		uint64_t blk = zfs_blksz(zp);
 		// space taken on disk, multiples of block size
 
-		standard->AllocationSize.QuadPart = allocationsize(zp);
-		standard->EndOfFile.QuadPart = vnode_isdir(vp) ? 0 : zp->z_size;
-		standard->NumberOfLinks = zp->z_links;
-		standard->DeletePending = zccb &&
+		fsi->AllocationSize.QuadPart = allocationsize(zp);
+		fsi->EndOfFile.QuadPart = vnode_isdir(vp) ? 0 : zp->z_size;
+		fsi->NumberOfLinks = zp->z_links;
+		fsi->DeletePending = zccb &&
 		    zccb->deleteonclose ? TRUE : FALSE;
-		Irp->IoStatus.Information = sizeof (FILE_STANDARD_INFORMATION);
+
+		IoStatus->Information = sizeof (FILE_STANDARD_INFORMATION);
 
 #ifndef FILE_STANDARD_INFORMATION_EX
 		typedef struct _FILE_STANDARD_INFORMATION_EX {
@@ -3799,24 +3807,48 @@ file_standard_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    BOOLEAN MetadataAttribute;
 		} FILE_STANDARD_INFORMATION_EX, *PFILE_STANDARD_INFORMATION_EX;
 #endif
-		if (IrpSp->Parameters.QueryFile.Length >=
+		if (length >=
 		    sizeof (FILE_STANDARD_INFORMATION_EX)) {
 			FILE_STANDARD_INFORMATION_EX *estandard;
-			estandard = (FILE_STANDARD_INFORMATION_EX *)standard;
+			estandard = (FILE_STANDARD_INFORMATION_EX *)fsi;
 			estandard->AlternateStream = zp->z_pflags & ZFS_XATTR;
 			estandard->MetadataAttribute = FALSE;
-			Irp->IoStatus.Information =
+			IoStatus->Information =
 			    sizeof (FILE_STANDARD_INFORMATION_EX);
 		}
 
-		VN_RELE(vp);
-		dprintf("Returning size %llu and allocsize %llu\n",
-		    standard->EndOfFile.QuadPart,
-		    standard->AllocationSize.QuadPart);
-
-		return (STATUS_SUCCESS);
+		IoStatus->Status = STATUS_SUCCESS;
+		return;
 	}
-	return (STATUS_OBJECT_NAME_NOT_FOUND);
+
+	IoStatus->Information = 0;
+	IoStatus->Status = STATUS_INVALID_PARAMETER;
+}
+
+NTSTATUS
+file_standard_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp, FILE_STANDARD_INFORMATION *fsi)
+{
+	dprintf("   %s\n", __func__);
+
+	if (IrpSp->Parameters.QueryFile.Length <
+	    sizeof (FILE_STANDARD_INFORMATION)) {
+		Irp->IoStatus.Information = sizeof (FILE_STANDARD_INFORMATION);
+		return (STATUS_BUFFER_TOO_SMALL);
+	}
+	if (IrpSp->FileObject == NULL ||
+	    IrpSp->FileObject->FsContext == NULL ||
+	    IrpSp->FileObject->FsContext2 == NULL) {
+		Irp->IoStatus.Information = 0;
+		Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+		return (Irp->IoStatus.Status);
+	}
+
+	// This function relies on VN_HOLD in dispatcher.
+	file_standard_information_impl(DeviceObject, IrpSp->FileObject,
+	    fsi, IrpSp->Parameters.QueryFile.Length, &Irp->IoStatus);
+
+	return (Irp->IoStatus.Status);
 }
 
 NTSTATUS
@@ -3883,23 +3915,19 @@ file_alignment_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (STATUS_SUCCESS);
 }
 
-NTSTATUS
-file_network_open_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
-    PIO_STACK_LOCATION IrpSp, FILE_NETWORK_OPEN_INFORMATION *netopen)
+void
+file_network_open_information_impl(PDEVICE_OBJECT DeviceObject,
+    PFILE_OBJECT FileObject, FILE_NETWORK_OPEN_INFORMATION *netopen,
+    PIO_STATUS_BLOCK IoStatus)
 {
 	dprintf("   %s\n", __func__);
+	struct vnode *vp = FileObject->FsContext;
+	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	znode_t *zp = VTOZ(vp);
+	mount_t *zmo = DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 
-	if (IrpSp->Parameters.QueryFile.Length <
-	    sizeof (FILE_NETWORK_OPEN_INFORMATION)) {
-		Irp->IoStatus.Information =
-		    sizeof (FILE_NETWORK_OPEN_INFORMATION);
-		return (STATUS_BUFFER_TOO_SMALL);
-	}
-
-	if (IrpSp->FileObject && IrpSp->FileObject->FsContext) {
-		struct vnode *vp = IrpSp->FileObject->FsContext;
-		znode_t *zp = VTOZ(vp);
-		zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	if (zp != NULL) {
 		if (zp->z_is_sa) {
 			sa_bulk_attr_t bulk[3];
 			int count = 0;
@@ -3930,12 +3958,33 @@ file_network_open_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    P2ROUNDUP(zp->z_size, zfs_blksz(zp));
 		netopen->EndOfFile.QuadPart = vnode_isdir(vp) ? 0 : zp->z_size;
 		netopen->FileAttributes = zfs_getwinflags(zp);
-		Irp->IoStatus.Information =
+		IoStatus->Information =
 		    sizeof (FILE_NETWORK_OPEN_INFORMATION);
-		return (STATUS_SUCCESS);
+		IoStatus->Status = STATUS_SUCCESS;
+		return;
 	}
 
-	return (STATUS_OBJECT_PATH_NOT_FOUND);
+	IoStatus->Information = 0;
+	IoStatus->Status = STATUS_INVALID_PARAMETER;
+}
+
+NTSTATUS
+file_network_open_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp, FILE_NETWORK_OPEN_INFORMATION *netopen)
+{
+	if (IrpSp->FileObject == NULL ||
+	    IrpSp->FileObject->FsContext == NULL ||
+	    IrpSp->FileObject->FsContext2 == NULL) {
+		Irp->IoStatus.Information = 0;
+		Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+		return (Irp->IoStatus.Status);
+	}
+
+	// This function relies on VN_HOLD in dispatcher.
+	file_network_open_information_impl(DeviceObject, IrpSp->FileObject,
+	    netopen, &Irp->IoStatus);
+
+	return (Irp->IoStatus.Status);
 }
 
 NTSTATUS
