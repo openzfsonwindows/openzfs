@@ -23,7 +23,7 @@ print("Printed immediately.")
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process command line '
-                                    'arguments.')
+                                     'arguments.')
     parser.add_argument('-path', type=dir_path, required=True)
     return parser.parse_args()
 
@@ -155,7 +155,7 @@ def zfs(*args):
 
 def run(args):
     d = {"zfs": "C:\\Program Files\\OpenZFS On Windows\\zfs.exe",
-            "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
+         "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
     l = list(args)
     try:
         cmd = d[l[0]]
