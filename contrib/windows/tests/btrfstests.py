@@ -158,7 +158,7 @@ def run(args):
          "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
     arglist = list(args)
     try:
-        cmd = d[l[0]]
+        cmd = d[arglist[0]]
     except Exception:
         cmd = arglist[0]
     result = subprocess.run(
