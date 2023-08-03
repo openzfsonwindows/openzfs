@@ -3,16 +3,16 @@ import argparse
 
 import subprocess
 
-#from pathlib import Path, PurePosixPath, PureWindowsPath, WindowsPath
+# from pathlib import Path, PurePosixPath, PureWindowsPath, WindowsPath
 from pathlib import PureWindowsPath
 
-
-#from pprint import pprint
+# from pprint import pprint
 
 import time
 
 
-#import json
+
+# import json
 
 import logging
 
@@ -23,7 +23,7 @@ print("Printed immediately.")
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process command line '
-                                    'arguments.')
+                                        'arguments.')
     parser.add_argument('-path', type=dir_path, required=True)
     return parser.parse_args()
 
@@ -43,8 +43,8 @@ def get_DeviceId():
         stderr=subprocess.PIPE
     )
 
-    #https://github.com/sir-ragna/dddddd
-    #get DeviceId
+#   https://github.com/sir-ragna/dddddd
+#   get DeviceId
 
     a = magic_number_process.stdout.decode(encoding='UTF-8', errors='strict')
     b = a.replace("\r\r\n", "\r\n")
@@ -92,16 +92,15 @@ def get_driveletters():
         stderr=subprocess.PIPE
     )
 
-    #b'test01                          H:\\ \r\ntest02             I:\\ \r\n'
+#   b'test01                          H:\\ \r\ntest02             I:\\ \r\n'
 
-
-    a=magic_number_process.stdout.decode(encoding='UTF-8',errors='strict')
+    a = magic_number_process.stdout.decode(encoding='UTF-8', errors='strict')
 
     c = a.splitlines()
 
     logging.debug("get_driveletters() {}".format(c))
 
-    #print("get_driveletters() debug",c)
+#   print("get_driveletters() debug",c)
 
     d = [x.split() for x in c]
 
@@ -155,8 +154,8 @@ def zfs(*args):
 
 
 def run(args):
-    d = {"zfs": "C:\\Program Files\\OpenZFS On Windows\\zfs.exe", \
-        "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
+    d = {"zfs": "C:\\Program Files\\OpenZFS On Windows\\zfs.exe",
+            "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
     l = list(args)
     cmd = d[l[0]]
     result = subprocess.run(
@@ -229,7 +228,7 @@ def main():
 
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test02", tounc(f1),
-            tounc(f2)])
+                            tounc(f2)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -240,7 +239,7 @@ def main():
 
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test03", tounc(f1),
-            tounc(f2), tounc(f3)])
+                            tounc(f2), tounc(f3)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -251,7 +250,7 @@ def main():
 
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test04", "mirror",
-            tounc(f1), tounc(f2)])
+                            tounc(f1), tounc(f2)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -262,7 +261,7 @@ def main():
 
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test05", "mirror",
-            tounc(f1), tounc(f2), tounc(f3)])
+                            tounc(f1), tounc(f2), tounc(f3)])
         time.sleep(10)
         if ret.returncode != 0:
             print("FAIL")
@@ -273,7 +272,7 @@ def main():
 
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test06", "raidz",
-            tounc(f1), tounc(f2), tounc(f3)])
+                            tounc(f1), tounc(f2), tounc(f3)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -284,7 +283,7 @@ def main():
 
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test07", "raidz1",
-            tounc(f1), tounc(f2), tounc(f3)])
+                            tounc(f1), tounc(f2), tounc(f3)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -366,9 +365,10 @@ def main():
         nx = "file://" + tounc(key01).replace("\\", "/")
         print(nx)
 
-        ret = runWithPrint(["zpool", "create", "-f", "-O", \
-            "encryption=aes-256-ccm", "-O", "keylocation=" + nx, "-O",
-                "keyformat=raw", "tank", tounc(f1)])
+        ret = runWithPrint(["zpool", "create", "-f", "-O",
+                            "encryption=aes-256-ccm", "-O",
+                            "keylocation=" + nx, "-O", "keyformat=raw",
+                            "tank", tounc(f1)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -384,9 +384,10 @@ def main():
         time.sleep(10)
 
         print("Drive letters before pool create:", get_driveletters())
-        ret = runWithPrint(["zpool", "import", "-f", "-l", "-O", \
-            "encryption=aes-256-ccm", "-O", "keylocation=" + nx, "-O",
-                "keyformat=raw", tounc(f1)])
+        ret = runWithPrint(["zpool", "import", "-f", "-l", "-O",
+                            "encryption=aes-256-ccm", "-O",
+                            "keylocation=" + nx, "-O", "keyformat=raw",
+                            tounc(f1)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -400,7 +401,7 @@ def main():
 
         for i in range(1, 26):
             ret = runWithPrint(["zpool", "create", "-f", "tank" + str(i),
-                tounc(f1)])
+                                tounc(f1)])
             if ret.returncode != 0:
                 print("FAIL")
             time.sleep(10)

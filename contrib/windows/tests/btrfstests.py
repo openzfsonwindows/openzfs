@@ -3,15 +3,15 @@ import argparse
 
 import subprocess
 
-#from pathlib import Path, PurePosixPath, PureWindowsPath, WindowsPath
+# from pathlib import Path, PurePosixPath, PureWindowsPath, WindowsPath
 from pathlib import PureWindowsPath
 
-#from pprint import pprint
+# from pprint import pprint
 
 import time
 
 
-#import json
+# import json
 
 import logging
 
@@ -23,7 +23,7 @@ print("Printed immediately.")
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process command line '
-        'arguments.')
+                                    'arguments.')
     parser.add_argument('-path', type=dir_path, required=True)
     return parser.parse_args()
 
@@ -92,7 +92,7 @@ def get_driveletters():
         stderr=subprocess.PIPE
     )
 
-    #b'test01                          H:\\ \r\ntest02             I:\\ \r\n'
+#   b'test01                          H:\\ \r\ntest02             I:\\ \r\n'
 
     a = magic_number_process.stdout.decode(encoding='UTF-8', errors='strict')
 
@@ -154,8 +154,8 @@ def zfs(*args):
 
 
 def run(args):
-    d = {"zfs": "C:\\Program Files\\OpenZFS On Windows\\zfs.exe", \
-        "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
+    d = {"zfs": "C:\\Program Files\\OpenZFS On Windows\\zfs.exe",
+            "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
     l = list(args)
     try:
         cmd = d[l[0]]
@@ -235,7 +235,7 @@ def main():
                 preTest(str(test) + " tests:")
                 f = PureWindowsPath(get_driveletters()[0][1])
                 ret = runWithPrint([str(p.joinpath("winbtrfs", "test.exe")),
-                    str(test), str(f)])
+                                    str(test), str(f)])
                 time.sleep(10)
                 if ret.returncode != 0:
                     print("FAIL")
@@ -243,8 +243,8 @@ def main():
 
                 print(ret.stdout.decode())
 
-                out = " ".join([str(test), \
-                    ret.stdout.decode().splitlines()[-1]])
+                out = " ".join([str(test),
+                                ret.stdout.decode().splitlines()[-1]])
 
                 print(out)
                 log_file.write(out)
