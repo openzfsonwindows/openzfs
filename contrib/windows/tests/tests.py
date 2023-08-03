@@ -3,14 +3,14 @@ import argparse
 
 import subprocess
 
-from pathlib import Path, PurePosixPath, PureWindowsPath, WindowsPath
+# from pathlib import Path, PurePosixPath, PureWindowsPath, WindowsPath
+from pathlib import PureWindowsPath
 
-from pprint import pprint
+# from pprint import pprint
 
 import time
 
-
-import json
+# import json
 
 import logging
 
@@ -20,7 +20,8 @@ print("Printed immediately.")
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description='Process command line arguments.')
+    parser = argparse.ArgumentParser(description='Process command line '
+                                     'arguments.')
     parser.add_argument('-path', type=dir_path, required=True)
     return parser.parse_args()
 
@@ -29,7 +30,8 @@ def dir_path(path):
     if os.path.isdir(path):
         return path
     else:
-        raise argparse.ArgumentTypeError(f"readable_dir:{path} is not a valid path")
+        raise argparse.ArgumentTypeError(f"readable_dir:{path} is not a valid"
+                                         "path")
 
 
 def get_DeviceId():
@@ -39,12 +41,13 @@ def get_DeviceId():
         stderr=subprocess.PIPE
     )
 
-    #https://github.com/sir-ragna/dddddd
-    #get DeviceId
+#   https://github.com/sir-ragna/dddddd
+#   get DeviceId
 
-    a=magic_number_process.stdout.decode(encoding='UTF-8',errors='strict').replace("\r\r\n", "\r\n")
+    a = magic_number_process.stdout.decode(encoding='UTF-8', errors='strict')
+    b = a.replace("\r\r\n", "\r\n")
 
-    c = a.splitlines()
+    c = b.splitlines()
 
     d = [x.split() for x in c]
 
@@ -52,17 +55,17 @@ def get_DeviceId():
 
     e.sort()
 
-    #print(e)
+#   print(e)
 
-    #print([x.encode(encoding='UTF-8') for x in e])
+#   print([x.encode(encoding='UTF-8') for x in e])
 
-    #import csv
+#   import csv
 
-    #with open('csv_file.csv', 'w', encoding='UTF8') as f:
-    #    writer = csv.writer(f, dialect='excel', quoting=csv.QUOTE_ALL)
-    #
-    #    for row in e:
-    #        writer.writerow([row])
+#   with open('csv_file.csv', 'w', encoding='UTF8') as f:
+#       writer = csv.writer(f, dialect='excel', quoting=csv.QUOTE_ALL)
+#
+#       for row in e:
+#           writer.writerow([row])
 
     return e
 
@@ -87,16 +90,15 @@ def get_driveletters():
         stderr=subprocess.PIPE
     )
 
-    #b'test01                          H:\\ \r\ntest02                          I:\\ \r\n'
+#   b'test01                          H:\\ \r\ntest02             I:\\ \r\n'
 
-
-    a=magic_number_process.stdout.decode(encoding='UTF-8',errors='strict')
+    a = magic_number_process.stdout.decode(encoding='UTF-8', errors='strict')
 
     c = a.splitlines()
 
     logging.debug("get_driveletters() {}".format(c))
 
-    #print("get_driveletters() debug",c)
+#   print("get_driveletters() debug",c)
 
     d = [x.split() for x in c]
 
@@ -109,18 +111,24 @@ def get_driveletters():
 
 def create_pool(name, file):
     magic_number_process = subprocess.run(
-        ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", "create", "-f", name, file],
+        ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", "create", "-f",
+            name, file],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
+
+    return magic_number_process
 
 
 def destroy_pool(name):
     magic_number_process = subprocess.run(
-        ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", "destroy", "-f", name],
+        ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", "destroy",
+            "-f", name],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
+
+    return magic_number_process
 
 
 def zpool(*args):
@@ -144,11 +152,12 @@ def zfs(*args):
 
 
 def run(args):
-    d = {"zfs": "C:\\Program Files\\OpenZFS On Windows\\zfs.exe", "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
-    l = list(args)
-    cmd = d[l[0]]
+    d = {"zfs": "C:\\Program Files\\OpenZFS On Windows\\zfs.exe",
+         "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
+    arglist = list(args)
+    cmd = d[arglist[0]]
     result = subprocess.run(
-        [cmd, *l[1:]],
+        [cmd, *arglist[1:]],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
@@ -172,7 +181,7 @@ def runWithPrint(cmd):
     return ret
 
 
-def preTest(testName = None):
+def preTest(testName=None):
     print("=" * 20)
     if testName is not None:
         print("Name:", testName)
@@ -216,7 +225,8 @@ def main():
         postTest()
 
         preTest()
-        ret = runWithPrint(["zpool", "create", "-f", "test02", tounc(f1), tounc(f2)])
+        ret = runWithPrint(["zpool", "create", "-f", "test02", tounc(f1),
+                            tounc(f2)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -226,7 +236,8 @@ def main():
         postTest()
 
         preTest()
-        ret = runWithPrint(["zpool", "create", "-f", "test03", tounc(f1), tounc(f2), tounc(f3)])
+        ret = runWithPrint(["zpool", "create", "-f", "test03", tounc(f1),
+                            tounc(f2), tounc(f3)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -236,7 +247,8 @@ def main():
         postTest()
 
         preTest()
-        ret = runWithPrint(["zpool", "create", "-f", "test04", "mirror", tounc(f1), tounc(f2)])
+        ret = runWithPrint(["zpool", "create", "-f", "test04", "mirror",
+                            tounc(f1), tounc(f2)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -246,7 +258,8 @@ def main():
         postTest()
 
         preTest()
-        ret = runWithPrint(["zpool", "create", "-f", "test05", "mirror", tounc(f1), tounc(f2), tounc(f3)])
+        ret = runWithPrint(["zpool", "create", "-f", "test05", "mirror",
+                            tounc(f1), tounc(f2), tounc(f3)])
         time.sleep(10)
         if ret.returncode != 0:
             print("FAIL")
@@ -256,7 +269,8 @@ def main():
         postTest()
 
         preTest()
-        ret = runWithPrint(["zpool", "create", "-f", "test06", "raidz", tounc(f1), tounc(f2), tounc(f3)])
+        ret = runWithPrint(["zpool", "create", "-f", "test06", "raidz",
+                            tounc(f1), tounc(f2), tounc(f3)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -266,7 +280,8 @@ def main():
         postTest()
 
         preTest()
-        ret = runWithPrint(["zpool", "create", "-f", "test07", "raidz1", tounc(f1), tounc(f2), tounc(f3)])
+        ret = runWithPrint(["zpool", "create", "-f", "test07", "raidz1",
+                            tounc(f1), tounc(f2), tounc(f3)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -345,10 +360,13 @@ def main():
         with open(key01, 'wb') as f:
             f.write(random_bytearray)
 
-        nx ="file://" + tounc(key01).replace("\\", "/")
+        nx = "file://" + tounc(key01).replace("\\", "/")
         print(nx)
 
-        ret = runWithPrint(["zpool", "create", "-f", "-O", "encryption=aes-256-ccm", "-O", "keylocation=" + nx, "-O", "keyformat=raw", "tank", tounc(f1)])
+        ret = runWithPrint(["zpool", "create", "-f", "-O",
+                            "encryption=aes-256-ccm", "-O",
+                            "keylocation=" + nx, "-O", "keyformat=raw",
+                            "tank", tounc(f1)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -364,7 +382,10 @@ def main():
         time.sleep(10)
 
         print("Drive letters before pool create:", get_driveletters())
-        ret = runWithPrint(["zpool", "import", "-f", "-l", "-O", "encryption=aes-256-ccm", "-O", "keylocation=" + nx, "-O", "keyformat=raw", tounc(f1)])
+        ret = runWithPrint(["zpool", "import", "-f", "-l", "-O",
+                            "encryption=aes-256-ccm", "-O",
+                            "keylocation=" + nx, "-O", "keyformat=raw",
+                            tounc(f1)])
         if ret.returncode != 0:
             print("FAIL")
         time.sleep(10)
@@ -377,7 +398,8 @@ def main():
         preTest("run out of drive letters")
 
         for i in range(1, 26):
-            ret = runWithPrint(["zpool", "create", "-f", "tank" + str(i), tounc(f1)])
+            ret = runWithPrint(["zpool", "create", "-f", "tank" + str(i),
+                                tounc(f1)])
             if ret.returncode != 0:
                 print("FAIL")
             time.sleep(10)
@@ -387,7 +409,7 @@ def main():
             f = PureWindowsPath(get_driveletters()[0][1], "test01.file")
             try:
                 allocate_file(f, 1024)
-            except:
+            except Exception:
                 print("FAIL")
 
             runWithPrint(["zpool", "destroy", "-f", "tank" + str(i)])
@@ -398,6 +420,7 @@ def main():
         delete_file(f1)
         delete_file(f2)
         delete_file(f3)
+
 
 if __name__ == "__main__":
     main()
