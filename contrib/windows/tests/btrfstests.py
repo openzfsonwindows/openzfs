@@ -3,14 +3,15 @@ import argparse
 
 import subprocess
 
-from pathlib import Path, PurePosixPath, PureWindowsPath, WindowsPath
+#from pathlib import Path, PurePosixPath, PureWindowsPath, WindowsPath
+from pathlib import PureWindowsPath
 
-from pprint import pprint
+#from pprint import pprint
 
 import time
 
 
-import json
+#import json
 
 import logging
 
@@ -21,7 +22,7 @@ print("Printed immediately.")
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description='Process command line ' + \
+    parser = argparse.ArgumentParser(description='Process command line '
         'arguments.')
     parser.add_argument('-path', type=dir_path, required=True)
     return parser.parse_args()
@@ -45,10 +46,10 @@ def get_DeviceId():
 #   https://github.com/sir-ragna/dddddd
 #   get DeviceId
 
-    a=magic_number_process.stdout.decode(encoding='UTF-8',errors='strict')
+    a = magic_number_process.stdout.decode(encoding='UTF-8', errors='strict')
     b = a.replace("\r\r\n", "\r\n")
 
-    c = a.splitlines()
+    c = b.splitlines()
 
     d = [x.split() for x in c]
 
@@ -91,7 +92,7 @@ def get_driveletters():
         stderr=subprocess.PIPE
     )
 
-#    b'test01                          H:\\ \r\ntest02                          I:\\ \r\n'
+    #b'test01                          H:\\ \r\ntest02             I:\\ \r\n'
 
     a = magic_number_process.stdout.decode(encoding='UTF-8', errors='strict')
 
@@ -112,7 +113,7 @@ def get_driveletters():
 
 def create_pool(name, file):
     magic_number_process = subprocess.run(
-        ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", \
+        ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe",
             "create", "-f", name, file],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
@@ -123,7 +124,7 @@ def create_pool(name, file):
 
 def destroy_pool(name):
     magic_number_process = subprocess.run(
-        ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", \
+        ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe",
             "destroy", "-f", name],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
@@ -225,10 +226,15 @@ def main():
             time.sleep(10)
             postTest()
 
-            for test in ['create', 'supersede', 'overwrite', 'open_id', 'io', 'mmap', 'rename', 'rename_ex', 'delete', 'delete_ex', 'links', 'links_ex', 'oplock_i', 'oplock_ii', 'oplock_batch', 'oplock_filter', 'oplock_r', 'oplock_rw', 'oplock_rh', 'oplock_rwh', 'cs', 'reparse', 'streams', 'fileinfo', 'ea']:
+            for test in ['create', 'supersede', 'overwrite', 'open_id', 'io',
+                         'mmap', 'rename', 'rename_ex', 'delete', 'delete_ex',
+                         'links', 'links_ex', 'oplock_i', 'oplock_ii',
+                         'oplock_batch', 'oplock_filter', 'oplock_r',
+                         'oplock_rw', 'oplock_rh', 'oplock_rwh', 'cs',
+                         'reparse', 'streams', 'fileinfo', 'ea']:
                 preTest(str(test) + " tests:")
                 f = PureWindowsPath(get_driveletters()[0][1])
-                ret = runWithPrint([str(p.joinpath("winbtrfs", "test.exe")), \
+                ret = runWithPrint([str(p.joinpath("winbtrfs", "test.exe")),
                     str(test), str(f)])
                 time.sleep(10)
                 if ret.returncode != 0:
