@@ -21,7 +21,8 @@ print("Printed immediately.")
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description='Process command line arguments.')
+    parser = argparse.ArgumentParser(description='Process command line ' + \
+        'arguments.')
     parser.add_argument('-path', type=dir_path, required=True)
     return parser.parse_args()
 
@@ -30,7 +31,8 @@ def dir_path(path):
     if os.path.isdir(path):
         return path
     else:
-        raise argparse.ArgumentTypeError(f"readable_dir:{path} is not a valid path")
+        raise argparse.ArgumentTypeError(f"readable_dir:{path} is not a valid"
+                                         "path")
 
 
 def get_DeviceId():
@@ -40,10 +42,11 @@ def get_DeviceId():
         stderr=subprocess.PIPE
     )
 
-    #https://github.com/sir-ragna/dddddd
-    #get DeviceId
+#   https://github.com/sir-ragna/dddddd
+#   get DeviceId
 
-    a=magic_number_process.stdout.decode(encoding='UTF-8',errors='strict').replace("\r\r\n", "\r\n")
+    a=magic_number_process.stdout.decode(encoding='UTF-8',errors='strict')
+    b = a.replace("\r\r\n", "\r\n")
 
     c = a.splitlines()
 
@@ -53,17 +56,17 @@ def get_DeviceId():
 
     e.sort()
 
-    #print(e)
+#   print(e)
 
-    #print([x.encode(encoding='UTF-8') for x in e])
+#   print([x.encode(encoding='UTF-8') for x in e])
 
-    #import csv
+#   import csv
 
-    #with open('csv_file.csv', 'w', encoding='UTF8') as f:
-    #    writer = csv.writer(f, dialect='excel', quoting=csv.QUOTE_ALL)
-    #
-    #    for row in e:
-    #        writer.writerow([row])
+#   with open('csv_file.csv', 'w', encoding='UTF8') as f:
+#       writer = csv.writer(f, dialect='excel', quoting=csv.QUOTE_ALL)
+#
+#       for row in e:
+#           writer.writerow([row])
 
     return e
 
@@ -90,8 +93,7 @@ def get_driveletters():
 
 #    b'test01                          H:\\ \r\ntest02                          I:\\ \r\n'
 
-
-    a=magic_number_process.stdout.decode(encoding='UTF-8',errors='strict')
+    a = magic_number_process.stdout.decode(encoding='UTF-8', errors='strict')
 
     c = a.splitlines()
 
@@ -110,18 +112,24 @@ def get_driveletters():
 
 def create_pool(name, file):
     magic_number_process = subprocess.run(
-        ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", "create", "-f", name, file],
+        ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", \
+            "create", "-f", name, file],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
+
+    return magic_number_process
 
 
 def destroy_pool(name):
     magic_number_process = subprocess.run(
-        ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", "destroy", "-f", name],
+        ["C:\\Program Files\\OpenZFS On Windows\\zpool.exe", \
+            "destroy", "-f", name],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
+
+    return magic_number_process
 
 
 def zpool(*args):
@@ -145,7 +153,8 @@ def zfs(*args):
 
 
 def run(args):
-    d = {"zfs": "C:\\Program Files\\OpenZFS On Windows\\zfs.exe", "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
+    d = {"zfs": "C:\\Program Files\\OpenZFS On Windows\\zfs.exe", \
+        "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
     l = list(args)
     try:
         cmd = d[l[0]]
@@ -219,7 +228,8 @@ def main():
             for test in ['create', 'supersede', 'overwrite', 'open_id', 'io', 'mmap', 'rename', 'rename_ex', 'delete', 'delete_ex', 'links', 'links_ex', 'oplock_i', 'oplock_ii', 'oplock_batch', 'oplock_filter', 'oplock_r', 'oplock_rw', 'oplock_rh', 'oplock_rwh', 'cs', 'reparse', 'streams', 'fileinfo', 'ea']:
                 preTest(str(test) + " tests:")
                 f = PureWindowsPath(get_driveletters()[0][1])
-                ret = runWithPrint([str(p.joinpath("winbtrfs", "test.exe")), str(test), str(f)])
+                ret = runWithPrint([str(p.joinpath("winbtrfs", "test.exe")), \
+                    str(test), str(f)])
                 time.sleep(10)
                 if ret.returncode != 0:
                     print("FAIL")
@@ -227,7 +237,8 @@ def main():
 
                 print(ret.stdout.decode())
 
-                out = " ".join([str(test), ret.stdout.decode().splitlines()[-1]])
+                out = " ".join([str(test), \
+                    ret.stdout.decode().splitlines()[-1]])
 
                 print(out)
                 log_file.write(out)
@@ -239,6 +250,7 @@ def main():
             postTest()
 
 #            delete_file(f1)
+
 
 if __name__ == "__main__":
     main()
