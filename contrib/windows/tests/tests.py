@@ -154,10 +154,10 @@ def zfs(*args):
 def run(args):
     d = {"zfs": "C:\\Program Files\\OpenZFS On Windows\\zfs.exe",
          "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
-    l = list(args)
-    cmd = d[l[0]]
+    arglist = list(args)
+    cmd = d[arglist[0]]
     result = subprocess.run(
-        [cmd, *l[1:]],
+        [cmd, *arglist[1:]],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
@@ -409,7 +409,7 @@ def main():
             f = PureWindowsPath(get_driveletters()[0][1], "test01.file")
             try:
                 allocate_file(f, 1024)
-            except:
+            except Exception:
                 print("FAIL")
 
             runWithPrint(["zpool", "destroy", "-f", "tank" + str(i)])

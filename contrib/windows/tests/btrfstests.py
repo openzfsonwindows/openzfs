@@ -156,13 +156,13 @@ def zfs(*args):
 def run(args):
     d = {"zfs": "C:\\Program Files\\OpenZFS On Windows\\zfs.exe",
          "zpool": "C:\\Program Files\\OpenZFS On Windows\\zpool.exe"}
-    l = list(args)
+    arglist = list(args)
     try:
         cmd = d[l[0]]
-    except:
-        cmd = l[0]
+    except Exception:
+        cmd = arglist[0]
     result = subprocess.run(
-        [cmd, *l[1:]],
+        [cmd, *arglist[1:]],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
