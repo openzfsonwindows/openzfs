@@ -1570,6 +1570,8 @@ gcm_init_avx(gcm_ctx_t *ctx, const uint8_t *iv, size_t iv_len,
 }
 
 #if defined(_KERNEL)
+
+#ifdef __linux__
 static int
 icp_gcm_avx_set_chunk_size(const char *buf, zfs_kernel_param_t *kp)
 {
@@ -1590,6 +1592,7 @@ icp_gcm_avx_set_chunk_size(const char *buf, zfs_kernel_param_t *kp)
 	error = param_set_uint(val_rounded, kp);
 	return (error);
 }
+#endif
 
 #ifdef _WIN32
 /* Lives in here to have access to GCM macros */
