@@ -177,10 +177,11 @@ typedef enum aes_mech_type {
  * @aes_dec_f Function decrypts one block
  * @aes_will_work_f Function tests whether method will function
  */
-typedef void 		(*aes_generate_f)(aes_key_t *, const uint32_t *, int);
-typedef void		(*aes_encrypt_f)(const uint32_t[], int,
+typedef void 		ASMABI (*aes_generate_f)(aes_key_t *,
+    const uint32_t *, int);
+typedef void		ASMABI (*aes_encrypt_f)(const uint32_t[], int,
     const uint32_t[4], uint32_t[4]);
-typedef void		(*aes_decrypt_f)(const uint32_t[], int,
+typedef void		ASMABI (*aes_decrypt_f)(const uint32_t[], int,
     const uint32_t[4], uint32_t[4]);
 typedef boolean_t	(*aes_will_work_f)(void);
 

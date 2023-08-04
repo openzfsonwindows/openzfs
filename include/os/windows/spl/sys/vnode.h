@@ -553,5 +553,6 @@ int blkdev_issue_discard_bytes(PDEVICE_OBJECT dev, uint64_t offset,
     uint64_t size, uint32_t flags);
 
 POPLOCK vp_oplock(struct vnode *vp);
+void vfs_changeowner(mount_t *from, mount_t *to);
 
 #endif /* SPL_VNODE_H */
