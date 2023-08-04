@@ -125,12 +125,18 @@ printBuffer(const char *fmt, ...)
 	va_list args;
 	va_start(args, fmt);
 	char buf[max_line_length];
-	_snprintf(buf, 18, "%p: ", PsGetCurrentThread());
+	int buf_used;
 
-	int tmp = _vsnprintf_s(&buf[17], sizeof (buf), max_line_length,
-	    fmt, args);
-	if (tmp >= max_line_length) {
-		_snprintf(&buf[17], 17, "buffer too small");
+	buf_used = _snprintf(buf, sizeof (buf), "%p: ", PsGetCurrentThread());
+	if (buf_used < 0) {
+		return;
+	}
+
+	int tmp = _vsnprintf_s(buf + buf_used, sizeof (buf) - buf_used,
+	    _TRUNCATE, fmt, args);
+
+	if (tmp < 0) {
+		_snprintf(buf + max_line_length - 7, 7, "TRUNC\n");
 	}
 
 	KeAcquireSpinLock(&cbuf_spin, &level);
