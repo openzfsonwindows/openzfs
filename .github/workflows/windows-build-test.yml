@@ -2338,3 +2338,191 @@ jobs:
 
 
 
+  test7_pywinfstest:
+    needs: [build_windows] #, build_wsl]
+    timeout-minutes: 30
+    runs-on: windows-latest
+#    if:  ${{ inputs.run-failing }}
+    steps:
+
+    - uses: actions/checkout@v3
+
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: dev_build_inno
+
+#    - uses: actions/download-artifact@v3
+#      with:
+#        name: build result
+
+#    - name: get files
+#      run: Get-ChildItem -Recurse
+
+    - name: get diskdrive
+      run: wmic diskdrive list
+
+#    - name: Download
+#      uses: suisei-cn/actions-download-file@v1.3.0
+#      #id: innoinstaller
+#      with:
+#        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/testdrives.zip'
+#        target: ${{github.workspace}}/
+#
+#
+#    - name: make disk
+#      run: |
+#        Expand-Archive -LiteralPath ${{github.workspace}}/testdrives.zip -DestinationPath D:\
+#
+#    - name: Download
+#      uses: suisei-cn/actions-download-file@v1.3.0
+#      #id: innoinstaller
+#      with:
+#        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/scriptname.txt'
+#        target: ${{github.workspace}}/
+#
+#    - name: make disk
+#      run: |
+#        diskpart /s scriptname.txt
+#
+#
+#
+#    - name: get diskdrive
+#      run: wmic diskdrive list
+#
+#
+#    - name: get files
+#      run: Get-ChildItem -Recurse
+
+
+    - name: get zfsexename
+      id: zfsinstaller
+      run: |
+        $p = Get-ChildItem | Where-Object {$_.Name -like 'OpenZFSOnWindows-*.exe'} | Select-Object -first 1
+        echo $p
+        $f = (Get-Item $p ).Name
+        echo $f
+        echo "filename=$f" | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+    # https://github.com/MicrosoftDocs/windows-powershell-docs/issues/266
+    - name: Import root certificate
+      run: |
+        $plaintextpwd = 'password1234'
+        $pwd = ConvertTo-SecureString -String $plaintextpwd -Force -AsPlainText
+        Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\LocalMachine\Root -Password $pwd
+        Import-PfxCertificate -FilePath ${{github.workspace}}/contrib/windows/TestCert/test_sign_cert_pass.pfx -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $pwd
+
+    - name: debug - echo filename
+      run: echo ${{ steps.zfsinstaller.outputs.filename }}
+
+#    - name: debug - list
+#      run: ls ${{github.workspace}}\
+
+    - name: debug - list
+      run: ls ${{github.workspace}}\${{ steps.zfsinstaller.outputs.filename }}
+
+    #- name: install zfs
+    #  run: ${{github.workspace}}\${{ steps.zfsinstaller.outputs.filename }} /NORESTART /ALLUSERS /VERYSILENT /LOG="${{github.workspace}}\InnoSetup-Install.log"
+
+    - name: install zfs
+      run: 'Start-Process -FilePath "${{github.workspace}}\${{ steps.zfsinstaller.outputs.filename }}" -Wait -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Install.log`""'
+
+    #- name: Wait for install to finish
+    #  run: Start-Sleep -Seconds 30
+    #  uses: iFaxity/wait-on-action@v1
+    #  with:
+    #    resource: 'C:\Program Files\OpenZFS On Windows\zpool.exe'
+
+#    - name: debug - print log
+#      run: cat "${{github.workspace}}\InnoSetup-Install.log"
+#
+#    - name: debug - list
+#      run: ls "C:\Program Files"
+#
+#    - name: debug - list
+#      run: ls "C:\Program Files\OpenZFS On Windows"
+
+    - name: debug - get status
+      run: '& "C:\Program Files\OpenZFS On Windows\zpool.exe" status'
+
+
+
+    - run: choco install gsudo
+
+
+
+    - name: Create backing files
+      run: |
+          $f = new-object System.IO.FileStream ${{github.workspace}}\test01.dat, Create, ReadWrite
+          $f.SetLength(1GB)
+          $f.Close()
+
+    - name: create pool
+      run: '& "C:\Program Files\OpenZFS On Windows\zpool.exe" create tank \\?\${{github.workspace}}\test01.dat'
+
+    - name: get pool status
+      run: '& "C:\Program Files\OpenZFS On Windows\zpool.exe" status'
+
+    - name: get pool mount
+      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe" mount'
+
+    - name: get pool mount
+      id: drive  # Remember to give an ID if you need the output filename
+      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe"  mount | Select-String -Pattern "^tank +([A-Za-z]):[/\\]"  | % {"drive=$($_.matches.groups[1].value):\"} | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append'
+
+    - name: get pool mount
+      id: drivenoslash  # Remember to give an ID if you need the output filename
+      run: '& "C:\Program Files\OpenZFS On Windows\zfs.exe"  mount | Select-String -Pattern "^tank +([A-Za-z]):[/\\]"  | % {"drive=$($_.matches.groups[1].value):"} | Out-File -FilePath $Env:GITHUB_OUTPUT -Encoding utf8 -Append'
+
+    - name: echo
+      run: echo ${{ steps.drive.outputs.drive }}
+
+#    - name: install winfstest
+#      run: |
+#          Copy-Item -Path "${{github.workspace}}\cmd\os\windows\winfstest" -Destination "${{ steps.drive.outputs.drive }}\winfstest" -Recurse
+#          Copy-Item "${{github.workspace}}\out\build\x64-Debug\cmd\os\windows\winfstest\winfstest.exe" -Destination "${{ steps.drive.outputs.drive }}\winfstest"
+
+    - name: Download
+      uses: suisei-cn/actions-download-file@v1.3.0
+      #id: innoinstaller
+      with:
+        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/winfstest.zip'
+        target: ${{github.workspace}}/
+
+
+    - name: extract winfstest
+      run: |
+          new-item ${{ steps.drive.outputs.drive }}\winfstest -itemtype directory
+          Expand-Archive -LiteralPath ${{github.workspace}}/winfstest.zip -DestinationPath ${{ steps.drive.outputs.drive }}\winfstest
+
+
+    #- name: run winbtrfs tests
+    #  run: '& "${{github.workspace}}\winbtrfs\test.exe" ${{ steps.drive.outputs.drive }}'
+
+
+    - name: test
+      run: |
+          ${{ steps.drivenoslash.outputs.drive }}
+          cd ${{ steps.drive.outputs.drive }}\winfstest
+          $env:PYTHONPATH='${{ steps.drive.outputs.drive }}\winfstest'
+          python.exe -u "${{github.workspace}}\contrib\windows\tests\winfstests.py" -path ${{github.workspace}}\
+
+    - name: Adding markdown
+      run: |
+        cat ${{github.workspace}}\winfs.log | Out-File $env:GITHUB_STEP_SUMMARY
+
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v3.1.0
+      with:
+        name: build_output
+        path: ${{github.workspace}}/winfs.log
+
+
+
+
+
+
+
+
+
+
