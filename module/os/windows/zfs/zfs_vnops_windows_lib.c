@@ -3090,7 +3090,7 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	int error;
 	ULONG outlen;
 	char *remainder = NULL;
-	char buffer[MAXNAMELEN], *filename;
+	char buffer[PATH_MAX], *filename;
 	struct vnode *tdvp = NULL, *tvp = NULL, *fdvp = NULL;
 	uint64_t parent = 0;
 
@@ -3109,7 +3109,7 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	// Convert incoming filename to utf8
-	error = RtlUnicodeToUTF8N(buffer, MAXNAMELEN, &outlen,
+	error = RtlUnicodeToUTF8N(buffer, PATH_MAX - 1, &outlen,
 	    link->FileName, link->FileNameLength);
 
 	if (error != STATUS_SUCCESS &&
@@ -3263,7 +3263,7 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	int error;
 	ULONG outlen;
 	char *remainder = NULL;
-	char buffer[MAXNAMELEN], *filename;
+	char buffer[PATH_MAX], *filename;
 	struct vnode *tdvp = NULL, *tvp = NULL, *fdvp = NULL;
 	uint64_t parent = 0;
 	PFILE_OBJECT dFileObject = NULL;
@@ -3271,7 +3271,7 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	int use_fdvp_for_tdvp = 0;
 
 	// Convert incoming filename to utf8
-	error = RtlUnicodeToUTF8N(buffer, MAXNAMELEN, &outlen,
+	error = RtlUnicodeToUTF8N(buffer, PATH_MAX - 1, &outlen,
 	    ren->FileName, ren->FileNameLength);
 
 	if (error != STATUS_SUCCESS &&
@@ -3457,6 +3457,8 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	// Release all holds
 	if (error == EBUSY)
 		error = STATUS_ACCESS_DENIED;
+	if (error == ENAMETOOLONG)
+		error = STATUS_NAME_TOO_LONG;
 out:
 	if (destParentHandle != 0)
 		ZwClose(destParentHandle);
@@ -5178,7 +5180,7 @@ ioctl_query_unique_id(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
 
-	RtlUnicodeToUTF8N(osname, MAXPATHLEN, &len, zmo->name.Buffer,
+	RtlUnicodeToUTF8N(osname, MAXPATHLEN - 1, &len, zmo->name.Buffer,
 	    zmo->name.Length);
 	osname[len] = 0;
 
