@@ -253,7 +253,6 @@ def main():
                     else:
                         outlines.append(line)
 
-
                 out = str(test) + "\n" + "\n".join(outlines)
 
                 print(out)
