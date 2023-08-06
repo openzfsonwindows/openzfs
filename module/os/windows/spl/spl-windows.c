@@ -736,7 +736,7 @@ spl_GetZfsTotalMemory(PUNICODE_STRING RegistryPath)
 		// Convert name to straight ascii so we compare with kstat
 		ULONG outlen = 0;
 		char keyname[KSTAT_STRLEN + 1] = { 0 };
-		status = RtlUnicodeToUTF8N(keyname, KSTAT_STRLEN, &outlen,
+		status = RtlUnicodeToUTF8N(keyname, KSTAT_STRLEN - 1, &outlen,
 		    regBuffer->Name, regBuffer->NameLength);
 
 		// Conversion failed? move along..

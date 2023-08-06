@@ -795,7 +795,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		if (FileObject->FileName.Buffer != NULL &&
 		    FileObject->FileName.Length > 0) {
 			// Convert incoming filename to utf8
-			error = RtlUnicodeToUTF8N(filename, PATH_MAX, &outlen,
+			error = RtlUnicodeToUTF8N(filename, PATH_MAX - 1,
+			    &outlen,
 			    FileObject->FileName.Buffer,
 			    FileObject->FileName.Length);
 
@@ -1743,7 +1744,6 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 				break;
 		}
 	}
-
 
 	do {
 
@@ -4915,7 +4915,7 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	    (int)IrpSp->FileObject->FileName.Length / sizeof (WCHAR),
 	    IrpSp->FileObject->FileName.Buffer);
 
-	error = RtlUnicodeToUTF8N(filename, MAXPATHLEN, &outlen,
+	error = RtlUnicodeToUTF8N(filename, MAXPATHLEN - 1, &outlen,
 	    IrpSp->FileObject->FileName.Buffer,
 	    IrpSp->FileObject->FileName.Length);
 
@@ -7226,7 +7226,7 @@ fastio_query_open(PIRP Irp,
 		filename = kmem_alloc(PATH_MAX, KM_SLEEP);
 
 		// Convert incoming filename to utf8
-		error = RtlUnicodeToUTF8N(filename, PATH_MAX, &outlen,
+		error = RtlUnicodeToUTF8N(filename, PATH_MAX - 1, &outlen,
 		    IrpSp->FileObject->FileName.Buffer,
 		    IrpSp->FileObject->FileName.Length);
 

@@ -1032,7 +1032,7 @@ mountmgr_is_driveletter_assigned(PDEVICE_OBJECT mountmgr,
 			    SymbolicLinkName);
 
 			ULONG length = 0;
-			RtlUnicodeToUTF8N(mpt_name, MAXPATHLEN, &length,
+			RtlUnicodeToUTF8N(mpt_name, MAXPATHLEN - 1, &length,
 			    SymbolicLinkName,
 			    ipoint->SymbolicLinkNameLength);
 			mpt_name[length] = 0;
