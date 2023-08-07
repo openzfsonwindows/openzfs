@@ -5046,7 +5046,7 @@ set_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	// READONLY check here
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
-	if (vfs_isrdonly(zfsvfs->z_vfs)) {
+	if (vfs_isrdonly(zfsvfs->z_vfs) || zfsctl_is_node(zp)) {
 		Status = STATUS_MEDIA_WRITE_PROTECTED;
 		goto err;
 	}
@@ -5100,6 +5100,8 @@ set_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	zfs_send_notify(zfsvfs, zp->z_name_cache, zp->z_name_offset,
 	    FILE_NOTIFY_CHANGE_SECURITY,
 	    FILE_ACTION_MODIFIED);
+
+	zfs_save_ntsecurity(vp);
 
 err:
 	VN_RELE(vp);
