@@ -2429,8 +2429,6 @@ find_set_gid(struct vnode *vp, struct vnode *dvp,
 #endif
 }
 
-#define	EA_NTACL "security.NTACL"
-
 void
 zfs_save_ntsecurity(struct vnode *vp)
 {
@@ -2734,13 +2732,6 @@ err:
 	if (groupsid != NULL)
 		zfs_freesid(groupsid);
 	return (Status);
-}
-
-// return true if a XATTR name should be skipped
-int
-xattr_protected(char *name)
-{
-	return (0);
 }
 
 // return true if xattr is a stream (name ends with ":$DATA")

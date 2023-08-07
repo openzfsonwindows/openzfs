@@ -33,6 +33,8 @@ extern "C" {
 
 #include <sys/kidmap.h>
 
+#define	EA_NTACL "security.NTACL"
+
 typedef struct ksiddomain {
 	char		*kd_name;
 } ksiddomain_t;
