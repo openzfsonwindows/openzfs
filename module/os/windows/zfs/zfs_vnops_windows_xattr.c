@@ -113,6 +113,20 @@ enum xattr_permission {
 
 static unsigned int zfs_xattr_compat = 0;
 
+// return true if a XATTR name should be skipped
+int
+xattr_protected(char *name)
+{
+	if (strcmp(EA_NTACL, name) == 0)
+		return (1);
+
+	if ((strncmp(XATTR_USER_PREFIX, name, XATTR_USER_PREFIX_LEN) == 0) &&
+	    (strcmp(EA_NTACL, &name[XATTR_USER_PREFIX_LEN]) == 0))
+		return (1);
+
+	return (0);
+}
+
 static enum xattr_permission
 zpl_xattr_permission(struct vnode *dvp, zfs_uio_t *uio, const char *name,
     int name_len)
