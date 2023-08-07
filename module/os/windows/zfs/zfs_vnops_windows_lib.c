@@ -686,6 +686,7 @@ vnode_apply_eas(struct vnode *vp, PFILE_FULL_EA_INFORMATION eas,
 	vattr_t vap = { 0 };
 	int error;
 	PFILE_FULL_EA_INFORMATION ea;
+
 	for (ea = eas; /* empty */;
 	    ea = (PFILE_FULL_EA_INFORMATION)
 	    ((uint8_t *)ea + ea->NextEntryOffset)) {
@@ -2212,6 +2213,11 @@ zfs_uid2sid(uint64_t uid, SID **sid)
 	}
 
 	*sid = tmp;
+
+	dprintf("%s: %llu -> 00:00:00:00:00:%02d:%02d:%02d\n",
+	    __func__, uid, tmp->IdentifierAuthority.Value[5],
+	    tmp->SubAuthority[0], (uid == 0) ? 0 :
+	    tmp->SubAuthority[1]);
 }
 
 uint64_t
@@ -2224,8 +2230,11 @@ zfs_sid2uid(SID *sid)
 	    sid->IdentifierAuthority.Value[2] == 0 &&
 	    sid->IdentifierAuthority.Value[3] == 0 &&
 	    sid->IdentifierAuthority.Value[4] == 0 &&
-	    sid->IdentifierAuthority.Value[5] == 18)
+	    sid->IdentifierAuthority.Value[5] == 5 &&
+	    sid->SubAuthority[0] == 18) {
+		dprintf("%s: returning uid %llu\n", __func__, 0ULL);
 		return (0);
+	}
 
 	// Samba's SID scheme: S-1-22-1-X
 	if (sid->Revision == 1 && sid->SubAuthorityCount == 2 &&
@@ -2235,12 +2244,15 @@ zfs_sid2uid(SID *sid)
 	    sid->IdentifierAuthority.Value[3] == 0 &&
 	    sid->IdentifierAuthority.Value[4] == 0 &&
 	    sid->IdentifierAuthority.Value[5] == 22 &&
-	    sid->SubAuthority[0] == 1)
+	    sid->SubAuthority[0] == 1) {
+		dprintf("%s: returning uid %llu\n", __func__,
+		    sid->SubAuthority[1]);
 		return (sid->SubAuthority[1]);
+	}
 
+	dprintf("%s: returning uid UID_NOBODY\n", __func__);
 	return (UID_NOBODY);
 }
-
 
 void
 zfs_gid2sid(uint64_t gid, SID **sid)
@@ -2266,6 +2278,40 @@ zfs_gid2sid(uint64_t gid, SID **sid)
 	tmp->SubAuthority[1] = gid; // bits truncation?
 
 	*sid = tmp;
+}
+
+uint64_t
+zfs_sid2gid(SID *sid)
+{
+	// Root
+	if (sid->Revision == 1 && sid->SubAuthorityCount == 1 &&
+	    sid->IdentifierAuthority.Value[0] == 0 &&
+	    sid->IdentifierAuthority.Value[1] == 0 &&
+	    sid->IdentifierAuthority.Value[2] == 0 &&
+	    sid->IdentifierAuthority.Value[3] == 0 &&
+	    sid->IdentifierAuthority.Value[4] == 0 &&
+	    sid->IdentifierAuthority.Value[5] == 22 &&
+	    sid->SubAuthority[0] == 2) {
+		dprintf("%s: returning gid %llu\n", __func__, 0ULL);
+		return (0);
+	}
+
+	// Samba's SID scheme: S-1-22-1-X
+	if (sid->Revision == 1 && sid->SubAuthorityCount == 2 &&
+	    sid->IdentifierAuthority.Value[0] == 0 &&
+	    sid->IdentifierAuthority.Value[1] == 0 &&
+	    sid->IdentifierAuthority.Value[2] == 0 &&
+	    sid->IdentifierAuthority.Value[3] == 0 &&
+	    sid->IdentifierAuthority.Value[4] == 0 &&
+	    sid->IdentifierAuthority.Value[5] == 22 &&
+	    sid->SubAuthority[0] == 2) {
+		dprintf("%s: returning gid %llu\n", __func__,
+		    sid->SubAuthority[1]);
+		return (sid->SubAuthority[1]);
+	}
+
+	dprintf("%s: returning gid GID_NOBODY\n", __func__);
+	return (GID_NOBODY);
 }
 
 void
@@ -2322,6 +2368,135 @@ zfs_set_acl(dacl *dacls)
 	return (acl);
 }
 
+void
+find_set_gid(struct vnode *vp, struct vnode *dvp,
+    PSECURITY_SUBJECT_CONTEXT subjcont)
+{
+	NTSTATUS Status;
+	// TOKEN_OWNER *to = NULL;
+	TOKEN_PRIMARY_GROUP *tpg = NULL;
+	// TOKEN_GROUPS *tg = NULL;
+	znode_t *zp = VTOZ(vp);
+
+	if (dvp && zp) {
+		znode_t *dzp = VTOZ(dvp);
+		if (dzp && dzp->z_mode & S_ISGID) {
+			zp->z_gid = dzp->z_gid;
+			return;
+		}
+	}
+
+	if (!subjcont || !subjcont->PrimaryToken)
+		return;
+#if 0
+	Status = SeQueryInformationToken(subjcont->PrimaryToken,
+	    TokenOwner, (void**)&to);
+	if (!NT_SUCCESS(Status)) {
+		dprintf("SeQueryInformationToken returned %08lx\n", Status);
+	} else {
+		if (zp)
+			zp->z_gid = zfs_sid2gid(to->Owner);
+		ExFreePool(to);
+	}
+#endif
+
+	// If we one day implement a gid_mapping_list
+
+	Status = SeQueryInformationToken(subjcont->PrimaryToken,
+	    TokenPrimaryGroup, (void**)&tpg);
+	if (!NT_SUCCESS(Status) || !tpg) {
+		dprintf("SeQueryInformationToken returned %08lx\n", Status);
+	} else {
+		if (zp)
+			zp->z_gid = zfs_sid2gid(tpg->PrimaryGroup);
+		ExFreePool(tpg);
+	}
+
+#if 0
+	Status = SeQueryInformationToken(subjcont->PrimaryToken,
+	    TokenGroups, (void**)&tg);
+	if (!NT_SUCCESS(Status))
+		dprintf("SeQueryInformationToken returned %08lx\n", Status);
+	else {
+		ULONG i;
+
+		for (i = 0; i < tg->GroupCount; i++) {
+		    // tg->Groups[i].Sid
+		}
+
+		ExFreePool(tg);
+	}
+#endif
+}
+
+#define	EA_NTACL "security.NTACL"
+
+void
+zfs_save_ntsecurity(struct vnode *vp)
+{
+	int error;
+	zfs_uio_t uio;
+	struct iovec iov;
+
+	/* Don't set on ctldir */
+	if (zfsctl_is_node(VTOZ(vp)))
+		return;
+
+	iov.iov_base = vnode_security(vp);
+	iov.iov_len = RtlLengthSecurityDescriptor(iov.iov_base);
+
+	zfs_uio_iovec_init(&uio, &iov, 1, 0,
+	    UIO_SYSSPACE, iov.iov_len, 0);
+
+	error = zpl_xattr_set(vp, EA_NTACL, &uio, 0, NULL);
+
+	if (error == 0) {
+		dprintf("%s: wrote NTSecurity\n", __func__);
+	} else {
+		dprintf("%s: failed to add NTSecurity: %d\n", __func__,
+		    error);
+	}
+}
+
+void
+zfs_load_ntsecurity(struct vnode *vp)
+{
+	int error;
+	zfs_uio_t uio;
+	struct iovec iov;
+	ssize_t retsize;
+
+	error = zpl_xattr_get(vp, EA_NTACL, NULL,
+	    &retsize, NULL);
+
+	if (error || retsize <= 0)
+		return;
+
+	if (vnode_security(vp) != NULL)
+		ExFreePool(vnode_security(vp));
+
+	void *sd = ExAllocatePoolWithTag(PagedPool, retsize, 'ZSEC');
+	if (sd == NULL)
+		return;
+
+	iov.iov_base = sd;
+	iov.iov_len = retsize;
+
+	zfs_uio_iovec_init(&uio, &iov, 1, 0,
+	    UIO_SYSSPACE, retsize, 0);
+
+	error = zpl_xattr_get(vp, EA_NTACL, &uio, &retsize, NULL);
+
+	if (error == 0) {
+		if (RtlValidSecurityDescriptor(sd)) {
+			dprintf("%s: read NTSecurity\n", __func__);
+			vnode_setsecurity(vp, sd);
+			return;
+		}
+		dprintf("%s: invalid NTSecurity xattr\n", __func__);
+	}
+	ExFreePool(sd);
+}
 
 void
 zfs_attach_security_root(struct vnode *vp)
@@ -2365,6 +2540,8 @@ zfs_attach_security_root(struct vnode *vp)
 
 	vnode_setsecurity(vp, tmp);
 
+	zfs_save_ntsecurity(vp);
+
 err:
 	if (acl)
 		ExFreePool(acl);
@@ -2381,6 +2558,7 @@ zfs_attach_security(struct vnode *vp, struct vnode *dvp)
 	NTSTATUS Status = STATUS_INVALID_PARAMETER;
 	SID *usersid = NULL, *groupsid = NULL;
 	int error = 0;
+	boolean_t defaulted;
 
 	if (vp == NULL)
 		return (Status);
@@ -2390,6 +2568,11 @@ zfs_attach_security(struct vnode *vp, struct vnode *dvp)
 
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+
+	/* First check if we can read in an existing NTSecurity */
+	zfs_load_ntsecurity(vp);
+	if (vp->security_descriptor != NULL)
+		return (0);
 
 	// If we are the rootvp, we don't have a parent, so do different setup
 	if (zp->z_id == zfsvfs->z_root ||
@@ -2429,6 +2612,19 @@ zfs_attach_security(struct vnode *vp, struct vnode *dvp)
 
 	if (Status != STATUS_SUCCESS)
 		goto err;
+
+	Status = RtlGetOwnerSecurityDescriptor(vnode_security(dvp),
+	    &usersid, &defaulted);
+	if (!NT_SUCCESS(Status)) {
+		dprintf("RtlGetOwnerSecurityDescriptor returned %08lx\n",
+		    Status);
+	} else {
+		zp->z_uid = zfs_sid2uid(usersid);
+	}
+
+	find_set_gid(vp, dvp, &subjcont);
+	dprintf("%s: set uid %llu gid %llu\n", __func__,
+	    zp->z_uid, zp->z_gid);
 
 	/* Why do we do this rel -> abs -> rel ? */
 	ULONG buflen;
@@ -2522,6 +2718,8 @@ zfs_attach_security(struct vnode *vp, struct vnode *dvp)
 	vnode_setsecurity(vp, newsd);
 	if (oldsd)
 		ExFreePool(oldsd);
+
+	zfs_save_ntsecurity(vp);
 
 err:
 

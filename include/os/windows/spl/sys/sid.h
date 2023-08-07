@@ -69,8 +69,8 @@ ksiddomain_rele(ksiddomain_t *ksid)
 	kmem_free(ksid, sizeof (ksiddomain_t));
 }
 
-#define	UID_NOBODY 65534
-#define	GID_NOBODY 65534
+#define	UID_NOBODY 65534ULL
+#define	GID_NOBODY 65534ULL
 
 static __inline uint_t
 ksid_getid(ksid_t *ks)
