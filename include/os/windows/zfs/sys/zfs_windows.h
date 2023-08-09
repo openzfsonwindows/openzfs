@@ -36,6 +36,9 @@ extern PDEVICE_OBJECT fsDiskDeviceObject;
 
 #define	ZFS_HAVE_FASTIO
 
+#define	SKIP_CHANGE_TIME	(1ULL << 0)
+#define	SKIP_WRITE_TIME		(1ULL << 1)
+
 // We have to remember "query directory" related items, like index and
 // search pattern. This is attached in IRP_MJ_CREATE to fscontext2
 #define	ZFS_DIRLIST_MAGIC 0x6582feac
@@ -50,6 +53,10 @@ struct zfs_dirlist {
 
 	uint64_t cacheinit;
 	uint64_t real_file_id;
+	boolean_t user_set_creation_time;
+	boolean_t user_set_access_time;
+	boolean_t user_set_write_time;
+	boolean_t user_set_change_time;
 };
 
 typedef struct zfs_dirlist zfs_dirlist_t;

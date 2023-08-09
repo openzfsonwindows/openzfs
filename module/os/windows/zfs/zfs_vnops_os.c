@@ -2338,13 +2338,23 @@ zfs_setattr(znode_t *zp, vattr_t *vap, int flags, cred_t *cr, zidmap_t *mnt_ns)
 	} else if (mask != 0) {
 		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_CTIME(zfsvfs), NULL,
 		    &ctime, sizeof (ctime));
-		zfs_tstamp_update_setup(zp, STATE_CHANGED, mtime, ctime);
+		/* Windows allow setting ChangeTime */
+		if (mask & ATTR_CTIME) {
+			ZFS_TIME_ENCODE(&vap->va_ctime, ctime);
+		} else {
+			zfs_tstamp_update_setup(zp, STATE_CHANGED, mtime,
+			    ctime);
+		}
 		if (attrzp) {
 			SA_ADD_BULK_ATTR(xattr_bulk, xattr_count,
 			    SA_ZPL_CTIME(zfsvfs), NULL,
 			    &ctime, sizeof (ctime));
-			zfs_tstamp_update_setup(attrzp, STATE_CHANGED,
-			    mtime, ctime);
+			if (mask & ATTR_CTIME) {
+				ZFS_TIME_ENCODE(&vap->va_ctime, ctime);
+			} else {
+				zfs_tstamp_update_setup(attrzp, STATE_CHANGED,
+				    mtime, ctime);
+			}
 		}
 	}
 
