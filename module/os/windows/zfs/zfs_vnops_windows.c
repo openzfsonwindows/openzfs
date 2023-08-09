@@ -4792,6 +4792,11 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	zfs_uio_iovec_init(&uio, &iov, 1, byteOffset.QuadPart, UIO_SYSSPACE,
 	    bufferLength, 0);
 
+	if (zccb->user_set_change_time)
+		uio.uio_extflg |= SKIP_CHANGE_TIME;
+	if (zccb->user_set_write_time)
+		uio.uio_extflg |= SKIP_WRITE_TIME;
+
 	// dprintf("%s: offset %llx size %lx\n", __func__,
 	// byteOffset.QuadPart, bufferLength);
 

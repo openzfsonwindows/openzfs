@@ -2948,11 +2948,13 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 {
 	NTSTATUS Status = STATUS_INVALID_PARAMETER;
 
-	if (IrpSp->FileObject == NULL || IrpSp->FileObject->FsContext == NULL)
+	if (IrpSp->FileObject == NULL || IrpSp->FileObject->FsContext == NULL ||
+	    IrpSp->FileObject->FsContext == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	struct vnode *vp = FileObject->FsContext;
+	zfs_dirlist_t *zccb = FileObject->FsContext2;
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	ULONG NotifyFilter = 0;
 
@@ -2971,19 +2973,74 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		vattr_t va = { 0 };
 		uint64_t unixtime[2] = { 0 };
 		znode_t *zp = VTOZ(vp);
+		boolean_t changed = FALSE;
 
-// can request that the file system not update .. LastAccessTime,
-// LastWriteTime, and ChangeTime ..  setting the appropriate members to -1.
-// ie, LastAccessTime = -1 -> atime = disabled - not implemented
-// LastAccessTime = -2 -> cancel the disable (-1), return to normal.
-// a value of "0" means to keep existing value.
+		if (fbi->FileAttributes & FILE_ATTRIBUTE_DIRECTORY &&
+		    !vnode_isdir(vp)) {
+			VN_RELE(vp);
+			return (STATUS_INVALID_PARAMETER);
+		}
+
+		/* Set to -1 to disable updating this time until CLOSE */
+		if (fbi->CreationTime.QuadPart == -1) {
+			fbi->CreationTime.QuadPart = 0;
+			zccb->user_set_creation_time = TRUE;
+		}
+		if (fbi->LastAccessTime.QuadPart == -1) {
+			fbi->LastAccessTime.QuadPart = 0;
+			zccb->user_set_access_time = TRUE;
+		}
+		if (fbi->LastWriteTime.QuadPart == -1) {
+			fbi->LastWriteTime.QuadPart = 0;
+			zccb->user_set_write_time = TRUE;
+		}
+		if (fbi->ChangeTime.QuadPart == -1) {
+			fbi->ChangeTime.QuadPart = 0;
+			zccb->user_set_change_time = TRUE;
+		}
+
+		/* Set to -2 to undo that disable, and update again */
+		if (fbi->CreationTime.QuadPart == -2) {
+			fbi->CreationTime.QuadPart = 0;
+			zccb->user_set_creation_time = FALSE;
+		}
+		if (fbi->LastAccessTime.QuadPart == -2) {
+			fbi->LastAccessTime.QuadPart = 0;
+			zccb->user_set_access_time = FALSE;
+		}
+		if (fbi->LastWriteTime.QuadPart == -2) {
+			fbi->LastWriteTime.QuadPart = 0;
+			zccb->user_set_write_time = FALSE;
+		}
+		if (fbi->ChangeTime.QuadPart == -2) {
+			fbi->ChangeTime.QuadPart = 0;
+			zccb->user_set_change_time = FALSE;
+		}
+
+		/*
+		 * FastFAT will set ChangeTime, AccessTime, LastWrite "times"
+		 * when IRP_CLOSE is received. If one, or all, are set to "-1"
+		 * FastFAT will not change the corresponding values in this
+		 * set_information() call, as well as, not update them
+		 * at IRP_CLOSE. The same skip is applied when values
+		 * are set here (since in FastFAT they would be automatically
+		 * overwritten by IRP_CLOSE).
+		 * ZFS updates most things as we go, so if they are set here
+		 * then closed, those values will remain. But it seems you
+		 * can then issue a IRP_WRITE, which should not update
+		 * the time members, until IRP_CLOSE, or cleared with -2.
+		 */
+
 		if (fbi->ChangeTime.QuadPart > 0) {
 			TIME_WINDOWS_TO_UNIX(fbi->ChangeTime.QuadPart,
 			    unixtime);
 			va.va_change_time.tv_sec = unixtime[0];
 			va.va_change_time.tv_nsec = unixtime[1];
 			va.va_active |= ATTR_CTIME;
+			// change time has no notify
+			changed = TRUE;
 		}
+
 		if (fbi->LastWriteTime.QuadPart > 0) {
 			TIME_WINDOWS_TO_UNIX(
 			    fbi->LastWriteTime.QuadPart,
@@ -2992,7 +3049,9 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			va.va_modify_time.tv_nsec = unixtime[1];
 			va.va_active |= ATTR_MTIME;
 			NotifyFilter |= FILE_NOTIFY_CHANGE_LAST_WRITE;
+			changed = TRUE;
 		}
+
 		if (fbi->CreationTime.QuadPart > 0) {
 			TIME_WINDOWS_TO_UNIX(fbi->CreationTime.QuadPart,
 			    unixtime);
@@ -3000,34 +3059,52 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			va.va_create_time.tv_nsec = unixtime[1];
 			va.va_active |= ATTR_CRTIME;  // ATTR_CRTIME
 			NotifyFilter |= FILE_NOTIFY_CHANGE_CREATION;
+			changed = TRUE;
 		}
+
 		if (fbi->LastAccessTime.QuadPart > 0) {
 			TIME_WINDOWS_TO_UNIX(
 			    fbi->LastAccessTime.QuadPart,
 			    zp->z_atime);
 			NotifyFilter |= FILE_NOTIFY_CHANGE_LAST_ACCESS;
+			changed = TRUE;
 		}
-		if (fbi->FileAttributes)
+
+		if (fbi->FileAttributes != 0) {
+
+			if (!zccb->user_set_change_time) {
+				gethrestime(&va.va_change_time);
+				va.va_active |= ATTR_CTIME;
+			}
+
+			fbi->FileAttributes &= ~FILE_ATTRIBUTE_NORMAL;
+
 			if (zfs_setwinflags(VTOZ(vp),
 			    fbi->FileAttributes)) {
 				va.va_active |= ATTR_MODE;
 				NotifyFilter |= FILE_NOTIFY_CHANGE_ATTRIBUTES;
 			}
-		Status = zfs_setattr(zp, &va, 0, NULL, NULL);
+			changed = TRUE;
+		}
 
-		// zfs_setattr will turn ARCHIVE back on, when perhaps
-		// it is set off by this call
-		if (fbi->FileAttributes)
-			zfs_setwinflags(zp, fbi->FileAttributes);
+		if (changed) {
+			Status = zfs_setattr(zp, &va, 0, NULL, NULL);
 
-		if (NotifyFilter != 0)
+			// zfs_setattr will turn ARCHIVE back on, when perhaps
+			// it is set off by this call
+			if (fbi->FileAttributes)
+				zfs_setwinflags(zp, fbi->FileAttributes);
+		}
+
+		if (NotifyFilter != 0) {
 			zfs_send_notify(zp->z_zfsvfs, zp->z_name_cache,
 			    zp->z_name_offset,
 			    NotifyFilter,
 			    FILE_ACTION_MODIFIED);
-
+		}
 
 		VN_RELE(vp);
+		Status = STATUS_SUCCESS;
 	}
 
 	return (Status);
