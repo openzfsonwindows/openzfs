@@ -29,7 +29,6 @@ panic(const char *fmt, ...) __attribute__((__noreturn__))
 	va_start(ap, fmt);
 	do {
 		KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, fmt, ap));
-		DbgBreakPoint();
 		windows_delay(hz);
 	} while (1);
 	va_end(ap);
