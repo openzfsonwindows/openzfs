@@ -7060,18 +7060,16 @@ fastio_device_control(
 	return (FALSE);
 }
 
-static BOOLEAN
+static void
 fastio_acquire_file_for_ntsection(
     IN PFILE_OBJECT FileObject)
 {
-	return (FALSE);
 }
 
-static BOOLEAN
+static void
 fastio_release_file_for_ntsection(
     IN PFILE_OBJECT FileObject)
 {
-	return (FALSE);
 }
 
 static BOOLEAN
@@ -7326,7 +7324,8 @@ fastio_init(FAST_IO_DISPATCH **fast)
 	    fastio_acquire_file_for_ntsection;
 	FastIoDispatch.ReleaseFileForNtCreateSection =
 	    fastio_release_file_for_ntsection;
-	FastIoDispatch.FastIoDetachDevice = fastio_detach_device;
+	FastIoDispatch.FastIoDetachDevice =
+	    (PFAST_IO_DETACH_DEVICE) fastio_detach_device;
 	FastIoDispatch.FastIoQueryNetworkOpenInfo =
 	    fastio_query_network_open_info;
 	FastIoDispatch.AcquireForModWrite = fastio_acquire_for_mod_write;
@@ -7334,8 +7333,10 @@ fastio_init(FAST_IO_DISPATCH **fast)
 	FastIoDispatch.MdlReadComplete = FsRtlMdlReadCompleteDev;
 	FastIoDispatch.PrepareMdlWrite = FsRtlPrepareMdlWriteDev;
 	FastIoDispatch.MdlWriteComplete = FsRtlMdlWriteCompleteDev;
-	FastIoDispatch.FastIoReadCompressed = fastio_read_compressed;
-	FastIoDispatch.FastIoWriteCompressed = fastio_write_compressed;
+	FastIoDispatch.FastIoReadCompressed =
+	    (PFAST_IO_READ_COMPRESSED) fastio_read_compressed;
+	FastIoDispatch.FastIoWriteCompressed =
+	    (PFAST_IO_WRITE_COMPRESSED) fastio_write_compressed;
 	FastIoDispatch.MdlReadCompleteCompressed =
 	    fastio_read_complete_compressed;
 	FastIoDispatch.MdlWriteCompleteCompressed =

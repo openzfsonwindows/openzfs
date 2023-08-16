@@ -7,6 +7,7 @@
 
 #if defined(_WIN32) && !defined(__BORLANDC__)
 #  define LSEEK _lseeki64
+#define	snprintf _snprintf
 #else
 #if defined(_LARGEFILE64_SOURCE) && _LFS64_LARGEFILE-0
 #  define LSEEK lseek64

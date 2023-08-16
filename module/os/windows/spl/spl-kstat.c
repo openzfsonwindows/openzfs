@@ -355,7 +355,7 @@ kstat_resize_raw(kstat_t *ksp)
 	if (ksp->ks_raw_bufsize == KSTAT_RAW_MAX)
 		return (ENOMEM);
 
-	SBMFREE(ksp->ks_raw_buf, ksp->ks_raw_bufsize);
+	SBFREE(ksp->ks_raw_buf);
 	ksp->ks_raw_bufsize = MIN(ksp->ks_raw_bufsize * 2, KSTAT_RAW_MAX);
 	ksp->ks_raw_buf = SBMALLOC(ksp->ks_raw_bufsize);
 
@@ -699,8 +699,8 @@ kstat_free(ekstat_t *e)
 }
 
 extern vmem_t		*heap_arena;
-void *segkmem_alloc(vmem_t *vmp, uint32_t size, int vmflag);
-void segkmem_free(vmem_t *vmp, void *inaddr, uint32_t size);
+void *segkmem_alloc(vmem_t *vmp, size_t size, int vmflag);
+void segkmem_free(vmem_t *vmp, void *inaddr, size_t size);
 
 /*
  * Create various system kstats.
@@ -2379,6 +2379,7 @@ arc_cache_counters_perfmon(cache_counters *perf, arc_stats_t *arc_ptr)
 	// $v{"ovrhd"} = $cur{"overhead_size"};
 	perf->arcstat_overhead_size = arc_ptr->arcstat_overhead_size.value.ui64;
 }
+
 void
 zil_cache_counters_perfmon(cache_counters *perf, zil_kstat_values_t *zil_ptr)
 {

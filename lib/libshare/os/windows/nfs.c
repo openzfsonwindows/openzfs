@@ -58,7 +58,8 @@ static int nfs_lock_fd = -1;
 #define	LOCK_NB 4
 
 /* Fix me when we add shares to windows */
-static inline flock(int fd, int type)
+static inline int
+flock(int fd, int type)
 {
 	return (0);
 }

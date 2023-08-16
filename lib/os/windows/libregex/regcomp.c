@@ -63,6 +63,7 @@
 #include <stdlib.h>
 #include <regex.h>
 #include <stdbool.h>
+#include <wctype.h>
 
 #if defined(__weak_alias) && !defined(LIBHACK)
 __weak_alias(regcomp, _regcomp)

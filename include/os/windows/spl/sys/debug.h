@@ -57,6 +57,8 @@
 
 #include <spl-debug.h>
 #include <stdio.h>
+#include <Trace.h>
+
 
 #if defined(_MSC_VER) && !defined(__clang__)
 

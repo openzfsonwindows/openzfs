@@ -56,7 +56,7 @@
 
 static struct statfs *gsfs = NULL;
 static int allfs = 0;
-static dllinit = 1;
+static int dllinit = 1;
 
 NTSTATUS(__stdcall *NtFsControlFile)(
     HANDLE fileHandle,

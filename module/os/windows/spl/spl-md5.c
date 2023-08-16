@@ -46,6 +46,7 @@
 
 #ifdef _KERNEL
 #include <sys/systm.h>
+#include <Trace.h>
 #endif /* _KERNEL */
 
 static void Encode(uint8_t *, const uint32_t *, size_t);

@@ -814,7 +814,7 @@ spl_vnode_notify(struct vnode *vp, uint32_t type, struct vnode_attr *vap)
 	return (0);
 }
 
-extern intvfs_get_notify_attributes(struct vnode_attr *vap);
+extern int vfs_get_notify_attributes(struct vnode_attr *vap);
 int
 spl_vfs_get_notify_attributes(struct vnode_attr *vap)
 {

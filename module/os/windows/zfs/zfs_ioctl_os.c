@@ -112,6 +112,15 @@ void ZFSinCachePerfEnumerate(PCW_MASK_INFORMATION EnumerateInstances);
 #include "../OpenZFS_perf.h"
 #include "../OpenZFS_counters.h"
 #include <sys/vdev_impl.h>
+#include <sys/arc_impl.h>
+#include <sys/zstd/zstd.h>
+
+extern int zcommon_init(void);
+
+extern void arc_cache_counters_perfmon(cache_counters *perf,
+    arc_stats_t *arc_ptr);
+extern void zil_cache_counters_perfmon(cache_counters *perf,
+    zil_kstat_values_t *zil_ptr);
 
 // extern void zfs_windows_vnops_callback(PDEVICE_OBJECT deviceObject);
 

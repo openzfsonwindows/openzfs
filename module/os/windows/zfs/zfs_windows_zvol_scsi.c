@@ -828,7 +828,8 @@ ScsiReadWriteSetup(
 	// Queue work item, which will run in the System process.
 
 	IoQueueWorkItem((PIO_WORKITEM)pWkRtnParms->pQueueWorkItem,
-	    wzvol_GeneralWkRtn, DelayedWorkQueue, pWkRtnParms);
+	    (PIO_WORKITEM_ROUTINE)wzvol_GeneralWkRtn, DelayedWorkQueue,
+	    pWkRtnParms);
 
 	*pResult = ResultQueued;
 	return (SRB_STATUS_SUCCESS);
@@ -1106,8 +1107,8 @@ DiReadWriteSetup(zvol_state_t *zv, MpWkRtnAction action, zfsiodesc_t *pIo)
 	PIO_WORKITEM pWI = (PIO_WORKITEM)ALIGN_UP_POINTER_BY(
 	    pWkRtnParms->pQueueWorkItem, 16);
 	IoInitializeWorkItem(ioctlDeviceObject, pWI);
-	IoQueueWorkItem(pWI, bzvol_TaskQueuingWkRtn, DelayedWorkQueue,
-	    pWkRtnParms);
+	IoQueueWorkItem(pWI, (PIO_WORKITEM_ROUTINE)bzvol_TaskQueuingWkRtn,
+	    DelayedWorkQueue, pWkRtnParms);
 	return (STATUS_PENDING); // queued up.
 }
 
