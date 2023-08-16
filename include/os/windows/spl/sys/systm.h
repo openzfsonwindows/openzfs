@@ -27,6 +27,7 @@
 #define	_SPL_SYSTM_H
 
 #include <sys/sunddi.h>
+#include <Trace.h>
 
 typedef uintptr_t pc_t;
 

@@ -901,10 +901,19 @@ libzfs_read_stdout_from_fd(int fd, char **lines[])
 	return (lines_cnt);
 }
 
-#ifndef _WIN32
+#ifdef _WIN32
 static int
 libzfs_run_process_impl(const char *path, char *argv[], char *env[], int flags,
     char **lines[], int *lines_cnt)
+{
+	return (-1);
+}
+
+#else
+
+static int
+    libzfs_run_process_impl(const char *path, char *argv[], char *env[],
+    int flags, char **lines[], int *lines_cnt)
 {
 	pid_t pid;
 	int error, devnull_fd;

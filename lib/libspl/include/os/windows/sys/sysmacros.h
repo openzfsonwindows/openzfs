@@ -49,7 +49,6 @@
 #define	makedevice(maj, min)	makedev(maj, min)
 #define	_sysconf(a)		sysconf(a)
 
-
 #ifdef _MSC_VER
 #define	_Noreturn
 #else

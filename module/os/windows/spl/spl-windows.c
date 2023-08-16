@@ -37,6 +37,7 @@
 #include <sys/systeminfo.h>
 #include <sys/sunddi.h>
 #include <sys/mod_os.h>
+#include <sys/random.h>
 #include <zfs_gitrev.h>
 
 #define	DEBUG 1  // for backtrace debugging info

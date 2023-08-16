@@ -129,7 +129,7 @@ typedef struct kstat_raw_ops {
 	int (*headers)(char *buf, size_t size);
 	int (*seq_headers)(struct seq_file *);
 	int (*data)(char *buf, size_t size, void *data);
-	void *(*addr)(struct kstat_s *ksp, loff_t index);
+	void *(*addr)(struct kstat *ksp, loff_t index);
 } kstat_raw_ops_t;
 
 #pragma pack(4)
@@ -315,6 +315,7 @@ typedef struct {
 
 void spl_kstat_init(void);
 void spl_kstat_fini(void);
+void kstat_init(void);
 
 typedef uint64_t zoneid_t;
 #define	ALL_ZONES 0

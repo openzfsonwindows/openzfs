@@ -128,8 +128,8 @@ struct vmem {
 	uint32_t	vm_quantum;	/* vmem quantum */
 	uint32_t	vm_qcache_max;	/* maximum size to front by kmem */
 	uint32_t	vm_min_import;	/* smallest amount to import */
-	void		*(*vm_source_alloc)(vmem_t *, uint32_t, int);
-	void		(*vm_source_free)(vmem_t *, void *, uint32_t);
+	void		*(*vm_source_alloc)(vmem_t *, size_t, int);
+	void		(*vm_source_free)(vmem_t *, void *, size_t);
 	vmem_t		*vm_source;	/* vmem source for imported memory */
 	vmem_t		*vm_next;	/* next in vmem_list */
 	kstat_t		*vm_ksp;	/* kstat */

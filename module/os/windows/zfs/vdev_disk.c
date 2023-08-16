@@ -626,7 +626,8 @@ vdev_disk_io_intr(PDEVICE_OBJECT DeviceObject, PIRP irp, PVOID Context)
  */
 
 	VERIFY3P(zio->windows.work_item, !=, NULL);
-	IoQueueWorkItem(zio->windows.work_item, vdev_disk_io_start_done,
+	IoQueueWorkItem(zio->windows.work_item,
+	    (PIO_WORKITEM_ROUTINE)vdev_disk_io_start_done,
 	    DelayedWorkQueue, zio);
 	return (STATUS_MORE_PROCESSING_REQUIRED);
 }

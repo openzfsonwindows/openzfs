@@ -38,6 +38,7 @@ uint_t zfs_dbgmsg_size;
 kmutex_t zfs_dbgmsgs_lock;
 uint_t zfs_dbgmsg_maxsize = 4<<20; /* 4MB */
 kstat_t *zfs_dbgmsg_kstat;
+static boolean_t zfs_dbgmsg_inited = FALSE;
 
 int zfs_dbgmsg_enable = 1;
 
@@ -127,6 +128,8 @@ zfs_dbgmsg_init(void)
 		    zfs_dbgmsg_data, zfs_dbgmsg_addr);
 		kstat_install(zfs_dbgmsg_kstat);
 	}
+
+	zfs_dbgmsg_inited = TRUE;
 }
 
 void
@@ -156,8 +159,9 @@ __set_error(const char *file, const char *func, int line, int err)
 	 */
 	if (zfs_flags & ZFS_DEBUG_SET_ERROR)
 		__dprintf(B_FALSE, file, func, line, "error %lu", err);
-
+#ifdef _KERNEL
 	TraceEvent(5, "%s:%s Line:%d Error:%d", file, func, line, err);
+#endif
 }
 
 /*
@@ -180,6 +184,10 @@ __set_error(const char *file, const char *func, int line, int err)
 noinline void
 __zfs_dbgmsg(char *buf)
 {
+
+	if (!zfs_dbgmsg_inited)
+		return;
+
 	uint_t size = sizeof (zfs_dbgmsg_t) + strlen(buf);
 	zfs_dbgmsg_t *zdm = kmem_zalloc(size, KM_SLEEP);
 	zdm->zdm_size = size;

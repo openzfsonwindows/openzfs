@@ -38,4 +38,6 @@ struct utsname {
 
 typedef struct utsname utsname_t;
 
+extern int uname(struct utsname *buf);
+
 #endif  /* _LIBSPL_UTSNAME_H */

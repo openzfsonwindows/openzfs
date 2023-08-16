@@ -37,4 +37,6 @@ struct sched_param {
 	} __ss_un;
 };
 
+extern int sched_yield(void);
+
 #endif

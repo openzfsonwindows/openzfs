@@ -197,6 +197,7 @@ void zfs_cmd_compat_get(zfs_cmd_t *, caddr_t, const int);
 void zfs_cmd_compat_put(zfs_cmd_t *, caddr_t, const int, const int);
 uint64_t zfs_ioc_unregister_fs(void);
 
+#if 0
 int	wrap_avl_init(void);
 int	wrap_unicode_init(void);
 int	wrap_nvpair_init(void);
@@ -209,7 +210,20 @@ void wrap_nvpair_fini(void);
 void wrap_zcommon_fini(void);
 void wrap_icp_fini(void);
 void wrap_lua_fini(void);
-
+#else
+int avl_init(void);
+int unicode_init(void);
+int nvpair_init(void);
+int zcommon_init(void);
+int icp_init(void);
+int lua_init(void);
+void avl_fini(void);
+void unicode_fini(void);
+void nvpair_fini(void);
+void zcommon_fini(void);
+void icp_fini(void);
+void lua_fini(void);
+#endif
 #ifdef	__cplusplus
 }
 #endif

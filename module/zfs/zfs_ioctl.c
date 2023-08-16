@@ -221,6 +221,10 @@
 #include <sys/lua/lauxlib.h>
 #include <sys/zfs_ioctl_impl.h>
 
+#if defined(_WIN32)
+#include <sys/zvol_os.h>
+#endif
+
 kmutex_t zfsdev_state_lock;
 static zfsdev_state_t zfsdev_state_listhead;
 

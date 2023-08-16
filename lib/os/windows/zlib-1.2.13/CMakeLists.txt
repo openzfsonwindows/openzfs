@@ -26,7 +26,7 @@ set(ZLIB_SOURCES
 )
 
 wdk_add_library(zlibkern ${ZLIB_SOURCES})
-target_include_directories(zlibkern PUBLIC "")
+target_include_directories(zlibkern PUBLIC "${CMAKE_SOURCE_DIR}/include/os/windows/spl" "")
 target_link_libraries(zlibkern PRIVATE splkern)
 target_compile_definitions(zlibkern PUBLIC Z_PREFIX MY_ZCALLOC _KERNEL)
 
