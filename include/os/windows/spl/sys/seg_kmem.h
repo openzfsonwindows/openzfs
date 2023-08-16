@@ -53,12 +53,12 @@ extern vmem_t *abd_arena;
 #define	promvp		(kvps[KV_PROMVP])
 #endif	/* __sparc */
 
-void *segkmem_alloc(vmem_t *, uint32_t, int);
-extern void segkmem_free(vmem_t *, void *, uint32_t);
+void *segkmem_alloc(vmem_t *, size_t, int);
+extern void segkmem_free(vmem_t *, void *, size_t);
 extern void kernelheap_init(void);
 extern void kernelheap_fini(void);
-extern void *segkmem_zio_alloc(vmem_t *, uint32_t, int);
-extern void segkmem_zio_free(vmem_t *, void *, uint32_t);
+extern void *segkmem_zio_alloc(vmem_t *, size_t, int);
+extern void segkmem_zio_free(vmem_t *, void *, size_t);
 extern void segkmem_zio_init(void);
 extern void segkmem_zio_fini(void);
 extern void segkmem_abd_init(void);

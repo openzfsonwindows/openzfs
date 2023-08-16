@@ -111,7 +111,7 @@ typedef struct xdr_bytesrec {
  * an operations vector for the paticular implementation (e.g. see xdr_mem.c),
  * and two private fields for the use of the particular impelementation.
  */
-typedef struct {
+typedef struct XDR_s {
 	enum xdr_op	x_op;		/* operation; fast additional param */
 	struct xdr_ops {
 		bool_t	(*x_getlong)();	/* get a long from underlying stream */
@@ -120,11 +120,11 @@ typedef struct {
 		bool_t	(*x_putbytes)(); /* put some bytes to " */
 		uint_t	(*x_getpostn)(); /* returns bytes off from beginning */
 		bool_t	(*x_setpostn)(); /* lets you reposition the stream */
-		long	*(*x_inline)();	/* buf quick ptr to buffered data */
+		rpc_inline_t *(*x_inline)();	/* buf quick ptr to buffered data */
 		void	(*x_destroy)();	/* free privates of this xdr_stream */
-		bool_t(*x_control)(struct XDR *, int, void *);
-		bool_t(*x_getint32)(struct XDR *, int32_t *);
-		bool_t(*x_putint32)(struct XDR *, int32_t *);
+		bool_t (*x_control)(struct XDR_s *, int, void *);
+		bool_t (*x_getint32)(struct XDR_s *, int32_t *);
+		bool_t (*x_putint32)(struct XDR_s *, int32_t *);
 	} *x_ops;
 	caddr_t 	x_public;	/* users' data */
 	caddr_t		x_private;	/* pointer to private data */

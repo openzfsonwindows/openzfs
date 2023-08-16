@@ -90,4 +90,14 @@ issig(int why)
 
 #define	signal_pending(p) issig(0)
 
+extern int sigemptyset(sigset_t *set);
+extern int sigfillset(sigset_t *set);
+extern int sigaddset(sigset_t *set, int sig);
+extern int sigdelset(sigset_t *set, int sig);
+extern int sigismember(sigset_t *set, int sig);
+extern int sigaction(int sig, struct sigaction *sa, struct sigaction *osa);
+extern int sigprocmask(int operation, sigset_t *set, sigset_t *oset);
+extern int pause(void);
+extern int kill(int pid, int sig);
+
 #endif /* SPL_SIGNAL_H */

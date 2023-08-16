@@ -10,6 +10,8 @@
 #  include "gzguts.h"
 #endif
 
+#pragma comment(lib, "msvcrt.lib")
+
 z_const char * const z_errmsg[10] = {
     (z_const char *)"need dictionary",     /* Z_NEED_DICT       2  */
     (z_const char *)"stream end",          /* Z_STREAM_END      1  */
@@ -216,7 +218,7 @@ local ptr_table table[MAX_PTR];
  * a protected system like OS/2. Use Microsoft C instead.
  */
 
-voidpf ZLIB_INTERNAL zcalloc(voidpf opaque, unsigned items, unsigned size)
+voidpf ZLIB_INTERNAL zcallocY(voidpf opaque, unsigned items, unsigned size)
 {
     voidpf buf;
     ulg bsize = (ulg)items*size;
@@ -296,7 +298,12 @@ void ZLIB_INTERNAL zcfree(voidpf opaque, voidpf ptr)
 #endif /* SYS16BIT */
 
 #ifdef _KERNEL
-#include <sys/kmem.h>
+
+/* TODO: figure out the include paths */
+#define	KM_SLEEP	0x0000	/* can block for memory; success guaranteed */
+void *zfs_kmem_alloc(size_t size, int kmflags);
+void zfs_kmem_free(void *buf, size_t size);
+
 voidpf
 zcalloc(
     voidpf opaque,
@@ -338,17 +345,16 @@ voidpf ZLIB_INTERNAL zcalloc(opaque, items, size)
     unsigned items;
     unsigned size;
 {
-    (void)opaque;
-    return sizeof(uInt) > 2 ? (voidpf)malloc(items * size) :
-                              (voidpf)calloc(items, size);
+	(void)opaque;
+	return (voidpf) malloc(items * size);
 }
 
 void ZLIB_INTERNAL zcfree(opaque, ptr)
     voidpf opaque;
     voidpf ptr;
 {
-    (void)opaque;
-    free(ptr);
+	(void)opaque;
+	free(ptr);
 }
 
 #endif /* MY_ZCALLOC */

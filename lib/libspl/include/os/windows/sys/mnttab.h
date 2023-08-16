@@ -83,5 +83,6 @@ extern void statfs2mnttab(struct statfs *sfs, struct mnttab *mp);
 #endif
 
 extern int fstatat64(int, const char *, struct _stat64 *, int);
+extern int getextmntent(const char *path, struct extmnttab *entry, struct stat64 *statbuf);
 
 #endif

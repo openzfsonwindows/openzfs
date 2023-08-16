@@ -122,16 +122,16 @@ zvol_start(PDRIVER_OBJECT  DriverObject, PUNICODE_STRING pRegistryPath)
 	hwInitData.HwInitializationDataSize =
 	    sizeof (VIRTUAL_HW_INITIALIZATION_DATA);
 
-	hwInitData.HwInitialize = wzvol_HwInitialize;
-	hwInitData.HwStartIo = wzvol_HwStartIo;
-	hwInitData.HwFindAdapter = wzvol_HwFindAdapter;
-	hwInitData.HwResetBus = wzvol_HwResetBus;
-	hwInitData.HwAdapterControl = wzvol_HwAdapterControl;
-	hwInitData.HwFreeAdapterResources = wzvol_HwFreeAdapterResources;
+	hwInitData.HwInitialize = (PHW_INITIALIZE) wzvol_HwInitialize;
+	hwInitData.HwStartIo = (PHW_STARTIO) wzvol_HwStartIo;
+	hwInitData.HwFindAdapter = (PVIRTUAL_HW_FIND_ADAPTER) wzvol_HwFindAdapter;
+	hwInitData.HwResetBus = (PHW_RESET_BUS) wzvol_HwResetBus;
+	hwInitData.HwAdapterControl = (PHW_ADAPTER_CONTROL) wzvol_HwAdapterControl;
+	hwInitData.HwFreeAdapterResources = (PHW_FREE_ADAPTER_RESOURCES) wzvol_HwFreeAdapterResources;
 	hwInitData.HwInitializeTracing = wzvol_TracingInit;
 	hwInitData.HwCleanupTracing = wzvol_TracingCleanup;
-	hwInitData.HwProcessServiceRequest = wzvol_ProcServReq;
-	hwInitData.HwCompleteServiceIrp = wzvol_CompServReq;
+	hwInitData.HwProcessServiceRequest = (PHW_PROCESS_SERVICE_REQUEST) wzvol_ProcServReq;
+	hwInitData.HwCompleteServiceIrp = (PHW_COMPLETE_SERVICE_IRP) wzvol_CompServReq;
 
 	hwInitData.AdapterInterfaceType = Internal;
 

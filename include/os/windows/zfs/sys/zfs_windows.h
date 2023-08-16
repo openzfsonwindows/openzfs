@@ -137,6 +137,11 @@ extern int zfs_find_dvp_vp(zfsvfs_t *, char *, int finalpartmaynotexist,
     int finalpartmustnotexist, char **lastname, struct vnode **dvpp,
     struct vnode **vpp, int flags, ULONG options);
 extern ULONG get_reparse_tag(znode_t *zp);
+extern void acl_trivial_access_masks(mode_t mode, boolean_t isdir,
+    trivial_acl_t *masks);
+extern void zfs_save_ntsecurity(struct vnode *vp);
+void zfs_load_ntsecurity(struct vnode *vp);
+
 
 /* IRP_MJ_SET_INFORMATION helpers */
 extern NTSTATUS set_file_basic_information(PDEVICE_OBJECT, PIRP,
@@ -232,5 +237,8 @@ extern NTSTATUS fsctl_zfs_volume_mountpoint(PDEVICE_OBJECT DeviceObject,
     PIRP Irp, PIO_STACK_LOCATION IrpSp);
 extern NTSTATUS fsctl_set_zero_data(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp);
+extern NTSTATUS ioctl_get_gpt_attributes(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp);
+
 
 #endif

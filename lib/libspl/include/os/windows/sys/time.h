@@ -101,4 +101,7 @@ const char *win_ctime_r(char *buffer, size_t bufsize, time_t cur_time);
 
 struct tm *localtime_r(const time_t *clock, struct tm *result);
 
+extern void clock_gettime(clock_type_t t, struct timespec *ts);
+extern uint64_t gethrestime_sec(void);
+
 #endif /* _LIBSPL_SYS_TIME_H */

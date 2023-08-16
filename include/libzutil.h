@@ -216,6 +216,8 @@ int for_each_vdev_cb(void *zhp, nvlist_t *nv, pool_vdev_iter_f func,
 int for_each_vdev_in_nvlist(nvlist_t *nvroot, pool_vdev_iter_f func,
     void *data);
 void update_vdevs_config_dev_sysfs_path(nvlist_t *config);
+int zfs_resolve_shortname_os(const char *name, char *path, size_t len);
+
 #ifdef	__cplusplus
 }
 #endif

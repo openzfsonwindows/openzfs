@@ -23,4 +23,11 @@
 #ifndef _LIBSPL_WAIT_H
 #define	_LIBSPL_WAIT_H
 
+#include <sys/types.h>
+
+static inline pid_t waitpid(pid_t pid, int *stat_loc, int options)
+{
+	return (0);
+}
+
 #endif
