@@ -76,14 +76,14 @@ secpolicy_zinject(const cred_t *cr)
 }
 
 int
-secpolicy_vnode_any_access(const cred_t *cr, vnode_t *vp, uid_t owner)
+secpolicy_vnode_any_access(const cred_t *cr, struct vnode *vp, uid_t owner)
 {
 	// FIXME
 	return (0);
 }
 
 int
-secpolicy_vnode_access2(const cred_t *cr, vnode_t *vp, uid_t owner,
+secpolicy_vnode_access2(const cred_t *cr, struct vnode *vp, uid_t owner,
     mode_t curmode, mode_t wantmode)
 {
 	// FIXME

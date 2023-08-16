@@ -732,6 +732,8 @@ static int random_fd = -1, urandom_fd = -1;
 
 #ifdef _WIN32
 
+errno_t rand_s(unsigned int *randomValue);
+
 void
 random_init(void)
 {

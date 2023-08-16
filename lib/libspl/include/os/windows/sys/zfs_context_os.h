@@ -23,9 +23,7 @@
 #ifndef ZFS_CONTEXT_OS_H_
 #define	ZFS_CONTEXT_OS_H_
 
-#ifdef _WIN32
 #include <termios.h>
-#endif
 
 #define	ZFS_EXPORTS_PATH	"/etc/exports"
 #define	MNTTYPE_ZFS_SUBTYPE ('Z'<<24|'F'<<16|'S'<<8)

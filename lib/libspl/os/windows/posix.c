@@ -1723,7 +1723,7 @@ mprotect(void *addr, size_t len, int prot)
 	return (0);
 }
 
-int
+uid_t
 getuid(void)
 {
 	return (1);

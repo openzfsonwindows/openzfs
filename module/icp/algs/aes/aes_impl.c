@@ -29,6 +29,10 @@
 #include <modes/modes.h>
 #include <aes/aes_impl.h>
 
+#ifdef _WIN32
+extern uint32_t atomic_swap_32(volatile uint32_t *, uint32_t);
+#endif
+
 /*
  * Initialize AES encryption and decryption key schedules.
  *

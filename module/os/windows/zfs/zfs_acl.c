@@ -51,6 +51,7 @@
 #include <sys/dnode.h>
 #include <sys/zap.h>
 #include <sys/sa.h>
+#include <sys/zfs_quota.h>
 
 #define	ALLOW	ACE_ACCESS_ALLOWED_ACE_TYPE
 #define	DENY	ACE_ACCESS_DENIED_ACE_TYPE

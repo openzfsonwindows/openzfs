@@ -27,6 +27,7 @@
 
 #include <sys/uio.h>
 #include <sys/kmem.h>
+#include <sys/zfs_debug.h>
 
 static int
 zfs_uiomove_iov(void *p, size_t n, zfs_uio_rw_t rw, zfs_uio_t *uio)

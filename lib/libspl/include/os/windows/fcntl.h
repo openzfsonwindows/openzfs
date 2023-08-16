@@ -45,4 +45,6 @@
  */
 #define	AT_FDCWD		-100
 
+extern int fcntl(int fildes, int cmd, /* arg */ ...);
+
 #endif /* _LIBSPL_SYS_FCNTL_H */

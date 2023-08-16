@@ -87,6 +87,10 @@
 #include <sys/zvol.h>
 #include <sys/zvol_impl.h>
 
+#if defined(_WIN32) && defined(_KERNEL)
+#include <sys/zvol_os.h>
+#endif
+
 unsigned int zvol_inhibit_dev = 0;
 unsigned int zvol_volmode = ZFS_VOLMODE_GEOM;
 
@@ -1280,7 +1284,7 @@ zvol_remove_minors_impl(const char *name)
 			 * By holding zv_state_lock here, we guarantee that no
 			 * one is currently using this zv
 			 */
-#ifdef _WIN32
+#if defined(_WIN32) && defined(_KERNEL)
 			zvol_os_detach_zv(zv);
 #endif
 

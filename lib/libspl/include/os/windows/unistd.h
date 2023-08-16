@@ -36,6 +36,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <signal.h>
+#include <getopt.h>
 
 extern int	opterr;
 extern int	optind;
@@ -54,39 +55,49 @@ extern char	*optarg;
 
 #define	X_OK	1
 
-size_t strlcpy(register char *s, register const char *t, register size_t n);
+extern uint64_t sysconf(int name);
 
-size_t strlcat(register char *s, register const char *t, register size_t n);
+extern size_t strlcpy(register char *s, register const char *t,
+    register size_t n);
 
-ssize_t getline(char **linep, size_t *linecapp, FILE *stream);
+extern size_t strlcat(register char *s, register const char *t,
+    register size_t n);
+
+extern ssize_t getline(char **linep, size_t *linecapp, FILE *stream);
 
 // int pread_win(HANDLE h, void *buf, size_t nbyte, off_t offset);
-int pipe(int fildes[2]);
-char *realpath(const char *file_name, char *resolved_name);
-int usleep(__int64 usec);
-int vasprintf(char **strp, const char *fmt, va_list ap);
-int asprintf(char **strp, const char *fmt, ...);
-int strncasecmp(const char *s1, const char *s2, size_t n);
-int readlink(const char *path, char *buf, size_t bufsize);
-const char *getexecname(void);
-uint64_t geteuid(void);
+extern int pipe(int fildes[2]);
+extern char *realpath(const char *file_name, char *resolved_name);
+extern int usleep(__int64 usec);
+extern int vasprintf(char **strp, const char *fmt, va_list ap);
+extern int asprintf(char **strp, const char *fmt, ...);
+extern int strncasecmp(const char *s1, const char *s2, size_t n);
+extern int readlink(const char *path, char *buf, size_t bufsize);
+extern const char *getexecname(void);
+extern uid_t getuid(void);
+extern uid_t geteuid(void);
 
 struct zfs_cmd;
-int mkstemp(char *tmpl);
-int64_t gethrtime(void);
+extern int mkstemp(char *tmpl);
+extern int64_t gethrtime(void);
 struct timezone;
-int gettimeofday(struct timeval *tp, struct timezone *tzp);
-void flockfile(FILE *file);
-void funlockfile(FILE *file);
-unsigned long gethostid(void);
-char *strndup(const char *src, size_t size);
-int setrlimit(int resource, const struct rlimit *rlp);
+extern int gettimeofday(struct timeval *tp, struct timezone *tzp);
+extern void flockfile(FILE *file);
+extern void funlockfile(FILE *file);
+extern unsigned long gethostid(void);
+extern char *strndup(const char *src, size_t size);
+extern int setrlimit(int resource, const struct rlimit *rlp);
 
 struct group *getgrgid(uint64_t gid);
 struct passwd *getpwuid(uint64_t uid);
-void syslog(int priority, const char *message, ...);
-void closelog(void);
+extern void syslog(int priority, const char *message, ...);
+extern void closelog(void);
 
-int unmount(const char *dir, int flags);
+extern int unmount(const char *dir, int flags);
+
+static inline pid_t fork(void)
+{
+	return (0);
+}
 
 #endif /* _LIBSPL_WINDOWS_UNISTD_H */
