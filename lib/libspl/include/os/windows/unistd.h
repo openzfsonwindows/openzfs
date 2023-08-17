@@ -57,9 +57,11 @@ extern char	*optarg;
 
 extern uint64_t sysconf(int name);
 
-extern size_t strlcpy(register char *s, register const char *t, register size_t n);
+extern size_t strlcpy(register char *s, register const char *t,
+    register size_t n);
 
-extern size_t strlcat(register char *s, register const char *t, register size_t n);
+extern size_t strlcat(register char *s, register const char *t,
+    register size_t n);
 
 extern ssize_t getline(char **linep, size_t *linecapp, FILE *stream);
 

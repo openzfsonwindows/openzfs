@@ -32,22 +32,6 @@
 extern "C" {
 #endif
 
-#ifdef _WIN33
-#include <heapapi.h>
-
-void *
-malloc(size_t size)
-{
-	return HeapAlloc(GetProcessHeap(), 0, size);
-}
-
-static void
-free(void *ptr)
-{
-	HeapFree(GetProcessHeap(), 0, ptr);
-}
-#endif
-
 #define	KM_SLEEP	0x00000000	/* same as KM_SLEEP */
 #define	KM_NOSLEEP	0x00000001	/* same as KM_NOSLEEP */
 

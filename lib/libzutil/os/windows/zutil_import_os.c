@@ -306,7 +306,7 @@ zpool_open_func(void *arg)
 	if ((zpool_read_label_win(h, offset, drive_len, &config,
 	    &num_labels)) != 0) {
 		CloseHandle(h);
-		(void)fprintf(stderr, "internal error: out of memory\n");
+		(void) fprintf(stderr, "internal error: out of memory\n");
 		return;
 	}
 

@@ -120,7 +120,7 @@ typedef struct XDR_s {
 		bool_t	(*x_putbytes)(); /* put some bytes to " */
 		uint_t	(*x_getpostn)(); /* returns bytes off from beginning */
 		bool_t	(*x_setpostn)(); /* lets you reposition the stream */
-		rpc_inline_t *(*x_inline)();	/* buf quick ptr to buffered data */
+		rpc_inline_t *(*x_inline)();
 		void	(*x_destroy)();	/* free privates of this xdr_stream */
 		bool_t (*x_control)(struct XDR_s *, int, void *);
 		bool_t (*x_getint32)(struct XDR_s *, int32_t *);
