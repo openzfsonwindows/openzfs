@@ -1701,8 +1701,10 @@ enqueue_range(struct send_reader_thread_arg *srta, bqueue_t *q, dnode_t *dn,
 	struct send_range *range = range_alloc(range_type, dn->dn_object,
 	    blkid, blkid + count, B_FALSE);
 
-	if (blkid == DMU_SPILL_BLKID)
+	if (blkid == DMU_SPILL_BLKID) {
+		ASSERT3P(bp, !=, NULL);
 		ASSERT3U(BP_GET_TYPE(bp), ==, DMU_OT_SA);
+	}
 
 	switch (range_type) {
 	case HOLE:
@@ -1823,8 +1825,7 @@ send_reader_thread(void *arg)
 				continue;
 			}
 			uint64_t file_max =
-			    (dn->dn_maxblkid < range->end_blkid ?
-			    dn->dn_maxblkid : range->end_blkid);
+			    MIN(dn->dn_maxblkid, range->end_blkid);
 			/*
 			 * The object exists, so we need to try to find the
 			 * blkptr for each block in the range we're processing.

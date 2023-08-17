@@ -1093,12 +1093,14 @@ dmu_objset_create_impl_dnstats(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 	    (!os->os_encrypted || !dmu_objset_is_receiving(os))) {
 		os->os_phys->os_flags |= OBJSET_FLAG_USERACCOUNTING_COMPLETE;
 		if (dmu_objset_userobjused_enabled(os)) {
+			ASSERT3P(ds, !=, NULL);
 			ds->ds_feature_activation[
 			    SPA_FEATURE_USEROBJ_ACCOUNTING] = (void *)B_TRUE;
 			os->os_phys->os_flags |=
 			    OBJSET_FLAG_USEROBJACCOUNTING_COMPLETE;
 		}
 		if (dmu_objset_projectquota_enabled(os)) {
+			ASSERT3P(ds, !=, NULL);
 			ds->ds_feature_activation[
 			    SPA_FEATURE_PROJECT_QUOTA] = (void *)B_TRUE;
 			os->os_phys->os_flags |=

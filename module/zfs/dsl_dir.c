@@ -1194,10 +1194,9 @@ dsl_dir_space_towrite(dsl_dir_t *dd)
 
 	ASSERT(MUTEX_HELD(&dd->dd_lock));
 
-	for (int i = 0; i < TXG_SIZE; i++) {
+	for (int i = 0; i < TXG_SIZE; i++)
 		space += dd->dd_space_towrite[i & TXG_MASK];
-		ASSERT3U(dd->dd_space_towrite[i & TXG_MASK], >=, 0);
-	}
+
 	return (space);
 }
 
@@ -2070,6 +2069,8 @@ dsl_dir_rename_sync(void *arg, dmu_tx_t *tx)
 	VERIFY0(dsl_dir_hold(dp, ddra->ddra_oldname, FTAG, &dd, NULL));
 	VERIFY0(dsl_dir_hold(dp, ddra->ddra_newname, FTAG, &newparent,
 	    &mynewname));
+
+	ASSERT3P(mynewname, !=, NULL);
 
 	/* Log this before we change the name. */
 	spa_history_log_internal_dd(dd, "rename", tx,

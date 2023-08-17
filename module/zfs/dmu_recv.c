@@ -1138,7 +1138,7 @@ dmu_recv_begin(char *tofs, char *tosnap, dmu_replay_record_t *drr_begin,
     zfs_file_t *fp, offset_t *voffp)
 {
 	dmu_recv_begin_arg_t drba = { 0 };
-	int err;
+	int err = 0;
 
 	bzero(drc, sizeof (dmu_recv_cookie_t));
 	drc->drc_drr_begin = drr_begin;
@@ -1249,11 +1249,11 @@ receive_read(dmu_recv_cookie_t *drc, int len, void *buf)
 	    (drc->drc_featureflags & DMU_BACKUP_FEATURE_RAW) != 0);
 
 	while (done < len) {
-		ssize_t resid;
+		ssize_t resid = len - done;
 		zfs_file_t *fp = drc->drc_fp;
 		int err = zfs_file_read(fp, (char *)buf + done,
 		    len - done, &resid);
-		if (resid == len - done) {
+		if (err == 0 && resid == len - done) {
 			/*
 			 * Note: ECKSUM or ZFS_ERR_STREAM_TRUNCATED indicates
 			 * that the receive was interrupted and can
@@ -1931,7 +1931,7 @@ flush_write_batch_impl(struct receive_writer_arg *rwa)
 			if (err == 0)
 				abd_free(abd);
 		} else {
-			zio_prop_t zp;
+			zio_prop_t zp = {0};
 			dmu_write_policy(rwa->os, dn, 0, 0, &zp);
 
 			enum zio_flag zio_flags = 0;

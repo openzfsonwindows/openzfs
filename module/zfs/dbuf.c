@@ -1074,7 +1074,7 @@ dbuf_verify(dmu_buf_impl_t *db)
 	if ((db->db_blkptr == NULL || BP_IS_HOLE(db->db_blkptr)) &&
 	    (db->db_buf == NULL || db->db_buf->b_data) &&
 	    db->db.db_data && db->db_blkid != DMU_BONUS_BLKID &&
-	    db->db_state != DB_FILL && !dn->dn_free_txg) {
+	    db->db_state != DB_FILL && (dn == NULL || !dn->dn_free_txg)) {
 		/*
 		 * If the blkptr isn't set but they have nonzero data,
 		 * it had better be dirty, otherwise we'll lose that
@@ -3136,6 +3136,7 @@ dbuf_dnode_findbp(dnode_t *dn, uint64_t level, uint64_t blkid,
 
 	err = dbuf_findbp(dn, level, blkid, B_FALSE, &dbp, &bp2);
 	if (err == 0) {
+		ASSERT3P(bp2, !=, NULL);
 		*bp = *bp2;
 		if (dbp != NULL)
 			dbuf_rele(dbp, NULL);
@@ -3274,10 +3275,10 @@ dbuf_prefetch_indirect_done(zio_t *zio, const zbookmark_phys_t *zb,
 	blkptr_t *bp = ((blkptr_t *)abuf->b_data) +
 	    P2PHASE(nextblkid, 1ULL << dpa->dpa_epbs);
 
-	ASSERT(!BP_IS_REDACTED(bp) ||
+	ASSERT(!BP_IS_REDACTED(bp) || (dpa->dpa_dnode &&
 	    dsl_dataset_feature_is_active(
 	    dpa->dpa_dnode->dn_objset->os_dsl_dataset,
-	    SPA_FEATURE_REDACTED_DATASETS));
+	    SPA_FEATURE_REDACTED_DATASETS)));
 	if (BP_IS_HOLE(bp) || BP_IS_REDACTED(bp)) {
 		dbuf_prefetch_fini(dpa, B_TRUE);
 	} else if (dpa->dpa_curlevel == dpa->dpa_zb.zb_level) {
@@ -3573,8 +3574,10 @@ dbuf_hold_impl(dnode_t *dn, uint8_t level, uint64_t blkid,
 	    dn->dn_object != DMU_META_DNODE_OBJECT &&
 	    db->db_state == DB_CACHED && db->db_data_pending) {
 		dbuf_dirty_record_t *dr = db->db_data_pending;
-		if (dr->dt.dl.dr_data == db->db_buf)
+		if (dr->dt.dl.dr_data == db->db_buf) {
+			ASSERT3P(db->db_buf, !=, NULL);
 			dbuf_hold_copy(dn, db);
+		}
 	}
 
 	if (multilist_link_active(&db->db_cache_link)) {
@@ -4393,7 +4396,6 @@ dbuf_sync_leaf(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 	while (dr->dt.dl.dr_override_state == DR_IN_DMU_SYNC) {
 		ASSERT(dn->dn_object != DMU_META_DNODE_OBJECT);
 		cv_wait(&db->db_changed, &db->db_mtx);
-		ASSERT(dr->dt.dl.dr_override_state != DR_NOT_OVERRIDDEN);
 	}
 
 	/*

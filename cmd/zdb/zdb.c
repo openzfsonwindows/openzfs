@@ -2824,9 +2824,11 @@ dump_bookmarks(objset_t *os, int verbosity)
 	    zap_cursor_advance(&zc)) {
 		char osname[ZFS_MAX_DATASET_NAME_LEN];
 		char buf[ZFS_MAX_DATASET_NAME_LEN];
+		int len;
 		dmu_objset_name(os, osname);
-		VERIFY3S(0, <=, snprintf(buf, sizeof (buf), "%s#%s", osname,
-		    attr.za_name));
+		len = snprintf(buf, sizeof (buf), "%s#%s", osname,
+		    attr.za_name);
+		VERIFY3S(len, <, ZFS_MAX_DATASET_NAME_LEN);
 		(void) dump_bookmark(dp, buf, verbosity >= 5, verbosity >= 6);
 	}
 	zap_cursor_fini(&zc);
@@ -3455,9 +3457,9 @@ dump_object(objset_t *os, uint64_t object, int verbosity,
 	zdb_nicenum(doi.doi_physical_blocks_512 << 9, asize, sizeof (asize));
 	zdb_nicenum(doi.doi_bonus_size, bonus_size, sizeof (bonus_size));
 	zdb_nicenum(doi.doi_dnodesize, dnsize, sizeof (dnsize));
-	(void) sprintf(fill, "%6.2f", 100.0 * doi.doi_fill_count *
-	    doi.doi_data_block_size / (object == 0 ? DNODES_PER_BLOCK : 1) /
-	    doi.doi_max_offset);
+	(void) snprintf(fill, sizeof (fill), "%6.2f", 100.0 *
+	    doi.doi_fill_count * doi.doi_data_block_size / (object == 0 ?
+	    DNODES_PER_BLOCK : 1) / doi.doi_max_offset);
 
 	aux[0] = '\0';
 
