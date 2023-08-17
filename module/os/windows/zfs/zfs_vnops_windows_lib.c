@@ -3561,6 +3561,18 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (tail == NULL)
 		tail = filename;
 
+	if (strchr(tail, ':')) {
+		dprintf("file rename to stream should be implemented!\n");
+		return (STATUS_NOT_IMPLEMENTED);
+	}
+
+	/*
+	 * Also check for renaming of streams (xattrs here) and apparently
+	 * if (fn.Length == 0)
+	 *  return rename_stream_to_file(Vcb);
+	 * So that's a thing too.
+	 */
+
 	if (strchr(tail, ':') ||
 	    !strcasecmp("DOSATTRIB", tail) ||
 	    !strcasecmp("EA", tail) ||
@@ -3683,7 +3695,6 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		tdvp = fdvp;
 		VERIFY0(VN_HOLD(tdvp));
 	}
-
 
 	error = zfs_rename(VTOZ(fdvp), &zp->z_name_cache[zp->z_name_offset],
 	    VTOZ(tdvp), remainder ? remainder : filename, NULL, 0, 0, NULL,

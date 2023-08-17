@@ -900,9 +900,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			dvp_no_rele = 1;
 		}
 
-		if (filename && strstr(filename, ":casesensitive") != NULL)
-			dprintf("break here");
-
 /*
  * Here, we want to check for Streams, which come in the syntax
  * filename.ext:Stream:Type
@@ -4792,11 +4789,6 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	zfs_uio_iovec_init(&uio, &iov, 1, byteOffset.QuadPart, UIO_SYSSPACE,
 	    bufferLength, 0);
 
-	if (zccb->user_set_change_time)
-		uio.uio_extflg |= SKIP_CHANGE_TIME;
-	if (zccb->user_set_write_time)
-		uio.uio_extflg |= SKIP_WRITE_TIME;
-
 	// dprintf("%s: offset %llx size %lx\n", __func__,
 	// byteOffset.QuadPart, bufferLength);
 
@@ -4804,11 +4796,24 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	    byteOffset.QuadPart, byteOffset.QuadPart + bufferLength,
 	    bufferLength);
 
-	if (FlagOn(Irp->Flags, IRP_PAGING_IO))
-		// Should we call vnop_pageout instead?
-		error = zfs_write(zp, &uio, 0, NULL);
-	else
-		error = zfs_write(zp, &uio, 0, NULL);
+	if (FlagOn(Irp->Flags, IRP_PAGING_IO)) {
+		/*
+		 * Windows pageout does not update these, they
+		 * are part of CcWrite higher up.
+		 * Non-paging they are optional, as set by
+		 * set_information(file_basic, -1)
+		 */
+		uio.uio_extflg |= SKIP_WRITE_TIME | SKIP_CHANGE_TIME;
+	} else {
+		if (zccb->user_set_change_time)
+			uio.uio_extflg |= SKIP_CHANGE_TIME;
+		if (zccb->user_set_write_time)
+			uio.uio_extflg |= SKIP_WRITE_TIME;
+	}
+
+	// Should we call vnop_pageout instead ?
+	error = zfs_write(zp, &uio, 0, NULL);
+
 fail:
 	// if (error == 0)
 	//	zp->z_pflags |= ZFS_ARCHIVE;
