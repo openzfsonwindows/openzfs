@@ -15,7 +15,7 @@
 #expr FileClose(VerFile)
 #undef VerFile
 ; Parse out 2.0.0-7-g689dbcfbf-dirty and delete the double-quote
-#define MyAppVersion StringChange(Copy(VerStr, 30), '"','')
+#define MyAppVersion StringChange(Copy(VerStr, 33), '"','')
 
 #pragma message MyAppVersion + " is version"
 
@@ -57,7 +57,7 @@ WizardImageFile="{#SourcePath}\openzfs-large.bmp"
 ; "signtoolc" = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe sign /v /fd sha256 /n $qOpenZFS Test Signing Certificate$q /t http://timestamp.digicert.com $f"
 ; SignTool=signtoola
 ; SignTool=signtoolb
-SignTool=signtoolc
+SignTool=signtoola
 
 
 [Languages]
