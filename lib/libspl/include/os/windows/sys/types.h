@@ -65,6 +65,7 @@ typedef struct timespec	timestruc_t;
 typedef struct timespec timespec_t;
 
 typedef short		pri_t;
+typedef int32_t		clockid_t;
 
 
 
@@ -103,10 +104,6 @@ typedef int64_t ssize_t;
 // #define	MAXPATHLEN MAX_PATH
 #define	MAXPATHLEN 1024
 #define	PATH_MAX MAX_PATH
-
-typedef struct timespec			timestruc_t; /* definition per SVr4 */
-typedef struct timespec			timespec_t;
-
 
 /*
  * Definitions remaining from previous partial support for 64-bit file

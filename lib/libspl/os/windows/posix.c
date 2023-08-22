@@ -1823,3 +1823,35 @@ wosix_freopen(const char *path, const char *mode, FILE *stream)
 {
 	return ((FILE *)path); // Anything not NULL
 }
+
+int
+timer_create(clockid_t id, struct sigevent *__restrict se,
+    timer_t *__restrict t)
+{
+	return (0);
+}
+
+int
+timer_delete(timer_t)
+{
+	return (0);
+}
+
+int
+timer_gettime(timer_t, struct itimerspec *)
+{
+	return (0);
+}
+
+int
+timer_getoverrun(timer_t)
+{
+	return (0);
+}
+
+int
+timer_settime(timer_t, int, const struct itimerspec *__restrict,
+    struct itimerspec *__restrict)
+{
+	return (0);
+}
