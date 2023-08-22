@@ -28,6 +28,7 @@
 #define	_LIBSPL_WINDOWS_SYS_TIME_H
 
 // #include_next <sys/time.h>
+#include <time.h>
 #include <sys/types.h>
 #if !defined(_WINSOCKAPI_) && !defined(_WINSOCK2API_)
 #include <winsock2.h>
@@ -35,6 +36,7 @@
 #endif
 
 typedef struct timespec	inode_timespec_t;
+typedef void *timer_t;
 
 #ifndef SEC
 #define	SEC		1
@@ -103,5 +105,21 @@ struct tm *localtime_r(const time_t *clock, struct tm *result);
 
 extern void clock_gettime(clock_type_t t, struct timespec *ts);
 extern uint64_t gethrestime_sec(void);
+
+struct sigevent;
+
+// timespec.h
+
+struct itimerspec {
+	struct timespec it_interval;
+	struct timespec it_value;
+};
+
+int timer_create(clockid_t, struct sigevent *__restrict, timer_t *__restrict);
+int timer_delete(timer_t);
+int timer_gettime(timer_t, struct itimerspec *);
+int timer_getoverrun(timer_t);
+int timer_settime(timer_t, int, const struct itimerspec *__restrict,
+    struct itimerspec *__restrict);
 
 #endif /* _LIBSPL_SYS_TIME_H */
