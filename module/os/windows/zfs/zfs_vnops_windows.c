@@ -4605,54 +4605,65 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	// fileref = ccb ? ccb->fileref : NULL;
 
 	if (!vnode_isreg(vp) && !vnode_islnk(vp)) {
-		dprintf("tried to write to something other than a file or symlink (vp %p)\n",
+		dprintf("tried to write !file nor !symlink (vp %p)\n",
 		    vp);
 		return (STATUS_INVALID_DEVICE_REQUEST);
 	}
 
-	if (offset.LowPart == FILE_WRITE_TO_END_OF_FILE && offset.HighPart == -1)
+	if (offset.LowPart == FILE_WRITE_TO_END_OF_FILE &&
+	    offset.HighPart == -1)
 		offset = vp->FileHeader.FileSize;
 
 	off64 = offset.QuadPart;
 
 	dprintf("fcb->Header.Flags = %x\n", vp->FileHeader.Flags);
 
-	if (!no_cache && !CcCanIWrite(FileObject, *length, wait, deferred_write))
+	if (!no_cache && !CcCanIWrite(FileObject, *length, wait,
+	    deferred_write))
 		return (STATUS_PENDING);
 
 	if (!wait && no_cache)
 		return (STATUS_PENDING);
 
-	if (no_cache && !paging_io && FileObject->SectionObjectPointer->DataSectionObject) {
+	if (no_cache && !paging_io &&
+	    FileObject->SectionObjectPointer->DataSectionObject) {
 		IO_STATUS_BLOCK iosb;
 
-		ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource, TRUE);
+		ExAcquireResourceExclusiveLite(
+		    vp->FileHeader.PagingIoResource, TRUE);
 
-		CcFlushCache(FileObject->SectionObjectPointer, &offset, *length, &iosb);
+		CcFlushCache(FileObject->SectionObjectPointer, &offset,
+		    *length, &iosb);
 
 		if (!NT_SUCCESS(iosb.Status)) {
-			ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
-			dprintf("CcFlushCache returned %08lx\n", iosb.Status);
+			ExReleaseResourceLite(
+			    vp->FileHeader.PagingIoResource);
+			dprintf("CcFlushCache returned %08lx\n",
+			    iosb.Status);
 			return (iosb.Status);
 		}
 
 		paging_lock = TRUE;
 
-		CcPurgeCacheSection(FileObject->SectionObjectPointer, &offset, *length, FALSE);
+		CcPurgeCacheSection(FileObject->SectionObjectPointer,
+		    &offset, *length, FALSE);
 	}
 
 	if (paging_io) {
-		if (!ExAcquireResourceSharedLite(vp->FileHeader.PagingIoResource, wait)) {
+		if (!ExAcquireResourceSharedLite(
+		    vp->FileHeader.PagingIoResource, wait)) {
 			Status = STATUS_PENDING;
 			goto end;
 		} else
 			paging_lock = TRUE;
 	}
 
-	pagefile = vp->FileHeader.Flags2 & FSRTL_FLAG2_IS_PAGING_FILE && paging_io;
+	pagefile = vp->FileHeader.Flags2 & FSRTL_FLAG2_IS_PAGING_FILE &&
+	    paging_io;
 
 #if 0 // figure out what treelock is
-	if (!pagefile && !ExIsResourceAcquiredExclusiveLite(&Vcb->tree_lock)) {
+	if (!pagefile &&
+	    !ExIsResourceAcquiredExclusiveLite(&Vcb->tree_lock)) {
 		if (!ExAcquireResourceSharedLite(&Vcb->tree_lock, wait)) {
 			Status = STATUS_PENDING;
 			goto end;
@@ -4662,14 +4673,17 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 #endif
 
 	if (pagefile) {
-		if (!ExAcquireResourceSharedLite(vp->FileHeader.Resource, wait)) {
+		if (!ExAcquireResourceSharedLite(vp->FileHeader.Resource,
+		    wait)) {
 			Status = STATUS_PENDING;
 			goto end;
 		} else {
 			acquired_fcb_lock = TRUE;
 		}
-	} else if (!ExIsResourceAcquiredExclusiveLite(vp->FileHeader.Resource)) {
-		if (!ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, wait)) {
+	} else if (!ExIsResourceAcquiredExclusiveLite(
+	    vp->FileHeader.Resource)) {
+		if (!ExAcquireResourceExclusiveLite(
+		    vp->FileHeader.Resource, wait)) {
 			Status = STATUS_PENDING;
 			goto end;
 		} else {
@@ -4687,9 +4701,14 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (off64 + *length > newlength) {
 		if (paging_io) {
 			if (off64 >= newlength) {
-				dprintf("paging IO tried to write beyond end of file (file size = %I64x, offset = %I64x, length = %lx)\n", newlength, off64, *length);
-				dprintf("FileObject: AllocationSize = %I64x, FileSize = %I64x, ValidDataLength = %I64x\n",
-				    vp->FileHeader.AllocationSize.QuadPart, vp->FileHeader.FileSize.QuadPart, vp->FileHeader.ValidDataLength.QuadPart);
+				dprintf(
+"paging tried beyond EOF (size = %I64x, off = %I64x, len = %lx)\n",
+				    newlength, off64, *length);
+				dprintf(
+"AllocationSize = %I64x, Size = %I64x, ValidDataLength = %I64x\n",
+				    vp->FileHeader.AllocationSize.QuadPart,
+				    vp->FileHeader.FileSize.QuadPart,
+				    vp->FileHeader.ValidDataLength.QuadPart);
 				Irp->IoStatus.Information = 0;
 				Status = STATUS_SUCCESS;
 				goto end;
@@ -4710,22 +4729,24 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	//    make_inline = newlength <= fcb->Vcb->options.max_inline;
 
 	if (changed_length) {
-		if (newlength > (uint64_t)vp->FileHeader.AllocationSize.QuadPart) {
+		if (newlength >
+		    (uint64_t)vp->FileHeader.AllocationSize.QuadPart) {
 			if (!acquired_tree_lock) {
-				// We need to acquire the tree lock if we don't have it already -
-				// we can't give an inline file proper extents at the same time as we're
-				// doing a flush.
-				// if (!ExAcquireResourceSharedLite(&Vcb->tree_lock, wait)) {
-				//	Status = STATUS_PENDING;
-				//	goto end;
-				//} else
+	// We need to acquire the tree lock if we don't have it already -
+	// we can't give an inline file proper extents at the same time as we're
+	// doing a flush.
+	// if (!ExAcquireResourceSharedLite(&Vcb->tree_lock, wait)) {
+	//	Status = STATUS_PENDING;
+	//	goto end;
+	// } else
 				acquired_tree_lock = TRUE;
 			}
 
 			Status = zfs_freesp(zp,
 			    newlength, 0, FWRITE, B_TRUE);
 			if (!NT_SUCCESS(Status)) {
-				dprintf("extend_file returned %08lx\n", Status);
+				dprintf("extend_file returned %08lx\n",
+				    Status);
 				goto end;
 			}
 		} else {
@@ -4735,9 +4756,12 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		vp->FileHeader.FileSize.QuadPart = newlength;
 		vp->FileHeader.ValidDataLength.QuadPart = newlength;
 
-		dprintf("AllocationSize = %I64x\n", vp->FileHeader.AllocationSize.QuadPart);
-		dprintf("FileSize = %I64x\n", vp->FileHeader.FileSize.QuadPart);
-		dprintf("ValidDataLength = %I64x\n", vp->FileHeader.ValidDataLength.QuadPart);
+		dprintf("AllocationSize = %I64x\n",
+		    vp->FileHeader.AllocationSize.QuadPart);
+		dprintf("FileSize = %I64x\n",
+		    vp->FileHeader.FileSize.QuadPart);
+		dprintf("ValidDataLength = %I64x\n",
+		    vp->FileHeader.ValidDataLength.QuadPart);
 	}
 
 	if (!no_cache) {
@@ -4747,9 +4771,12 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			if (!FileObject->PrivateCacheMap || changed_length) {
 				CC_FILE_SIZES ccfs;
 
-				ccfs.AllocationSize = vp->FileHeader.AllocationSize;
-				ccfs.FileSize = vp->FileHeader.FileSize;
-				ccfs.ValidDataLength = vp->FileHeader.ValidDataLength;
+				ccfs.AllocationSize =
+				    vp->FileHeader.AllocationSize;
+				ccfs.FileSize =
+				    vp->FileHeader.FileSize;
+				ccfs.ValidDataLength =
+				    vp->FileHeader.ValidDataLength;
 
 				if (!FileObject->PrivateCacheMap)
 					zfs_init_cache(FileObject, vp);
@@ -4758,38 +4785,46 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			}
 
 			if (IrpSp->MinorFunction & IRP_MN_MDL) {
-				CcPrepareMdlWrite(FileObject, &offset, *length, &Irp->MdlAddress, &Irp->IoStatus);
+				CcPrepareMdlWrite(FileObject, &offset, *length,
+				    &Irp->MdlAddress, &Irp->IoStatus);
 
 				Status = Irp->IoStatus.Status;
 				goto end;
 			} else {
-				/*
-				 * We have to wait in CcCopyWrite - if we return STATUS_PENDING and add this to the work queue,
-				 * it can result in CcFlushCache being called before the job has run. See ifstest ReadWriteTest.
-				 */
+/*
+ * We have to wait in CcCopyWrite - if we return STATUS_PENDING
+ * and add this to the work queue, it can result in CcFlushCache
+ * being called before the job has run. See ifstest ReadWriteTest.
+ */
 
-				dprintf("CcCopyWriteEx(%p, %I64x, %lx, %u, %p, %p)\n", FileObject,
-				    off64, *length, TRUE, buf, Irp->Tail.Overlay.Thread);
+				dprintf("CcCopyWrite(%p, %I64x, %lx, %p, %p)\n",
+				    FileObject, off64, *length, buf,
+				    Irp->Tail.Overlay.Thread);
 #if (NTDDI_VERSION >= NTDDI_WIN8)
-				if (!CcCopyWriteEx(FileObject, &offset, *length, TRUE, buf, Irp->Tail.Overlay.Thread)) {
+				if (!CcCopyWriteEx(FileObject, &offset, *length,
+				    TRUE, buf, Irp->Tail.Overlay.Thread)) {
 					Status = STATUS_PENDING;
 					goto end;
 				}
 #else
-				if (!CcCopyWrite(FileObject, &offset, *length, TRUE, buf)) {
+				if (!CcCopyWrite(FileObject, &offset, *length,
+				    TRUE, buf)) {
 					Status = STATUS_PENDING;
 					goto end;
 				}
 #endif
 				Irp->IoStatus.Information = *length;
 			}
-		} except (EXCEPTION_EXECUTE_HANDLER) {
+		} except(EXCEPTION_EXECUTE_HANDLER) {
 			Status = GetExceptionCode();
 		}
 
 		if (changed_length) {
-			// queue_notification_fcb(fcb->ads ? fileref->parent : fileref, fcb->ads ? FILE_NOTIFY_CHANGE_STREAM_SIZE : FILE_NOTIFY_CHANGE_SIZE,
-			//    fcb->ads ? FILE_ACTION_MODIFIED_STREAM : FILE_ACTION_MODIFIED, fcb->ads && fileref->dc ? &fileref->dc->name : NULL);
+			// queue_notification_fcb(fcb->ads ? fileref->parent :
+			// fileref, fcb->ads ? FILE_NOTIFY_CHANGE_STREAM_SIZE :
+			// FILE_NOTIFY_CHANGE_SIZE, fcb->ads ?
+			// FILE_ACTION_MODIFIED_STREAM : FILE_ACTION_MODIFIED,
+			// fcb->ads && fileref->dc ? &fileref->dc->name : NULL);
 		}
 
 		goto end;
@@ -4806,19 +4841,22 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	boolean_t locked = FALSE;
 
 	if (write_irp && Irp->MdlAddress) {
-		locked = Irp->MdlAddress->MdlFlags & (MDL_PAGES_LOCKED | MDL_PARTIAL);
+		locked = Irp->MdlAddress->MdlFlags &
+		    (MDL_PAGES_LOCKED | MDL_PARTIAL);
 
 		if (!locked) {
 			Status = STATUS_SUCCESS;
 
 			try {
-				MmProbeAndLockPages(Irp->MdlAddress, KernelMode, IoReadAccess);
+				MmProbeAndLockPages(Irp->MdlAddress, KernelMode,
+				    IoReadAccess);
 			} except(EXCEPTION_EXECUTE_HANDLER) {
 				Status = GetExceptionCode();
 			}
 
 			if (!NT_SUCCESS(Status)) {
-				dprintf("MmProbeAndLockPages threw exception %08lx\n", Status);
+				dprintf("MmProbeAndLockPages except %08lx\n",
+				    Status);
 				goto end;
 			}
 		}
@@ -4848,19 +4886,19 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	if (!pagefile) {
 #if 0
-	    if (fcb->ads) {
-		if (fileref && fileref->parent)
-		    origii = &fileref->parent->fcb->inode_item;
-		else {
-		    ERR("no parent fcb found for stream\n");
-		    Status = STATUS_INTERNAL_ERROR;
-		    goto end;
-		}
-	    } else
-		origii = &fcb->inode_item;
+		if (fcb->ads) {
+			if (fileref && fileref->parent)
+				origii = &fileref->parent->fcb->inode_item;
+			else {
+				ERR("no parent fcb found for stream\n");
+				Status = STATUS_INTERNAL_ERROR;
+				goto end;
+			}
+		} else
+			origii = &fcb->inode_item;
 
-	    origii->transid = Vcb->superblock.generation;
-	    origii->sequence++;
+		origii->transid = Vcb->superblock.generation;
+		origii->sequence++;
 #endif
 
 		if (!ccb->user_set_write_time)
@@ -4868,7 +4906,8 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		if (!(zp->z_pflags & ZFS_XATTR)) {
 			if (changed_length) {
-				dprintf("setting st_size to %I64x\n", newlength);
+				dprintf("setting st_size to %I64x\n",
+				    newlength);
 				zp->z_size = newlength;
 				filter |= FILE_NOTIFY_CHANGE_SIZE;
 			}
@@ -4891,7 +4930,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		try {
 			CcSetFileSizes(FileObject, &ccfs);
-		} except (EXCEPTION_EXECUTE_HANDLER) {
+		} except(EXCEPTION_EXECUTE_HANDLER) {
 			Status = GetExceptionCode();
 			goto end;
 		}
@@ -4914,17 +4953,21 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			    FILE_ACTION_MODIFIED_STREAM,
 			    NULL);
 		} else {
-			zfs_send_notify(zfsvfs, zp->z_name_cache, zp->z_name_offset,
-			    filter,
+			zfs_send_notify(zfsvfs, zp->z_name_cache,
+			    zp->z_name_offset, filter,
 			    FILE_ACTION_MODIFIED);
 		}
 	}
 
 end:
-	if (NT_SUCCESS(Status) && FileObject->Flags & FO_SYNCHRONOUS_IO && !paging_io) {
-		dprintf("CurrentByteOffset was: %I64x\n", FileObject->CurrentByteOffset.QuadPart);
-		FileObject->CurrentByteOffset.QuadPart = offset.QuadPart + (NT_SUCCESS(Status) ? *length : 0);
-		dprintf("CurrentByteOffset now: %I64x\n", FileObject->CurrentByteOffset.QuadPart);
+	if (NT_SUCCESS(Status) && FileObject->Flags & FO_SYNCHRONOUS_IO &&
+	    !paging_io) {
+		dprintf("CurrentByteOffset was: %I64x\n",
+		    FileObject->CurrentByteOffset.QuadPart);
+		FileObject->CurrentByteOffset.QuadPart =
+		    offset.QuadPart + (NT_SUCCESS(Status) ? *length : 0);
+		dprintf("CurrentByteOffset now: %I64x\n",
+		    FileObject->CurrentByteOffset.QuadPart);
 	}
 
 	if (acquired_fcb_lock)
@@ -4956,7 +4999,8 @@ fs_write_impl(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp,
 
 	if (!Irp->AssociatedIrp.SystemBuffer) {
 		buf = MapUserBuffer(Irp);
-		//, vp && vp->FileHeader.Flags2 & FSRTL_FLAG2_IS_PAGING_FILE ? HighPagePriority : NormalPagePriority);
+		// , vp && vp->FileHeader.Flags2 & FSRTL_FLAG2_IS_PAGING_FILE
+		// ? HighPagePriority : NormalPagePriority);
 
 		if (Irp->MdlAddress && !buf) {
 			dprintf("MmGetSystemAddressForMdlSafe returned NULL\n");
@@ -4969,13 +5013,15 @@ fs_write_impl(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp,
 
 	dprintf("buf = %p\n", buf);
 
-	if (vp && !(Irp->Flags & IRP_PAGING_IO) && !FsRtlCheckLockForWriteAccess(&vp->lock, Irp)) {
+	if (vp && !(Irp->Flags & IRP_PAGING_IO) &&
+	    !FsRtlCheckLockForWriteAccess(&vp->lock, Irp)) {
 		dprintf("tried to write to locked region\n");
 		Status = STATUS_FILE_LOCK_CONFLICT;
 		goto exit;
 	}
 
-	Status = zfs_write_wrap(DeviceObject, Irp, offset, buf, &IrpSp->Parameters.Write.Length,
+	Status = zfs_write_wrap(DeviceObject, Irp, offset, buf,
+	    &IrpSp->Parameters.Write.Length,
 	    Irp->Flags & IRP_PAGING_IO, Irp->Flags & IRP_NOCACHE,
 	    wait, deferred_write, TRUE);
 
@@ -4988,18 +5034,23 @@ fs_write_impl(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp,
 
 	if (NT_SUCCESS(Status)) {
 #if 0 // Updating benchmark stats?
-		if (diskacc && Status != STATUS_PENDING && Irp->Flags & IRP_NOCACHE) {
-		    PETHREAD thread = NULL;
+		if (diskacc && Status != STATUS_PENDING &&
+		    Irp->Flags & IRP_NOCACHE) {
+			PETHREAD thread = NULL;
 
-			if (Irp->Tail.Overlay.Thread && !IoIsSystemThread(Irp->Tail.Overlay.Thread))
+			if (Irp->Tail.Overlay.Thread &&
+			    !IoIsSystemThread(Irp->Tail.Overlay.Thread))
 				thread = Irp->Tail.Overlay.Thread;
 			else if (!IoIsSystemThread(PsGetCurrentThread()))
 				thread = PsGetCurrentThread();
-			else if (IoIsSystemThread(PsGetCurrentThread()) && IoGetTopLevelIrp() == Irp)
+			else if (IoIsSystemThread(PsGetCurrentThread()) &&
+			    IoGetTopLevelIrp() == Irp)
 				thread = PsGetCurrentThread();
 
 			if (thread)
-				fPsUpdateDiskCounters(PsGetThreadProcess(thread), 0, IrpSp->Parameters.Write.Length, 0, 1, 0);
+				fPsUpdateDiskCounters(
+				    PsGetThreadProcess(thread),
+				    0, IrpSp->Parameters.Write.Length, 0, 1, 0);
 		}
 #endif
 	}
@@ -5063,7 +5114,8 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		if (FlagOn(IrpSp->MinorFunction, IRP_MN_COMPLETE)) {
 			dprintf("%s: IRP_MN_COMPLETE\n", __func__);
 			CcMdlWriteComplete(IrpSp->FileObject,
-			    &IrpSp->Parameters.Write.ByteOffset, Irp->MdlAddress);
+			    &IrpSp->Parameters.Write.ByteOffset,
+			    Irp->MdlAddress);
 			// Mdl is now deallocated.
 			Irp->MdlAddress = NULL;
 			Status = STATUS_SUCCESS;
@@ -5071,17 +5123,19 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		} else {
 
 			if (!FlagOn(Irp->Flags, IRP_PAGING_IO)) {
-				FsRtlCheckOplock(vp_oplock(vp), Irp, NULL, NULL, NULL);
+				FsRtlCheckOplock(vp_oplock(vp), Irp, NULL,
+				    NULL, NULL);
 
 			if (FlagOn(Irp->Flags, IRP_PAGING_IO))
 				wait = TRUE;
 
-			Status = fs_write_impl(DeviceObject, Irp, IrpSp, wait, FALSE);
+			Status = fs_write_impl(DeviceObject, Irp, IrpSp,
+			    wait, FALSE);
 
 			}
 
 		}
-	} except (EXCEPTION_EXECUTE_HANDLER) {
+	} except(EXCEPTION_EXECUTE_HANDLER) {
 		Status = GetExceptionCode();
 	}
 
@@ -5106,7 +5160,7 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	zfs_exit(zfsvfs, FTAG);
 
-	//	dprintf("  FileName: %wZ offset 0x%llx len 0x%lx mdl %p System %p\n",
+	// dprintf("Name: %wZ offset 0x%llx len 0x%lx mdl %p System %p\n",
 	// &fileObject->FileName, byteOffset.QuadPart, bufferLength,
 	// Irp->MdlAddress, Irp->AssociatedIrp.SystemBuffer);
 
@@ -5135,7 +5189,8 @@ do_write_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	PIO_STACK_LOCATION IrpSp;
 	IrpSp = IoGetCurrentIrpStackLocation(Irp);
 
-	boolean_t wait = IrpSp && IrpSp->FileObject ? IoIsOperationSynchronous(Irp) : TRUE;
+	boolean_t wait = IrpSp &&
+	    IrpSp->FileObject ? IoIsOperationSynchronous(Irp) : TRUE;
 
 	try {
 		Status = fs_write_impl(DeviceObject, Irp, IrpSp, wait, TRUE);
@@ -6754,9 +6809,8 @@ _Function_class_(DRIVER_DISPATCH)
 		Status = fs_write(DeviceObject, Irp, IrpSp);
 		if (Status == STATUS_PENDING) {
 			IoMarkIrpPending(Irp);
-
 			if (!add_thread_job(DeviceObject, Irp))
-				 Status = do_write_job(DeviceObject, Irp);
+				Status = do_write_job(DeviceObject, Irp);
 		}
 		break;
 	case IRP_MJ_FLUSH_BUFFERS:
