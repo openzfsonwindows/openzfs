@@ -5099,7 +5099,6 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		Status = STATUS_DISK_FULL;
 		break;
 	default:
-		Status = STATUS_INVALID_PARAMETER;
 		break;
 	}
 
@@ -5111,254 +5110,92 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	// &fileObject->FileName, byteOffset.QuadPart, bufferLength,
 	// Irp->MdlAddress, Irp->AssociatedIrp.SystemBuffer);
 
-	if (Status == STATUS_PENDING) {
-		xprintf("Status pending");
-		DbgBreakPoint();
-	}
-
 	Irp->IoStatus.Status = Status;
 
 	return (SET_ERROR(Status));
 }
 
-
-
-
-#if 0
-		if (byteOffset.QuadPart >= zp->z_size) {
-			Status = STATUS_SUCCESS;
-			goto out;
-		}
-
-		if (byteOffset.QuadPart + bufferLength > zp->z_size)
-			bufferLength = zp->z_size - byteOffset.QuadPart;
-
-		// ASSERT(fileObject->PrivateCacheMap != NULL);
+boolean_t
+is_top_level(_In_ PIRP Irp)
+{
+	if (!IoGetTopLevelIrp()) {
+		IoSetTopLevelIrp(Irp);
+		return (TRUE);
 	}
 
-	if (!nocache && !CcCanIWrite(fileObject, bufferLength, TRUE, FALSE)) {
-		Status = STATUS_PENDING;
-		goto out;
-	}
-
-	if (nocache && !pagingio && fileObject->SectionObjectPointer &&
-	    fileObject->SectionObjectPointer->DataSectionObject) {
-#if 0
-		IO_STATUS_BLOCK iosb;
-		ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource,
-		    TRUE);
-		VERIFY3U(zccb->cacheinit, !=, 0);
-
-		try {
-			CcFlushCache(fileObject->SectionObjectPointer,
-			    &byteOffset, bufferLength, &iosb);
-			CcPurgeCacheSection(fileObject->SectionObjectPointer,
-			    &byteOffset, bufferLength, FALSE);
-		} except(EXCEPTION_EXECUTE_HANDLER) {
-			Status = GetExceptionCode();
-		}
-
-		if (!NT_SUCCESS(Status) || !NT_SUCCESS(iosb.Status)) {
-			ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
-			if (NT_SUCCESS(Status))
-				Status = iosb.Status;
-			goto out;
-		}
-
-		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
-#endif
-	}
-
-	void *SystemBuffer = MapUserBuffer(Irp);
-
-	if (nocache) {
-
-	} else {
-
-		if (fileObject->PrivateCacheMap == NULL) {
-			vnode_pager_setsize(NULL, vp, zp->z_size, TRUE);
-
-			zfs_init_cache(fileObject, vp);
-			// CcSetReadAheadGranularity(fileObject,
-			// READ_AHEAD_GRANULARITY);
-		}
-
-		// If beyond valid data, zero between to expand
-		// (this is cachedfile, not paging io, extend ok)
-		if (byteOffset.QuadPart + bufferLength > zp->z_size) {
-#if 0
-			LARGE_INTEGER ZeroStart, BeyondZeroEnd;
-			ZeroStart.QuadPart = zp->z_size;
-			BeyondZeroEnd.QuadPart =
-			    IrpSp->Parameters.Write.ByteOffset.QuadPart +
-			    IrpSp->Parameters.Write.Length;
-			dprintf("%s: growing file\n", __func__);
-			// CACHE_MANAGER(34)
-			//	See the comment for FAT_FILE_SYSTEM(0x23)
-			if (!CcZeroData(fileObject,
-			    &ZeroStart, &BeyondZeroEnd,
-			    TRUE)) {
-				dprintf("%s: CcZeroData failed\n", __func__);
-			}
-#endif
-// We have written "Length" into the "file" by the way of cache, so we need
-// zp->z_size to reflect the new length, so we extend the file on disk,
-// even though the actual writes will come later (from CcMgr).
-			dprintf("%s: growing file\n", __func__);
-
-			// zfs_freesp() calls vnode_pager_setsize();
-			error = zfs_freesp(zp,
-			    byteOffset.QuadPart,  bufferLength,
-			    FWRITE, B_TRUE);
-			if (error)
-				goto fail;
-		} else {
-			// vnode_pager_setsize(vp, zp->z_size);
-		}
-
-		// DO A NORMAL CACHED WRITE, if the MDL bit is not set,
-		if (!FlagOn(IrpSp->MinorFunction, IRP_MN_MDL)) {
-			VERIFY3U(zccb->cacheinit, !=, 0);
-
-// Since we may have grown the filesize, we need to give CcMgr a head's up.
-			vnode_pager_setsize(fileObject, vp, zp->z_size, FALSE);
-
-			dprintf("CcWrite:  offset [ 0x%llx - 0x%llx ] "
-			    "len 0x%lx\n", byteOffset.QuadPart,
-			    byteOffset.QuadPart + bufferLength,
-			    bufferLength);
-
-			Status = STATUS_SUCCESS;
-
-			try {
-#if (NTDDI_VERSION >= NTDDI_WIN8)
-				if (!CcCopyWriteEx(fileObject,
-				    &byteOffset,
-				    bufferLength,
-				    TRUE,
-				    SystemBuffer,
-				    Irp->Tail.Overlay.Thread)) {
-#else
-				if (!CcCopyWrite(fileObject,
-				    &byteOffset,
-				    bufferLength,
-				    TRUE,
-				    SystemBuffer)) {
-#endif
-					dprintf("Could not wait\n");
-					ASSERT0("failed copy");
-				}
-			} except(EXCEPTION_EXECUTE_HANDLER) {
-				Status = GetExceptionCode();
-			}
-
-			// Irp->IoStatus.Status = STATUS_SUCCESS;
-			Irp->IoStatus.Information = bufferLength;
-			goto out;
-		} else {
-			VERIFY3U(zccb->cacheinit, !=, 0);
-
-			//  DO AN MDL WRITE
-			CcPrepareMdlWrite(fileObject,
-			    &byteOffset,
-			    bufferLength,
-			    &Irp->MdlAddress,
-			    &Irp->IoStatus);
-
-			Status = Irp->IoStatus.Status;
-			goto out;
-		}
-	}
-
-	struct iovec iov;
-	iov.iov_base = (void *)SystemBuffer;
-	iov.iov_len = bufferLength;
-
-	zfs_uio_t uio;
-	zfs_uio_iovec_init(&uio, &iov, 1, byteOffset.QuadPart, UIO_SYSSPACE,
-	    bufferLength, 0);
-
-	// dprintf("%s: offset %llx size %lx\n", __func__,
-	// byteOffset.QuadPart, bufferLength);
-
-	dprintf("ZfsWrite: offset [ 0x%llx - 0x%llx ] len 0x%lx\n",
-	    byteOffset.QuadPart, byteOffset.QuadPart + bufferLength,
-	    bufferLength);
-
-	if (FlagOn(Irp->Flags, IRP_PAGING_IO)) {
-		/*
-		 * Windows pageout does not update these, they
-		 * are part of CcWrite higher up.
-		 * Non-paging they are optional, as set by
-		 * set_information(file_basic, -1)
-		 */
-		uio.uio_extflg |= SKIP_WRITE_TIME | SKIP_CHANGE_TIME;
-	} else {
-		if (zccb->user_set_change_time)
-			uio.uio_extflg |= SKIP_CHANGE_TIME;
-		if (zccb->user_set_write_time)
-			uio.uio_extflg |= SKIP_WRITE_TIME;
-	}
-
-	// Should we call vnop_pageout instead ?
-	error = zfs_write(zp, &uio, 0, NULL);
-
-fail:
-	// if (error == 0)
-	//	zp->z_pflags |= ZFS_ARCHIVE;
-	switch (error) {
-	case 0:
-		break;
-	case EISDIR:
-		Status = STATUS_FILE_IS_A_DIRECTORY;
-		break;
-	case ENOSPC:
-		Status = STATUS_DISK_FULL;
-		break;
-	case EDQUOT:
-		// Status = STATUS_DISK_QUOTA_EXCEEDED;
-		Status = STATUS_DISK_FULL;
-		break;
-	default:
-		Status = STATUS_INVALID_PARAMETER;
-		break;
-	}
-
-	// EOF?
-	if ((bufferLength == zfs_uio_resid(&uio)) && error == ENOSPC)
-		Status = STATUS_DISK_FULL;
-
-	// Update bytes written
-	Irp->IoStatus.Information = bufferLength - zfs_uio_resid(&uio);
-
-
-	if (Irp->IoStatus.Information) {
-		zfs_send_notify(zp->z_zfsvfs, zp->z_name_cache,
-		    zp->z_name_offset,
-		    FILE_NOTIFY_CHANGE_SIZE,
-		    FILE_ACTION_MODIFIED);
-	}
-
-	// Update the file offset
-out:
-	if ((Status == STATUS_SUCCESS) &&
-	    (fileObject->Flags & FO_SYNCHRONOUS_IO) &&
-	    !(Irp->Flags & IRP_PAGING_IO)) {
-		fileObject->CurrentByteOffset.QuadPart =
-		    byteOffset.QuadPart + Irp->IoStatus.Information;
-	}
-
-	VN_RELE(vp);
-
-	zfs_exit(zfsvfs, FTAG);
-
-//	dprintf("  FileName: %wZ offset 0x%llx len 0x%lx mdl %p System %p\n",
-// &fileObject->FileName, byteOffset.QuadPart, bufferLength,
-// Irp->MdlAddress, Irp->AssociatedIrp.SystemBuffer);
-
-	return (SET_ERROR(Status));
+	return (FALSE);
 }
-#endif
+
+NTSTATUS
+do_write_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+{
+	boolean_t top_level = is_top_level(Irp);
+	NTSTATUS Status;
+
+	PIO_STACK_LOCATION IrpSp;
+	IrpSp = IoGetCurrentIrpStackLocation(Irp);
+
+	boolean_t wait = IrpSp && IrpSp->FileObject ? IoIsOperationSynchronous(Irp) : TRUE;
+
+	try {
+		Status = fs_write_impl(DeviceObject, Irp, IrpSp, wait, TRUE);
+	} except(EXCEPTION_EXECUTE_HANDLER) {
+		Status = GetExceptionCode();
+	}
+
+	if (!NT_SUCCESS(Status))
+		dprintf("write_file returned %08lx\n", Status);
+
+	Irp->IoStatus.Status = Status;
+
+	dprintf("wrote %Iu bytes\n", Irp->IoStatus.Information);
+
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	if (top_level)
+		IoSetTopLevelIrp(NULL);
+
+	dprintf("returning %08lx\n", Status);
+
+	return (Status);
+}
+
+struct do_job_s {
+	PIRP Irp;
+	uint8_t work_item[0];
+};
+
+void
+do_job(PDEVICE_OBJECT DeviceObject, struct do_job_s *job)
+{
+	NTSTATUS Status;
+
+	Status = do_write_job(DeviceObject, job->Irp);
+	IoInitializeWorkItem(DeviceObject, &job->work_item);
+	ExFreePoolWithTag(job, 'ZJOB');
+}
+
+boolean_t
+add_thread_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+{
+	struct do_job_s *job;
+
+	job = ExAllocatePoolWithTag(NonPagedPool,
+	    sizeof (struct do_job_s) + IoSizeofWorkItem(),
+	    'ZJOB');
+
+	if (job == NULL)
+		return (FALSE);
+
+	IoInitializeWorkItem(DeviceObject, &job->work_item);
+	job->Irp = Irp;
+
+	IoQueueWorkItem(&job->work_item,
+	    (PIO_WORKITEM_ROUTINE)do_job,
+	    DelayedWorkQueue, job);
+
+	return (TRUE);
+}
 
 /*
  * The lifetime of a delete.
@@ -6915,6 +6752,12 @@ _Function_class_(DRIVER_DISPATCH)
 		break;
 	case IRP_MJ_WRITE:
 		Status = fs_write(DeviceObject, Irp, IrpSp);
+		if (Status == STATUS_PENDING) {
+			IoMarkIrpPending(Irp);
+
+			if (!add_thread_job(DeviceObject, Irp))
+				 Status = do_write_job(DeviceObject, Irp);
+		}
 		break;
 	case IRP_MJ_FLUSH_BUFFERS:
 		Status = flush_buffers(DeviceObject, Irp, IrpSp);
