@@ -2967,7 +2967,7 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
-	if (VN_HOLD(vp) == 0 && VTOZ(vp) != NULL) {
+	if (VTOZ(vp) != NULL && VN_HOLD(vp) == 0) {
 		FILE_BASIC_INFORMATION *fbi =
 		    Irp->AssociatedIrp.SystemBuffer;
 		vattr_t va = { 0 };
@@ -3134,7 +3134,7 @@ set_file_disposition_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
-	if (VN_HOLD(vp) == 0 && VTOZ(vp) != NULL) {
+	if (VTOZ(vp) != NULL && VN_HOLD(vp) == 0) {
 
 		if (ex) {
 			FILE_DISPOSITION_INFORMATION_EX *fdie =
@@ -4842,14 +4842,14 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	stream = (FILE_STREAM_INFORMATION *)outbuffer;
 
-	for (zap_cursor_init(&zc, os, VTOZ(xdvp)->z_id);
+	for (zap_cursor_init(&zc, os, xdzp->z_id);
 	    zap_cursor_retrieve(&zc, &za) == 0; zap_cursor_advance(&zc)) {
 
 		if (!xattr_stream(za.za_name))
 			continue;	 /* skip */
 
 		// We need to lookup the size of the xattr.
-		int error = zfs_dirlook(VTOZ(xdvp), za.za_name, &xzp, 0,
+		int error = zfs_dirlook(xdzp, za.za_name, &xzp, 0,
 		    NULL, NULL);
 
 		overflow += zfswin_insert_streamname(za.za_name, outbuffer,
