@@ -4724,7 +4724,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	// if (fcb->ads)
-	make_inline = TRUE;
+	make_inline = FALSE;
 	// else
 	//    make_inline = newlength <= fcb->Vcb->options.max_inline;
 
@@ -4862,7 +4862,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 	}
 
-	if (pagefile) {
+	if (paging_io) {
 		uio.uio_extflg |= SKIP_CHANGE_TIME;
 		uio.uio_extflg |= SKIP_WRITE_TIME;
 	} else {
@@ -5122,7 +5122,7 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 		} else {
 
-			if (!FlagOn(Irp->Flags, IRP_PAGING_IO)) {
+			if (!FlagOn(Irp->Flags, IRP_PAGING_IO))
 				FsRtlCheckOplock(vp_oplock(vp), Irp, NULL,
 				    NULL, NULL);
 
@@ -5131,10 +5131,8 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 			Status = fs_write_impl(DeviceObject, Irp, IrpSp,
 			    wait, FALSE);
-
-			}
-
 		}
+
 	} except(EXCEPTION_EXECUTE_HANDLER) {
 		Status = GetExceptionCode();
 	}
