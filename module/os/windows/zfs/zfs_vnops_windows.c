@@ -4358,7 +4358,7 @@ zfs_read_wrap(vnode_t *vp, uint8_t *data, uint64_t start,
 		return (STATUS_END_OF_FILE);
 	}
 
-	// pool_type = fcb->Header.Flags2 & FSRTL_FLAG2_IS_PAGING_FILE ?
+	// pool_type = vp->Header.Flags2 & FSRTL_FLAG2_IS_PAGING_FILE ?
 	// NonPagedPool : PagedPool;
 	struct iovec iov;
 	iov.iov_base = (void *)data;
@@ -4588,7 +4588,7 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	NTSTATUS Status;
 	boolean_t top_level;
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
-	boolean_t acquired_fcb_lock = FALSE, wait;
+	boolean_t acquired_vp_lock = FALSE, wait;
 	uint64_t bytes_read;
 	PAGED_CODE();
 
@@ -4650,8 +4650,8 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 #endif
 
 #if 0
-	if (fcb == Vcb->volume_fcb) {
-		dprintf("reading volume FCB\n");
+	if (vp == Vcb->volume_vp) {
+		dprintf("reading volume vp\n");
 
 		IoSkipCurrentIrpStackLocation(Irp);
 
@@ -4692,12 +4692,12 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 			IoMarkIrpPending(Irp);
 			goto end;
 		}
-		acquired_fcb_lock = TRUE;
+		acquired_vp_lock = TRUE;
 	}
 
 	Status = fs_read_impl(Irp, wait, &bytes_read);
 
-	if (acquired_fcb_lock)
+	if (acquired_vp_lock)
 		ExReleaseResourceLite(vp->FileHeader.Resource);
 
 update:
@@ -4745,20 +4745,16 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 {
 	PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
-	// EXTENT_DATA *ed2;
 	uint64_t off64, newlength, start_data, end_data;
 	uint32_t bufhead;
-	boolean_t make_inline;
-	// INODE_ITEM* origii;
 	boolean_t changed_length = FALSE;
 	NTSTATUS Status;
 	LARGE_INTEGER time;
 	timestruc_t now;
 	vnode_t *vp;
 	zfs_dirlist_t *ccb;
-	// file_ref* fileref;
-	boolean_t paging_lock = FALSE, acquired_fcb_lock = FALSE,
-	    acquired_tree_lock = FALSE, pagefile;
+	boolean_t paging_lock = FALSE, acquired_vp_lock = FALSE,
+	    pagefile;
 	ULONG filter = 0;
 
 	dprintf("(%p, %p, %I64x, %p, %lx, %u, %u)\n", DeviceObject,
@@ -4792,7 +4788,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	off64 = offset.QuadPart;
 
-	dprintf("fcb->Header.Flags = %x\n", vp->FileHeader.Flags);
+	dprintf("vp->Header.Flags = %x\n", vp->FileHeader.Flags);
 
 	if (!no_cache && !CcCanIWrite(FileObject, *length, wait,
 	    deferred_write))
@@ -4854,7 +4850,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			Status = STATUS_PENDING;
 			goto end;
 		} else {
-			acquired_fcb_lock = TRUE;
+			acquired_vp_lock = TRUE;
 		}
 	} else if (!ExIsResourceAcquiredExclusiveLite(
 	    vp->FileHeader.Resource)) {
@@ -4863,7 +4859,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			Status = STATUS_PENDING;
 			goto end;
 		} else {
-			acquired_fcb_lock = TRUE;
+			acquired_vp_lock = TRUE;
 		}
 	}
 
@@ -4899,24 +4895,9 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 	}
 
-	// if (fcb->ads)
-	make_inline = FALSE;
-	// else
-	//    make_inline = newlength <= fcb->Vcb->options.max_inline;
-
 	if (changed_length) {
 		if (newlength >
 		    (uint64_t)vp->FileHeader.AllocationSize.QuadPart) {
-			if (!acquired_tree_lock) {
-	// We need to acquire the tree lock if we don't have it already -
-	// we can't give an inline file proper extents at the same time as we're
-	// doing a flush.
-	// if (!ExAcquireResourceSharedLite(&Vcb->tree_lock, wait)) {
-	//	Status = STATUS_PENDING;
-	//	goto end;
-	// } else
-				acquired_tree_lock = TRUE;
-			}
 
 			Status = zfs_freesp(zp,
 			    newlength, 0, FWRITE, B_TRUE);
@@ -5069,21 +5050,6 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	// gethrestime(&now);
 
 	if (!pagefile) {
-#if 0
-		if (fcb->ads) {
-			if (fileref && fileref->parent)
-				origii = &fileref->parent->fcb->inode_item;
-			else {
-				ERR("no parent fcb found for stream\n");
-				Status = STATUS_INTERNAL_ERROR;
-				goto end;
-			}
-		} else
-			origii = &fcb->inode_item;
-
-		origii->transid = Vcb->superblock.generation;
-		origii->sequence++;
-#endif
 
 		if (!ccb->user_set_write_time)
 			filter |= FILE_NOTIFY_CHANGE_LAST_WRITE;
@@ -5095,9 +5061,9 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 				zp->z_size = newlength;
 				filter |= FILE_NOTIFY_CHANGE_SIZE;
 			}
-			// fcb->inode_item_changed = true;
+
 		} else {
-			// fileref->parent->fcb->inode_item_changed = true;
+
 			if (changed_length)
 				filter |= FILE_NOTIFY_CHANGE_STREAM_SIZE;
 
@@ -5119,9 +5085,6 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			goto end;
 		}
 	}
-
-	// fcb->subvol->root_item.ctransid = Vcb->superblock.generation;
-	// fcb->subvol->root_item.ctime = now;
 
 	Status = STATUS_SUCCESS;
 	Irp->IoStatus.Information = *length;
@@ -5154,11 +5117,8 @@ end:
 		    FileObject->CurrentByteOffset.QuadPart);
 	}
 
-	if (acquired_fcb_lock)
+	if (acquired_vp_lock)
 		ExReleaseResourceLite(vp->FileHeader.Resource);
-
-	// if (acquired_tree_lock)
-		// ExReleaseResourceLite(&Vcb->tree_lock);
 
 	if (paging_lock)
 		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
@@ -5968,7 +5928,7 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			    vp->FileHeader.FileSize.QuadPart,
 			    vp->FileHeader.ValidDataLength.QuadPart);
 		}
-		// if (fcb->Vcb && fcb != fcb->Vcb->volume_fcb)
+		// if (vp->Vcb && vp != vp->Vcb->volume_vp)
 		// CcUninitializeCacheMap(FileObject, NULL, NULL);
 	}
 
