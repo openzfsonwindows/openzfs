@@ -1119,6 +1119,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		error = zfs_dirlook(dzp, stream_name, &zp, FIGNORECASE,
 		    &direntflags, NULL);
 		if (!CreateFile && error) {
+			zrele(dzp);
 			Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
 			return (STATUS_OBJECT_NAME_NOT_FOUND);
 		}
@@ -5799,11 +5800,23 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp, vnode_t **hold_vp)
 {
 	int Status = STATUS_SUCCESS;
-	mount_t *zmo = NULL;
+	mount_t *zmo = DeviceObject->DeviceExtension;
+	PFILE_OBJECT FileObject = IrpSp->FileObject;
+	struct vnode *vp = FileObject->FsContext;
+	zfs_dirlist_t *zccb = FileObject->FsContext2;
 
-	if (IrpSp->FileObject && IrpSp->FileObject->FsContext) {
-		struct vnode *vp = IrpSp->FileObject->FsContext;
-		zfs_dirlist_t *zccb = IrpSp->FileObject->FsContext2;
+	if (IrpSp->FileObject->Flags & FO_CLEANUP_COMPLETE) {
+		dprintf("FileObject %p already cleaned up\n", IrpSp->FileObject);
+		Status = STATUS_SUCCESS;
+		goto exit;
+	}
+
+	// We have to use the pointer to zmo stored in the vp, as we can receive cleanup
+	// messages belonging to other devices.
+	if (FileObject && FileObject->FsContext) {
+		boolean_t locked = TRUE;
+
+		FsRtlCheckOplock(vp_oplock(vp), Irp, NULL, NULL, NULL);
 
 		znode_t *zp = VTOZ(vp); // zp for notify removal
 
@@ -5813,6 +5826,138 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    zp && zp->z_name_cache ? zp->z_name_cache : "",
 		    vp->v_iocount, vp->v_usecount);
 
+		// ExAcquireResourceSharedLite(&fcb->Vcb->tree_lock, true);
+
+		ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, TRUE);
+
+		IoRemoveShareAccess(FileObject, &vp->share_access);
+
+		FsRtlFastUnlockAll(&vp->lock, FileObject, IoGetRequestorProcess(Irp), NULL);
+
+		if (zmo)
+			FsRtlNotifyCleanup(zmo->NotifySync, &zmo->DirNotifyList,
+			    IrpSp->FileObject->FsContext2);
+
+		// if (zccb && zccb->options & FILE_DELETE_ON_CLOSE && fileref)
+		//	fileref->delete_on_close = true;
+
+		// if (fileref && fileref->delete_on_close && fcb->type == BTRFS_TYPE_DIRECTORY &&
+		//    fcb->inode_item.st_size > 0 && fcb != fcb->Vcb->dummy_fcb)
+		//	fileref->delete_on_close = false;
+
+		// last close, OR, deleting
+		if (!vnode_isinuse(vp, 0) ||
+		    zccb && zccb->deleteonclose) {
+			zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+
+			if (zccb && zccb->deleteonclose) {
+
+				zccb->deleteonclose = 0;
+				int isdir = vnode_isdir(vp);
+
+				if (zp->z_name_cache != NULL) {
+					if (isdir) {
+						dprintf("DIR: FileDelete "
+						    "'%s' name '%s'\n",
+						    zp->z_name_cache,
+						    &zp->z_name_cache[
+						    zp->z_name_offset]);
+						zfs_send_notify(zfsvfs,
+						    zp->z_name_cache,
+						    zp->z_name_offset,
+						    FILE_NOTIFY_CHANGE_DIR_NAME,
+						    FILE_ACTION_REMOVED);
+					} else {
+						dprintf("FILE: FileDelete "
+						    "'%s' name '%s'\n",
+						    zp->z_name_cache,
+						    &zp->z_name_cache[
+						    zp->z_name_offset]);
+					zfs_send_notify(zfsvfs,
+					    zp->z_name_cache,
+					    zp->z_name_offset,
+					    FILE_NOTIFY_CHANGE_FILE_NAME,
+					    FILE_ACTION_REMOVED);
+					}
+				}
+
+				// Windows needs us to unlink it now, since CLOSE
+				// can be delayed and parent deletions might
+				// fail (ENOTEMPTY).
+
+				// This releases zp!
+				Status = delete_entry(DeviceObject, Irp, IrpSp);
+				if (Status != 0) {
+					dprintf("Deletion failed: %d\n",
+					    Status);
+				}
+				// delete_entry will always consume an IOCOUNT.
+				*hold_vp = NULL;
+
+				zp = NULL;
+
+// FILE_CLEANUP_UNKNOWN FILE_CLEANUP_WRONG_DEVICE FILE_CLEANUP_FILE_REMAINS
+// FILE_CLEANUP_FILE_DELETED FILE_CLEANUP_LINK_DELETED
+// FILE_CLEANUP_STREAM_DELETED FILE_CLEANUP_POSIX_STYLE_DELETE
+#if defined(ZFS_FS_ATTRIBUTE_CLEANUP_INFO) && defined(ZFS_FS_ATTRIBUTE_POSIX)
+				Irp->IoStatus.Information =
+				    FILE_CLEANUP_FILE_DELETED |
+				    FILE_CLEANUP_POSIX_STYLE_DELETE;
+#elif defined(ZFS_FS_ATTRIBUTE_CLEANUP_INFO)
+				Irp->IoStatus.Information =
+				    FILE_CLEANUP_FILE_DELETED;
+#endif
+
+
+				/* Not deleting, but lastclose */
+			} else if (FileObject->Flags & FO_CACHE_SUPPORTED &&
+			    FileObject->SectionObjectPointer->DataSectionObject) {
+				IO_STATUS_BLOCK iosb;
+
+				if (locked) {
+					ExReleaseResourceLite(vp->FileHeader.Resource);
+					locked = FALSE;
+				}
+
+				CcFlushCache(FileObject->SectionObjectPointer, NULL, 0, &iosb);
+
+				if (!NT_SUCCESS(iosb.Status))
+					dprintf("CcFlushCache returned %08lx\n", iosb.Status);
+
+				if (!ExIsResourceAcquiredSharedLite(vp->FileHeader.PagingIoResource)) {
+					ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource, TRUE);
+					ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
+				}
+
+				CcPurgeCacheSection(FileObject->SectionObjectPointer, NULL, 0, FALSE);
+
+				dprintf("flushed cache on close (FileObject = %p, vp = %p, AllocationSize = %I64x, FileSize = %I64x, ValidDataLength = %I64x)\n",
+				    FileObject, vp, vp->FileHeader.AllocationSize.QuadPart, vp->FileHeader.FileSize.QuadPart, vp->FileHeader.ValidDataLength.QuadPart);
+			}
+			// if (fcb->Vcb && fcb != fcb->Vcb->volume_fcb)
+			// CcUninitializeCacheMap(FileObject, NULL, NULL);
+		}
+
+		if (locked)
+			ExReleaseResourceLite(vp->FileHeader.Resource);
+
+	// ExReleaseResourceLite(&vp->Vcb->tree_lock);
+
+		FileObject->Flags |= FO_CLEANUP_COMPLETE;
+	}
+
+	Status = STATUS_SUCCESS;
+
+exit:
+	dprintf("returning %08lx\n", Status);
+
+	Irp->IoStatus.Status = Status;
+	Irp->IoStatus.Information = 0;
+
+	return (Status);
+}
+
+#if 0
 		vnode_lock(vp);
 		IoRemoveShareAccess(IrpSp->FileObject, &vp->share_access);
 		vnode_unlock(vp);
@@ -5924,6 +6069,7 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	return (Status);
 }
+#endif
 
 /*
  * IRP_MJ_CLOSE - sent when Windows is done with FileObject, and we can
