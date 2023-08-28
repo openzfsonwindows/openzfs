@@ -4842,14 +4842,14 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	stream = (FILE_STREAM_INFORMATION *)outbuffer;
 
-	for (zap_cursor_init(&zc, os, VTOZ(xdvp)->z_id);
+	for (zap_cursor_init(&zc, os, xdzp->z_id);
 	    zap_cursor_retrieve(&zc, &za) == 0; zap_cursor_advance(&zc)) {
 
 		if (!xattr_stream(za.za_name))
 			continue;	 /* skip */
 
 		// We need to lookup the size of the xattr.
-		int error = zfs_dirlook(VTOZ(xdvp), za.za_name, &xzp, 0,
+		int error = zfs_dirlook(xdzp, za.za_name, &xzp, 0,
 		    NULL, NULL);
 
 		overflow += zfswin_insert_streamname(za.za_name, outbuffer,

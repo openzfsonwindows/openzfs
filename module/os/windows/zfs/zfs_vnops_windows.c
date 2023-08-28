@@ -4358,7 +4358,8 @@ zfs_read_wrap(vnode_t *vp, uint8_t *data, uint64_t start,
 		return (STATUS_END_OF_FILE);
 	}
 
-	// pool_type = fcb->Header.Flags2 & FSRTL_FLAG2_IS_PAGING_FILE ? NonPagedPool : PagedPool;
+	// pool_type = fcb->Header.Flags2 & FSRTL_FLAG2_IS_PAGING_FILE ?
+	// NonPagedPool : PagedPool;
 	struct iovec iov;
 	iov.iov_base = (void *)data;
 	iov.iov_len = length;
@@ -4420,7 +4421,7 @@ fs_read_impl(PIRP Irp, boolean_t wait, uint64_t *bytes_read)
 	}
 
 	if (start >= (uint64_t)vp->FileHeader.FileSize.QuadPart) {
-		dprintf("tried to read with offset after file end (%I64x >= %I64x)\n",
+		dprintf("read with offset > end (%I64x >= %I64x)\n",
 		    start, vp->FileHeader.FileSize.QuadPart);
 		return (STATUS_END_OF_FILE);
 	}
@@ -4436,14 +4437,18 @@ fs_read_impl(PIRP Irp, boolean_t wait, uint64_t *bytes_read)
 			if (!FileObject->PrivateCacheMap) {
 				CC_FILE_SIZES ccfs;
 
-				ccfs.AllocationSize = vp->FileHeader.AllocationSize;
-				ccfs.FileSize = vp->FileHeader.FileSize;
-				ccfs.ValidDataLength = vp->FileHeader.ValidDataLength;
+				ccfs.AllocationSize =
+				    vp->FileHeader.AllocationSize;
+				ccfs.FileSize =
+				    vp->FileHeader.FileSize;
+				ccfs.ValidDataLength =
+				    vp->FileHeader.ValidDataLength;
 
 				zfs_init_cache(FileObject, vp);
 			}
 
-			CcMdlRead(FileObject, &IrpSp->Parameters.Read.ByteOffset,
+			CcMdlRead(FileObject,
+			    &IrpSp->Parameters.Read.ByteOffset,
 			    length, &Irp->MdlAddress, &Irp->IoStatus);
 		} except(EXCEPTION_EXECUTE_HANDLER) {
 			Status = GetExceptionCode();
@@ -4452,7 +4457,7 @@ fs_read_impl(PIRP Irp, boolean_t wait, uint64_t *bytes_read)
 		if (NT_SUCCESS(Status)) {
 			Status = Irp->IoStatus.Status;
 			Irp->IoStatus.Information += addon;
-			*bytes_read = (uint64_t) Irp->IoStatus.Information;
+			*bytes_read = (uint64_t)Irp->IoStatus.Information;
 		} else
 			dprintf("EXCEPTION - %08lx\n", Status);
 
@@ -4478,12 +4483,16 @@ fs_read_impl(PIRP Irp, boolean_t wait, uint64_t *bytes_read)
 		return (STATUS_SUCCESS);
 	}
 
-	if (length + start > (uint64_t)vp->FileHeader.ValidDataLength.QuadPart) {
+	if (length + start >
+	    (uint64_t)vp->FileHeader.ValidDataLength.QuadPart) {
 		addon = (ULONG)(min(start + length,
 		    (uint64_t)vp->FileHeader.FileSize.QuadPart) -
 		    vp->FileHeader.ValidDataLength.QuadPart);
-		RtlZeroMemory(data + (vp->FileHeader.ValidDataLength.QuadPart - start), addon);
-		length = (ULONG)(vp->FileHeader.ValidDataLength.QuadPart - start);
+		RtlZeroMemory(data +
+		    (vp->FileHeader.ValidDataLength.QuadPart - start),
+		    addon);
+		length = (ULONG)
+		    (vp->FileHeader.ValidDataLength.QuadPart - start);
 	}
 
 	if (!nocache) {
@@ -4492,22 +4501,28 @@ fs_read_impl(PIRP Irp, boolean_t wait, uint64_t *bytes_read)
 			if (!FileObject->PrivateCacheMap) {
 				CC_FILE_SIZES ccfs;
 
-				ccfs.AllocationSize = vp->FileHeader.AllocationSize;
-				ccfs.FileSize = vp->FileHeader.FileSize;
-				ccfs.ValidDataLength = vp->FileHeader.ValidDataLength;
+				ccfs.AllocationSize =
+				    vp->FileHeader.AllocationSize;
+				ccfs.FileSize =
+				    vp->FileHeader.FileSize;
+				ccfs.ValidDataLength =
+				    vp->FileHeader.ValidDataLength;
 
 				zfs_init_cache(FileObject, vp);
 			}
 
 #if (NTDDI_VERSION >= NTDDI_WIN8)
-			dprintf("CcCopyReadEx(%p, %I64x, %lx, %u, %p, %p, %p)\n",
-			    FileObject, IrpSp->Parameters.Read.ByteOffset.QuadPart,
-			    length, wait, data, &Irp->IoStatus, Irp->Tail.Overlay.Thread);
-			dprintf("sizes = %I64x, %I64x, %I64x\n",
-			    fcb->Header.AllocationSize.QuadPart, fcb->Header.FileSize.QuadPart,
-			    fcb->Header.ValidDataLength.QuadPart);
-			if (!CcCopyReadEx(FileObject, &IrpSp->Parameters.Read.ByteOffset,
-			    length, wait, data, &Irp->IoStatus, Irp->Tail.Overlay.Thread)) {
+	dprintf("CcCopyReadEx(%p, %I64x, %lx, %u, %p, %p, %p)\n",
+	    FileObject, IrpSp->Parameters.Read.ByteOffset.QuadPart,
+	    length, wait, data, &Irp->IoStatus, Irp->Tail.Overlay.Thread);
+	dprintf("sizes = %I64x, %I64x, %I64x\n",
+	    vp->FileHeader.AllocationSize.QuadPart,
+	    vp->FileHeader.FileSize.QuadPart,
+	    vp->FileHeader.ValidDataLength.QuadPart);
+			if (!CcCopyReadEx(FileObject,
+			    &IrpSp->Parameters.Read.ByteOffset,
+			    length, wait, data, &Irp->IoStatus,
+			    Irp->Tail.Overlay.Thread)) {
 				dprintf("CcCopyReadEx could not wait\n");
 
 				IoMarkIrpPending(Irp);
@@ -4515,13 +4530,15 @@ fs_read_impl(PIRP Irp, boolean_t wait, uint64_t *bytes_read)
 			}
 			dprintf("CcCopyReadEx finished\n");
 #else
-			dprintf("CcCopyRead(%p, %I64x, %lx, %u, %p, %p)\n", FileObject,
-			    IrpSp->Parameters.Read.ByteOffset.QuadPart, length, wait,
-			    data, &Irp->IoStatus);
-			dprintf("sizes = %I64x, %I64x, %I64x\n",
-			    vp->FileHeader.AllocationSize.QuadPart, vp->FileHeader.FileSize.QuadPart,
-			    vp->FileHeader.ValidDataLength.QuadPart);
-			if (!CcCopyRead(FileObject, &IrpSp->Parameters.Read.ByteOffset,
+	dprintf("CcCopyRead(%p, %I64x, %lx, %u, %p, %p)\n", FileObject,
+	    IrpSp->Parameters.Read.ByteOffset.QuadPart, length, wait,
+	    data, &Irp->IoStatus);
+	dprintf("sizes = %I64x, %I64x, %I64x\n",
+	    vp->FileHeader.AllocationSize.QuadPart,
+	    vp->FileHeader.FileSize.QuadPart,
+	    vp->FileHeader.ValidDataLength.QuadPart);
+			if (!CcCopyRead(FileObject,
+			    &IrpSp->Parameters.Read.ByteOffset,
 			    length, wait, data, &Irp->IoStatus)) {
 				dprintf("CcCopyRead could not wait\n");
 
@@ -4537,7 +4554,7 @@ fs_read_impl(PIRP Irp, boolean_t wait, uint64_t *bytes_read)
 		if (NT_SUCCESS(Status)) {
 			Status = Irp->IoStatus.Status;
 			Irp->IoStatus.Information += addon;
-			*bytes_read = (uint64_t) Irp->IoStatus.Information;
+			*bytes_read = (uint64_t)Irp->IoStatus.Information;
 		} else
 			dprintf("EXCEPTION - %08lx\n", Status);
 
@@ -4550,7 +4567,8 @@ fs_read_impl(PIRP Irp, boolean_t wait, uint64_t *bytes_read)
 			return (STATUS_PENDING);
 		}
 
-		Status = zfs_read_wrap(vp, data, start, length, bytes_read, Irp);
+		Status = zfs_read_wrap(vp, data, start, length, bytes_read,
+		    Irp);
 
 		if (!NT_SUCCESS(Status))
 			dprintf("read_file returned %08lx\n", Status);
@@ -4619,7 +4637,7 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		goto exit;
 	}
 
-	VERIFY3U(VN_HOLD(vp), == , 0);
+	VERIFY3U(VN_HOLD(vp), ==, 0);
 
 	znode_t *zp = VTOZ(vp);
 
@@ -4657,7 +4675,8 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		IO_STATUS_BLOCK iosb;
 
 		CcFlushCache(FileObject->SectionObjectPointer,
-		    &IrpSp->Parameters.Read.ByteOffset, IrpSp->Parameters.Read.Length,
+		    &IrpSp->Parameters.Read.ByteOffset,
+		    IrpSp->Parameters.Read.Length,
 		    &iosb);
 		if (!NT_SUCCESS(iosb.Status)) {
 			dprintf("CcFlushCache returned %08lx\n", iosb.Status);
@@ -4667,7 +4686,8 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	}
 
 	if (!ExIsResourceAcquiredSharedLite(vp->FileHeader.Resource)) {
-		if (!ExAcquireResourceSharedLite(vp->FileHeader.Resource, wait)) {
+		if (!ExAcquireResourceSharedLite(vp->FileHeader.Resource,
+		    wait)) {
 			Status = STATUS_PENDING;
 			IoMarkIrpPending(Irp);
 			goto end;
@@ -4681,9 +4701,11 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		ExReleaseResourceLite(vp->FileHeader.Resource);
 
 update:
-	if (FileObject->Flags & FO_SYNCHRONOUS_IO && !(Irp->Flags & IRP_PAGING_IO))
+	if (FileObject->Flags & FO_SYNCHRONOUS_IO &&
+	    !(Irp->Flags & IRP_PAGING_IO))
 		FileObject->CurrentByteOffset.QuadPart =
-		    IrpSp->Parameters.Read.ByteOffset.QuadPart + (NT_SUCCESS(Status) ? bytes_read : 0);
+		    IrpSp->Parameters.Read.ByteOffset.QuadPart +
+		    (NT_SUCCESS(Status) ? bytes_read : 0);
 
 end:
 	switch (Status) {
@@ -5806,145 +5828,156 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	zfs_dirlist_t *zccb = FileObject->FsContext2;
 
 	if (IrpSp->FileObject->Flags & FO_CLEANUP_COMPLETE) {
-		dprintf("FileObject %p already cleaned up\n", IrpSp->FileObject);
+		dprintf("FileObject %p already cleaned up\n",
+		    IrpSp->FileObject);
 		Status = STATUS_SUCCESS;
 		goto exit;
 	}
 
-	// We have to use the pointer to zmo stored in the vp, as we can receive cleanup
-	// messages belonging to other devices.
-	if (FileObject && FileObject->FsContext) {
-		boolean_t locked = TRUE;
+	// We have to use the pointer to zmo stored in the vp,
+	// as we can receive cleanup messages belonging to other devices.
+	// (figure out what this means)
+	if (!FileObject || !FileObject->FsContext) {
+		Status = STATUS_SUCCESS;
+		goto exit;
+	}
 
-		FsRtlCheckOplock(vp_oplock(vp), Irp, NULL, NULL, NULL);
+	boolean_t locked = TRUE;
 
-		znode_t *zp = VTOZ(vp); // zp for notify removal
+	FsRtlCheckOplock(vp_oplock(vp), Irp, NULL, NULL, NULL);
 
-		vnode_rele(vp); // Release longterm hold finally.
+	znode_t *zp = VTOZ(vp); // zp for notify removal
 
-		dprintf("IRP_MJ_CLEANUP: '%s' iocount %u usecount %u\n",
-		    zp && zp->z_name_cache ? zp->z_name_cache : "",
-		    vp->v_iocount, vp->v_usecount);
+	vnode_rele(vp); // Release longterm hold finally.
 
-		// ExAcquireResourceSharedLite(&fcb->Vcb->tree_lock, true);
+	dprintf("IRP_MJ_CLEANUP: '%s' iocount %u usecount %u\n",
+	    zp && zp->z_name_cache ? zp->z_name_cache : "",
+	    vp->v_iocount, vp->v_usecount);
 
-		ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, TRUE);
+	// ExAcquireResourceSharedLite(&fcb->Vcb->tree_lock, true);
 
-		IoRemoveShareAccess(FileObject, &vp->share_access);
+	ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, TRUE);
 
-		FsRtlFastUnlockAll(&vp->lock, FileObject, IoGetRequestorProcess(Irp), NULL);
+	IoRemoveShareAccess(FileObject, &vp->share_access);
 
-		if (zmo)
-			FsRtlNotifyCleanup(zmo->NotifySync, &zmo->DirNotifyList,
-			    IrpSp->FileObject->FsContext2);
+	FsRtlFastUnlockAll(&vp->lock, FileObject,
+	    IoGetRequestorProcess(Irp), NULL);
 
-		// if (zccb && zccb->options & FILE_DELETE_ON_CLOSE && fileref)
-		//	fileref->delete_on_close = true;
+	if (zmo)
+		FsRtlNotifyCleanup(zmo->NotifySync, &zmo->DirNotifyList,
+		    IrpSp->FileObject->FsContext2);
 
-		// if (fileref && fileref->delete_on_close && fcb->type == BTRFS_TYPE_DIRECTORY &&
-		//    fcb->inode_item.st_size > 0 && fcb != fcb->Vcb->dummy_fcb)
-		//	fileref->delete_on_close = false;
+	// last close, OR, deleting
+	if (!vnode_isinuse(vp, 0) ||
+	    zccb && zccb->deleteonclose) {
+		zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 
-		// last close, OR, deleting
-		if (!vnode_isinuse(vp, 0) ||
-		    zccb && zccb->deleteonclose) {
-			zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+		if (zccb && zccb->deleteonclose) {
 
-			if (zccb && zccb->deleteonclose) {
+			zccb->deleteonclose = 0;
+			int isdir = vnode_isdir(vp);
 
-				zccb->deleteonclose = 0;
-				int isdir = vnode_isdir(vp);
-
-				if (zp->z_name_cache != NULL) {
-					if (isdir) {
-						dprintf("DIR: FileDelete "
-						    "'%s' name '%s'\n",
-						    zp->z_name_cache,
-						    &zp->z_name_cache[
-						    zp->z_name_offset]);
-						zfs_send_notify(zfsvfs,
-						    zp->z_name_cache,
-						    zp->z_name_offset,
-						    FILE_NOTIFY_CHANGE_DIR_NAME,
-						    FILE_ACTION_REMOVED);
-					} else {
-						dprintf("FILE: FileDelete "
-						    "'%s' name '%s'\n",
-						    zp->z_name_cache,
-						    &zp->z_name_cache[
-						    zp->z_name_offset]);
+			if (zp->z_name_cache != NULL) {
+				if (isdir) {
+					dprintf("DIR: FileDelete "
+					    "'%s' name '%s'\n",
+					    zp->z_name_cache,
+					    &zp->z_name_cache[
+					    zp->z_name_offset]);
 					zfs_send_notify(zfsvfs,
 					    zp->z_name_cache,
 					    zp->z_name_offset,
-					    FILE_NOTIFY_CHANGE_FILE_NAME,
+					    FILE_NOTIFY_CHANGE_DIR_NAME,
 					    FILE_ACTION_REMOVED);
-					}
+				} else {
+					dprintf("FILE: FileDelete "
+					    "'%s' name '%s'\n",
+					    zp->z_name_cache,
+					    &zp->z_name_cache[
+					    zp->z_name_offset]);
+				zfs_send_notify(zfsvfs,
+				    zp->z_name_cache,
+				    zp->z_name_offset,
+				    FILE_NOTIFY_CHANGE_FILE_NAME,
+				    FILE_ACTION_REMOVED);
 				}
+			}
 
-				// Windows needs us to unlink it now, since CLOSE
-				// can be delayed and parent deletions might
-				// fail (ENOTEMPTY).
+			// Windows needs us to unlink it now, since
+			// CLOSE can be delayed and parent deletions
+			// might fail (ENOTEMPTY).
 
-				// This releases zp!
-				Status = delete_entry(DeviceObject, Irp, IrpSp);
-				if (Status != 0) {
-					dprintf("Deletion failed: %d\n",
-					    Status);
-				}
-				// delete_entry will always consume an IOCOUNT.
-				*hold_vp = NULL;
+			// This releases zp!
+			Status = delete_entry(DeviceObject, Irp, IrpSp);
+			if (Status != 0) {
+				dprintf("Deletion failed: %d\n",
+				    Status);
+			}
+			// delete_entry will always consume an IOCOUNT.
+			*hold_vp = NULL;
 
-				zp = NULL;
+			zp = NULL;
 
 // FILE_CLEANUP_UNKNOWN FILE_CLEANUP_WRONG_DEVICE FILE_CLEANUP_FILE_REMAINS
 // FILE_CLEANUP_FILE_DELETED FILE_CLEANUP_LINK_DELETED
 // FILE_CLEANUP_STREAM_DELETED FILE_CLEANUP_POSIX_STYLE_DELETE
 #if defined(ZFS_FS_ATTRIBUTE_CLEANUP_INFO) && defined(ZFS_FS_ATTRIBUTE_POSIX)
-				Irp->IoStatus.Information =
-				    FILE_CLEANUP_FILE_DELETED |
-				    FILE_CLEANUP_POSIX_STYLE_DELETE;
+			Irp->IoStatus.Information =
+			    FILE_CLEANUP_FILE_DELETED |
+			    FILE_CLEANUP_POSIX_STYLE_DELETE;
 #elif defined(ZFS_FS_ATTRIBUTE_CLEANUP_INFO)
-				Irp->IoStatus.Information =
-				    FILE_CLEANUP_FILE_DELETED;
+			Irp->IoStatus.Information =
+			    FILE_CLEANUP_FILE_DELETED;
 #endif
 
 
-				/* Not deleting, but lastclose */
-			} else if (FileObject->Flags & FO_CACHE_SUPPORTED &&
-			    FileObject->SectionObjectPointer->DataSectionObject) {
-				IO_STATUS_BLOCK iosb;
+			/* Not deleting, but lastclose */
+		} else if (FileObject->Flags & FO_CACHE_SUPPORTED &&
+		    FileObject->SectionObjectPointer->DataSectionObject) {
+			IO_STATUS_BLOCK iosb;
 
-				if (locked) {
-					ExReleaseResourceLite(vp->FileHeader.Resource);
-					locked = FALSE;
-				}
-
-				CcFlushCache(FileObject->SectionObjectPointer, NULL, 0, &iosb);
-
-				if (!NT_SUCCESS(iosb.Status))
-					dprintf("CcFlushCache returned %08lx\n", iosb.Status);
-
-				if (!ExIsResourceAcquiredSharedLite(vp->FileHeader.PagingIoResource)) {
-					ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource, TRUE);
-					ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
-				}
-
-				CcPurgeCacheSection(FileObject->SectionObjectPointer, NULL, 0, FALSE);
-
-				dprintf("flushed cache on close (FileObject = %p, vp = %p, AllocationSize = %I64x, FileSize = %I64x, ValidDataLength = %I64x)\n",
-				    FileObject, vp, vp->FileHeader.AllocationSize.QuadPart, vp->FileHeader.FileSize.QuadPart, vp->FileHeader.ValidDataLength.QuadPart);
+			if (locked) {
+				ExReleaseResourceLite(vp->FileHeader.Resource);
+				locked = FALSE;
 			}
-			// if (fcb->Vcb && fcb != fcb->Vcb->volume_fcb)
-			// CcUninitializeCacheMap(FileObject, NULL, NULL);
-		}
 
-		if (locked)
-			ExReleaseResourceLite(vp->FileHeader.Resource);
+			CcFlushCache(FileObject->SectionObjectPointer, NULL, 0,
+			    &iosb);
+
+			if (!NT_SUCCESS(iosb.Status))
+				dprintf("CcFlushCache returned %08lx\n",
+				    iosb.Status);
+
+			if (!ExIsResourceAcquiredSharedLite(
+			    vp->FileHeader.PagingIoResource)) {
+				ExAcquireResourceExclusiveLite(
+				    vp->FileHeader.PagingIoResource,
+				    TRUE);
+				ExReleaseResourceLite(
+				    vp->FileHeader.PagingIoResource);
+			}
+
+			CcPurgeCacheSection(FileObject->SectionObjectPointer,
+			    NULL, 0, FALSE);
+
+			dprintf("flushed cache on close (fo = %p, vp = %p, "
+			    "AllocationSize = %I64x, FileSize = %I64x, "
+			    "ValidDataLength = %I64x)\n",
+			    FileObject, vp,
+			    vp->FileHeader.AllocationSize.QuadPart,
+			    vp->FileHeader.FileSize.QuadPart,
+			    vp->FileHeader.ValidDataLength.QuadPart);
+		}
+		// if (fcb->Vcb && fcb != fcb->Vcb->volume_fcb)
+		// CcUninitializeCacheMap(FileObject, NULL, NULL);
+	}
+
+	if (locked)
+		ExReleaseResourceLite(vp->FileHeader.Resource);
 
 	// ExReleaseResourceLite(&vp->Vcb->tree_lock);
 
-		FileObject->Flags |= FO_CLEANUP_COMPLETE;
-	}
+	FileObject->Flags |= FO_CLEANUP_COMPLETE;
 
 	Status = STATUS_SUCCESS;
 
@@ -5956,120 +5989,6 @@ exit:
 
 	return (Status);
 }
-
-#if 0
-		vnode_lock(vp);
-		IoRemoveShareAccess(IrpSp->FileObject, &vp->share_access);
-		vnode_unlock(vp);
-
-		int isdir = vnode_isdir(vp);
-
-		zmo = DeviceObject->DeviceExtension;
-		VERIFY(zmo->type == MOUNT_TYPE_VCB);
-
-		if (zp != NULL) {
-
-			if (!isdir) {
-				if (vnode_flushcache(vp, IrpSp->FileObject,
-				    FALSE))
-					dprintf(
-					    "cleanup: flushcache said no?\n");
-			}
-
-/*
- * Technically, this should only be called on the FileObject which
- * opened the file with DELETE_ON_CLOSE - in fastfat, that is stored
- * in the ccb (context) set in FsContext2, which holds data for each
- * FileObject context. Possibly, we should as well. (We do for dirs)
- */
-			if (zccb && zccb->deleteonclose) {
-				zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
-
-				zccb->deleteonclose = 0;
-
-				if (zp->z_name_cache != NULL) {
-					if (isdir) {
-						dprintf("DIR: FileDelete "
-						    "'%s' name '%s'\n",
-						    zp->z_name_cache,
-						    &zp->z_name_cache[
-						    zp->z_name_offset]);
-						zfs_send_notify(zfsvfs,
-						    zp->z_name_cache,
-						    zp->z_name_offset,
-						    FILE_NOTIFY_CHANGE_DIR_NAME,
-						    FILE_ACTION_REMOVED);
-					} else {
-						dprintf("FILE: FileDelete "
-						    "'%s' name '%s'\n",
-						    zp->z_name_cache,
-						    &zp->z_name_cache[
-						    zp->z_name_offset]);
-					zfs_send_notify(zfsvfs,
-					    zp->z_name_cache,
-					    zp->z_name_offset,
-					    FILE_NOTIFY_CHANGE_FILE_NAME,
-					    FILE_ACTION_REMOVED);
-					}
-				}
-
-			// Windows needs us to unlink it now, since CLOSE
-			// can be delayed and parent deletions might
-			// fail (ENOTEMPTY).
-
-			// This releases zp!
-				Status = delete_entry(DeviceObject, Irp, IrpSp);
-				if (Status != 0) {
-					dprintf("Deletion failed: %d\n",
-					    Status);
-				}
-				// delete_entry will always consume an IOCOUNT.
-				*hold_vp = NULL;
-
-				zp = NULL;
-
-// FILE_CLEANUP_UNKNOWN FILE_CLEANUP_WRONG_DEVICE FILE_CLEANUP_FILE_REMAINS
-// FILE_CLEANUP_FILE_DELETED FILE_CLEANUP_LINK_DELETED
-// FILE_CLEANUP_STREAM_DELETED FILE_CLEANUP_POSIX_STYLE_DELETE
-#if defined(ZFS_FS_ATTRIBUTE_CLEANUP_INFO) && defined(ZFS_FS_ATTRIBUTE_POSIX)
-				Irp->IoStatus.Information =
-				    FILE_CLEANUP_FILE_DELETED |
-				    FILE_CLEANUP_POSIX_STYLE_DELETE;
-#elif defined(ZFS_FS_ATTRIBUTE_CLEANUP_INFO)
-				Irp->IoStatus.Information =
-				    FILE_CLEANUP_FILE_DELETED;
-#endif
-
-			} else {
-				// fastfat zeros end of file here if last
-				// open closed
-			}
-
-		}
-
-		if (isdir && IrpSp->FileObject) {
-			dprintf("Removing all notifications for "
-			    "directory: %p\n", zp);
-
-			FsRtlNotifyCleanup(zmo->NotifySync, &zmo->DirNotifyList,
-			    IrpSp->FileObject->FsContext2);
-		}
-
-		// dprintf("cleanup: vp %p attempt to ditch CCMgr\n", vp);
-		// if (vnode_flushcache(vp, IrpSp->FileObject, TRUE) == 1) {
-		//	dprintf("vp %p clearing out FsContext\n", vp);
-		// IrpSp->FileObject->FsContext = NULL;
-		// }
-		// vnode_fileobject_remove(vp, IrpSp->FileObject);
-		// zfs_decouplefileobject(vp, IrpSp->FileObject);
-		if (IrpSp->FileObject)
-			IrpSp->FileObject->Flags |= FO_CLEANUP_COMPLETE;
-		Status = STATUS_SUCCESS;
-	}
-
-	return (Status);
-}
-#endif
 
 /*
  * IRP_MJ_CLOSE - sent when Windows is done with FileObject, and we can
