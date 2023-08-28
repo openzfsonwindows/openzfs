@@ -1168,7 +1168,8 @@ vnode_recycle_int(vnode_t *vp, int flags)
 			VERIFY((vp->v_parent != NULL) ||
 			    (vp->v_flags & VNODE_MARKROOT));
 			// hold iocount cos of ASSERT in vnode_rele
-			if ((vp->v_parent != NULL) && vnode_isdir(vp->v_parent) &&
+			if ((vp->v_parent != NULL) &&
+			    vnode_isdir(vp->v_parent) &&
 			    (vnode_getwithref(vp->v_parent) == 0)) {
 				vnode_rele(vp->v_parent);
 				vnode_put(vp->v_parent);

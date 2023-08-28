@@ -2060,7 +2060,8 @@ pnp_query_id(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	RtlCopyMemory((void *)Irp->IoStatus.Information, zmo->bus_name.Buffer,
 	    zmo->bus_name.Length);
-	dprintf("replying with '%.*S'\n", (int)(zmo->uuid.Length/sizeof (WCHAR)),
+	dprintf("replying with '%.*S'\n",
+	    (int)(zmo->uuid.Length/sizeof (WCHAR)),
 	    (WCHAR *)Irp->IoStatus.Information);
 
 	return (STATUS_SUCCESS);
@@ -6562,7 +6563,7 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = zfs_vnop_mount(DeviceObject, Irp, IrpSp);
 			break;
 		case IRP_MN_USER_FS_REQUEST:
-			dprintf("IRP_MN_USER_FS_REQUEST: FsControlCode 0lx%lx\n",
+			dprintf("IRP_MN_USER_FS_REQUEST: FsControlCode 0x%lx\n",
 			    IrpSp->Parameters.FileSystemControl.FsControlCode);
 			Status = user_fs_request(DeviceObject, PIrp, IrpSp);
 			break;
