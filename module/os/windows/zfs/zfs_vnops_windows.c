@@ -821,7 +821,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			    IrpSp->Flags&SL_CASE_SENSITIVE ? "CaseSensitive" :
 			    "CaseInsensitive");
 
-			if ((!IrpSp->Flags & SL_CASE_SENSITIVE) &&
+			if (!(IrpSp->Flags & SL_CASE_SENSITIVE) &&
 			    (zfsvfs->z_case != ZFS_CASE_SENSITIVE))
 				flags |= FIGNORECASE;
 
@@ -1015,7 +1015,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			    zp->z_size;
 			rpb = ExAllocatePoolWithTag(PagedPool,
 			    size, '!FSZ');
-			get_reparse_point_impl(zp, rpb, size);
+			get_reparse_point_impl(zp, (char *)rpb, size);
 
 			/*
 			 * Length, in bytes, of the unparsed portion of the
@@ -1500,8 +1500,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 				// Did they ask for an AllocationSize
 				if (Irp->Overlay.AllocationSize.QuadPart > 0) {
-					uint64_t allocsize = Irp->
-					    Overlay.AllocationSize.QuadPart;
+					// uint64_t allocsize = Irp->
+					//    Overlay.AllocationSize.QuadPart;
 					// zp->z_blksz =
 					// P2ROUNDUP(allocsize, 512);
 				}
@@ -1539,6 +1539,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		/* Call this function again, lets hope, only once */
 				if (reenter_for_xattr) {
 					Status = EAGAIN;
+					vnode_rele(vp);
 				}
 
 			}
@@ -1990,7 +1991,7 @@ zfs_znode_getvnode(znode_t *zp, znode_t *dzp, zfsvfs_t *zfsvfs)
 		Status = zfs_attach_security(vp, dzp && ZTOV(dzp) ?
 		    ZTOV(dzp) : NULL);
 		if (!NT_SUCCESS(Status))
-			dprintf("zfs_attach_security failed: 0x%x\n", Status);
+			dprintf("zfs_attach_security failed: 0x%lx\n", Status);
 	}
 	return (0);
 }
@@ -2059,8 +2060,8 @@ pnp_query_id(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	RtlCopyMemory((void *)Irp->IoStatus.Information, zmo->bus_name.Buffer,
 	    zmo->bus_name.Length);
-	dprintf("replying with '%.*S'\n", (int)zmo->uuid.Length/sizeof (WCHAR),
-	    Irp->IoStatus.Information);
+	dprintf("replying with '%.*S'\n", (int)(zmo->uuid.Length/sizeof (WCHAR)),
+	    (WCHAR *)Irp->IoStatus.Information);
 
 	return (STATUS_SUCCESS);
 }
@@ -2428,7 +2429,7 @@ query_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		// + usedspace;
 
 		dprintf("Struct size 0x%x FileNameLen 0x%lx "
-		    "Information retsize 0x%lx\n",
+		    "Information retsize 0x%llx\n",
 		    (int)sizeof (FILE_ALL_INFORMATION),
 		    all->NameInformation.FileNameLength,
 		    Irp->IoStatus.Information);
@@ -2792,7 +2793,7 @@ query_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	} else {
 
 		zfs_uio_setindex(&uio, start_index);
-		Status = zpl_xattr_list(vp, &uio, &spaceused, NULL);
+		Status = zpl_xattr_list(vp, &uio, (ssize_t *)&spaceused, NULL);
 		zccb->ea_index = zfs_uio_index(&uio);
 	}
 
@@ -4155,7 +4156,7 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 		//    IrpSp->Parameters.QueryDirectory.Length -
 		//    zfs_uio_resid(&uio);
 
-		dprintf("dirlist information in %ld out size %ld\n",
+		dprintf("dirlist information in %ld out size %llu\n",
 		    IrpSp->Parameters.QueryDirectory.Length,
 		    Irp->IoStatus.Information);
 
@@ -4368,7 +4369,7 @@ zfs_read_wrap(vnode_t *vp, uint8_t *data, uint64_t start,
 	zfs_uio_iovec_init(&uio, &iov, 1, start, UIO_SYSSPACE,
 	    length, 0);
 
-	dprintf("%s: offset %llx size %lx\n", __func__,
+	dprintf("%s: offset %llx size %llx\n", __func__,
 	    start, length);
 
 	Status = zfs_read(zp, &uio, 0, NULL);
@@ -5405,7 +5406,7 @@ do_job(PDEVICE_OBJECT DeviceObject, struct do_job_s *job)
 		    IrpSp->MajorFunction, IrpSp->MajorFunction);
 	}
 
-	IoUninitializeWorkItem(&job->work_item);
+	IoUninitializeWorkItem((PIO_WORKITEM)&job->work_item);
 	ExFreePoolWithTag(job, 'ZJOB');
 }
 
@@ -5421,10 +5422,10 @@ add_thread_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	if (job == NULL)
 		return (FALSE);
 
-	IoInitializeWorkItem(DeviceObject, &job->work_item);
+	IoInitializeWorkItem(DeviceObject, (PIO_WORKITEM)&job->work_item);
 	job->Irp = Irp;
 
-	IoQueueWorkItem(&job->work_item,
+	IoQueueWorkItem((PIO_WORKITEM)&job->work_item,
 	    (PIO_WORKITEM_ROUTINE)do_job,
 	    DelayedWorkQueue, job);
 
@@ -5483,7 +5484,7 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	// Unfortunately, filename is littered with "\", clean it up,
 	// or search based on ID to get name?
 	dprintf("%s: deleting '%.*S'\n", __func__,
-	    (int)IrpSp->FileObject->FileName.Length / sizeof (WCHAR),
+	    (int)(IrpSp->FileObject->FileName.Length / sizeof (WCHAR)),
 	    IrpSp->FileObject->FileName.Buffer);
 
 	error = RtlUnicodeToUTF8N(filename, MAXPATHLEN - 1, &outlen,
@@ -5590,7 +5591,7 @@ query_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		Irp->IoStatus.Information =
 		    IrpSp->Parameters.QuerySecurity.Length; // why?
 	} else {
-		dprintf("%s: failed 0x%x\n", __func__, Status);
+		dprintf("%s: failed 0x%lx\n", __func__, Status);
 		Irp->IoStatus.Information = 0;
 	}
 
@@ -5829,7 +5830,7 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	// last close, OR, deleting
 	if (!vnode_isinuse(vp, 0) ||
-	    zccb && zccb->deleteonclose) {
+	    (zccb && zccb->deleteonclose)) {
 		zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 
 		if (zccb && zccb->deleteonclose) {
@@ -5942,7 +5943,7 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	Status = STATUS_SUCCESS;
 
 exit:
-	dprintf("returning %08lx\n", Status);
+	dprintf("returning %08x\n", Status);
 
 	Irp->IoStatus.Status = Status;
 	Irp->IoStatus.Information = 0;
@@ -6561,7 +6562,7 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = zfs_vnop_mount(DeviceObject, Irp, IrpSp);
 			break;
 		case IRP_MN_USER_FS_REQUEST:
-			dprintf("IRP_MN_USER_FS_REQUEST: FsControlCode 0lx%x\n",
+			dprintf("IRP_MN_USER_FS_REQUEST: FsControlCode 0lx%lx\n",
 			    IrpSp->Parameters.FileSystemControl.FsControlCode);
 			Status = user_fs_request(DeviceObject, PIrp, IrpSp);
 			break;
@@ -6924,7 +6925,7 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 			// FSCTL_QUERY_VOLUME_CONTAINER_STATE 0x90930
 		case IRP_MN_KERNEL_CALL:
-			dprintf("IRP_MN_KERNEL_CALL: unknown 0x%x\n",
+			dprintf("IRP_MN_KERNEL_CALL: unknown 0x%lx\n",
 			    IrpSp->Parameters.FileSystemControl.FsControlCode);
 			Status = STATUS_INVALID_DEVICE_REQUEST;
 			break;
@@ -7079,7 +7080,7 @@ _Function_class_(DRIVER_DISPATCH)
 				vnode_pager_setsize(IrpSp->FileObject, vp,
 				    zp->z_size, FALSE);
 				dprintf("sizechanged, updated to %llx\n",
-				    vp->FileHeader.FileSize);
+				    vp->FileHeader.FileSize.QuadPart);
 			}
 			VN_RELE(vp);
 		}
@@ -7203,7 +7204,7 @@ _Function_class_(DRIVER_DISPATCH)
 	case STATUS_PENDING:
 		break;
 	default:
-		dprintf("%s: exit: 0x%x %s Information 0x%x : %s\n",
+		dprintf("%s: exit: 0x%lx %s Information 0x%llx : %s\n",
 		    __func__, Status,
 		    common_status_str(Status),
 		    Irp ? Irp->IoStatus.Information : 0,
