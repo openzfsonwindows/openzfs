@@ -32,7 +32,6 @@
 #include <sys/zio.h>
 #include <sys/zfs_context.h>
 #include <sys/zfs_znode.h>
-#include <sys/lookasidelist.h>
 
 
 typedef struct abd_stats {
@@ -90,7 +89,7 @@ struct {
  */
 size_t zfs_abd_chunk_size = 4096;
 
-lookasidelist_cache_t *abd_chunk_cache;
+kmem_cache_t *abd_chunk_cache;
 static kstat_t *abd_ksp;
 
 
@@ -106,7 +105,7 @@ static char *abd_zero_buf = NULL;
 static void
 abd_free_chunk(void *c)
 {
-	lookasidelist_cache_free(abd_chunk_cache, c);
+	kmem_cache_free(abd_chunk_cache, c);
 }
 
 static size_t
@@ -183,7 +182,7 @@ abd_alloc_chunks(abd_t *abd, size_t size)
 {
 	size_t n = abd_chunkcnt_for_bytes(size);
 	for (int i = 0; i < n; i++) {
-		void *c = lookasidelist_cache_alloc(abd_chunk_cache);
+		void *c = kmem_cache_alloc(abd_chunk_cache, KM_SLEEP);
 		ABD_SCATTER(abd).abd_chunks[i] = c;
 	}
 	ABD_SCATTER(abd).abd_chunk_size = zfs_abd_chunk_size;
@@ -237,7 +236,7 @@ static void
 abd_alloc_zero_scatter(void)
 {
 	size_t n = abd_chunkcnt_for_bytes(SPA_MAXBLOCKSIZE);
-	abd_zero_buf = lookasidelist_cache_alloc(abd_chunk_cache);
+	abd_zero_buf = kmem_cache_alloc(abd_chunk_cache, KM_SLEEP);
 	bzero(abd_zero_buf, zfs_abd_chunk_size);
 	abd_zero_scatter = abd_alloc_struct(SPA_MAXBLOCKSIZE);
 
@@ -265,14 +264,15 @@ abd_free_zero_scatter(void)
 
 	abd_free_struct(abd_zero_scatter);
 	abd_zero_scatter = NULL;
-	lookasidelist_cache_free(abd_chunk_cache, abd_zero_buf);
+	kmem_cache_free(abd_chunk_cache, abd_zero_buf);
 }
 
 void
 abd_init(void)
 {
-	abd_chunk_cache = lookasidelist_cache_create("abd_chunk",
-	    zfs_abd_chunk_size);
+	abd_chunk_cache = kmem_cache_create("abd_chunk", zfs_abd_chunk_size,
+	    MIN(PAGE_SIZE, 4096),
+	    NULL, NULL, NULL, NULL, abd_arena, KMC_NOTOUCH);
 
 	abd_ksp = kstat_create("zfs", 0, "abdstats", "misc", KSTAT_TYPE_NAMED,
 	    sizeof (abd_stats) / sizeof (kstat_named_t), KSTAT_FLAG_VIRTUAL);
@@ -294,7 +294,7 @@ abd_fini(void)
 		abd_ksp = NULL;
 	}
 
-	lookasidelist_cache_destroy(abd_chunk_cache);
+	kmem_cache_destroy(abd_chunk_cache);
 	abd_chunk_cache = NULL;
 }
 
@@ -487,5 +487,5 @@ abd_iter_unmap(struct abd_iter *aiter)
 void
 abd_cache_reap_now(void)
 {
-	// do nothing
+	kmem_cache_reap_now(abd_chunk_cache);
 }

@@ -37,7 +37,6 @@ wdk_add_library(splkern
   spl-vnode.c
   spl-windows.c
   spl-xdr.c
-  spl-lookasidelist.c
   ${TMH_FILE_LIST}
 )
 
