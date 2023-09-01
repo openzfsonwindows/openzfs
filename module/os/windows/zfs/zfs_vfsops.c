@@ -1449,7 +1449,7 @@ zfsvfs_teardown(zfsvfs_t *zfsvfs, boolean_t unmounting)
 			    dmu_objset_pool(zfsvfs->z_os)), 0);
 			if (++round > 1 && !unmounting)
 				break;
-			break; /* Only loop once - osx can get stuck */
+			break; /* Only loop once - windows can get stuck */
 		}
 	}
 

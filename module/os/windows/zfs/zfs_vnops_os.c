@@ -323,8 +323,19 @@ zfs_zrele_async(znode_t *zp)
 {
 	struct vnode *vp = ZTOV(zp);
 
-	if (vp == NULL)
+	if (vp == NULL) {
+		/* If no vp, make sure to remove zp / all_nodes */
+		zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+		rw_enter(&zfsvfs->z_teardown_inactive_lock, RW_READER);
+		if (zp->z_sa_hdl == NULL) {
+			zfs_znode_free(zp);
+		} else {
+			zfs_zinactive(zp);
+			zfs_znode_free(zp);
+		}
+		rw_exit(&zfsvfs->z_teardown_inactive_lock);
 		return;
+	}
 
 	objset_t *os = ITOZSB(vp)->z_os;
 
