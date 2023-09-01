@@ -127,15 +127,15 @@ zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 		return (FALSE);
 
 	struct vnode *vp = fo->FsContext;
-	dprintf("%s:\n", __func__);
+	dprintf("%s:fo %p\n", __func__, fo);
 
 	if (vp == NULL)
 		return (FALSE);
 
 	if (VN_HOLD(vp) == 0) {
 
-		if (!ExAcquireResourceSharedLite(
-		    vp->FileHeader.PagingIoResource, Wait)) {
+		if (!ExAcquireResourceExclusiveLite(
+		    vp->FileHeader.Resource, Wait)) {
 			dprintf("Failed\n");
 			VN_RELE(vp);
 			return (FALSE);
@@ -143,19 +143,9 @@ zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 
 		vnode_ref(vp);
 		VN_RELE(vp);
+		IoSetTopLevelIrp((PIRP)FSRTL_CACHE_TOP_LEVEL_IRP);
 		return (TRUE);
 	}
-
-	/*
-	 * There is something wrong (still) with unmounting so
-	 * LazyWriter does not stop (even though volume is gone)
-	 * Presumably we've not correctly told some part of Windows
-	 * that we are unmounted.
-	 * So we have to pretend the lock here went well, and
-	 * ignore the write request later, for it to eventually
-	 * stop.
-	 */
-	return (TRUE);
 
 	return (FALSE);
 }
@@ -169,11 +159,16 @@ zfs_ReleaseFromLazyWrite(void *Context)
 		struct vnode *vp = fo->FsContext;
 		dprintf("%s:\n", __func__);
 		if (vp != NULL && VN_HOLD(vp) == 0) {
-			ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
+			ExReleaseResourceLite(vp->FileHeader.Resource);
 			vnode_rele(vp);
 			VN_RELE(vp);
+			if (IoGetTopLevelIrp() ==
+			    (PIRP)FSRTL_CACHE_TOP_LEVEL_IRP)
+				IoSetTopLevelIrp(NULL);
+			return;
 		}
 	}
+	dprintf("%s WARNING FAILED\n", __func__);
 }
 
 BOOLEAN
@@ -201,6 +196,7 @@ zfs_AcquireForReadAhead(void *Context, BOOLEAN Wait)
 
 		vnode_ref(vp);
 		VN_RELE(vp);
+		IoSetTopLevelIrp((PIRP)FSRTL_CACHE_TOP_LEVEL_IRP);
 		return (TRUE);
 	}
 
@@ -219,8 +215,13 @@ zfs_ReleaseFromReadAhead(void *Context)
 			ExReleaseResourceLite(vp->FileHeader.Resource);
 			vnode_rele(vp);
 			VN_RELE(vp);
+			if (IoGetTopLevelIrp() ==
+			    (PIRP)FSRTL_CACHE_TOP_LEVEL_IRP)
+				IoSetTopLevelIrp(NULL);
+			return;
 		}
 	}
+	dprintf("%s WARNING FAILED\n", __func__);
 }
 
 CACHE_MANAGER_CALLBACKS CacheManagerCallbacks =
@@ -232,7 +233,7 @@ CACHE_MANAGER_CALLBACKS CacheManagerCallbacks =
 };
 
 int
-zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp)
+zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp, CC_FILE_SIZES *ccfs)
 {
 	zfs_dirlist_t *zccb = fo->FsContext2;
 
@@ -243,22 +244,19 @@ zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp)
 			atomic_inc_64(&zccb->cacheinit);
 
 			CcInitializeCacheMap(fo,
-			    (PCC_FILE_SIZES)&vp->FileHeader.AllocationSize,
+			    ccfs,
 			    FALSE,
 			    &CacheManagerCallbacks, fo);
 			dprintf("CcInitializeCacheMap called on vp %p\n", vp);
 			// CcSetAdditionalCacheAttributes(fo, FALSE, FALSE);
-			// must be FALSE
-			fo->Flags |= FO_CACHE_SUPPORTED;
+			// must be FALSE (Disk IO only)
+			// CcSetReadAheadGranularity(fo, READ_AHEAD_GRAN);
+			// fo->Flags |= FO_CACHE_SUPPORTED;
 			dprintf("%s: CcInitializeCacheMap\n", __func__);
 		}
 	} except(EXCEPTION_EXECUTE_HANDLER) {
 		return (GetExceptionCode());
 	}
-
-#ifdef ZFS_HAVE_FASTIO
-	vp->FileHeader.IsFastIoPossible = 1;
-#endif
 
 	return (0);
 }
@@ -286,7 +284,10 @@ zfs_couplefileobject(vnode_t *vp, FILE_OBJECT *fileobject, uint64_t size)
 
 	vnode_couplefileobject(vp, fileobject, size);
 
-	zfs_init_cache(fileobject, vp);
+#ifdef ZFS_HAVE_FASTIO
+	vp->FileHeader.IsFastIoPossible = fast_io_possible(vp);
+#endif
+
 }
 
 void
@@ -297,9 +298,6 @@ zfs_decouplefileobject(vnode_t *vp, FILE_OBJECT *fileobject)
 	zfs_dirlist_t *zccb = fileobject->FsContext2;
 
 	if (zccb != NULL) {
-
-		ASSERT3U(zccb->cacheinit, ==, 1);
-		zccb->cacheinit = 0;
 
 		if (zccb->searchname.Buffer != NULL) {
 			kmem_free(zccb->searchname.Buffer,
@@ -312,9 +310,8 @@ zfs_decouplefileobject(vnode_t *vp, FILE_OBJECT *fileobject)
 		fileobject->FsContext2 = NULL;
 	}
 
-	CcUninitializeCacheMap(fileobject,
-	    NULL, NULL);
 	vnode_decouplefileobject(vp, fileobject);
+
 }
 
 void
@@ -563,6 +560,8 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 			if (brkt != NULL && *brkt != 0) {
 				dprintf("%s: not a DIR triggered '%s'\n",
 				    __func__, word);
+				if (vp)
+					VN_RELE(vp);
 				VN_RELE(dvp);
 				return (ENOTDIR);
 			}
@@ -1539,7 +1538,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		/* Call this function again, lets hope, only once */
 				if (reenter_for_xattr) {
 					Status = EAGAIN;
-					vnode_rele(vp);
 				}
 
 			}
@@ -1814,6 +1812,7 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 		    FILE_NO_INTERMEDIATE_BUFFERING)) {
 			IrpSp->FileObject->Flags |= FO_CACHE_SUPPORTED;
 		}
+
 	}
 
 	// Free filename
@@ -3598,7 +3597,7 @@ request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 
 	if (VN_HOLD(vp) != 0) {
 		Status = STATUS_INVALID_PARAMETER;
-		goto out;
+		goto exit;
 	}
 
 	if (!vnode_isreg(vp) && !vnode_isdir(vp)) {
@@ -3733,6 +3732,7 @@ request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 
 out:
 	VN_RELE(vp);
+exit:
 	zfs_exit(zfsvfs, FTAG);
 
 	return (Status);
@@ -4446,7 +4446,7 @@ fs_read_impl(PIRP Irp, boolean_t wait, uint64_t *bytes_read)
 				ccfs.ValidDataLength =
 				    vp->FileHeader.ValidDataLength;
 
-				zfs_init_cache(FileObject, vp);
+				zfs_init_cache(FileObject, vp, &ccfs);
 			}
 
 			CcMdlRead(FileObject,
@@ -4510,7 +4510,7 @@ fs_read_impl(PIRP Irp, boolean_t wait, uint64_t *bytes_read)
 				ccfs.ValidDataLength =
 				    vp->FileHeader.ValidDataLength;
 
-				zfs_init_cache(FileObject, vp);
+				zfs_init_cache(FileObject, vp, &ccfs);
 			}
 
 #if (NTDDI_VERSION >= NTDDI_WIN8)
@@ -4856,6 +4856,9 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 	} else if (!ExIsResourceAcquiredExclusiveLite(
 	    vp->FileHeader.Resource)) {
+
+		dprintf("Inbetween");
+
 		if (!ExAcquireResourceExclusiveLite(
 		    vp->FileHeader.Resource, wait)) {
 			Status = STATUS_PENDING;
@@ -4938,7 +4941,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 				    vp->FileHeader.ValidDataLength;
 
 				if (!FileObject->PrivateCacheMap)
-					zfs_init_cache(FileObject, vp);
+					zfs_init_cache(FileObject, vp, &ccfs);
 
 				CcSetFileSizes(FileObject, &ccfs);
 			}
@@ -5172,7 +5175,7 @@ fs_write_impl(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp,
 
 	Status = zfs_write_wrap(DeviceObject, Irp, offset, buf,
 	    &IrpSp->Parameters.Write.Length,
-	    Irp->Flags & IRP_PAGING_IO, nocache,
+	    (Irp->Flags & IRP_PAGING_IO), nocache,
 	    wait, deferred_write, TRUE);
 
 	if (Status == STATUS_PENDING) {
@@ -5322,11 +5325,8 @@ do_read_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	PIO_STACK_LOCATION IrpSp;
 	IrpSp = IoGetCurrentIrpStackLocation(Irp);
 
-	boolean_t wait = IrpSp &&
-	    IrpSp->FileObject ? IoIsOperationSynchronous(Irp) : TRUE;
-
 	try {
-		Status = fs_read_impl(Irp, wait, &bytes_read);
+		Status = fs_read_impl(Irp, TRUE, &bytes_read);
 	} except(EXCEPTION_EXECUTE_HANDLER) {
 		Status = GetExceptionCode();
 	}
@@ -5357,11 +5357,8 @@ do_write_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	PIO_STACK_LOCATION IrpSp;
 	IrpSp = IoGetCurrentIrpStackLocation(Irp);
 
-	boolean_t wait = IrpSp &&
-	    IrpSp->FileObject ? IoIsOperationSynchronous(Irp) : TRUE;
-
 	try {
-		Status = fs_write_impl(DeviceObject, Irp, IrpSp, wait, TRUE);
+		Status = fs_write_impl(DeviceObject, Irp, IrpSp, TRUE, TRUE);
 	} except(EXCEPTION_EXECUTE_HANDLER) {
 		Status = GetExceptionCode();
 	}
@@ -5789,6 +5786,11 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	struct vnode *vp = FileObject->FsContext;
 	zfs_dirlist_t *zccb = FileObject->FsContext2;
 
+	if (zmo->type != MOUNT_TYPE_VCB) {
+		Status = STATUS_SUCCESS;
+		goto exit;
+	}
+
 	if (IrpSp->FileObject->Flags & FO_CLEANUP_COMPLETE) {
 		dprintf("FileObject %p already cleaned up\n",
 		    IrpSp->FileObject);
@@ -5810,8 +5812,6 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	znode_t *zp = VTOZ(vp); // zp for notify removal
 
-	vnode_rele(vp); // Release longterm hold finally.
-
 	dprintf("IRP_MJ_CLEANUP: '%s' iocount %u usecount %u\n",
 	    zp && zp->z_name_cache ? zp->z_name_cache : "",
 	    vp->v_iocount, vp->v_usecount);
@@ -5825,16 +5825,19 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	FsRtlFastUnlockAll(&vp->lock, FileObject,
 	    IoGetRequestorProcess(Irp), NULL);
 
-	if (zmo)
+	if (zmo && zccb)
 		FsRtlNotifyCleanup(zmo->NotifySync, &zmo->DirNotifyList,
-		    IrpSp->FileObject->FsContext2);
+		    zccb);
+
+	vnode_rele(vp); // Release longterm hold finally.
 
 	// last close, OR, deleting
 	if (!vnode_isinuse(vp, 0) ||
 	    (zccb && zccb->deleteonclose)) {
 		zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 
-		if (zccb && zccb->deleteonclose) {
+		if (!vnode_isinuse(vp, 0) &&
+		    zccb && zccb->deleteonclose) {
 
 			zccb->deleteonclose = 0;
 			int isdir = vnode_isdir(vp);
@@ -5931,7 +5934,9 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			    vp->FileHeader.ValidDataLength.QuadPart);
 		}
 		// if (vp->Vcb && vp != vp->Vcb->volume_vp)
-		// CcUninitializeCacheMap(FileObject, NULL, NULL);
+		CcUninitializeCacheMap(FileObject, NULL, NULL);
+		if (zccb)
+			zccb->cacheinit = 0;
 	}
 
 	if (locked)
@@ -5944,7 +5949,11 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	Status = STATUS_SUCCESS;
 
 exit:
-	dprintf("returning %08x\n", Status);
+	if (vp && zp)
+		dprintf("%s: '%s' iocount %u usecount %u Status 0x%lx.\n",
+		    __func__,
+		    zp &&zp->z_name_cache ? zp->z_name_cache : "",
+		    vp->v_iocount, vp->v_usecount, Status);
 
 	Irp->IoStatus.Status = Status;
 	Irp->IoStatus.Information = 0;
@@ -7100,7 +7109,7 @@ _Function_class_(DRIVER_DISPATCH)
 	if (!skiplock) {
 		// Wait for all async_rele to finish
 		if (zfsvfs)
-			taskq_wait(dsl_pool_vnrele_taskq(dmu_objset_pool(
+			taskq_wait(dsl_pool_zrele_taskq(dmu_objset_pool(
 			    zfsvfs->z_os)));
 		vnode_check_iocount();
 		mutex_exit(&GIANT_SERIAL_LOCK);
@@ -7299,27 +7308,16 @@ ZFSCallbackReleaseForCreateSection(
 	if (vp == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
-	if (vp->FileHeader.Resource) {
-		dprintf("%s: unlocked: %p\n",
-		    __func__, vp->FileHeader.Resource);
+	dprintf("%s: unlocked: %p\n",
+	    __func__, vp->FileHeader.Resource);
+	if (VN_HOLD(vp) == 0) {
 		ExReleaseResourceLite(vp->FileHeader.Resource);
-#ifdef DEBUG_IOCOUNT
-		int nolock = 0;
-		if (mutex_owned(&GIANT_SERIAL_LOCK))
-			nolock = 1;
-		else
-			mutex_enter(&GIANT_SERIAL_LOCK);
-#endif
-		if (VN_HOLD(vp) == 0) {
-			vnode_rele(vp);
-			VN_RELE(vp);
-		}
-#ifdef DEBUG_IOCOUNT
-		if (!nolock)
-			mutex_exit(&GIANT_SERIAL_LOCK);
-#endif
+		vnode_rele(vp);
+		VN_RELE(vp);
+		return (STATUS_FSFILTER_OP_COMPLETED_SUCCESSFULLY);
 	}
 
+	dprintf("%s WARNING FAILED\n", __func__);
 	return (STATUS_FSFILTER_OP_COMPLETED_SUCCESSFULLY);
 }
 
@@ -7447,6 +7445,7 @@ fastio_write(PFILE_OBJECT FileObject, PLARGE_INTEGER FileOffset,
 	vnode_t *vp = FileObject->FsContext;
 	BOOLEAN ret;
 
+	// treelock
 	if (!ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, Wait)) {
 		return (FALSE);
 	}
@@ -7492,8 +7491,8 @@ fastio_query_basic_info(PFILE_OBJECT FileObject, BOOLEAN wait,
 
 	file_basic_information_impl(DeviceObject, FileObject, fbi, IoStatus);
 
-	VN_RELE(vp);
 	ExReleaseResourceLite(vp->FileHeader.Resource);
+	VN_RELE(vp);
 	FsRtlExitFileSystem();
 
 	/* Return TRUE to say IoStatus was filled out */
@@ -7532,8 +7531,8 @@ fastio_query_standard_info(PFILE_OBJECT FileObject,
 	file_standard_information_impl(DeviceObject, FileObject, fsi,
 	    sizeof (FILE_STANDARD_INFORMATION), IoStatus);
 
-	VN_RELE(vp);
 	ExReleaseResourceLite(vp->FileHeader.Resource);
+	VN_RELE(vp);
 	FsRtlExitFileSystem();
 
 	/* Return TRUE to say IoStatus was filled out */
@@ -7689,12 +7688,43 @@ static void
 fastio_acquire_file_for_ntsection(
     IN PFILE_OBJECT FileObject)
 {
+	vnode_t *vp;
+
+	dprintf("%s: \n", __func__);
+
+	if (!FileObject)
+		return;
+
+	vp = FileObject->FsContext;
+
+	if (!vp || VN_HOLD(vp) != 0)
+		return;
+
+	ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, TRUE);
+	vnode_ref(vp);
+	VN_RELE(vp);
+
 }
 
 static void
 fastio_release_file_for_ntsection(
     IN PFILE_OBJECT FileObject)
 {
+	vnode_t *vp;
+
+	dprintf("%s: \n", __func__);
+
+	if (!FileObject)
+		return;
+
+	vp = FileObject->FsContext;
+
+	if (!vp || VN_HOLD(vp) != 0)
+		return;
+
+	ExReleaseResourceLite(vp->FileHeader.Resource);
+	vnode_rele(vp);
+	VN_RELE(vp);
 }
 
 static BOOLEAN
@@ -7737,8 +7767,8 @@ fastio_query_network_open_info(PFILE_OBJECT FileObject,
 	file_network_open_information_impl(DeviceObject, FileObject, fnoi,
 	    IoStatus);
 
-	VN_RELE(vp);
 	ExReleaseResourceLite(vp->FileHeader.Resource);
+	VN_RELE(vp);
 	FsRtlExitFileSystem();
 
 	/* Return TRUE to say IoStatus was filled out */
@@ -7756,15 +7786,18 @@ fastio_acquire_for_mod_write(PFILE_OBJECT FileObject,
 
 	vp = FileObject->FsContext;
 
-	if (!vp)
+	if (!vp || VN_HOLD(vp) != 0)
 		return (STATUS_INVALID_PARAMETER);
 
 	if (!ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, FALSE)) {
 		dprintf("%s: returning STATUS_CANT_WAIT\n", __func__);
+		VN_RELE(vp);
 		return (STATUS_CANT_WAIT);
 	}
 
 	*ResourceToRelease = vp->FileHeader.Resource;
+	vnode_ref(vp);
+	VN_RELE(vp);
 
 	dprintf("%s: returning STATUS_SUCCESS\n", __func__);
 
@@ -7779,9 +7812,17 @@ fastio_release_for_mod_write(PFILE_OBJECT FileObject,
 
 	dprintf("%s:\n", __func__);
 
-	vp = FileObject->FsContext;
-
 	ExReleaseResourceLite(ResourceToRelease);
+
+	vp = FileObject->FsContext;
+	if (vp && VN_HOLD(vp) == 0) {
+		VERIFY3P(ResourceToRelease, ==, vp->FileHeader.Resource);
+		vnode_rele(vp);
+		VN_RELE(vp);
+		return (STATUS_SUCCESS);
+	}
+
+	dprintf("%s WARNING FAILED\n", __func__);
 	return (STATUS_SUCCESS);
 }
 
@@ -7894,6 +7935,7 @@ fastio_query_open(PIRP Irp,
 			    &Irp->IoStatus);
 			if (vp)
 				VN_RELE(vp);
+
 			return (TRUE);
 		}
 

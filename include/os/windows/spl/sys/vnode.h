@@ -434,7 +434,6 @@ win_has_cached_data(struct vnode *vp)
 	return (ret);
 }
 
-
 #define	vn_ismntpt(vp)   (vnode_mountedhere(vp) != NULL)
 
 void spl_vnode_fini(void);
@@ -554,5 +553,18 @@ int blkdev_issue_discard_bytes(PDEVICE_OBJECT dev, uint64_t offset,
 
 POPLOCK vp_oplock(struct vnode *vp);
 void vfs_changeowner(mount_t *from, mount_t *to);
+
+static inline FAST_IO_POSSIBLE
+fast_io_possible(struct vnode *vp)
+{
+	if (!FsRtlOplockIsFastIoPossible(vp_oplock(vp)))
+		return (FastIoIsNotPossible);
+
+	if (!FsRtlAreThereCurrentFileLocks(&vp->lock)
+	    /* && !fcb->Vcb->readonly */)
+		return (FastIoIsPossible);
+
+	return (FastIoIsQuestionable);
+}
 
 #endif /* SPL_VNODE_H */
