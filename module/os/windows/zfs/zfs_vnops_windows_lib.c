@@ -3226,6 +3226,7 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	//  a data section, we have to cache the file to avoid a bunch of
 	//  extra work.
 	BOOLEAN CacheMapInitialized = FALSE;
+#if 1
 	if (FileObject && FileObject->SectionObjectPointer &&
 	    (FileObject->SectionObjectPointer->DataSectionObject != NULL) &&
 	    (FileObject->SectionObjectPointer->SharedCacheMap == NULL) &&
@@ -3236,11 +3237,12 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		CcInitializeCacheMap(FileObject,
 		    (PCC_FILE_SIZES)&vp->FileHeader.AllocationSize,
 		    FALSE,
-		    &CacheManagerCallbacks, vp);
+		    &CacheManagerCallbacks, FileObject);
 
 		// CcSetAdditionalCacheAttributes(FileObject, FALSE, FALSE);
 		CacheMapInitialized = TRUE;
 	}
+#endif
 
 	if (!zfsvfs->z_unmounted) {
 
