@@ -4804,6 +4804,9 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	znode_t *xdzp = NULL;
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
+	if (zp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
 	// This exits when unmounting
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
 		return (error);
@@ -4818,11 +4821,12 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	// Iterate the xattrs.
 	// Windows can call this on a stream zp, in this case, we
 	// need to go find the real parent, and iterate on that.
-	if (zccb && zp->z_pflags & ZFS_XATTR) {
+	if (zccb && (zp->z_pflags & ZFS_XATTR) &&
+	    (zccb->real_file_id > 0)) {
 
 		error = zfs_zget(zfsvfs, zccb->real_file_id, &zp);
 		if (error)
-			goto out;
+			goto exit;
 		vp = ZTOV(zp);
 	} else {
 		VN_HOLD(vp);
@@ -4878,6 +4882,7 @@ out:
 
 	zrele(zp);
 
+exit:
 	zfs_exit(zfsvfs, FTAG);
 
 	if (overflow > 0)
