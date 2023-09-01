@@ -3219,6 +3219,9 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_INVALID_PARAMETER);
 	}
 
+	ExAcquireResourceExclusiveLite(
+	    vp->FileHeader.Resource, TRUE);
+
 	znode_t *zp = VTOZ(vp);
 
 	// From FASTFAT
@@ -3285,12 +3288,15 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 out:
 
+	ExReleaseResource(vp->FileHeader.Resource);
+
+
 	if (NT_SUCCESS(Status) && changed) {
 
 		dprintf("%s: new size 0x%llx set\n", __func__, zp->z_size);
 
 		// zfs_freesp() calls vnode_paget_setsize(), but we need
-		// xto update it here.
+		// to update it here.
 		if (FileObject->SectionObjectPointer)
 			vnode_pager_setsize(FileObject, vp, zp->z_size, FALSE);
 
@@ -3341,14 +3347,16 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	mount_t *zmo = DeviceObject->DeviceExtension;
 
-	zfsvfs_t *zfsvfs = NULL;
-	if (zmo != NULL &&
-	    (zfsvfs = vfs_fsprivate(zmo)) != NULL &&
-	    zfsvfs->z_rdonly)
-		return (STATUS_MEDIA_WRITE_PROTECTED);
+	if (zmo == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
+
+	if (zfsvfs->z_rdonly)
+		return (STATUS_MEDIA_WRITE_PROTECTED);
 
 	FILE_OBJECT *RootFileObject = NULL;
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
@@ -3370,7 +3378,6 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			return (STATUS_INVALID_PARAMETER);
 		}
 		tdvp = RootFileObject->FsContext;
-		VN_HOLD(tdvp);
 	} else {
 		// Name can be absolute, if so use name, otherwise,
 		// use vp's parent.
@@ -3382,8 +3389,8 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	if (error != STATUS_SUCCESS &&
 	    error != STATUS_SOME_NOT_MAPPED) {
-		if (tdvp) VN_RELE(tdvp);
-		if (RootFileObject) ObDereferenceObject(RootFileObject);
+		if (RootFileObject)
+			ObDereferenceObject(RootFileObject);
 		return (STATUS_ILLEGAL_CHARACTER);
 	}
 
@@ -3391,14 +3398,17 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	buffer[outlen] = 0;
 	filename = buffer;
 
-	if (strchr(filename, '/') ||
-	    strchr(filename, '\\') ||
+	if (/* strchr(filename, '/') ||
+	    strchr(filename, '\\') || */
 	    /* strchr(&colon[2], ':') || there is one at ":$DATA" */
 	    !strcasecmp("DOSATTRIB:$DATA", filename) ||
 	    !strcasecmp("EA:$DATA", filename) ||
 	    !strcasecmp("reparse:$DATA", filename) ||
-	    !strcasecmp("casesensitive:$DATA", filename))
+	    !strcasecmp("casesensitive:$DATA", filename)) {
+		if (RootFileObject)
+			ObDereferenceObject(RootFileObject);
 		return (STATUS_OBJECT_NAME_INVALID);
+	}
 
 
 	// Filename is often "\??\E:\name" so we want to eat everything
@@ -3415,8 +3425,8 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	error = zfs_find_dvp_vp(zfsvfs, filename, 1, 0, &remainder, &tdvp,
 	    &tvp, 0, 0);
 	if (error) {
-		if (tdvp) VN_RELE(tdvp);
-		if (RootFileObject) ObDereferenceObject(RootFileObject);
+		if (RootFileObject)
+			ObDereferenceObject(RootFileObject);
 		return (STATUS_OBJECTID_NOT_FOUND);
 	}
 
@@ -3430,14 +3440,8 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		error = STATUS_OBJECTID_NOT_FOUND;
 		goto out;
 	}
-
-	// Lookup name
-	if (zp->z_name_cache == NULL) {
-		error = STATUS_OBJECTID_NOT_FOUND;
-		goto out;
-	}
-
 	fdvp = ZTOV(dzp);
+
 	VN_HOLD(fvp);
 	// "tvp"(if not NULL) and "tdvp" is held by zfs_find_dvp_vp
 
@@ -3464,11 +3468,16 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 	// Release all holds
 out:
-	if (RootFileObject) ObDereferenceObject(RootFileObject);
-	if (tdvp) VN_RELE(tdvp);
-	if (fdvp) VN_RELE(fdvp);
-	if (fvp) VN_RELE(fvp);
-	if (tvp) VN_RELE(tvp);
+	if (RootFileObject)
+		ObDereferenceObject(RootFileObject);
+	if (tdvp)
+		VN_RELE(tdvp);
+	if (fdvp)
+		VN_RELE(fdvp);
+	if (fvp)
+		VN_RELE(fvp);
+	if (tvp)
+		VN_RELE(tvp);
 
 	return (error);
 }
@@ -3635,10 +3644,6 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		// Assign tdvp
 		tdvp = dFileObject->FsContext;
-
-
-		// Hold it
-		VERIFY0(VN_HOLD(tdvp));
 
 		// Filename is '\??\E:\dir\dir\file' and we only care about
 		// the last part.
@@ -4818,6 +4823,7 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		error = zfs_zget(zfsvfs, zccb->real_file_id, &zp);
 		if (error)
 			goto out;
+		vp = ZTOV(zp);
 	} else {
 		VN_HOLD(vp);
 	}

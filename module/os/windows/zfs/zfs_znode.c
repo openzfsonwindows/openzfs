@@ -1156,7 +1156,7 @@ again:
 		 * the simpler vnode_get() in the ASYNC cases. We verify the
 		 * vids match below.
 		 */
-		err = vnode_getwithref(vp);
+		err = VN_HOLD(vp);
 
 		if (err != 0) {
 			dprintf("ZFS: vnode_get() returned %d\n", err);
