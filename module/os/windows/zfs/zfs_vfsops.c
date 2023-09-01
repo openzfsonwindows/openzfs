@@ -1949,7 +1949,7 @@ zfs_vfs_fhtovp(struct mount *mp, int fhlen, unsigned char *fhp,
 		zp_gen = 1;
 
 	if (zp->z_unlinked || zp_gen != fid_gen) {
-		vnode_put(ZTOV(zp));
+		VN_RELE(ZTOV(zp));
 		error = EINVAL;
 		goto out;
 	}
@@ -2072,7 +2072,7 @@ zfs_resume_fs(zfsvfs_t *zfsvfs, dsl_dataset_t *ds)
 
 		/* see comment in zfs_suspend_fs() */
 		if (zp->z_suspended) {
-			if (vnode_getwithref(ZTOV(zp)) == 0) {
+			if (VN_HOLD(ZTOV(zp)) == 0) {
 				vnode_rele(ZTOV(zp));
 				zfs_zrele_async(zp);
 				zp->z_suspended = B_FALSE;

@@ -406,9 +406,9 @@ zfs_dirlook(znode_t *dzp, char *name, znode_t **zpp, int flags,
 
 		if (parent == dzp->z_id && zfsvfs->z_parent != zfsvfs) {
 			error = zfsctl_root_lookup(zfsvfs->z_parent->z_ctldir,
-			    ZFS_SNAPDIR_NAME, &vp, 0, kcred, NULL, NULL);
+			    ZFS_SNAPDIR_NAME, &zp, 0, kcred, NULL, NULL);
 			if (error == 0)
-				*zpp = VTOZ(vp);
+				*zpp = zp;
 			return (error);
 		}
 		rw_enter(&dzp->z_parent_lock, RW_READER);

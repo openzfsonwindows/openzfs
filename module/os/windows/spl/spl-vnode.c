@@ -988,7 +988,7 @@ vnode_setparent(vnode_t *vp, vnode_t *newparent)
 		error = VN_HOLD(oldparent);
 		vnode_rele(oldparent);
 		if (!error)
-			vnode_put(oldparent);
+			VN_RELE(oldparent);
 	}
 }
 
@@ -1170,9 +1170,9 @@ vnode_recycle_int(vnode_t *vp, int flags)
 			// hold iocount cos of ASSERT in vnode_rele
 			if ((vp->v_parent != NULL) &&
 			    vnode_isdir(vp->v_parent) &&
-			    (vnode_getwithref(vp->v_parent) == 0)) {
+			    (VN_HOLD(vp->v_parent) == 0)) {
 				vnode_rele(vp->v_parent);
-				vnode_put(vp->v_parent);
+				VN_RELE(vp->v_parent);
 			}
 			vp->v_parent = NULL;
 
@@ -1831,8 +1831,9 @@ vnode_flushcache(vnode_t *vp, FILE_OBJECT *fileobject, boolean_t hard)
 			(void) MmFlushImageSection(
 			    fileobject->SectionObjectPointer, MmFlushForWrite);
 	}
-
-	if (lastclose && FlagOn(fileobject->Flags, FO_CACHE_SUPPORTED)) {
+#if 1
+	if (lastclose && FlagOn(fileobject->Flags, FO_CACHE_SUPPORTED) &&
+	    !FlagOn(fileobject->Flags, FO_CLEANUP_COMPLETE)) {
 		// DataSection next
 		if (fileobject->SectionObjectPointer->DataSectionObject) {
 			CcFlushCache(fileobject->SectionObjectPointer, NULL, 0,
@@ -1859,6 +1860,7 @@ vnode_flushcache(vnode_t *vp, FILE_OBJECT *fileobject, boolean_t hard)
 #endif
 
 	}
+#endif
 
 	if (!hard && avl_numnodes(&vp->v_fileobjects) > 1) {
 	// dprintf("leaving early due to v_fileobjects > 1 - flush only\n");
@@ -2142,6 +2144,7 @@ void
 vnode_pager_setsize(void *fo, vnode_t *vp, uint64_t size, boolean_t delay)
 {
 	FILE_OBJECT *fileObject = fo;
+
 	vp->FileHeader.AllocationSize.QuadPart =
 	    P2ROUNDUP(size, PAGE_SIZE);
 	vp->FileHeader.FileSize.QuadPart = size;
