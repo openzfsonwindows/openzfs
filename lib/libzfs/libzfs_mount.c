@@ -1301,7 +1301,7 @@ zpool_enable_datasets(zpool_handle_t *zhp, const char *mntopts, int flags)
 	zfs_foreach_mountpoint(zhp->zpool_hdl, cb.cb_handles, cb.cb_used,
 	    zfs_mount_one, &ms, B_TRUE);
 	if (ms.ms_mntstatus != 0)
-		ret = ms.ms_mntstatus;
+		ret = EZFS_MOUNTFAILED;
 
 	/*
 	 * Share all filesystems that need to be shared. This needs to be
@@ -1312,7 +1312,7 @@ zpool_enable_datasets(zpool_handle_t *zhp, const char *mntopts, int flags)
 	zfs_foreach_mountpoint(zhp->zpool_hdl, cb.cb_handles, cb.cb_used,
 	    zfs_share_one, &ms, B_FALSE);
 	if (ms.ms_mntstatus != 0)
-		ret = ms.ms_mntstatus;
+		ret = EZFS_SHAREFAILED;
 	else
 		zfs_commit_shares(NULL);
 
