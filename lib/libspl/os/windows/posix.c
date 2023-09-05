@@ -639,7 +639,7 @@ getpwuid(uid_t uid)
 const char *
 win_ctime_r(char *buffer, size_t bufsize, time_t cur_time)
 {
-	ctime_s(buffer, bufsize, &cur_time);
+	ctime_s(buffer, bufsize, cur_time);
 	return (buffer);
 }
 
