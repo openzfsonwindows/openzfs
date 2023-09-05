@@ -5511,7 +5511,13 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	int isdir = vnode_isdir(vp);
 
 	/* ZFS deletes from filename, so RELE last hold on vp. */
-	vnode_flushcache(vp, IrpSp->FileObject, B_TRUE);
+	// vnode_flushcache(vp, IrpSp->FileObject, B_TRUE);
+	LARGE_INTEGER newlength;
+	newlength.QuadPart = 0;
+
+	if (IrpSp->FileObject &&
+	    !CcUninitializeCacheMap(IrpSp->FileObject, &newlength, NULL))
+		dprintf("delete() CcUninitializeCacheMap failed\n");
 
 	VN_RELE(vp);
 	vp = NULL;
