@@ -2870,8 +2870,12 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 
 	// if dvp == null, find it
 
-	if (dvp == NULL) {
+	if (dvp == NULL)
 		dvp = vnode_parent(vp);
+
+	if (dvp == NULL) {
+		Status = STATUS_INVALID_PARAMETER;
+		goto out;
 	}
 
 	dzp = VTOZ(dvp);
