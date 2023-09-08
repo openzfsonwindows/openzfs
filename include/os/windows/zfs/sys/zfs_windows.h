@@ -45,8 +45,9 @@ extern PDEVICE_OBJECT fsDiskDeviceObject;
 struct zfs_dirlist {
 	uint32_t magic;			// Identifier
 	uint32_t dir_eof;		// Directory listing completed?
-	uint64_t uio_offset;		// Directory list offset
+	uint64_t dirlist_index;		// Directory list offset
 	uint64_t ea_index;		// EA list offset
+	uint64_t uio_offset;		// uio offset
 	uint32_t deleteonclose;		// Marked for deletion
 	uint32_t ContainsWildCards;	// searchname has wildcards
 	UNICODE_STRING searchname;	// Search pattern

@@ -277,7 +277,8 @@ zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp, CC_FILE_SIZES *ccfs)
 void
 zfs_couplefileobject(vnode_t *vp, FILE_OBJECT *fileobject, uint64_t size)
 {
-	ASSERT3P(fileobject->FsContext2, ==, NULL);
+	if (fileobject->FsContext2 != NULL)
+		return;
 	zfs_dirlist_t *zccb = kmem_zalloc(sizeof (zfs_dirlist_t), KM_SLEEP);
 	zccb->magic = ZFS_DIRLIST_MAGIC;
 	fileobject->FsContext2 = zccb;
@@ -4013,6 +4014,7 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 	int flag_return_single_entry =
 	    IrpSp->Flags & SL_RETURN_SINGLE_ENTRY ? 1 : 0;
 	int ret;
+	boolean_t initial = B_FALSE;
 	mount_t *zmo;
 	zfsvfs_t *zfsvfs;
 	NTSTATUS Status = STATUS_NO_SUCH_FILE;
@@ -4032,27 +4034,32 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 	if (zccb->magic != ZFS_DIRLIST_MAGIC)
 		return (STATUS_INVALID_PARAMETER);
 
-	// Restarting listing? Clear EOF
-	if (flag_restart_scan) {
+	if (flag_index_specified) {
+		zccb->dirlist_index =
+		    IrpSp->Parameters.QueryDirectory.FileIndex;
+	} else if (flag_restart_scan) {
 		zccb->dir_eof = 0;
-		zccb->uio_offset = 0;
+		zccb->dirlist_index = 0;
 		if (zccb->searchname.Buffer != NULL)
 			kmem_free(zccb->searchname.Buffer,
 			    zccb->searchname.MaximumLength);
 		zccb->searchname.Buffer = NULL;
 		zccb->searchname.MaximumLength = 0;
+	} else {
+		/* Just use zccb->dirlist_index from last call */
 	}
 
 	// Did last call complete listing?
 	if (zccb->dir_eof)
 		return (STATUS_NO_MORE_FILES);
+
 	struct iovec iov;
 	void *SystemBuffer = MapUserBuffer(Irp);
 	iov.iov_base = (void *)SystemBuffer;
 	iov.iov_len = IrpSp->Parameters.QueryDirectory.Length;
 
 	zfs_uio_t uio;
-	zfs_uio_iovec_init(&uio, &iov, 1, zccb->uio_offset, UIO_SYSSPACE,
+	zfs_uio_iovec_init(&uio, &iov, 1, zccb->dirlist_index, UIO_SYSSPACE,
 	    IrpSp->Parameters.QueryDirectory.Length, 0);
 
 	// Grab the root zp
@@ -4064,34 +4071,62 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 	if (!zfsvfs)
 		return (STATUS_INTERNAL_ERROR);
 
+	if (zccb->searchname.Buffer == NULL)
+		initial = B_TRUE;
+
 	dprintf("%s: starting vp %p Search pattern '%wZ' type %d: "
 	    "saved search '%wZ'\n", __func__, dvp,
 	    IrpSp->Parameters.QueryDirectory.FileName,
 	    IrpSp->Parameters.QueryDirectory.FileInformationClass,
 	    &zccb->searchname);
 
-	if (IrpSp->Parameters.QueryDirectory.FileName &&
-	    IrpSp->Parameters.QueryDirectory.FileName->Buffer &&
-	    IrpSp->Parameters.QueryDirectory.FileName->Length != 0 &&
-	    wcsncmp(IrpSp->Parameters.QueryDirectory.FileName->Buffer,
-	    L"*", 1) != 0) {
+	WCHAR Fat8QMdot3QM[12] = { DOS_QM, DOS_QM, DOS_QM, DOS_QM,
+	    DOS_QM, DOS_QM, DOS_QM, DOS_QM, L'.', DOS_QM, DOS_QM, DOS_QM };
+
+	/* All these cases mean we should list all */
+	if ((IrpSp->Parameters.QueryDirectory.FileName == NULL) ||
+	    (IrpSp->Parameters.QueryDirectory.FileName->Length == 0) ||
+	    (IrpSp->Parameters.QueryDirectory.FileName->Buffer == NULL) ||
+	    ((IrpSp->Parameters.QueryDirectory.FileName->Length ==
+	    sizeof (WCHAR)) &&
+	    (IrpSp->Parameters.QueryDirectory.FileName->Buffer[0] == L'*')) ||
+	    ((IrpSp->Parameters.QueryDirectory.FileName->Length ==
+	    12 * sizeof (WCHAR)) &&
+	    (RtlEqualMemory(IrpSp->Parameters.QueryDirectory.FileName->Buffer,
+	    Fat8QMdot3QM, /* "????????.???" */
+	    12 * sizeof (WCHAR))))) {
+
+		if (zccb->searchname.Buffer != NULL)
+			kmem_free(zccb->searchname.Buffer,
+			    zccb->searchname.MaximumLength);
+		zccb->searchname.Buffer = NULL;
+
+	} else if (IrpSp->Parameters.QueryDirectory.FileName &&
+	    IrpSp->Parameters.QueryDirectory.FileName->Buffer) {
+
 		// Save the pattern in the zccb, as it is only given in the
 		// first call (citation needed)
+		zccb->ContainsWildCards = FsRtlDoesNameContainWildCards(
+		    IrpSp->Parameters.QueryDirectory.FileName);
 
-		// If exists, we should free?
+		/* why? */
+		if (!zccb->ContainsWildCards && !initial)
+			return (STATUS_NO_MORE_FILES);
+
+		// If exists, we should free before setting
 		if (zccb->searchname.Buffer != NULL)
 			kmem_free(zccb->searchname.Buffer,
 			    zccb->searchname.MaximumLength);
 
-		zccb->ContainsWildCards = FsRtlDoesNameContainWildCards(
-		    IrpSp->Parameters.QueryDirectory.FileName);
 		zccb->searchname.MaximumLength =
-		    IrpSp->Parameters.QueryDirectory.FileName->Length + 2;
+		    IrpSp->Parameters.QueryDirectory.FileName->Length +
+		    sizeof (WCHAR);
 		zccb->searchname.Length =
 		    IrpSp->Parameters.QueryDirectory.FileName->Length;
 		zccb->searchname.Buffer =
 		    kmem_alloc(zccb->searchname.MaximumLength,
 		    KM_SLEEP);
+
 		if (zccb->ContainsWildCards) {
 			Status = RtlUpcaseUnicodeString(&zccb->searchname,
 			    IrpSp->Parameters.QueryDirectory.FileName, FALSE);
@@ -4103,6 +4138,9 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 		dprintf("%s: setting up search '%wZ' (wildcards: %d) "
 		    "status 0x%lx\n", __func__,
 		    &zccb->searchname, zccb->ContainsWildCards, Status);
+	} else {
+		if (!flag_restart_scan)
+			initial = B_FALSE;
 	}
 
 	emitdir_ptr_t ctx;
@@ -4112,7 +4150,7 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 	ctx.outcount = 0;
 	ctx.next_offset = NULL;
 	ctx.last_alignment = 0;
-	ctx.offset = zccb->uio_offset;
+	ctx.offset = zccb->dirlist_index;
 	ctx.numdirent = 0;
 	ctx.dirlisttype = IrpSp->Parameters.QueryDirectory.FileInformationClass;
 
@@ -4133,8 +4171,10 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 		 */
 		if (ctx.outcount > 0)
 			ret = 0;
-		else
+		else {
 			Status = STATUS_BUFFER_OVERFLOW;
+			zccb->dirlist_index = ctx.offset;
+		}
 	}
 
 	if (ret == 0) {
@@ -4145,11 +4185,12 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 				/*
 				 * Reset the pointer, by copying in old value
 				 */
-				ctx.offset = zccb->uio_offset;
+				ctx.offset = zccb->dirlist_index;
 			}
 			Status = STATUS_SUCCESS;
 		} else { // outcount == 0
-			Status = (zccb->uio_offset == 0) ? STATUS_NO_SUCH_FILE :
+			Status = (zccb->dirlist_index == 0) ?
+			    STATUS_NO_SUCH_FILE :
 			    STATUS_NO_MORE_FILES;
 		}
 		// Set correct buffer size returned.
@@ -4162,7 +4203,7 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 		    Irp->IoStatus.Information);
 
 		// Remember directory index for next time
-		zccb->uio_offset = ctx.offset;
+		zccb->dirlist_index = ctx.offset;
 	}
 
 	kmem_free(ctx.alloc_buf, ctx.bufsize);
