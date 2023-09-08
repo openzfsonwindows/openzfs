@@ -2813,9 +2813,10 @@ zfs_parent(struct vnode *vp)
 
 	/* easy, do we have it? */
 	dvp = vnode_parent(vp);
-	if (dvp != NULL)
+	if (dvp != NULL) {
+		VN_HOLD(dvp);
 		return (dvp);
-
+	}
 	/* .. then look it up */
 	znode_t *zp = VTOZ(vp);
 
@@ -2917,7 +2918,7 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 
 	if (dvp == NULL) {
 		Status = STATUS_INVALID_PARAMETER;
-		goto out;
+		goto out_unlock;
 	}
 
 	dzp = VTOZ(dvp);
