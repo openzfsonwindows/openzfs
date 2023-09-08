@@ -2799,6 +2799,46 @@ xattr_getsize(struct vnode *vp)
 }
 
 /*
+ * try harder to get parent, including looking it up.
+ * this will return with iocount held on dvp.
+ * call, VN_RELE() when done.
+ */
+struct vnode *
+zfs_parent(struct vnode *vp)
+{
+	struct vnode *dvp;
+
+	if (vp == NULL)
+		return (SET_ERROR(NULL));
+
+	/* easy, do we have it? */
+	dvp = vnode_parent(vp);
+	if (dvp != NULL)
+		return (dvp);
+
+	/* .. then look it up */
+	znode_t *zp = VTOZ(vp);
+
+	if (zp == NULL)
+		return (SET_ERROR(NULL));
+
+	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	uint64_t parent;
+
+	VERIFY(sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
+	    &parent, sizeof (parent)) == 0);
+
+	znode_t *dzp;
+	int error;
+
+	error = zfs_zget(zfsvfs, parent, &dzp);
+	if (error)
+		return (SET_ERROR(NULL));
+
+	return (ZTOV(dzp));
+}
+
+/*
  * Call vnode_setunlink if zfs_zaccess_delete() allows it
  * TODO: provide credentials
  */
@@ -2868,10 +2908,10 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 		goto out;
 	}
 
-	// if dvp == null, find it
-
+	// Call out_unlock from now on,
+	// zfs_parent() holds dvp
 	if (dvp == NULL)
-		dvp = vnode_parent(vp);
+		dvp = zfs_parent(vp);
 
 	if (dvp == NULL) {
 		Status = STATUS_INVALID_PARAMETER;
@@ -2879,9 +2919,6 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 	}
 
 	dzp = VTOZ(dvp);
-
-	// Call out_unlock from now on
-	VN_HOLD(dvp);
 
 	// If we are root
 	if (zp->z_id == zfsvfs->z_root) {
