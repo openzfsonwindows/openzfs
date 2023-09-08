@@ -141,7 +141,7 @@ extern void acl_trivial_access_masks(mode_t mode, boolean_t isdir,
     trivial_acl_t *masks);
 extern void zfs_save_ntsecurity(struct vnode *vp);
 void zfs_load_ntsecurity(struct vnode *vp);
-
+struct vnode *zfs_parent(struct vnode *);
 
 /* IRP_MJ_SET_INFORMATION helpers */
 extern NTSTATUS set_file_basic_information(PDEVICE_OBJECT, PIRP,

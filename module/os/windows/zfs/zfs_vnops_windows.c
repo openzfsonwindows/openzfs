@@ -5475,8 +5475,9 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	if (zp->z_is_ctldir)
 		return (STATUS_SUCCESS);
 
-	dvp = vnode_parent(vp);
-	if ((dvp == NULL) || VN_HOLD(dvp) != 0)
+	// find parent and hold.
+	dvp = zfs_parent(vp);
+	if (dvp == NULL)
 		return (STATUS_INSTANCE_NOT_AVAILABLE);
 
 	// Unfortunately, filename is littered with "\", clean it up,
