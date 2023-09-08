@@ -955,7 +955,6 @@ vnode_iocount(vnode_t *vp)
 vnode_t *
 vnode_parent(vnode_t *vp)
 {
-	VERIFY3P(vp->v_parent, !=, NULL);
 	return (vp->v_parent);
 }
 
@@ -973,15 +972,14 @@ vnode_setparent(vnode_t *vp, vnode_t *newparent)
 	int error;
 	struct vnode *oldparent;
 
-	VERIFY((vp->v_parent != NULL) || (vp->v_flags & VNODE_MARKROOT));
-	VERIFY3P(newparent, !=, NULL);
-
 	oldparent = vp->v_parent;
 	if (oldparent == newparent)
 		return;
 
-	vnode_ref(newparent);
-	vp->v_parent = newparent;
+	if (newparent) {
+		vnode_ref(newparent);
+		vp->v_parent = newparent;
+	}
 
 	// Try holding it, so we call vnode_put()
 	if (oldparent != NULL) {
@@ -1164,9 +1162,6 @@ vnode_recycle_int(vnode_t *vp, int flags)
 			if (zfs_vnop_reclaim(vp))
 				panic("vnode_recycle: cannot reclaim\n");
 
-			// Remove parent hold.
-			VERIFY((vp->v_parent != NULL) ||
-			    (vp->v_flags & VNODE_MARKROOT));
 			// hold iocount cos of ASSERT in vnode_rele
 			if ((vp->v_parent != NULL) &&
 			    vnode_isdir(vp->v_parent) &&
@@ -1317,9 +1312,7 @@ vnode_create(mount_t *mp, struct vnode *dvp, void *v_data, int type, int flags,
 	if (flags & VNODE_MARKROOT)
 		vp->v_flags |= VNODE_MARKROOT;
 
-	// Hold parent reference
-	VERIFY((dvp != NULL) || (vp->v_flags&VNODE_MARKROOT));
-	/* We also get here with xdvp on the file */
+	/* We also get here with xdvp on the file, can be NULL */
 	if (dvp != NULL && vnode_isdir(dvp))
 		vnode_ref(dvp);
 
