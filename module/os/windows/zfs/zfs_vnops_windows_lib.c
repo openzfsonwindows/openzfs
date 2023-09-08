@@ -2912,6 +2912,8 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 	// zfs_parent() holds dvp
 	if (dvp == NULL)
 		dvp = zfs_parent(vp);
+	else
+		VN_HOLD(dvp);
 
 	if (dvp == NULL) {
 		Status = STATUS_INVALID_PARAMETER;
