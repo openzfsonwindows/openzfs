@@ -3704,6 +3704,7 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    &tdvp, &tvp, 0, 0);
 		if (error) {
 			Status = STATUS_OBJECTID_NOT_FOUND;
+			tdvp = NULL; // did not hold, dont rele
 			goto out;
 		}
 	} else {
@@ -3724,23 +3725,9 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		goto out;
 	}
 
-	VERIFY(sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
-	    &parent, sizeof (parent)) == 0);
+	// Fetch parent, and hold
+	fdvp = zfs_parent(fvp);
 
-	// Fetch fdvp
-	error = zfs_zget(zfsvfs, parent, &dzp);
-	if (error) {
-		error = STATUS_OBJECTID_NOT_FOUND;
-		goto out;
-	}
-
-	// Lookup name
-	if (zp->z_name_cache == NULL) {
-		error = STATUS_OBJECTID_NOT_FOUND;
-		goto out;
-	}
-
-	fdvp = ZTOV(dzp);
 	// "tvp" (if not NULL) and "tdvp" is held by zfs_find_dvp_vp
 
 	if (use_fdvp_for_tdvp) {
@@ -3753,8 +3740,9 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    NULL);
 
 	if (error == 0) {
+
 		// rename file in same directory:
-		// sned dir modified, send OLD_NAME, NEW_NAME
+		// send dir modified, send OLD_NAME, NEW_NAME
 		// Moving to different volume:
 		// FILE_ACTION_REMOVED, FILE_ACTION_ADDED
 		// send CHANGE_LAST_WRITE
