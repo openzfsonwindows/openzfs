@@ -6065,7 +6065,7 @@ zfs_fileobject_close(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			if (!vnode_isvroot(vp)) {
 
 /* Take hold from dispatcher, try to release in recycle */
-				*hold_vp = NULL;
+				// *hold_vp = NULL;
 
 // Release vp - vnode_recycle expects iocount==1
 // we don't recycle root (unmount does) or RELE on
@@ -6076,7 +6076,7 @@ zfs_fileobject_close(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 //					dprintf("IRP_CLOSE failed to recycle. "
 //					    "is_empty %d\n",
 //					    vnode_fileobject_empty(vp, 1));
-					VN_RELE(vp);
+				//	VN_RELE(vp);
 //				}
 
 				Status = STATUS_SUCCESS;
@@ -6729,7 +6729,7 @@ _Function_class_(DRIVER_DISPATCH)
 			// we should fail this OP.
 			Irp->IoStatus.Information = 0;
 			hold_vp = NULL;
-			return (STATUS_INVALID_PARAMETER);
+			// return (STATUS_INVALID_PARAMETER);
 
 		} else {
 
