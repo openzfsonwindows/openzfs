@@ -1962,8 +1962,15 @@ zfs_znode_getvnode(znode_t *zp, znode_t *dzp, zfsvfs_t *zfsvfs)
 	vnode_create(zfsvfs->z_vfs, parentvp,
 	    zp, IFTOVT((mode_t)zp->z_mode), flags, &vp);
 
-	if (parentvp != NULL)
+	/* We also get here with xdvp on the file, can be NULL */
+	if (parentvp != NULL) {
+
+		if (vnode_isdir(parentvp) &&
+		    !(zp->z_mode & ZFS_XATTR))
+			vnode_setparent(vp, parentvp);
+
 		VN_RELE(parentvp);
+	}
 
 	atomic_inc_64(&vnop_num_vnodes);
 
