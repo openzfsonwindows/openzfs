@@ -987,7 +987,6 @@ vnode_setparent(vnode_t *vp, vnode_t *newparent)
 		vnode_rele(oldparent);
 		if (!error)
 			VN_RELE(oldparent);
-			VN_RELE(oldparent);
 	}
 }
 
