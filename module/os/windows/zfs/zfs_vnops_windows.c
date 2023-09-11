@@ -4754,12 +4754,10 @@ end:
 	switch (Status) {
 	case 0:
 	case STATUS_PENDING:
+	default:
 		break;
 	case EISDIR:
 		Status = STATUS_FILE_IS_A_DIRECTORY;
-		break;
-	default:
-		Status = STATUS_INVALID_PARAMETER;
 		break;
 	}
 
