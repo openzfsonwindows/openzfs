@@ -987,6 +987,7 @@ vnode_setparent(vnode_t *vp, vnode_t *newparent)
 		vnode_rele(oldparent);
 		if (!error)
 			VN_RELE(oldparent);
+			VN_RELE(oldparent);
 	}
 }
 
@@ -1294,7 +1295,7 @@ vnode_create(mount_t *mp, struct vnode *dvp, void *v_data, int type, int flags,
 	*vpp = vp;
 	vp->v_flags = 0;
 	vp->v_mount = mp;
-	vp->v_parent = dvp;
+	vp->v_parent = NULL;
 	vp->v_data = v_data;
 	vp->v_type = type;
 	vp->v_id = atomic_inc_64_nv(&(vnode_vid_counter));
@@ -1311,10 +1312,6 @@ vnode_create(mount_t *mp, struct vnode *dvp, void *v_data, int type, int flags,
 
 	if (flags & VNODE_MARKROOT)
 		vp->v_flags |= VNODE_MARKROOT;
-
-	/* We also get here with xdvp on the file, can be NULL */
-	if (dvp != NULL && vnode_isdir(dvp))
-		vnode_ref(dvp);
 
 	// Initialise the Windows specific data.
 	memset(&vp->SectionObjectPointers, 0,
