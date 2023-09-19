@@ -1140,10 +1140,16 @@ again:
 		 */
 		if (!vp) {
 
-			dprintf("%s: async racing attach\n", __func__);
-			// Could be zp is being torn down, idle a bit,
-			// and retry. This branch is rarely executed.
-			kpreempt(KPREEMPT_SYNC);
+			// Wait until attached, if we can.
+			if ((flags & ZGET_FLAG_ASYNC) &&
+			    zfs_znode_asyncwait(zfsvfs, zp) == 0) {
+				dprintf("%s: waited on z_vnode OK\n", __func__);
+			} else {
+				dprintf("%s: async racing attach\n", __func__);
+				// Could be zp is being torn down, idle a bit,
+				// and retry. This branch is rarely executed.
+				kpreempt(KPREEMPT_SYNC);
+			}
 			goto again;
 		}
 
@@ -1212,10 +1218,15 @@ again:
 	dprintf("zget create: %llu setting to %p\n", obj_num, zp);
 	*zpp = zp;
 
-	zfs_znode_hold_exit(zfsvfs, zh);
-
-	/* Attach a vnode to our new znode */
-	zfs_znode_getvnode(zp, NULL, zfsvfs);
+	if (flags & ZGET_FLAG_ASYNC) {
+		/* Spawn taskq to attach while we are still locked */
+		zfs_znode_asyncgetvnode(zp, zfsvfs);
+		zfs_znode_hold_exit(zfsvfs, zh);
+	} else {
+		/* Attach a vnode to our new znode, after unlock */
+		zfs_znode_hold_exit(zfsvfs, zh);
+		zfs_znode_getvnode(zp, NULL, zfsvfs);
+	}
 
 	dprintf("zget returning %d\n", err);
 	return (err);

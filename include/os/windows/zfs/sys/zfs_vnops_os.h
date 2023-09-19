@@ -109,9 +109,12 @@ extern void   getnewvnode_reserve(int num);
 extern void   getnewvnode_drop_reserve(void);
 extern int    zfs_vfsops_init(void);
 extern int    zfs_vfsops_fini(void);
-extern int    zfs_znode_asyncgetvnode(znode_t *zp, zfsvfs_t *zfsvfs);
-extern void   zfs_znode_asyncput(znode_t *zp);
-extern int    zfs_znode_asyncwait(znode_t *zp);
+
+extern void zfs_znode_asyncgetvnode_impl(void *arg);
+extern int zfs_znode_asyncwait(zfsvfs_t *zfsvfs, znode_t *zp);
+extern void zfs_znode_asyncput_impl(znode_t *zp);
+extern void zfs_znode_asyncput(znode_t *zp);
+extern int zfs_znode_asyncgetvnode(znode_t *zp, zfsvfs_t *zfsvfs);
 
 /* zfs_vnops_windows_lib calls */
 extern int    zfs_ioflags(int ap_ioflag);

@@ -604,8 +604,9 @@ zfs_purgedir(znode_t *dzp)
 	for (zap_cursor_init(&zc, zfsvfs->z_os, dzp->z_id);
 	    (error = zap_cursor_retrieve(&zc, &zap)) == 0;
 	    zap_cursor_advance(&zc)) {
-		error = zfs_zget(zfsvfs,
-		    ZFS_DIRENT_OBJ(zap.za_first_integer), &xzp);
+		error = zfs_zget_ext(zfsvfs,
+		    ZFS_DIRENT_OBJ(zap.za_first_integer), &xzp,
+		    ZGET_FLAG_ASYNC);
 		if (error) {
 			skipped += 1;
 			continue;
@@ -622,7 +623,8 @@ zfs_purgedir(znode_t *dzp)
 		error = dmu_tx_assign(tx, TXG_WAIT);
 		if (error) {
 			dmu_tx_abort(tx);
-			zfs_zrele_async(xzp);
+		/* Be aware this is not the "normal" zfs_zrele_async() */
+			zfs_znode_asyncput(xzp);
 			skipped += 1;
 			continue;
 		}
@@ -635,7 +637,8 @@ zfs_purgedir(znode_t *dzp)
 			skipped += 1;
 		dmu_tx_commit(tx);
 
-		zfs_zrele_async(xzp);
+		/* Be aware this is not the "normal" zfs_zrele_async() */
+		zfs_znode_asyncput(xzp);
 	}
 	zap_cursor_fini(&zc);
 	if (error != ENOENT)
@@ -695,7 +698,8 @@ zfs_rmnode(znode_t *zp)
 	error = sa_lookup(zp->z_sa_hdl, SA_ZPL_XATTR(zfsvfs),
 	    &xattr_obj, sizeof (xattr_obj));
 	if (error == 0 && xattr_obj) {
-		error = zfs_zget(zfsvfs, xattr_obj, &xzp);
+		error = zfs_zget_ext(zfsvfs, xattr_obj, &xzp,
+		    ZGET_FLAG_ASYNC);
 		ASSERT(error == 0);
 	}
 
@@ -761,8 +765,9 @@ zfs_rmnode(znode_t *zp)
 
 	dmu_tx_commit(tx);
 out:
+	/* Be aware this is not the "normal" zfs_zrele_async() */
 	if (xzp)
-		zfs_zrele_async(xzp);
+		zfs_znode_asyncput(xzp);
 }
 
 static uint64_t
