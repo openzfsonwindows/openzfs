@@ -3167,6 +3167,9 @@ top:
 	zfs_sa_upgrade_txholds(tx, zp);
 	zfs_sa_upgrade_txholds(tx, dzp);
 
+	dmu_tx_hold_free(tx, zp->z_id, 0, DMU_OBJECT_END);
+	dmu_tx_mark_netfree(tx);
+
 	error = dmu_tx_assign(tx, TXG_WAIT);
 	if (error) {
 		dmu_tx_abort(tx);
