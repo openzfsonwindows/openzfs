@@ -7530,14 +7530,8 @@ fastio_write(PFILE_OBJECT FileObject, PLARGE_INTEGER FileOffset,
 	BOOLEAN ret;
 
 	// treelock
-	if (!ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, Wait)) {
-		return (FALSE);
-	}
-
 	ret = FsRtlCopyWrite(FileObject, FileOffset, Length,
 	    Wait, LockKey, Buffer, IoStatus, DeviceObject);
-
-	ExReleaseResourceLite(vp->FileHeader.Resource);
 
 	return (ret);
 }
