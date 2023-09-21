@@ -4832,6 +4832,8 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	vp = FileObject->FsContext;
 	ccb = FileObject->FsContext2;
+
+
 	znode_t *zp = VTOZ(vp);
 
 	// fileref = ccb ? ccb->fileref : NULL;
@@ -5294,14 +5296,33 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	fileObject = IrpSp->FileObject;
 
-	if (fileObject == NULL || fileObject->FsContext == NULL) {
-		dprintf("  fileObject == NULL\n");
+	if (fileObject == NULL) {
+		dprintf("fileObject == NULL\n");
 		ASSERT0("fileObject == NULL");
+		return (SET_ERROR(STATUS_INVALID_PARAMETER));
+	}
+
+	if (fileObject->FsContext == NULL) {
+		dprintf("FsContext == NULL\n");
+		ASSERT0("FsContext == NULL");
 		return (SET_ERROR(STATUS_INVALID_PARAMETER));
 	}
 
 	struct vnode *vp = fileObject->FsContext;
 	zfs_dirlist_t *zccb = fileObject->FsContext2;
+
+	if (zccb == NULL) {
+		dprintf("zccb == NULL\n");
+		ASSERT0("zccb == NULL");
+		return (SET_ERROR(STATUS_INVALID_PARAMETER));
+	}
+
+	if (VTOZ(vp) == NULL) {
+		dprintf("zp == NULL\n");
+		ASSERT0("zp == NULL");
+		return (SET_ERROR(STATUS_INVALID_PARAMETER));
+	}
+
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	boolean_t wait = fileObject ? IoIsOperationSynchronous(Irp) : TRUE;
@@ -5313,8 +5334,9 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	VERIFY3U(VN_HOLD(vp), ==, 0);
 
+	/* zp can be NULL */
 	znode_t *zp = VTOZ(vp);
-	ASSERT(ZTOV(zp) == vp);
+
 	Irp->IoStatus.Information = 0;
 
 	try {
