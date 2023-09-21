@@ -5298,13 +5298,11 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	if (fileObject == NULL) {
 		dprintf("fileObject == NULL\n");
-		ASSERT0("fileObject == NULL");
 		return (SET_ERROR(STATUS_INVALID_PARAMETER));
 	}
 
 	if (fileObject->FsContext == NULL) {
 		dprintf("FsContext == NULL\n");
-		ASSERT0("FsContext == NULL");
 		return (SET_ERROR(STATUS_INVALID_PARAMETER));
 	}
 
@@ -5313,13 +5311,11 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	if (zccb == NULL) {
 		dprintf("zccb == NULL\n");
-		ASSERT0("zccb == NULL");
 		return (SET_ERROR(STATUS_INVALID_PARAMETER));
 	}
 
 	if (VTOZ(vp) == NULL) {
 		dprintf("zp == NULL\n");
-		ASSERT0("zp == NULL");
 		return (SET_ERROR(STATUS_INVALID_PARAMETER));
 	}
 
