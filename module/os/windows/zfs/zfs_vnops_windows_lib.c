@@ -2970,7 +2970,12 @@ zfs_parent(struct vnode *vp)
 	if (error)
 		return (SET_ERROR(NULL));
 
-	vnode_setparent(vp, ZTOV(dzp));
+	/*
+	 * Tempting as it may be, we can not
+	 * call setparent() here as there is
+	 * nothing to release parent usecount.
+	 */
+	// vnode_setparent(vp, ZTOV(dzp));
 	return (ZTOV(dzp));
 }
 
