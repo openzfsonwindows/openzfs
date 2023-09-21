@@ -976,6 +976,8 @@ vnode_setparent(vnode_t *vp, vnode_t *newparent)
 	if (oldparent == newparent)
 		return;
 
+	vp->v_parent = NULL;
+
 	if (newparent) {
 		vnode_ref(newparent);
 		vp->v_parent = newparent;
@@ -1161,15 +1163,6 @@ vnode_recycle_int(vnode_t *vp, int flags)
 		if (vp->v_data != NULL)
 			if (zfs_vnop_reclaim(vp))
 				panic("vnode_recycle: cannot reclaim\n");
-
-			// hold iocount cos of ASSERT in vnode_rele
-			if ((vp->v_parent != NULL) &&
-			    vnode_isdir(vp->v_parent) &&
-			    (VN_HOLD(vp->v_parent) == 0)) {
-				vnode_rele(vp->v_parent);
-				VN_RELE(vp->v_parent);
-			}
-			vp->v_parent = NULL;
 
 			mutex_enter(&vp->v_mutex);
 		}
