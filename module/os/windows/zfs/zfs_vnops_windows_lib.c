@@ -378,6 +378,8 @@ common_status_str(NTSTATUS Status)
 		return ("STATUS_REPARSE");
 	case STATUS_DISK_QUOTA_EXCEEDED:
 		return ("STATUS_DISK_QUOTA_EXCEEDED");
+	case STATUS_UNRECOGNIZED_VOLUME:
+		return ("STATUS_UNRECOGNIZED_VOLUME");
 	default:
 		return ("<*****>");
 	}

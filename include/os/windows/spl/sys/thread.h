@@ -100,4 +100,11 @@ static inline void kpreempt(int flags)
 	KeDelayExecutionThread(KernelMode, FALSE, &interval);
 }
 
+static inline void kpreempt_ms(int ms)
+{
+	LARGE_INTEGER interval;
+	interval.QuadPart = -10000 * ms;
+	KeDelayExecutionThread(KernelMode, FALSE, &interval);
+}
+
 #endif  /* _SPL_THREAD_H */
