@@ -1965,8 +1965,17 @@ zfs_znode_getvnode(znode_t *zp, znode_t *dzp, zfsvfs_t *zfsvfs)
 	/* We also get here with xdvp on the file, can be NULL */
 	if (parentvp != NULL) {
 
+		boolean_t isanyxattr = B_FALSE;
+
+		znode_t *dzp = VTOZ(parentvp);
+		if (dzp && (dzp->z_pflags & ZFS_XATTR))
+			isanyxattr = B_TRUE;
+
+		if (zp->z_pflags & ZFS_XATTR)
+			isanyxattr = B_TRUE;
+
 		if (vnode_isdir(parentvp) &&
-		    !(zp->z_mode & ZFS_XATTR))
+		    !isanyxattr)
 			vnode_setparent(vp, parentvp);
 
 		VN_RELE(parentvp);
@@ -5882,6 +5891,7 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		FsRtlNotifyCleanup(zmo->NotifySync, &zmo->DirNotifyList,
 		    zccb);
 
+	vnode_setparent(vp, NULL);
 	vnode_rele(vp); // Release longterm hold finally.
 
 	// last close, OR, deleting
