@@ -274,8 +274,9 @@ zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp, CC_FILE_SIZES *ccfs)
  * - which could also be done with TSD data, but this appears to be
  * the Windows norm.
  */
-void
-zfs_couplefileobject(vnode_t *vp, FILE_OBJECT *fileobject, uint64_t size)
+static void
+zfs_couplefileobject(vnode_t *vp, vnode_t *dvp, FILE_OBJECT *fileobject,
+    uint64_t size, ACCESS_MASK access)
 {
 	if (fileobject->FsContext2 != NULL)
 		return;
@@ -283,7 +284,13 @@ zfs_couplefileobject(vnode_t *vp, FILE_OBJECT *fileobject, uint64_t size)
 	zccb->magic = ZFS_DIRLIST_MAGIC;
 	fileobject->FsContext2 = zccb;
 
+	zccb->access = access;
+
+	vnode_ref(vp);
 	vnode_couplefileobject(vp, fileobject, size);
+
+	if (dvp)
+		vnode_setparent(vp, dvp);
 
 #ifdef ZFS_HAVE_FASTIO
 	vp->FileHeader.IsFastIoPossible = fast_io_possible(vp);
@@ -291,7 +298,7 @@ zfs_couplefileobject(vnode_t *vp, FILE_OBJECT *fileobject, uint64_t size)
 
 }
 
-void
+static void
 zfs_decouplefileobject(vnode_t *vp, FILE_OBJECT *fileobject)
 {
 	// We release FsContext2 at CLEANUP, but fastfat releases it in
@@ -673,6 +680,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	boolean_t UndoShareAccess = FALSE;
 	NTSTATUS Status = STATUS_SUCCESS;
 	ACCESS_MASK granted_access = 0;
+	ACCESS_MASK DesiredAccess =
+	    IrpSp->Parameters.Create.SecurityContext->DesiredAccess;
 
 	if (zfsvfs == NULL)
 		return (STATUS_OBJECT_PATH_NOT_FOUND);
@@ -782,9 +791,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			return (FILE_DOES_NOT_EXIST);  // No root dir?!
 
 		dvp = ZTOV(zp);
-		vnode_ref(dvp); // Hold open reference, until CLOSE
 
-		zfs_couplefileobject(dvp, FileObject, 0ULL);
+		zfs_couplefileobject(dvp, NULL, FileObject, 0ULL,
+		    DesiredAccess);
 		VN_RELE(dvp);
 
 		Irp->IoStatus.Information = FILE_OPENED;
@@ -846,9 +855,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 				if (error == 0) {
 					vp = ZTOV(zp);
-					zfs_couplefileobject(vp, FileObject,
-					    zp->z_size);
-					vnode_ref(vp); // Hold ref, until CLOSE
+					zfs_couplefileobject(vp, NULL,
+					    FileObject, zp->z_size,
+					    DesiredAccess);
 					VN_RELE(vp);
 
 					Irp->IoStatus.Information = FILE_OPENED;
@@ -883,8 +892,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			}
 			// Grab vnode to ref
 			if (VN_HOLD(dvp) == 0) {
-				vnode_ref(dvp); // Hold ref, until CLOSE
-				zfs_couplefileobject(dvp, FileObject, 0ULL);
+				zfs_couplefileobject(dvp, NULL, FileObject,
+				    0ULL, DesiredAccess);
 				VN_RELE(dvp);
 			} else {
 				Irp->IoStatus.Information = 0;
@@ -1036,10 +1045,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 #if 0
 			if (Options & FILE_OPEN_REPARSE_POINT) {
 				// Hold open reference, until CLOSE
-				vnode_ref(vp);
 				error = STATUS_SUCCESS;
-				zfs_couplefileobject(vp, FileObject,
-				    zp ? zp->z_size : 0ULL);
+				zfs_couplefileobject(vp, NULL, FileObject,
+				    zp ? zp->z_size : 0ULL, DesiredAccess);
 			}
 #endif
 			VN_RELE(vp);
@@ -1148,8 +1156,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 #endif
 
 			dprintf("%s: opening PARENT directory\n", __func__);
-			zfs_couplefileobject(dvp, FileObject, 0ULL);
-			vnode_ref(dvp); // Hold open reference, until CLOSE
+			zfs_couplefileobject(dvp, NULL, FileObject, 0ULL,
+			    DesiredAccess);
 			if (DeleteOnClose)
 				Status = zfs_setunlink(FileObject, dvp);
 			if (Status == STATUS_SUCCESS)
@@ -1206,8 +1214,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		    0, NULL, NULL);
 		if (error == 0) {
 			vp = ZTOV(zp);
-			zfs_couplefileobject(vp, FileObject, 0ULL);
-			vnode_ref(vp); // Hold open reference, until CLOSE
+			zfs_couplefileobject(vp, NULL, FileObject, 0ULL,
+			    DesiredAccess);
+
 			if (DeleteOnClose)
 				Status = zfs_setunlink(FileObject, dvp);
 
@@ -1219,7 +1228,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    IrpSp->Parameters.Create.FileAttributes);
 
 				IoSetShareAccess(
-				    IrpSp->Parameters.Create.SecurityContext->
 				    DesiredAccess,
 				    IrpSp->Parameters.Create.ShareAccess,
 				    FileObject,
@@ -1296,8 +1304,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 	// If flags are readonly, and tries to open with write, fail
 	if ((zp != NULL) &&
-	    (IrpSp->Parameters.Create.SecurityContext->
-	    DesiredAccess&(FILE_WRITE_DATA | FILE_APPEND_DATA)) &&
+	    (DesiredAccess&(FILE_WRITE_DATA | FILE_APPEND_DATA)) &&
 	    (zp->z_pflags&ZFS_READONLY)) {
 		VN_RELE(vp);
 		VN_RELE(dvp);
@@ -1334,14 +1341,12 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		// Streams do not call SeAccessCheck?
 		if (stream_name != NULL && vp != NULL) {
 			IoSetShareAccess(
-			    IrpSp->Parameters.Create.SecurityContext->
 			    DesiredAccess,
 			    IrpSp->Parameters.Create.ShareAccess,
 			    FileObject, vp ? &vp->share_access :
 			    &dvp->share_access);
 
 		} else if (
-		    IrpSp->Parameters.Create.SecurityContext->
 		    DesiredAccess != 0 && vp) {
 
 			SeLockSubjectContext(
@@ -1353,7 +1358,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			    &IrpSp->Parameters.Create.SecurityContext->
 			    AccessState->SubjectSecurityContext,
 			    TRUE,
-			    IrpSp->Parameters.Create.SecurityContext->
 			    DesiredAccess,
 			    0, NULL,
 			    IoGetFileObjectGenericMapping(),
@@ -1476,11 +1480,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			vp = ZTOV(zp);
 
 			if (!reenter_for_xattr) {
-				zfs_couplefileobject(vp, FileObject,
-				    zp ? zp->z_size : 0ULL);
-				vnode_ref(vp);
-
-				vnode_setparent(vp, dvp);
+				zfs_couplefileobject(vp, dvp, FileObject,
+				    zp ? zp->z_size : 0ULL, granted_access ?
+				    granted_access : DesiredAccess);
 
 				if (DeleteOnClose)
 					Status = zfs_setunlink(FileObject, dvp);
@@ -1508,7 +1510,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 				vnode_lock(vp);
 				IoSetShareAccess(
-				    IrpSp->Parameters.Create.SecurityContext->
 				    DesiredAccess,
 				    IrpSp->Parameters.Create.ShareAccess,
 				    FileObject,
@@ -1570,8 +1571,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	// Just open it, if the open was to a directory, add ccb
 	ASSERT(IrpSp->FileObject->FsContext == NULL);
 	if (vp == NULL) {
-		zfs_couplefileobject(dvp, FileObject, 0ULL);
-		vnode_ref(dvp); // Hold open reference, until CLOSE
+		zfs_couplefileobject(dvp, NULL, FileObject, 0ULL,
+		    granted_access ? granted_access : DesiredAccess);
+
 		if (DeleteOnClose)
 			Status = zfs_setunlink(FileObject, dvp);
 
@@ -1579,7 +1581,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			if (UndoShareAccess == FALSE) {
 				vnode_lock(dvp);
 				IoSetShareAccess(
-				    IrpSp->Parameters.Create.SecurityContext->
 				    DesiredAccess,
 				    IrpSp->Parameters.Create.ShareAccess,
 				    FileObject,
@@ -1594,8 +1595,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		// Technically, this should call zfs_open() -
 		// but zfs_open is mostly empty
 
-		zfs_couplefileobject(vp, FileObject, zp->z_size);
-		vnode_ref(vp); // Hold open reference, until CLOSE
+		zfs_couplefileobject(vp, NULL, FileObject, zp->z_size,
+		    granted_access ? granted_access : DesiredAccess);
 
 		// Now that vp is set, check delete
 		if (DeleteOnClose)
@@ -1641,7 +1642,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			if (UndoShareAccess == FALSE) {
 				vnode_lock(vp);
 				IoSetShareAccess(
-				    IrpSp->Parameters.Create.SecurityContext->
 				    DesiredAccess,
 				    IrpSp->Parameters.Create.ShareAccess,
 				    FileObject,

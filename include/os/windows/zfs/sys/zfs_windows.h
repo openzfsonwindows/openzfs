@@ -58,6 +58,7 @@ struct zfs_dirlist {
 	boolean_t user_set_access_time;
 	boolean_t user_set_write_time;
 	boolean_t user_set_change_time;
+	ACCESS_MASK access;
 };
 
 typedef struct zfs_dirlist zfs_dirlist_t;

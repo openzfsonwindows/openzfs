@@ -1099,6 +1099,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		fiedi->EaSize =
 		    xattr_getsize(ZTOV(tzp));
 		fiedi->ReparsePointTag = reparse_tag;
+		fiedi->FileAttributes = zfs_getwinflags(tzp);
 		RtlCopyMemory(&fiedi->FileId.Identifier[0], &tzp->z_id,
 		    sizeof (UINT64));
 		guid = dmu_objset_fsid_guid(zfsvfs->z_os);
@@ -4550,8 +4551,9 @@ file_stat_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	/* vp is already help in query_information */
 	struct vnode *vp = FileObject->FsContext;
+	zfs_dirlist_t *zccb = FileObject->FsContext2;
 
-	if (vp) {
+	if (vp && zccb) {
 
 		znode_t *zp = VTOZ(vp);
 		zfsvfs_t *zfsvfs = zp->z_zfsvfs;
@@ -4588,7 +4590,7 @@ file_stat_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		fsi->FileAttributes = zfs_getwinflags(zp);
 		fsi->ReparseTag = get_reparse_tag(zp);
 		fsi->NumberOfLinks = zp->z_links;
-		fsi->EffectiveAccess = GENERIC_ALL;
+		fsi->EffectiveAccess = zccb->access;
 	}
 
 	return (STATUS_SUCCESS);
@@ -4628,8 +4630,9 @@ file_stat_lx_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	/* vp is already help in query_information */
 	struct vnode *vp = FileObject->FsContext;
+	zfs_dirlist_t *zccb = FileObject->FsContext2;
 
-	if (vp) {
+	if (vp && zccb) {
 		znode_t *zp = VTOZ(vp);
 		zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 		if (zp->z_is_sa) {
@@ -4662,8 +4665,8 @@ file_stat_lx_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		fsli->FileAttributes = zfs_getwinflags(zp);
 		fsli->ReparseTag = get_reparse_tag(zp);
 		fsli->NumberOfLinks = zp->z_links;
-		fsli->EffectiveAccess =
-		    SPECIFIC_RIGHTS_ALL | ACCESS_SYSTEM_SECURITY;
+		fsli->EffectiveAccess = zccb->access;
+
 		fsli->LxFlags = LX_FILE_METADATA_HAS_UID |
 		    LX_FILE_METADATA_HAS_GID | LX_FILE_METADATA_HAS_MODE;
 		if (zfsvfs->z_case == ZFS_CASE_SENSITIVE)
