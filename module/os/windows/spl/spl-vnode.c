@@ -1296,6 +1296,7 @@ vnode_create(mount_t *mp, struct vnode *dvp, void *v_data, int type, int flags,
 	vp->v_unlink = 0;
 	vp->v_reparse = NULL;
 	vp->v_reparse_size = 0;
+	vp->security_descriptor = NULL;
 
 	atomic_inc_64(&vnode_active);
 

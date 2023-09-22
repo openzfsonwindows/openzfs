@@ -2694,6 +2694,7 @@ zfs_attach_security(struct vnode *vp, struct vnode *dvp)
 	SID *usersid = NULL, *groupsid = NULL;
 	int error = 0;
 	boolean_t defaulted;
+	uint8_t *buf = NULL;
 
 	if (vp == NULL)
 		return (Status);
@@ -2769,7 +2770,6 @@ zfs_attach_security(struct vnode *vp, struct vnode *dvp)
 	PSID owner, group;
 	ULONG abssdlen = 0, dacllen = 0, sacllen = 0, ownerlen = 0,
 	    grouplen = 0;
-	uint8_t *buf = NULL;
 
 	Status = RtlSelfRelativeToAbsoluteSD(sd, NULL, &abssdlen, NULL,
 	    &dacllen, NULL, &sacllen, NULL, &ownerlen, NULL, &grouplen);
