@@ -7169,7 +7169,8 @@ _Function_class_(DRIVER_DISPATCH)
 		 */
 		if (vp && vnode_sizechange(vp) &&
 		    VN_HOLD(vp) == 0) {
-			if (CcIsFileCached(IrpSp->FileObject)) {
+			if (IrpSp->FileObject &&
+			    CcIsFileCached(IrpSp->FileObject)) {
 				znode_t *zp = VTOZ(vp);
 				vnode_pager_setsize(IrpSp->FileObject, vp,
 				    zp->z_size, FALSE);
