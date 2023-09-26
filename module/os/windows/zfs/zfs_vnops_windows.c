@@ -3163,12 +3163,9 @@ top:
 	fuid_dirtied = zfsvfs->z_fuid_dirty;
 
 	dmu_tx_hold_zap(tx, dzp->z_id, FALSE, NULL); // name
-	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
+	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_TRUE);
 	zfs_sa_upgrade_txholds(tx, zp);
 	zfs_sa_upgrade_txholds(tx, dzp);
-
-	dmu_tx_hold_free(tx, zp->z_id, 0, DMU_OBJECT_END);
-	dmu_tx_mark_netfree(tx);
 
 	error = dmu_tx_assign(tx, TXG_WAIT);
 	if (error) {
