@@ -729,7 +729,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	CreateDisposition = (Options >> 24) & 0x000000ff;
 
 	IsPagingFile = BooleanFlagOn(IrpSp->Flags, SL_OPEN_PAGING_FILE);
-	ASSERT(!IsPagingFile);
+	// ASSERT(!IsPagingFile);
 	// ASSERT(!OpenRequiringOplock);
 	// Open the directory instead of the file
 	OpenTargetDirectory = BooleanFlagOn(IrpSp->Flags,
@@ -2208,10 +2208,19 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		dprintf("* %s: FileFsControlInformation NOT IMPLEMENTED\n",
 		    __func__);
 		break;
+
 	case FileFsDeviceInformation:
-		dprintf("* %s: FileFsDeviceInformation NOT IMPLEMENTED\n",
+		dprintf("* %s: FileFsDeviceInformation\n",
 		    __func__);
+		FILE_FS_DEVICE_INFORMATION *ffdi;
+		ffdi = Irp->AssociatedIrp.SystemBuffer;
+		ffdi->DeviceType = FILE_DEVICE_DISK;
+		ffdi->Characteristics = FILE_REMOVABLE_MEDIA |
+		    FILE_DEVICE_IS_MOUNTED /* | FILE_READ_ONLY_DEVICE */;
+		Irp->IoStatus.Information = sizeof (FILE_FS_DEVICE_INFORMATION);
+		Status = STATUS_SUCCESS;
 		break;
+
 	case FileFsDriverPathInformation:
 		dprintf("* %s: FileFsDriverPathInformation NOT IMPLEMENTED\n",
 		    __func__);
@@ -2335,6 +2344,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    sizeof (FILE_FS_SECTOR_SIZE_INFORMATION);
 		Status = STATUS_SUCCESS;
 		break;
+
 	default:
 		dprintf("* %s: unknown class 0x%x\n", __func__,
 		    IrpSp->Parameters.QueryVolume.FsInformationClass);
@@ -6231,9 +6241,6 @@ out:
 	return (error);
 }
 
-NTSTATUS pnp_query_di(PDEVICE_OBJECT DeviceObject, PIRP Irp,
-    PIO_STACK_LOCATION IrpSp);
-
 /*
  * This is the ioctl handler for ioctl done directly on /dev/zfs node.
  * This means all the internal ZFS ioctls, like ZFS_IOC_SEND etc.
@@ -7086,6 +7093,12 @@ _Function_class_(DRIVER_DISPATCH)
 			dprintf("IRP_MN_CANCEL_REMOVE_DEVICE\n");
 			Status = STATUS_SUCCESS;
 			break;
+		case IRP_MN_DEVICE_USAGE_NOTIFICATION:
+			dprintf("IRP_MN_DEVICE_USAGE_NOTIFICATION\n");
+			Status = pnp_device_usage_notification(DeviceObject,
+			    Irp, IrpSp);
+			break;
+
 		}
 		break;
 	case IRP_MJ_QUERY_VOLUME_INFORMATION:
@@ -7485,6 +7498,49 @@ pnp_query_di(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	else
 		status = STATUS_NOT_IMPLEMENTED;
 	return (status);
+}
+
+NTSTATUS
+pnp_device_usage_notification(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	char *type;
+
+	switch (IrpSp->Parameters.UsageNotification.Type) {
+	case DeviceUsageTypePaging:
+		type = "Paging";
+		break;
+	case DeviceUsageTypeDumpFile:
+		type = "DumpFile";
+		break;
+	case DeviceUsageTypeBoot:
+		type = "Boot";
+		break;
+	case DeviceUsageTypeGuestAssigned:
+		type = "GuestAssigned";
+		break;
+	case DeviceUsageTypeHibernation:
+		type = "Hibernation";
+		break;
+	case DeviceUsageTypePostDisplay:
+		type = "PostDisplay";
+		break;
+	default:
+		type = "Unknown";
+		break;
+	}
+
+	dprintf("NT wants to %s a %s file.\n",
+	    IrpSp->Parameters.UsageNotification.InPath ?
+	    "create" : "remove",
+	    type);
+
+	/*
+	 * I believe we should in fact send the IRP lower down
+	 * and that is true of a few IRPs.
+	 */
+
+	return (STATUS_SUCCESS);
 }
 
 
