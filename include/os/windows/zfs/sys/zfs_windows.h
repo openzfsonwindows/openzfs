@@ -124,6 +124,10 @@ extern void latency_stats(uint64_t *histo, unsigned int buckets,
     stat_pair *lat);
 extern size_t get_reparse_point_impl(znode_t *zp, char *buffer, size_t outlen);
 extern void fastio_init(FAST_IO_DISPATCH **fast);
+extern NTSTATUS pnp_query_di(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp);
+extern NTSTATUS pnp_device_usage_notification(PDEVICE_OBJECT DeviceObject,
+    PIRP Irp, PIO_STACK_LOCATION IrpSp);
 
 /* zfs_vnop_windows_lib.h */
 extern int	AsciiStringToUnicodeString(char *in, PUNICODE_STRING out);
