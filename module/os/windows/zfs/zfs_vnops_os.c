@@ -1471,16 +1471,6 @@ zfs_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr, zfs_dirlist_t *zccb,
 			if (error == 0) {
 				ctx->numdirent++;
 			} else if (error == ENOSPC) {
-				/*
-				 * stop iterating
-				 * Strangely, ifstest.exe will ignore the
-				 * ENOSPC return and just repeat the lookup
-				 * forever. So we advance the index here, so
-				 * we will either find something that fits, or
-				 * run out of entries.(They don't specify Index)
-				 */
-				zap_cursor_advance(&zc);
-				ctx->offset = zap_cursor_serialize(&zc);
 				break;
 			} else {
 				/* other error, skip over entry */
