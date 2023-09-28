@@ -1162,7 +1162,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			zfs_couplefileobject(dvp, NULL, FileObject, 0ULL,
 			    DesiredAccess);
 			if (DeleteOnClose)
-				Status = zfs_setunlink(FileObject, dvp);
+				Status = zfs_setunlink_masked(FileObject, NULL);
 			if (Status == STATUS_SUCCESS)
 				Irp->IoStatus.Information = FILE_OPENED;
 
@@ -1221,7 +1221,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			    DesiredAccess);
 
 			if (DeleteOnClose)
-				Status = zfs_setunlink(FileObject, dvp);
+				Status = zfs_setunlink_masked(FileObject, dvp);
 
 			if (Status == STATUS_SUCCESS) {
 				Irp->IoStatus.Information = FILE_CREATED;
@@ -1488,7 +1488,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    granted_access : DesiredAccess);
 
 				if (DeleteOnClose)
-					Status = zfs_setunlink(FileObject, dvp);
+					Status =
+					    zfs_setunlink_masked(FileObject,
+					    dvp);
 			}
 
 			if (Status == STATUS_SUCCESS) {
@@ -1578,7 +1580,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		    granted_access ? granted_access : DesiredAccess);
 
 		if (DeleteOnClose)
-			Status = zfs_setunlink(FileObject, dvp);
+			Status = zfs_setunlink_masked(FileObject, NULL);
 
 		if (Status == STATUS_SUCCESS) {
 			if (UndoShareAccess == FALSE) {
@@ -1603,7 +1605,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 		// Now that vp is set, check delete
 		if (DeleteOnClose)
-			Status = zfs_setunlink(FileObject, dvp);
+			Status = zfs_setunlink_masked(FileObject, dvp);
 
 		if (Status == STATUS_SUCCESS) {
 

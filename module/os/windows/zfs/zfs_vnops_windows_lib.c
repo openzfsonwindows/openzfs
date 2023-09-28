@@ -3106,6 +3106,35 @@ out:
 	return (Status);
 }
 
+/*
+ * "File System Behavior Overview.pdf" page 33
+ * Note that if the DELETE_ON_CLOSE flag is specified on
+ * a directory with child files or directories, the
+ * create operation will succeed, but the delete on close
+ * flag will be silently ignored when processing the
+ * cleanup IRP and the directory will not be deleted.
+ * The create operation can fail marking the file delete
+ * on close for any of the following reasons:
+ * The file is marked read-only – STATUS_CANNOT_DELETE
+ * The volume is marked read-only – STATUS_CANNOT_DELETE
+ * The file backs an image section – STATUS_CANNOT_DELETE
+ * The link or stream is already in the delete-pending
+ * state – STATUS_DELETE_PENDING
+ */
+NTSTATUS
+zfs_setunlink_masked(FILE_OBJECT *fo, vnode_t *dvp)
+{
+	NTSTATUS Status;
+	Status = zfs_setunlink(fo, dvp);
+	switch (Status) {
+	case STATUS_CANNOT_DELETE:
+	case STATUS_DELETE_PENDING:
+		return (Status);
+	default:
+		return (STATUS_SUCCESS);
+	}
+}
+
 int
 uio_prefaultpages(ssize_t n, struct uio *uio)
 {
