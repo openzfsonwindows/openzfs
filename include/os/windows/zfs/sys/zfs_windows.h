@@ -139,6 +139,7 @@ extern int	zfs_vnop_ioctl_fullfsync(struct vnode *, vfs_context_t *,
 extern int	zfs_setwinflags(znode_t *zp, uint32_t winflags);
 extern uint32_t zfs_getwinflags(znode_t *zp);
 extern NTSTATUS zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp);
+extern NTSTATUS zfs_setunlink_masked(FILE_OBJECT *fo, vnode_t *dvp);
 extern int zfs_find_dvp_vp(zfsvfs_t *, char *, int finalpartmaynotexist,
     int finalpartmustnotexist, char **lastname, struct vnode **dvpp,
     struct vnode **vpp, int flags, ULONG options);
