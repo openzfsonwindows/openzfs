@@ -3436,21 +3436,26 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	if (!zfsvfs->z_unmounted) {
 
-		// DeleteOnClose just returns OK.
-		if (zccb && zccb->deleteonclose) {
+		// Already deleted just returns OK.
+		if (zp->z_unlinked) {
 			Status = STATUS_SUCCESS;
 			goto out;
 		}
 
 		// Advance only?
 		if (IrpSp->Parameters.SetFile.AdvanceOnly) {
-			if (feofi->EndOfFile.QuadPart > zp->z_size) {
 
-				Status = zfs_freesp(zp,
-				    feofi->EndOfFile.QuadPart,
-				    0, 0, TRUE);
-				changed = 1;
+			// Only if not DeleteOnClose
+			if (!zccb || !zccb->deleteonclose) {
+				if (feofi->EndOfFile.QuadPart > zp->z_size) {
+
+					Status = zfs_freesp(zp,
+					    feofi->EndOfFile.QuadPart,
+					    0, 0, TRUE);
+					changed = 1;
+				}
 			}
+
 			dprintf("%s: AdvanceOnly\n", __func__);
 			goto out;
 		}
