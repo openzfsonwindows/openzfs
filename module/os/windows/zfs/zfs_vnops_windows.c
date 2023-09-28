@@ -278,12 +278,15 @@ static void
 zfs_couplefileobject(vnode_t *vp, vnode_t *dvp, FILE_OBJECT *fileobject,
     uint64_t size, ACCESS_MASK access)
 {
-	if (fileobject->FsContext2 != NULL)
-		return;
-	zfs_dirlist_t *zccb = kmem_zalloc(sizeof (zfs_dirlist_t), KM_SLEEP);
-	zccb->magic = ZFS_DIRLIST_MAGIC;
-	fileobject->FsContext2 = zccb;
+	zfs_dirlist_t *zccb;
 
+	if (fileobject->FsContext2 == NULL) {
+		zccb = kmem_zalloc(sizeof (zfs_dirlist_t), KM_SLEEP);
+		zccb->magic = ZFS_DIRLIST_MAGIC;
+		fileobject->FsContext2 = zccb;
+	} else {
+		zccb = fileobject->FsContext2;
+	}
 	zccb->access = access;
 
 	vnode_ref(vp);
