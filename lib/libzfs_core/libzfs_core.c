@@ -28,6 +28,8 @@
  * Copyright (c) 2019, 2020 by Christian Schwarz. All rights reserved.
  * Copyright (c) 2019 Datto Inc.
  * Portions Copyright 2022 Andrew Innes <andrew.c12@gmail.com>
+ * Copyright (c) 2024-2026, Klara, Inc.
+ * Copyright (c) 2026, TrueNAS.
  */
 
 /*
@@ -547,6 +549,22 @@ lzc_sync(const char *pool_name, nvlist_t *innvl, nvlist_t **outnvl)
 {
 	(void) outnvl;
 	return (lzc_ioctl(ZFS_IOC_POOL_SYNC, pool_name, innvl, NULL));
+}
+
+int
+lzc_condense(const char *pool_name, const char *cmd, const char *type)
+{
+	int error;
+
+	nvlist_t *args = fnvlist_alloc();
+	fnvlist_add_string(args, ZPOOL_CONDENSE_COMMAND, cmd);
+	fnvlist_add_string(args, ZPOOL_CONDENSE_TYPE, type);
+
+	error = lzc_ioctl(ZFS_IOC_POOL_CONDENSE, pool_name, args, NULL);
+
+	fnvlist_free(args);
+
+	return (error);
 }
 
 /*
