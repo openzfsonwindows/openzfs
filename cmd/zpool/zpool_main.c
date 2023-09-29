@@ -369,7 +369,8 @@ static const char *vdev_trim_state_str[] = {
 };
 
 static const char *condense_unit(const char *type) {
-	(void) type;
+	if (strcmp(type, POOL_CONDENSE_LOG_SPACEMAP) == 0)
+		return ("metaslabs");
 #ifdef ZFS_DEBUG
 	if (strcmp(type, "debug") == 0)
 		return ("nits");	/* fundamental unit of debugging? ;) */
@@ -8885,6 +8886,7 @@ zpool_do_trim(int argc, char **argv)
 }
 
 static const char *condense_types[] = {
+	POOL_CONDENSE_LOG_SPACEMAP,
 #ifdef ZFS_DEBUG
 	"debug",
 #endif
