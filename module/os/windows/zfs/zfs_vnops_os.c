@@ -1740,8 +1740,8 @@ zfs_setattr(znode_t *zp, vattr_t *vap, int flags, cred_t *cr, zidmap_t *mnt_ns)
 	dmu_tx_t	*tx;
 	vattr_t		oldva;
 	xvattr_t	tmpxvattr;
-	uint_t		mask = vap->va_mask;
-	uint_t		saved_mask = 0;
+	uint64_t		mask = vap->va_mask;
+	uint64_t		saved_mask = 0;
 	uint64_t	saved_mode;
 	int		trim_mask = 0;
 	uint64_t	new_mode;
