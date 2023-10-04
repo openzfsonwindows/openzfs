@@ -1205,6 +1205,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			return (STATUS_MEDIA_WRITE_PROTECTED);
 		}
 
+		zfs_setwinflags_xva(NULL,
+		    IrpSp->Parameters.Create.FileAttributes, vap);
 		vap->va_type = VDIR;
 		// Set default 777 if something else wasn't passed in
 		if (!(vap->va_mask & ATTR_MODE))
@@ -1225,10 +1227,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 			if (Status == STATUS_SUCCESS) {
 				Irp->IoStatus.Information = FILE_CREATED;
-
-				// Update pflags, if needed
-				zfs_setwinflags(zp,
-				    IrpSp->Parameters.Create.FileAttributes);
 
 				IoSetShareAccess(
 				    DesiredAccess,
@@ -1454,10 +1452,12 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			replacing = 1;
 		}
 
+		zfs_setwinflags_xva(NULL,
+		    IrpSp->Parameters.Create.FileAttributes, vap);
 		vap->va_type = VREG;
 		if (!(vap->va_mask & ATTR_MODE))
 			vap->va_mode = 0777 | S_IFREG;
-		vap->va_mask = (ATTR_MODE | ATTR_TYPE);
+		vap->va_mask |= (ATTR_MODE | ATTR_TYPE);
 
 		// If O_TRUNC:
 		switch (CreateDisposition) {
@@ -1499,11 +1499,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    CreateDisposition == FILE_SUPERSEDE ?
 				    FILE_SUPERSEDED : FILE_OVERWRITTEN :
 				    FILE_CREATED;
-
-				// Update pflags, if needed
-				zfs_setwinflags(zp,
-				    IrpSp->Parameters.Create.FileAttributes |
-				    FILE_ATTRIBUTE_ARCHIVE);
 
 				// Did they ask for an AllocationSize
 				if (Irp->Overlay.AllocationSize.QuadPart > 0) {
@@ -1619,10 +1614,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    __func__);
 
 			Irp->IoStatus.Information = FILE_OPENED;
-			// Did they set the open flags (clearing archive?)
-			if (IrpSp->Parameters.Create.FileAttributes)
-				zfs_setwinflags(zp,
-				    IrpSp->Parameters.Create.FileAttributes);
+
 			// If we are to truncate the file:
 			if (CreateDisposition == FILE_OVERWRITE) {
 				Irp->IoStatus.Information = FILE_OVERWRITTEN;
@@ -1673,7 +1665,8 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 {
 	int status;
 	char *filename = NULL;
-	vattr_t vap = { 0 };
+	xvattr_t xva = { 0 };
+	vattr_t *vap = &xva.xva_vattr;
 
 	// Check the EA buffer is good, if supplied.
 	if (Irp->AssociatedIrp.SystemBuffer != NULL &&
@@ -1742,7 +1735,7 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 		    ea->NextEntryOffset)) {
 			// only parse $LX attrs right now -- things we can store
 			// before the file gets created.
-			if (vattr_apply_lx_ea(&vap, ea)) {
+			if (vattr_apply_lx_ea(vap, ea)) {
 				dprintf("encountered special attrs EA '%.*s'\n",
 				    ea->EaNameLength, ea->EaName);
 			}
@@ -1754,7 +1747,7 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 	do {
 
 		// Call ZFS
-		status = zfs_vnop_lookup_impl(Irp, IrpSp, zmo, filename, &vap);
+		status = zfs_vnop_lookup_impl(Irp, IrpSp, zmo, filename, vap);
 
 	} while (status == EAGAIN);
 

@@ -156,14 +156,6 @@ extern int			vttoif_tab[];
 
 #define	F_SEEK_HOLE 0
 
-/*
- * Windows uses separate vnop getfileinformation to deal with XATTRs, so
- * we never get vop&XVATTR set from VFS. All internal checks for it in
- * ZFS is not required.
- */
-#define	ATTR_XVATTR	0
-#define	AT_XVATTR	ATTR_XVATTR
-
 #define	B_INVAL		0x01
 #define	B_TRUNC		0x02
 
@@ -230,6 +222,9 @@ enum create	{ CRCREAT, CRMKNOD, CRMKDIR };	/* reason for create */
 #define	ATTR_CRTIME	VNODE_ATTR_va_create_time
 #define	ATTR_SIZE	VNODE_ATTR_va_data_size
 #define	ATTR_NOSET	0
+
+#define	ATTR_XVATTR	(1ULL << 63)
+#define	AT_XVATTR	ATTR_XVATTR
 
 #define	va_size		va_data_size
 #define	va_atime	va_access_time
