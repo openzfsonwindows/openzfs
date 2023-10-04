@@ -134,7 +134,8 @@ zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 
 	if (VN_HOLD(vp) == 0) {
 
-		if (!ExAcquireResourceExclusiveLite(
+		if (VTOZ(vp) == NULL ||
+		    !ExAcquireResourceExclusiveLite(
 		    vp->FileHeader.Resource, Wait)) {
 			dprintf("Failed\n");
 			VN_RELE(vp);
@@ -7919,7 +7920,8 @@ fastio_acquire_for_mod_write(PFILE_OBJECT FileObject,
 	if (!vp || VN_HOLD(vp) != 0)
 		return (STATUS_INVALID_PARAMETER);
 
-	if (!ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, FALSE)) {
+	if (VTOZ(vp) == NULL ||
+	    !ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, FALSE)) {
 		dprintf("%s: returning STATUS_CANT_WAIT\n", __func__);
 		VN_RELE(vp);
 		return (STATUS_CANT_WAIT);
