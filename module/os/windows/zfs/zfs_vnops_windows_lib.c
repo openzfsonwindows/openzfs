@@ -522,24 +522,30 @@ zfs_vnop_ioctl_fullfsync(struct vnode *vp, vfs_context_t *ct, zfsvfs_t *zfsvfs)
 	return (error);
 }
 
+/*
+ * Take zp, and convert zp->z_pflags into Windows
+ * FILE_ATTRIBUTES_ - Can we assume z_pflags is always
+ * up-to-date, or is there need to call zfs_getattr().
+ */
 uint32_t
-zfs_getwinflags(znode_t *zp)
+zfs_getwinflags(uint64_t zflags, boolean_t isdir)
 {
-	uint32_t  winflags = 0;
-	uint64_t zflags = zp->z_pflags;
-	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	uint32_t winflags = 0;
+
+	if (zflags & ZFS_READONLY)
+		winflags |= FILE_ATTRIBUTE_READONLY;
 	if (zflags & ZFS_HIDDEN)
 		winflags |= FILE_ATTRIBUTE_HIDDEN;
 	if (zflags & ZFS_SYSTEM)
 		winflags |= FILE_ATTRIBUTE_SYSTEM;
 	if (zflags & ZFS_ARCHIVE)
 		winflags |= FILE_ATTRIBUTE_ARCHIVE;
-	if (zflags & ZFS_READONLY || zfsvfs->z_rdonly)
-		winflags |= FILE_ATTRIBUTE_READONLY;
+	if (zflags & ZFS_SPARSE)
+		winflags |= FILE_ATTRIBUTE_SPARSE_FILE;
 	if (zflags & ZFS_REPARSE)
 		winflags |= FILE_ATTRIBUTE_REPARSE_POINT;
 
-	if (S_ISDIR(zp->z_mode)) {
+	if (isdir) {
 		winflags |= FILE_ATTRIBUTE_DIRECTORY;
 		winflags &= ~FILE_ATTRIBUTE_ARCHIVE;
 	}
@@ -552,41 +558,53 @@ zfs_getwinflags(znode_t *zp)
 	return (winflags);
 }
 
+/*
+ * Called when a request to change FileAttributes. So we
+ * need to populate "vap" with the information changes
+ * before calling zfs_setattr().
+ */
 int
-zfs_setwinflags(znode_t *zp, uint32_t winflags)
+zfs_setwinflags_xva(znode_t *zp, uint32_t win_flags, xvattr_t *xva)
 {
-	uint64_t zflags = 0;
+	uint64_t zfs_flags = 0ULL;
+	xoptattr_t *xoap;
 
-	zflags = zp->z_pflags;
+	/* zp is NULL if we have no yet created the file */
+	if (zp)
+		zfs_flags = zp->z_pflags;
 
-	if (winflags & FILE_ATTRIBUTE_HIDDEN)
-		zflags |= ZFS_HIDDEN;
-	else
-		zflags &= ~ZFS_HIDDEN;
+	win_flags &= ~FILE_ATTRIBUTE_NORMAL;
 
-	if (winflags & FILE_ATTRIBUTE_SYSTEM)
-		zflags |= ZFS_SYSTEM;
-	else
-		zflags &= ~ZFS_SYSTEM;
+	xva_init(xva);
+	xoap = xva_getxoptattr(xva);
 
-	if (winflags & FILE_ATTRIBUTE_ARCHIVE)
-		zflags |= ZFS_ARCHIVE;
-	else
-		zflags &= ~ZFS_ARCHIVE;
+#define	FLAG_CHANGE(zflag, wflag, xflag, xfield) do {	\
+		if (((win_flags & (wflag)) && !(zfs_flags & (zflag))) || \
+			((zfs_flags & (zflag)) && !(win_flags & (wflag)))) { \
+			XVA_SET_REQ(xva, (xflag)); \
+			(xfield) = ((win_flags & (wflag)) != 0); \
+		} \
+	} while (0)
 
-	if (winflags & FILE_ATTRIBUTE_READONLY)
-		zflags |= ZFS_READONLY;
-	else
-		zflags &= ~ZFS_READONLY;
+	FLAG_CHANGE(ZFS_READONLY, FILE_ATTRIBUTE_READONLY,
+	    XAT_READONLY, xoap->xoa_readonly);
+	FLAG_CHANGE(ZFS_HIDDEN, FILE_ATTRIBUTE_HIDDEN,
+	    XAT_HIDDEN, xoap->xoa_hidden);
+	FLAG_CHANGE(ZFS_SYSTEM, FILE_ATTRIBUTE_SYSTEM,
+	    XAT_SYSTEM, xoap->xoa_system);
+	FLAG_CHANGE(ZFS_ARCHIVE, FILE_ATTRIBUTE_ARCHIVE,
+	    XAT_ARCHIVE, xoap->xoa_archive);
+#if 0
+	/* You are allowed to call set on there, but they should do nothing */
+	FLAG_CHANGE(ZFS_SPARSE, FILE_ATTRIBUTE_SPARSE_FILE,
+	    XAT_SPARSE, xoap->xoa_sparse);
+	FLAG_CHANGE(ZFS_REPARSE, FILE_ATTRIBUTE_REPARSE_POINT,
+	    XAT_REPARSE, xoap->xoa_reparse);
+#endif
 
-	if (zp->z_pflags != zflags) {
-		zp->z_pflags = zflags;
-		dprintf("%s changing win 0x%08lx to zfs 0x%08llx\n", __func__,
-		    winflags, zflags);
-		return (1);
-	}
+#undef FLAG_CHANGE
 
-	return (0);
+	return (STATUS_SUCCESS);
 }
 
 // WSL uses special EAs to interact with uid/gid/mode/device major/minor
@@ -893,7 +911,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		    reparse_tag :
 		    xattr_getsize(ZTOV(tzp));
 		eodp->FileAttributes =
-		    zfs_getwinflags(tzp);
+		    zfs_getwinflags(tzp->z_pflags, S_ISDIR(tzp->z_mode));
 		nameptr = eodp->FileName;
 		eodp->FileNameLength = namelenholder;
 
@@ -931,7 +949,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		    reparse_tag :
 		    xattr_getsize(ZTOV(tzp));
 		fibdi->FileAttributes =
-		    zfs_getwinflags(tzp);
+		    zfs_getwinflags(tzp->z_pflags, S_ISDIR(tzp->z_mode));
 		fibdi->FileId.QuadPart = objnum;
 		fibdi->FileIndex = ctx->offset;
 		fibdi->ShortNameLength = 0;
@@ -971,7 +989,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		    reparse_tag :
 		    xattr_getsize(ZTOV(tzp));
 		fbdi->FileAttributes =
-		    zfs_getwinflags(tzp);
+		    zfs_getwinflags(tzp->z_pflags, S_ISDIR(tzp->z_mode));
 		fbdi->FileIndex = ctx->offset;
 		fbdi->ShortNameLength = 0;
 		nameptr = fbdi->FileName;
@@ -1007,7 +1025,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		TIME_UNIX_TO_WINDOWS(tzp->z_atime,
 		    fdi->LastAccessTime.QuadPart);
 		fdi->FileAttributes =
-		    zfs_getwinflags(tzp);
+		    zfs_getwinflags(tzp->z_pflags, S_ISDIR(tzp->z_mode));
 		fdi->FileIndex = ctx->offset;
 		nameptr = fdi->FileName;
 		fdi->FileNameLength = namelenholder;
@@ -1062,7 +1080,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		    reparse_tag :
 		    xattr_getsize(ZTOV(tzp));
 		fifdi->FileAttributes =
-		    zfs_getwinflags(tzp);
+		    zfs_getwinflags(tzp->z_pflags, S_ISDIR(tzp->z_mode));
 		fifdi->FileId.QuadPart = tzp->z_id;
 		nameptr = fifdi->FileName;
 		fifdi->FileNameLength = namelenholder;
@@ -1099,7 +1117,8 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		fiedi->EaSize =
 		    xattr_getsize(ZTOV(tzp));
 		fiedi->ReparsePointTag = reparse_tag;
-		fiedi->FileAttributes = zfs_getwinflags(tzp);
+		fiedi->FileAttributes =
+		    zfs_getwinflags(tzp->z_pflags, S_ISDIR(tzp->z_mode));
 		RtlCopyMemory(&fiedi->FileId.Identifier[0], &tzp->z_id,
 		    sizeof (UINT64));
 		guid = dmu_objset_fsid_guid(zfsvfs->z_os);
@@ -1141,7 +1160,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		    xattr_getsize(ZTOV(tzp));
 		fiebdi->ReparsePointTag = reparse_tag;
 		fiebdi->FileAttributes =
-		    zfs_getwinflags(tzp);
+		    zfs_getwinflags(tzp->z_pflags, S_ISDIR(tzp->z_mode));
 		fiebdi->ShortNameLength = 0;
 		RtlCopyMemory(&fiebdi->FileId.Identifier[0], &tzp->z_id,
 		    sizeof (UINT64));
@@ -3186,12 +3205,14 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (VTOZ(vp) != NULL && VN_HOLD(vp) == 0) {
 		FILE_BASIC_INFORMATION *fbi =
 		    Irp->AssociatedIrp.SystemBuffer;
-		vattr_t va = { 0 };
 		uint64_t unixtime[2] = { 0 };
 		znode_t *zp = VTOZ(vp);
 		boolean_t changed = FALSE;
+		// READONLY etc are part of extended vattr.
+		xvattr_t xva = { 0 };
+		vattr_t *vap = &xva.xva_vattr;
 
-		if (fbi->FileAttributes & FILE_ATTRIBUTE_DIRECTORY &&
+		if ((fbi->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
 		    !vnode_isdir(vp)) {
 			VN_RELE(vp);
 			return (STATUS_INVALID_PARAMETER);
@@ -3250,9 +3271,9 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		if (fbi->ChangeTime.QuadPart > 0) {
 			TIME_WINDOWS_TO_UNIX(fbi->ChangeTime.QuadPart,
 			    unixtime);
-			va.va_change_time.tv_sec = unixtime[0];
-			va.va_change_time.tv_nsec = unixtime[1];
-			va.va_active |= ATTR_CTIME;
+			vap->va_change_time.tv_sec = unixtime[0];
+			vap->va_change_time.tv_nsec = unixtime[1];
+			vap->va_active |= ATTR_CTIME;
 			// change time has no notify
 			changed = TRUE;
 		}
@@ -3261,9 +3282,9 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			TIME_WINDOWS_TO_UNIX(
 			    fbi->LastWriteTime.QuadPart,
 			    unixtime);
-			va.va_modify_time.tv_sec = unixtime[0];
-			va.va_modify_time.tv_nsec = unixtime[1];
-			va.va_active |= ATTR_MTIME;
+			vap->va_modify_time.tv_sec = unixtime[0];
+			vap->va_modify_time.tv_nsec = unixtime[1];
+			vap->va_active |= ATTR_MTIME;
 			NotifyFilter |= FILE_NOTIFY_CHANGE_LAST_WRITE;
 			changed = TRUE;
 		}
@@ -3271,9 +3292,9 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		if (fbi->CreationTime.QuadPart > 0) {
 			TIME_WINDOWS_TO_UNIX(fbi->CreationTime.QuadPart,
 			    unixtime);
-			va.va_create_time.tv_sec = unixtime[0];
-			va.va_create_time.tv_nsec = unixtime[1];
-			va.va_active |= ATTR_CRTIME;  // ATTR_CRTIME
+			vap->va_create_time.tv_sec = unixtime[0];
+			vap->va_create_time.tv_nsec = unixtime[1];
+			vap->va_active |= ATTR_CRTIME;  // ATTR_CRTIME
 			NotifyFilter |= FILE_NOTIFY_CHANGE_CREATION;
 			changed = TRUE;
 		}
@@ -3289,27 +3310,27 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		if (fbi->FileAttributes != 0) {
 
 			if (!zccb->user_set_change_time) {
-				gethrestime(&va.va_change_time);
-				va.va_active |= ATTR_CTIME;
+				gethrestime(&vap->va_change_time);
+				vap->va_active |= ATTR_CTIME;
 			}
 
-			fbi->FileAttributes &= ~FILE_ATTRIBUTE_NORMAL;
+			// Changes vap from vattr into xvattr.
+			zfs_setwinflags_xva(VTOZ(vp),
+			    fbi->FileAttributes, &xva);
 
-			if (zfs_setwinflags(VTOZ(vp),
-			    fbi->FileAttributes)) {
-				va.va_active |= ATTR_MODE;
-				NotifyFilter |= FILE_NOTIFY_CHANGE_ATTRIBUTES;
-			}
+			vap->va_active |= ATTR_MODE;
+			NotifyFilter |= FILE_NOTIFY_CHANGE_ATTRIBUTES;
 			changed = TRUE;
 		}
 
 		if (changed) {
-			Status = zfs_setattr(zp, &va, 0, NULL, NULL);
+			Status = zfs_setattr(zp, vap, 0, NULL, NULL);
 
-			// zfs_setattr will turn ARCHIVE back on, when perhaps
-			// it is set off by this call
-			if (fbi->FileAttributes)
-				zfs_setwinflags(zp, fbi->FileAttributes);
+			/* Unfortunately, ZFS turns on ARCHIVE sometimes */
+			if (!(fbi->FileAttributes & FILE_ATTRIBUTE_ARCHIVE) &&
+			    (zccb->user_set_change_time ||
+			    zccb->user_set_write_time))
+				zp->z_pflags &= ~ZFS_ARCHIVE;
 		}
 
 		if (NotifyFilter != 0) {
@@ -4083,7 +4104,9 @@ file_attribute_tag_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		znode_t *zp = VTOZ(vp);
 		zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
-		tag->FileAttributes = zfs_getwinflags(zp);
+		tag->FileAttributes =
+		    zfs_getwinflags(zp->z_pflags, vnode_isdir(vp));
+
 		tag->ReparseTag = get_reparse_tag(zp);
 		Irp->IoStatus.Information =
 		    sizeof (FILE_ATTRIBUTE_TAG_INFORMATION);
@@ -4132,39 +4155,72 @@ file_basic_information_impl(PDEVICE_OBJECT DeviceObject,
 	znode_t *zp = VTOZ(vp);
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+	int error = 0;
+	uint64_t fflags = 0;
 
 	if (zp != NULL) {
 
-		if (zp->z_is_sa) {
-			sa_bulk_attr_t bulk[3];
-			int count = 0;
-			uint64_t mtime[2];
-			uint64_t ctime[2];
-			uint64_t crtime[2];
-			SA_ADD_BULK_ATTR(bulk, count,
-			    SA_ZPL_MTIME(zfsvfs),
-			    NULL, &mtime, 16);
-			SA_ADD_BULK_ATTR(bulk, count,
-			    SA_ZPL_CTIME(zfsvfs),
-			    NULL, &ctime, 16);
-			SA_ADD_BULK_ATTR(bulk, count,
-			    SA_ZPL_CRTIME(zfsvfs),
-			    NULL, &crtime, 16);
-			sa_bulk_lookup(zp->z_sa_hdl, bulk, count);
+		xvattr_t xva;
+		vattr_t *vap = &xva.xva_vattr;
+		xva_init(&xva);
 
-			TIME_UNIX_TO_WINDOWS(mtime,
-			    fbi->LastWriteTime.QuadPart);
-			TIME_UNIX_TO_WINDOWS(ctime,
-			    fbi->ChangeTime.QuadPart);
-			TIME_UNIX_TO_WINDOWS(crtime,
-			    fbi->CreationTime.QuadPart);
-			TIME_UNIX_TO_WINDOWS(zp->z_atime,
-			    fbi->LastAccessTime.QuadPart);
+		// XVA_SET_REQ(&xva, XAT_IMMUTABLE);
+		// XVA_SET_REQ(&xva, XAT_APPENDONLY);
+		// XVA_SET_REQ(&xva, XAT_NOUNLINK);
+		// XVA_SET_REQ(&xva, XAT_NODUMP);
+		// XVA_SET_REQ(&xva, XAT_REPARSE);
+		// XVA_SET_REQ(&xva, XAT_OFFLINE);
+		XVA_SET_REQ(&xva, XAT_READONLY);
+		XVA_SET_REQ(&xva, XAT_HIDDEN);
+		XVA_SET_REQ(&xva, XAT_SYSTEM);
+		XVA_SET_REQ(&xva, XAT_ARCHIVE);
+		XVA_SET_REQ(&xva, XAT_SPARSE);
+		XVA_SET_REQ(&xva, XAT_REPARSE);
+
+		vap->va_mask |=
+		    (ATTR_MTIME | ATTR_CTIME | ATTR_CRTIME | ATTR_ATIME);
+
+		error = zfs_getattr(vp, (vattr_t *)&xva, 0, NULL, NULL);
+
+#define	FLAG_CHECK(fflag, xflag, xfield) do { \
+	if (XVA_ISSET_RTN(&xva, (xflag)) && (xfield) != 0) \
+		fflags |= (fflag); \
+} while (0)
+
+		FLAG_CHECK(FILE_ATTRIBUTE_READONLY, XAT_READONLY,
+		    xva.xva_xoptattrs.xoa_readonly);
+		FLAG_CHECK(FILE_ATTRIBUTE_HIDDEN, XAT_HIDDEN,
+		    xva.xva_xoptattrs.xoa_hidden);
+		FLAG_CHECK(FILE_ATTRIBUTE_SYSTEM, XAT_SYSTEM,
+		    xva.xva_xoptattrs.xoa_system);
+		FLAG_CHECK(FILE_ATTRIBUTE_ARCHIVE, XAT_ARCHIVE,
+		    xva.xva_xoptattrs.xoa_archive);
+		FLAG_CHECK(FILE_ATTRIBUTE_SPARSE_FILE, XAT_SPARSE,
+		    xva.xva_xoptattrs.xoa_sparse);
+		FLAG_CHECK(FILE_ATTRIBUTE_REPARSE_POINT, XAT_REPARSE,
+		    xva.xva_xoptattrs.xoa_reparse);
+
+#undef FLAG_CHECK
+
+		if (vnode_isdir(vp)) {
+			fflags |= FILE_ATTRIBUTE_DIRECTORY;
+			fflags &= ~FILE_ATTRIBUTE_ARCHIVE;
 		}
-		// FileAttributes == 0 means don't set
-		// - undocumented, but seen in fastfat
-		// if (fbi->FileAttributes != 0)
-		fbi->FileAttributes = zfs_getwinflags(zp);
+
+		if (fflags == 0)
+			fflags = FILE_ATTRIBUTE_NORMAL;
+
+		fbi->FileAttributes = fflags;
+
+		TIME_UNIX_TO_WINDOWS_EX(vap->va_modify_time.tv_sec,
+		    vap->va_modify_time.tv_nsec, fbi->LastWriteTime.QuadPart);
+		TIME_UNIX_TO_WINDOWS_EX(vap->va_change_time.tv_sec,
+		    vap->va_change_time.tv_nsec, fbi->ChangeTime.QuadPart);
+		TIME_UNIX_TO_WINDOWS_EX(vap->va_create_time.tv_sec,
+		    vap->va_create_time.tv_nsec, fbi->CreationTime.QuadPart);
+		TIME_UNIX_TO_WINDOWS_EX(vap->va_access_time.tv_sec,
+		    vap->va_access_time.tv_nsec, fbi->LastAccessTime.QuadPart);
+
 		IoStatus->Information = sizeof (FILE_BASIC_INFORMATION);
 		IoStatus->Status = STATUS_SUCCESS;
 		return;
@@ -4452,7 +4508,8 @@ file_network_open_information_impl(PDEVICE_OBJECT DeviceObject,
 		netopen->AllocationSize.QuadPart =
 		    P2ROUNDUP(zp->z_size, zfs_blksz(zp));
 		netopen->EndOfFile.QuadPart = vnode_isdir(vp) ? 0 : zp->z_size;
-		netopen->FileAttributes = zfs_getwinflags(zp);
+		netopen->FileAttributes =
+		    zfs_getwinflags(zp->z_pflags, vnode_isdir(vp));
 		IoStatus->Information =
 		    sizeof (FILE_NETWORK_OPEN_INFORMATION);
 		IoStatus->Status = STATUS_SUCCESS;
@@ -4621,7 +4678,8 @@ file_stat_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		fsi->AllocationSize.QuadPart =
 		    P2ROUNDUP(zp->z_size, zfs_blksz(zp));
 		fsi->EndOfFile.QuadPart = zp->z_size;
-		fsi->FileAttributes = zfs_getwinflags(zp);
+		fsi->FileAttributes =
+		    zfs_getwinflags(zp->z_pflags, vnode_isdir(vp));
 		fsi->ReparseTag = get_reparse_tag(zp);
 		fsi->NumberOfLinks = zp->z_links;
 		fsi->EffectiveAccess = zccb->access;
@@ -4696,7 +4754,8 @@ file_stat_lx_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		fsli->AllocationSize.QuadPart =
 		    P2ROUNDUP(zp->z_size, zfs_blksz(zp));
 		fsli->EndOfFile.QuadPart = zp->z_size;
-		fsli->FileAttributes = zfs_getwinflags(zp);
+		fsli->FileAttributes =
+		    zfs_getwinflags(zp->z_pflags, vnode_isdir(vp));
 		fsli->ReparseTag = get_reparse_tag(zp);
 		fsli->NumberOfLinks = zp->z_links;
 		fsli->EffectiveAccess = zccb->access;
