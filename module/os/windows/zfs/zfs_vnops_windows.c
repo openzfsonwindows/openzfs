@@ -134,8 +134,7 @@ zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 
 	if (VN_HOLD(vp) == 0) {
 
-		if (VTOZ(vp) == NULL ||
-		    !ExAcquireResourceExclusiveLite(
+		if (!ExAcquireResourceExclusiveLite(
 		    vp->FileHeader.Resource, Wait)) {
 			dprintf("Failed\n");
 			VN_RELE(vp);
@@ -277,7 +276,7 @@ zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp, CC_FILE_SIZES *ccfs)
  */
 static void
 zfs_couplefileobject(vnode_t *vp, vnode_t *dvp, FILE_OBJECT *fileobject,
-    uint64_t size, ACCESS_MASK access)
+    uint64_t size, uint64_t alloc, ACCESS_MASK access)
 {
 	zfs_dirlist_t *zccb;
 
@@ -295,6 +294,18 @@ zfs_couplefileobject(vnode_t *vp, vnode_t *dvp, FILE_OBJECT *fileobject,
 
 	if (dvp)
 		vnode_setparent(vp, dvp);
+
+	uint64_t s = 0ULL;
+	uint64_t a = 0ULL;
+	if (VTOZ(vp) != NULL) {
+		znode_t *zp = VTOZ(vp);
+		s = zp->z_size;
+		a = P2ROUNDUP(zp->z_size, zp->z_blksz);
+	}
+
+	vp->FileHeader.AllocationSize.QuadPart = alloc ? alloc : a;
+	vp->FileHeader.FileSize.QuadPart = s;
+	vp->FileHeader.ValidDataLength.QuadPart = s;
 
 #ifdef ZFS_HAVE_FASTIO
 	vp->FileHeader.IsFastIoPossible = fast_io_possible(vp);
@@ -797,7 +808,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		dvp = ZTOV(zp);
 
 		zfs_couplefileobject(dvp, NULL, FileObject, 0ULL,
-		    DesiredAccess);
+		    Irp->Overlay.AllocationSize.QuadPart, DesiredAccess);
+
 		VN_RELE(dvp);
 
 		Irp->IoStatus.Information = FILE_OPENED;
@@ -861,6 +873,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 					vp = ZTOV(zp);
 					zfs_couplefileobject(vp, NULL,
 					    FileObject, zp->z_size,
+					    Irp->
+					    Overlay.AllocationSize.QuadPart,
 					    DesiredAccess);
 					VN_RELE(vp);
 
@@ -897,7 +911,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			// Grab vnode to ref
 			if (VN_HOLD(dvp) == 0) {
 				zfs_couplefileobject(dvp, NULL, FileObject,
-				    0ULL, DesiredAccess);
+				    0ULL, Irp->Overlay.AllocationSize.QuadPart,
+				    DesiredAccess);
 				VN_RELE(dvp);
 			} else {
 				Irp->IoStatus.Information = 0;
@@ -1051,7 +1066,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				// Hold open reference, until CLOSE
 				error = STATUS_SUCCESS;
 				zfs_couplefileobject(vp, NULL, FileObject,
-				    zp ? zp->z_size : 0ULL, DesiredAccess);
+				    zp ? zp->z_size : 0ULL,
+				    Irp->Overlay.AllocationSize.QuadPart,
+				    DesiredAccess);
 			}
 #endif
 			VN_RELE(vp);
@@ -1103,7 +1120,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
 		return (STATUS_OBJECT_NAME_NOT_FOUND);
 	}
-
 
 	// Streams
 	// If we opened vp, grab its xattrdir, and try to to locate stream
@@ -1161,6 +1177,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 			dprintf("%s: opening PARENT directory\n", __func__);
 			zfs_couplefileobject(dvp, NULL, FileObject, 0ULL,
+			    Irp->Overlay.AllocationSize.QuadPart,
 			    DesiredAccess);
 			if (DeleteOnClose)
 				Status = zfs_setunlink_masked(FileObject, NULL);
@@ -1221,12 +1238,14 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		if (error == 0) {
 			vp = ZTOV(zp);
 			zfs_couplefileobject(vp, NULL, FileObject, 0ULL,
+			    Irp->Overlay.AllocationSize.QuadPart,
 			    DesiredAccess);
 
 			if (DeleteOnClose)
 				Status = zfs_setunlink_masked(FileObject, dvp);
 
 			if (Status == STATUS_SUCCESS) {
+
 				Irp->IoStatus.Information = FILE_CREATED;
 
 				IoSetShareAccess(
@@ -1485,7 +1504,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 			if (!reenter_for_xattr) {
 				zfs_couplefileobject(vp, dvp, FileObject,
-				    zp ? zp->z_size : 0ULL, granted_access ?
+				    zp ? zp->z_size : 0ULL,
+				    Irp->Overlay.AllocationSize.QuadPart,
+				    granted_access ?
 				    granted_access : DesiredAccess);
 
 				if (DeleteOnClose)
@@ -1500,14 +1521,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    CreateDisposition == FILE_SUPERSEDE ?
 				    FILE_SUPERSEDED : FILE_OVERWRITTEN :
 				    FILE_CREATED;
-
-				// Did they ask for an AllocationSize
-				if (Irp->Overlay.AllocationSize.QuadPart > 0) {
-					// uint64_t allocsize = Irp->
-					//    Overlay.AllocationSize.QuadPart;
-					// zp->z_blksz =
-					// P2ROUNDUP(allocsize, 512);
-				}
 
 				vnode_lock(vp);
 				IoSetShareAccess(
@@ -1573,6 +1586,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	ASSERT(IrpSp->FileObject->FsContext == NULL);
 	if (vp == NULL) {
 		zfs_couplefileobject(dvp, NULL, FileObject, 0ULL,
+		    Irp->Overlay.AllocationSize.QuadPart,
 		    granted_access ? granted_access : DesiredAccess);
 
 		if (DeleteOnClose)
@@ -1597,6 +1611,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		// but zfs_open is mostly empty
 
 		zfs_couplefileobject(vp, NULL, FileObject, zp->z_size,
+		    Irp->Overlay.AllocationSize.QuadPart,
 		    granted_access ? granted_access : DesiredAccess);
 
 		// Now that vp is set, check delete
@@ -1624,18 +1639,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				// so we need to make sure fileobject is set.
 				zfs_freesp(zp, 0, 0, FWRITE, B_TRUE);
 				// Did they ask for an AllocationSize
-				if (Irp->Overlay.AllocationSize.QuadPart > 0) {
-					uint64_t allocsize = Irp->
-					    Overlay.AllocationSize.QuadPart;
-					// zp->z_blksz =
-					// P2ROUNDUP(allocsize, 512);
-				}
 			}
-			// Update sizes in header.
-			vp->FileHeader.AllocationSize.QuadPart =
-			    P2ROUNDUP(zp->z_size, zp->z_blksz);
-			vp->FileHeader.FileSize.QuadPart = zp->z_size;
-			vp->FileHeader.ValidDataLength.QuadPart = zp->z_size;
+
 			// If we created something new, add this permission
 			if (UndoShareAccess == FALSE) {
 				vnode_lock(vp);
@@ -4335,23 +4340,8 @@ set_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	switch (IrpSp->Parameters.SetFile.FileInformationClass) {
 	case FileAllocationInformation:
-		if (IrpSp->FileObject && IrpSp->FileObject->FsContext) {
-			FILE_ALLOCATION_INFORMATION *feofi =
-			    Irp->AssociatedIrp.SystemBuffer;
-			dprintf("* SET FileAllocationInformation %llu\n",
-			    feofi->AllocationSize.QuadPart);
-// This is a noop at the moment. It makes Windows Explorer and apps not crash
-// From the documentation, setting the allocation size smaller than EOF
-// should shrink it:
-// msdn.microsoft.com/en-us/library/windows/desktop/aa364214(v=vs.85).aspx
-// However, NTFS doesn't do that! It keeps the size the same.
-// Setting a FileAllocationInformation larger than current EOF size does
-// not have a observable affect from user space.
-			if (vnode_isdir(IrpSp->FileObject->FsContext))
-				return (STATUS_INVALID_PARAMETER);
-
-			Status = STATUS_SUCCESS;
-		}
+		Status = set_file_endoffile_information(DeviceObject, Irp,
+		    IrpSp, B_FALSE, B_TRUE);
 		break;
 	case FileBasicInformation: // chmod
 		dprintf("* SET FileBasicInformation\n");
@@ -4369,7 +4359,7 @@ set_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 	case FileEndOfFileInformation: // extend?
 		Status = set_file_endoffile_information(DeviceObject, Irp,
-		    IrpSp);
+		    IrpSp, IrpSp->Parameters.SetFile.AdvanceOnly, B_FALSE);
 		break;
 	case FileLinkInformation: // symlink
 		Status = set_file_link_information(DeviceObject, Irp, IrpSp);
@@ -4662,8 +4652,6 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	top_level = is_top_level(Irp);
 
-	dprintf("read\n");
-
 	mount_t *zmo = DeviceObject->DeviceExtension;
 
 #if 0
@@ -4788,9 +4776,12 @@ end:
 
 	Irp->IoStatus.Status = Status;
 
-	dprintf("Irp->IoStatus.Status = %08lx\n", Irp->IoStatus.Status);
-	dprintf("Irp->IoStatus.Information = %Iu\n", Irp->IoStatus.Information);
-	dprintf("returning %08lx\n", Status);
+	dprintf("IrpSp->Parameters.Read.Length = %08lx\n",
+	    IrpSp->Parameters.Read.Length);
+	dprintf("Irp->IoStatus.Status = %08lx\n",
+	    Irp->IoStatus.Status);
+	dprintf("Irp->IoStatus.Information = %Iu bytesread %llu\n",
+	    Irp->IoStatus.Information, bytes_read);
 
 	VN_RELE(vp);
 
@@ -4923,8 +4914,6 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	} else if (!ExIsResourceAcquiredExclusiveLite(
 	    vp->FileHeader.Resource)) {
 
-		dprintf("Inbetween");
-
 		if (!ExAcquireResourceExclusiveLite(
 		    vp->FileHeader.Resource, wait)) {
 			Status = STATUS_PENDING;
@@ -4953,6 +4942,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 				    vp->FileHeader.FileSize.QuadPart,
 				    vp->FileHeader.ValidDataLength.QuadPart);
 				Irp->IoStatus.Information = 0;
+
 				Status = STATUS_SUCCESS;
 				goto end;
 			}
@@ -4981,6 +4971,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			zp->z_size = newlength;
 		}
 
+		vp->FileHeader.AllocationSize.QuadPart = newlength;
 		vp->FileHeader.FileSize.QuadPart = newlength;
 		vp->FileHeader.ValidDataLength.QuadPart = newlength;
 
@@ -5322,6 +5313,7 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	if (VTOZ(vp) == NULL) {
 		dprintf("zp == NULL\n");
+		return (SET_ERROR(STATUS_SUCCESS));
 		return (SET_ERROR(STATUS_INVALID_PARAMETER));
 	}
 
@@ -5595,12 +5587,30 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	/* ZFS deletes from filename, so RELE last hold on vp. */
 	// vnode_flushcache(vp, IrpSp->FileObject, B_TRUE);
-	LARGE_INTEGER newlength;
-	newlength.QuadPart = 0;
 
-	if (IrpSp->FileObject &&
-	    !CcUninitializeCacheMap(IrpSp->FileObject, &newlength, NULL))
-		dprintf("delete() CcUninitializeCacheMap failed\n");
+	vp->FileHeader.AllocationSize.QuadPart = 0;
+	vp->FileHeader.FileSize.QuadPart = 0;
+	vp->FileHeader.ValidDataLength.QuadPart = 0;
+
+	if (IrpSp->FileObject) {
+		CC_FILE_SIZES ccfs;
+		NTSTATUS Status = STATUS_SUCCESS;
+
+		ccfs.AllocationSize = vp->FileHeader.AllocationSize;
+		ccfs.FileSize = vp->FileHeader.FileSize;
+		ccfs.ValidDataLength = vp->FileHeader.ValidDataLength;
+
+		try {
+			CcSetFileSizes(IrpSp->FileObject, &ccfs);
+		} except(EXCEPTION_EXECUTE_HANDLER) {
+			Status = GetExceptionCode();
+		}
+
+		if (!NT_SUCCESS(Status)) {
+			dprintf("CcSetFileSizes threw exception %08lx\n",
+			    Status);
+		}
+	}
 
 	VN_RELE(vp);
 	vp = NULL;
@@ -7163,31 +7173,6 @@ _Function_class_(DRIVER_DISPATCH)
 		dprintf("IRP_MJ_SHUTDOWN\n");
 		Status = STATUS_SUCCESS;
 		break;
-	}
-
-	/*
-	 * Re-check (since MJ_CREATE/vnop_lookup might have set it) vp here,
-	 * to see if we should call setsize
-	 */
-	if (IrpSp->FileObject && IrpSp->FileObject->FsContext) {
-		struct vnode *vp = IrpSp->FileObject->FsContext;
-
-		/*
-		 * vp "might" be held above, or not (vnop_lookup) so grab
-		 * another just in case
-		 */
-		if (vp && vnode_sizechange(vp) &&
-		    VN_HOLD(vp) == 0) {
-			if (IrpSp->FileObject &&
-			    CcIsFileCached(IrpSp->FileObject)) {
-				znode_t *zp = VTOZ(vp);
-				vnode_pager_setsize(IrpSp->FileObject, vp,
-				    zp->z_size, FALSE);
-				dprintf("sizechanged, updated to %llx\n",
-				    vp->FileHeader.FileSize.QuadPart);
-			}
-			VN_RELE(vp);
-		}
 	}
 
 	/* If we held the vp above, release it now. */
