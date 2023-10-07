@@ -3419,13 +3419,10 @@ set_file_disposition_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 NTSTATUS
 set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
-    PIO_STACK_LOCATION IrpSp)
+    PIO_STACK_LOCATION IrpSp, boolean_t advance_only, boolean_t prealloc)
 {
 	NTSTATUS Status = STATUS_SUCCESS;
-
-	if (IrpSp->FileObject == NULL || IrpSp->FileObject->FsContext == NULL)
-		return (STATUS_INVALID_PARAMETER);
-
+	uint64_t new_end_of_file;
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	struct vnode *vp = FileObject->FsContext;
 	zfs_dirlist_t *zccb = FileObject->FsContext2;
@@ -3433,6 +3430,13 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	int changed = 0;
 	int error = 0;
 	mount_t *zmo = DeviceObject->DeviceExtension;
+	CC_FILE_SIZES ccfs;
+	LIST_ENTRY rollback;
+	boolean_t set_size = B_FALSE;
+	ULONG filter = 0UL;
+
+	if (IrpSp->FileObject == NULL || IrpSp->FileObject->FsContext == NULL)
+		return (STATUS_INVALID_PARAMETER);
 
 	zfsvfs_t *zfsvfs = NULL;
 	if (zmo != NULL &&
@@ -3461,102 +3465,104 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	znode_t *zp = VTOZ(vp);
 
-	// From FASTFAT
-	//  This is kinda gross, but if the file is not cached, but there is
-	//  a data section, we have to cache the file to avoid a bunch of
-	//  extra work.
-	BOOLEAN CacheMapInitialized = FALSE;
-#if 1
-	if (FileObject && FileObject->SectionObjectPointer &&
-	    (FileObject->SectionObjectPointer->DataSectionObject != NULL) &&
-	    (FileObject->SectionObjectPointer->SharedCacheMap == NULL) &&
-	    !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
+	new_end_of_file = feofi->EndOfFile.QuadPart;
 
-		vnode_pager_setsize(NULL, vp, zp->z_size, TRUE);
 
-		CcInitializeCacheMap(FileObject,
-		    (PCC_FILE_SIZES)&vp->FileHeader.AllocationSize,
-		    FALSE,
-		    &CacheManagerCallbacks, FileObject);
+	/*
+	 * The lazy writer sometimes tries to round files to the
+	 * next page size through CcSetValidData -
+	 * ignore these. See fastfat!FatSetEndOfFileInfo, where
+	 * Microsoft does the same as we're doing below.
+	 */
+	if (advance_only &&
+	    feofi->EndOfFile.QuadPart >=
+	    (uint64_t)vp->FileHeader.FileSize.QuadPart)
+		new_end_of_file = vp->FileHeader.FileSize.QuadPart;
 
-		// CcSetAdditionalCacheAttributes(FileObject, FALSE, FALSE);
-		CacheMapInitialized = TRUE;
-	}
-#endif
 
-	if (!zfsvfs->z_unmounted) {
+	// zfs_freesp() will update MTIME when it shouldnt
+	// add checks for ccb->user_set_write_time
+	if (new_end_of_file < zp->z_size) {
 
-		// Already deleted just returns OK.
-		if (zp->z_unlinked) {
+		if (advance_only) {
 			Status = STATUS_SUCCESS;
-			goto out;
+			goto end;
 		}
 
-		// Advance only?
-		if (IrpSp->Parameters.SetFile.AdvanceOnly) {
+		dprintf("truncating file to %I64x bytes\n", new_end_of_file);
 
-			// Only if not DeleteOnClose
-			if (!zccb || !zccb->deleteonclose) {
-				if (feofi->EndOfFile.QuadPart > zp->z_size) {
-
-					Status = zfs_freesp(zp,
-					    feofi->EndOfFile.QuadPart,
-					    0, 0, TRUE);
-					changed = 1;
-				}
-			}
-
-			dprintf("%s: AdvanceOnly\n", __func__);
-			goto out;
-		}
-		// Truncation?
-		if (zp->z_size > feofi->EndOfFile.QuadPart) {
-			// Are we able to truncate?
-			if (FileObject->SectionObjectPointer &&
-			    !MmCanFileBeTruncated(
-			    FileObject->SectionObjectPointer,
-			    &feofi->EndOfFile)) {
-				Status = STATUS_USER_MAPPED_FILE;
-				goto out;
-			}
-			dprintf("%s: CanTruncate\n", __func__);
+		if (FileObject->SectionObjectPointer &&
+		    !MmCanFileBeTruncated(
+		    FileObject->SectionObjectPointer,
+		    &feofi->EndOfFile)) {
+			Status = STATUS_USER_MAPPED_FILE;
+			goto end;
 		}
 
-		// Set new size
-		Status = zfs_freesp(zp, feofi->EndOfFile.QuadPart,
-		    0, 0, TRUE); // Len = 0 is truncate
-		changed = 1;
+		Status = zfs_freesp(zp, new_end_of_file,
+		    0, 0, B_TRUE); // Len = 0 is truncate
+
+		if (!NT_SUCCESS(Status)) {
+			dprintf("error - truncate_file failed\n");
+			goto end;
+		}
+
+	} else if (new_end_of_file > zp->z_size) {
+		dprintf("extending file to %I64x bytes\n", new_end_of_file);
+
+		Status = zfs_freesp(zp,
+		    new_end_of_file,
+		    0, 0, B_TRUE);
+		if (!NT_SUCCESS(Status)) {
+			dprintf("error - extend_file failed\n");
+			goto end;
+		}
+
+	} else if (new_end_of_file == zp->z_size && advance_only) {
+		Status = STATUS_SUCCESS;
+		goto end;
 	}
 
-out:
+	vp->FileHeader.AllocationSize.QuadPart = new_end_of_file;
+	vp->FileHeader.FileSize.QuadPart = new_end_of_file;
+	vp->FileHeader.ValidDataLength.QuadPart = new_end_of_file;
+	ccfs.AllocationSize.QuadPart = new_end_of_file;
+	ccfs.FileSize.QuadPart = new_end_of_file;
+	ccfs.ValidDataLength.QuadPart = new_end_of_file;
+	set_size = B_TRUE;
+
+	if (zp->z_pflags & ZFS_XATTR) {
+		filter = FILE_NOTIFY_CHANGE_STREAM_SIZE;
+		zfs_send_notify(zfsvfs, zp->z_name_cache,
+		    zp->z_name_offset,
+		    filter,
+		    FILE_ACTION_MODIFIED_STREAM);
+	} else {
+		filter = FILE_NOTIFY_CHANGE_SIZE; // if ccb->user_set_write_time
+		filter |= FILE_NOTIFY_CHANGE_LAST_WRITE;
+		zfs_send_notify(zfsvfs, zp->z_name_cache,
+		    zp->z_name_offset,
+		    filter,
+		    FILE_ACTION_MODIFIED);
+	}
+
+	Status = STATUS_SUCCESS;
+
+end:
 
 	ExReleaseResource(vp->FileHeader.Resource);
 
-
-	if (NT_SUCCESS(Status) && changed) {
-
-		dprintf("%s: new size 0x%llx set\n", __func__, zp->z_size);
-
-		// zfs_freesp() calls vnode_paget_setsize(), but we need
-		// to update it here.
-		if (FileObject->SectionObjectPointer)
-			vnode_pager_setsize(FileObject, vp, zp->z_size, FALSE);
-
-		// No notify for XATTR/Stream for now
-		if (!(zp->z_pflags & ZFS_XATTR)) {
-			zfs_send_notify(zfsvfs, zp->z_name_cache,
-			    zp->z_name_offset,
-			    FILE_NOTIFY_CHANGE_SIZE,
-			    FILE_ACTION_MODIFIED);
+	if (set_size) {
+		try {
+			CcSetFileSizes(FileObject, &ccfs);
+		} except(EXCEPTION_EXECUTE_HANDLER) {
+			Status = GetExceptionCode();
 		}
-	}
 
-	if (CacheMapInitialized) {
-		CcUninitializeCacheMap(FileObject, NULL, NULL);
+		if (!NT_SUCCESS(Status))
+			dprintf("CcSetFileSizes threw exception %08lx\n",
+			    Status);
 	}
-
-	// We handled setsize in here.
-	vnode_setsizechange(vp, 0);
 
 	VN_RELE(vp);
 	zfs_exit(zfsvfs, FTAG);
@@ -3993,9 +3999,13 @@ set_file_valid_data_length_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	NTSTATUS Status;
 	FILE_VALID_DATA_LENGTH_INFORMATION *fvdli =
 	    Irp->AssociatedIrp.SystemBuffer;
-	dprintf("* FileValidDataLengthInformation: \n");
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	int error;
+	CC_FILE_SIZES ccfs;
+	LIST_ENTRY rollback;
+	boolean_t set_size = B_FALSE;
+
+	dprintf("* FileValidDataLengthInformation: \n");
 
 	if (IrpSp->Parameters.SetFile.Length <
 	    sizeof (FILE_VALID_DATA_LENGTH_INFORMATION))
@@ -4018,7 +4028,14 @@ set_file_valid_data_length_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
 		return (error);
 
-	if (fvdli->ValidDataLength.QuadPart <=
+	ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, B_TRUE);
+
+	if (zp->z_pflags & ZFS_SPARSE /* FILE_ATTRIBUTE_SPARSE_FILE */) {
+		Status = STATUS_INVALID_PARAMETER;
+		goto end;
+	}
+
+	if (fvdli->ValidDataLength.QuadPart <
 	    vp->FileHeader.ValidDataLength.QuadPart ||
 	    fvdli->ValidDataLength.QuadPart >
 	    vp->FileHeader.FileSize.QuadPart) {
@@ -4030,8 +4047,15 @@ set_file_valid_data_length_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		goto end;
 	}
 
-	vp->FileHeader.ValidDataLength = fvdli->ValidDataLength;
-	vnode_setsizechange(vp, 1);
+	if (zp && zp->z_unlinked) {
+		Status = STATUS_FILE_CLOSED;
+		goto end;
+	}
+
+	ccfs.AllocationSize = vp->FileHeader.AllocationSize;
+	ccfs.FileSize = vp->FileHeader.FileSize;
+	ccfs.ValidDataLength = fvdli->ValidDataLength;
+	set_size = B_TRUE;
 
 	zfs_send_notify(zp->z_zfsvfs, zp->z_name_cache,
 	    zp->z_name_offset,
@@ -4041,8 +4065,23 @@ set_file_valid_data_length_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	Status = STATUS_SUCCESS;
 
 end:
-	zfs_exit(zfsvfs, FTAG);
+	ExReleaseResourceLite(vp->FileHeader.Resource);
 
+	if (set_size) {
+		try {
+			CcSetFileSizes(IrpSp->FileObject, &ccfs);
+		} except(EXCEPTION_EXECUTE_HANDLER) {
+			Status = GetExceptionCode();
+		}
+
+		if (!NT_SUCCESS(Status))
+			dprintf("CcSetFileSizes threw exception %08lx\n",
+			    Status);
+		else
+			vp->FileHeader.AllocationSize = ccfs.AllocationSize;
+	}
+
+	zfs_exit(zfsvfs, FTAG);
 	return (Status);
 }
 

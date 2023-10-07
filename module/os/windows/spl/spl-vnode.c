@@ -2120,38 +2120,10 @@ vnode_check_iocount(void)
 }
 #endif
 
-// Call CcSetFileSizes() either directly, or delayed
-// if delay=false, uses FileObject
-// if we fail to set, remember it with setsizechange
+// Currently not used by Windows
 void
 vnode_pager_setsize(void *fo, vnode_t *vp, uint64_t size, boolean_t delay)
 {
-	FILE_OBJECT *fileObject = fo;
-
-	vp->FileHeader.AllocationSize.QuadPart =
-	    P2ROUNDUP(size, PAGE_SIZE);
-	vp->FileHeader.FileSize.QuadPart = size;
-	vp->FileHeader.ValidDataLength.QuadPart = size;
-	vnode_setsizechange(vp, 1);
-	if (!delay && fileObject &&
-	    fileObject->SectionObjectPointer &&
-	    fileObject->SectionObjectPointer->SharedCacheMap) {
-		DWORD __status = STATUS_SUCCESS;
-
-		try {
-			CcSetFileSizes(fileObject, (PCC_FILE_SIZES) &vp->
-			    FileHeader.AllocationSize);
-		}
-		except(FsRtlIsNtstatusExpected(GetExceptionCode()) ?
-		    EXCEPTION_EXECUTE_HANDLER :
-		    EXCEPTION_CONTINUE_SEARCH) {
-			__status = STATUS_UNEXPECTED_IO_ERROR;
-		}
-
-		if (NT_SUCCESS(__status))
-			vnode_setsizechange(vp, 0);
-	}
-
 }
 
 void
