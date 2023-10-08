@@ -3507,7 +3507,7 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			goto end;
 		}
 
-	} else if (new_end_of_file > zp->z_size) {
+	} else if ((new_end_of_file > zp->z_size) && !prealloc) {
 		dprintf("extending file to %I64x bytes\n", new_end_of_file);
 
 		Status = zfs_freesp(zp,
@@ -3524,11 +3524,16 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	vp->FileHeader.AllocationSize.QuadPart = new_end_of_file;
-	vp->FileHeader.FileSize.QuadPart = new_end_of_file;
-	vp->FileHeader.ValidDataLength.QuadPart = new_end_of_file;
-	ccfs.AllocationSize.QuadPart = new_end_of_file;
-	ccfs.FileSize.QuadPart = new_end_of_file;
-	ccfs.ValidDataLength.QuadPart = new_end_of_file;
+	if (!prealloc) {
+		vp->FileHeader.FileSize.QuadPart = new_end_of_file;
+		vp->FileHeader.ValidDataLength.QuadPart = new_end_of_file;
+	}
+	ccfs.AllocationSize.QuadPart =
+	    vp->FileHeader.AllocationSize.QuadPart;
+	ccfs.FileSize.QuadPart =
+	    vp->FileHeader.FileSize.QuadPart;
+	ccfs.ValidDataLength.QuadPart =
+	    vp->FileHeader.ValidDataLength.QuadPart;
 	set_size = B_TRUE;
 
 	if (zp->z_pflags & ZFS_XATTR) {
@@ -4378,7 +4383,9 @@ file_standard_information_impl(PDEVICE_OBJECT DeviceObject,
 		uint64_t blk = zfs_blksz(zp);
 		// space taken on disk, multiples of block size
 
-		fsi->AllocationSize.QuadPart = allocationsize(zp);
+		// fsi->AllocationSize.QuadPart = allocationsize(zp);
+		fsi->AllocationSize.QuadPart =
+		    vp->FileHeader.AllocationSize.QuadPart;
 		fsi->EndOfFile.QuadPart = vnode_isdir(vp) ? 0 : zp->z_size;
 		fsi->NumberOfLinks = zp->z_links;
 		fsi->DeletePending = zccb &&
