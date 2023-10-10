@@ -122,32 +122,43 @@ BOOLEAN
 zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 {
 	FILE_OBJECT *fo = Context;
+	BOOLEAN result = FALSE;
 
 	if (fo == NULL)
 		return (FALSE);
 
+	mount_t *zmo = fo->DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	struct vnode *vp = fo->FsContext;
 	dprintf("%s:fo %p\n", __func__, fo);
 
-	if (vp == NULL)
+	/* Confirm we are mounted, and stop unmounting */
+	if ((zfsvfs->z_vfs == NULL) ||
+	    zfsvfs->z_unmounted ||
+	    zfs_enter(zfsvfs, FTAG) != 0)
 		return (FALSE);
 
-	if (VN_HOLD(vp) == 0) {
-
-		if (!ExAcquireResourceExclusiveLite(
-		    vp->FileHeader.Resource, Wait)) {
-			dprintf("Failed\n");
-			VN_RELE(vp);
-			return (FALSE);
-		}
-
-		vnode_ref(vp);
-		VN_RELE(vp);
-		IoSetTopLevelIrp((PIRP)FSRTL_CACHE_TOP_LEVEL_IRP);
-		return (TRUE);
+	if (vp == NULL ||
+	    VTOZ(vp) == NULL ||
+	    VN_HOLD(vp) != 0) {
+		zfs_exit(zfsvfs, FTAG);
+		return (FALSE);
 	}
 
-	return (FALSE);
+	if (!ExAcquireResourceExclusiveLite(
+	    vp->FileHeader.Resource, Wait)) {
+		dprintf("Failed\n");
+		goto out;
+	}
+
+	vnode_ref(vp);
+	result = TRUE;
+	IoSetTopLevelIrp((PIRP)FSRTL_CACHE_TOP_LEVEL_IRP);
+
+out:
+	VN_RELE(vp);
+
+	return (result);
 }
 
 void
@@ -155,18 +166,25 @@ zfs_ReleaseFromLazyWrite(void *Context)
 {
 	FILE_OBJECT *fo = Context;
 
-	if (fo != NULL) {
-		struct vnode *vp = fo->FsContext;
-		dprintf("%s:\n", __func__);
-		if (vp != NULL && VN_HOLD(vp) == 0) {
-			ExReleaseResourceLite(vp->FileHeader.Resource);
-			vnode_rele(vp);
-			VN_RELE(vp);
-			if (IoGetTopLevelIrp() ==
-			    (PIRP)FSRTL_CACHE_TOP_LEVEL_IRP)
-				IoSetTopLevelIrp(NULL);
-			return;
-		}
+	if (fo == NULL)
+		return;
+
+	mount_t *zmo = fo->DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+	struct vnode *vp = fo->FsContext;
+
+	dprintf("%s:\n", __func__);
+
+	if (vp != NULL && VN_HOLD(vp) == 0) {
+		ExReleaseResourceLite(vp->FileHeader.Resource);
+		vnode_rele(vp);
+		VN_RELE(vp);
+		if (IoGetTopLevelIrp() ==
+		    (PIRP)FSRTL_CACHE_TOP_LEVEL_IRP)
+			IoSetTopLevelIrp(NULL);
+
+		zfs_exit(zfsvfs, FTAG);
+		return;
 	}
 	dprintf("%s WARNING FAILED\n", __func__);
 }
@@ -175,32 +193,43 @@ BOOLEAN
 zfs_AcquireForReadAhead(void *Context, BOOLEAN Wait)
 {
 	FILE_OBJECT *fo = Context;
+	BOOLEAN result = FALSE;
 
 	if (fo == NULL)
 		return (FALSE);
 
+	mount_t *zmo = fo->DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	struct vnode *vp = fo->FsContext;
+
 	dprintf("%s:\n", __func__);
 
-	if (vp == NULL)
+	if ((zfsvfs->z_vfs == NULL) ||
+	    zfsvfs->z_unmounted ||
+	    zfs_enter(zfsvfs, FTAG) != 0)
 		return (FALSE);
 
-	if (VN_HOLD(vp) == 0) {
-
-		if (!ExAcquireResourceSharedLite(vp->FileHeader.Resource,
-		    Wait)) {
-			dprintf("Failed\n");
-			VN_RELE(vp);
-			return (FALSE);
-		}
-
-		vnode_ref(vp);
-		VN_RELE(vp);
-		IoSetTopLevelIrp((PIRP)FSRTL_CACHE_TOP_LEVEL_IRP);
-		return (TRUE);
+	if (vp == NULL ||
+	    VTOZ(vp) == NULL ||
+	    VN_HOLD(vp) != 0) {
+		zfs_exit(zfsvfs, FTAG);
+		return (FALSE);
 	}
 
-	return (FALSE);
+	if (!ExAcquireResourceSharedLite(vp->FileHeader.Resource,
+	    Wait)) {
+		dprintf("Failed\n");
+		goto out;
+	}
+
+	vnode_ref(vp);
+	IoSetTopLevelIrp((PIRP)FSRTL_CACHE_TOP_LEVEL_IRP);
+	result = TRUE;
+
+out:
+	VN_RELE(vp);
+
+	return (result);
 }
 
 void
@@ -208,18 +237,24 @@ zfs_ReleaseFromReadAhead(void *Context)
 {
 	FILE_OBJECT *fo = Context;
 
-	if (fo != NULL) {
-		struct vnode *vp = fo->FsContext;
-		dprintf("%s:\n", __func__);
-		if (vp != NULL && VN_HOLD(vp) == 0) {
-			ExReleaseResourceLite(vp->FileHeader.Resource);
-			vnode_rele(vp);
-			VN_RELE(vp);
-			if (IoGetTopLevelIrp() ==
-			    (PIRP)FSRTL_CACHE_TOP_LEVEL_IRP)
-				IoSetTopLevelIrp(NULL);
-			return;
-		}
+	if (fo == NULL)
+		return;
+
+	mount_t *zmo = fo->DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+
+	struct vnode *vp = fo->FsContext;
+	dprintf("%s:\n", __func__);
+	if (vp != NULL && VN_HOLD(vp) == 0) {
+		ExReleaseResourceLite(vp->FileHeader.Resource);
+		vnode_rele(vp);
+		VN_RELE(vp);
+		if (IoGetTopLevelIrp() ==
+		    (PIRP)FSRTL_CACHE_TOP_LEVEL_IRP)
+			IoSetTopLevelIrp(NULL);
+
+		zfs_exit(zfsvfs, FTAG);
+		return;
 	}
 	dprintf("%s WARNING FAILED\n", __func__);
 }
@@ -7896,35 +7931,55 @@ fastio_acquire_for_mod_write(PFILE_OBJECT FileObject,
     PLARGE_INTEGER EndingOffset, struct _ERESOURCE **ResourceToRelease,
     PDEVICE_OBJECT DeviceObject)
 {
-	vnode_t *vp;
-
+	vnode_t *vp = NULL;
+	mount_t *zmo = DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+	int error;
+	NTSTATUS Status = STATUS_INVALID_PARAMETER;
 	dprintf("%s: \n", __func__);
+
+	if ((zfsvfs->z_vfs == NULL) ||
+	    zfsvfs->z_unmounted ||
+	    zfs_enter(zfsvfs, FTAG) != 0)
+		return (STATUS_INVALID_PARAMETER);
 
 	vp = FileObject->FsContext;
 
-	if (!vp || VN_HOLD(vp) != 0)
+	if (vp == NULL ||
+	    VTOZ(vp) == NULL ||
+	    VN_HOLD(vp) != 0) {
+		zfs_exit(zfsvfs, FTAG);
 		return (STATUS_INVALID_PARAMETER);
+	}
 
-	if (VTOZ(vp) == NULL ||
-	    !ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, FALSE)) {
+	znode_t *zp = VTOZ(vp);
+
+	if (!ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, FALSE)) {
 		dprintf("%s: returning STATUS_CANT_WAIT\n", __func__);
-		VN_RELE(vp);
-		return (STATUS_CANT_WAIT);
+		Status = STATUS_CANT_WAIT;
+		goto out;
 	}
 
 	*ResourceToRelease = vp->FileHeader.Resource;
 	vnode_ref(vp);
+	Status = STATUS_SUCCESS;
+
+out:
 	VN_RELE(vp);
+
+	// No zfs_exit(zfsvfs, FTAG) until below
 
 	dprintf("%s: returning STATUS_SUCCESS\n", __func__);
 
-	return (STATUS_SUCCESS);
+	return (Status);
 }
 
 static NTSTATUS __stdcall
 fastio_release_for_mod_write(PFILE_OBJECT FileObject,
     struct _ERESOURCE *ResourceToRelease, PDEVICE_OBJECT DeviceObject)
 {
+	mount_t *zmo = DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	vnode_t *vp;
 
 	dprintf("%s:\n", __func__);
@@ -7933,13 +7988,17 @@ fastio_release_for_mod_write(PFILE_OBJECT FileObject,
 
 	vp = FileObject->FsContext;
 	if (vp && VN_HOLD(vp) == 0) {
+
 		VERIFY3P(ResourceToRelease, ==, vp->FileHeader.Resource);
 		vnode_rele(vp);
 		VN_RELE(vp);
+
+		zfs_exit(zfsvfs, FTAG);
 		return (STATUS_SUCCESS);
 	}
 
 	dprintf("%s WARNING FAILED\n", __func__);
+	zfs_exit(zfsvfs, FTAG);
 	return (STATUS_SUCCESS);
 }
 
