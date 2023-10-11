@@ -2141,7 +2141,7 @@ jobs:
 
 
     - name: test
-      run: 'python.exe -u "${{github.workspace}}\contrib\windows\tests\tests.py" -path ${{github.workspace}}\'
+      run: 'python.exe -u "${{github.workspace}}\contrib\windows\tests\tests.py" --path ${{github.workspace}}\'
 
 
 
