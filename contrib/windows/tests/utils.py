@@ -1,5 +1,6 @@
 import argparse
 import contextlib
+import csv
 import ctypes
 from ctypes import wintypes
 import enum
@@ -7,8 +8,8 @@ import logging
 import msvcrt
 import os
 import pathlib
+import re
 import subprocess
-import time
 import typing
 
 
@@ -359,6 +360,17 @@ def allocated_files(
             os.remove(f[0])
 
 
+@contextlib.contextmanager
+def random_key(path: pathlib.Path, size: int) -> pathlib.Path:
+    with open(path, "wb") as f:
+        f.write(os.urandom(size))
+
+    try:
+        yield path
+    finally:
+        os.remove(path)
+
+
 def options_to_args(
     flag: str, options: typing.Dict[str, str]
 ) -> typing.List[str]:
@@ -424,16 +436,19 @@ def zpool_create(
 
     pool_info = ZpoolInfo(name, drive_path)
 
+    if not os.path.isdir(drive_path):
+        raise RuntimeError("Not mounted after create")
+
     try:
         yield pool_info
     finally:
-        # TODO: This sleep is to protect against BSOD. Remove this sleep when
-        # https://github.com/openzfsonwindows/openzfs/issues/282 is fixed
-        time.sleep(2.0)
         if pool_info.destroy:
             res = run_cmd(ctx.ZPOOL, ["destroy", "-f", name])
             if res.returncode != 0:
                 raise RuntimeError("Failed to destroy zpool")
+
+            if os.path.isdir(drive_path):
+                raise RuntimeError("Still mounted after destroy")
 
 
 def repl():
@@ -474,3 +489,37 @@ def add_common_arguments(parser: argparse.ArgumentParser):
         default=False,
         help="Don't create a zpool, run tests in path",
     )
+
+
+ZFS_MOUNT_REGEX = re.compile(r"^([A-Za-z0-9_.\/-]{1,255}) +(.*)$")
+
+
+def get_zfs_mounts(ctx: ZfsContext) -> typing.Dict[str, os.PathLike]:
+    res = run_cmd(ctx.ZFS, ["mount"], capture_output=True)
+    ret = {}
+    for line in decode_console_cp(res.stdout).splitlines():
+        m = ZFS_MOUNT_REGEX.match(line)
+        if m:
+            ret[m.group(1)] = pathlib.Path(m.group(2))
+    return ret
+
+
+def get_diskdrive_paths():
+    res = subprocess.run(
+        ["wmic", "diskdrive", "get", "Caption,DeviceId", "/format:CSV"],
+        capture_output=True,
+    )
+
+    if res.returncode != 0:
+        raise RuntimeError(f"Failed to get diskdrive paths: {res.stderr}")
+
+    csv_data = csv.DictReader(
+        decode_console_cp(res.stdout).split("\r\r\n")[1:-1]
+    )
+
+    ret = {}
+    for row in csv_data:
+        # We don't make it into a pathlib.Path because this adds a backslash
+        # See https://github.com/python/cpython/pull/102003
+        ret[row["DeviceID"]] = row["Caption"]
+    return ret
