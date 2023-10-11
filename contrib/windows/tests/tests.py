@@ -14,6 +14,8 @@ import time
 
 import logging
 
+from utils import Size, argparse_as_abspath, allocate_file
+
 logging.basicConfig(level=logging.DEBUG)
 
 print("Printed immediately.")
@@ -22,16 +24,8 @@ print("Printed immediately.")
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process command line '
                                      'arguments.')
-    parser.add_argument('-path', type=dir_path, required=True)
+    parser.add_argument('-path', type=argparse_as_abspath, required=True)
     return parser.parse_args()
-
-
-def dir_path(path):
-    if os.path.isdir(path):
-        return path
-    else:
-        raise argparse.ArgumentTypeError(f"readable_dir:{path} is not a valid"
-                                         "path")
 
 
 def get_DeviceId():
@@ -68,12 +62,6 @@ def get_DeviceId():
 #           writer.writerow([row])
 
     return e
-
-
-def allocate_file(name, size):
-    with open(name, 'wb') as f:
-        f.seek(size)
-        f.write(b'0')
 
 
 def delete_file(name):
@@ -199,7 +187,7 @@ def main():
 
     print("Path:", parsed_args.path)
 
-    p = PureWindowsPath(parsed_args.path)
+    p = parsed_args.path
 
     print("Path object:", p)
 
@@ -208,11 +196,11 @@ def main():
     if p.is_absolute():
 
         f1 = PureWindowsPath(p, "test01.dat")
-        allocate_file(f1, 1024*1024*1024)
+        allocate_file(f1, 1 * Size.GIB)
         f2 = PureWindowsPath(p, "test02.dat")
-        allocate_file(f2, 1024*1024*1024)
+        allocate_file(f2, 1 * Size.GIB)
         f3 = PureWindowsPath(p, "test03.dat")
-        allocate_file(f3, 1024*1024*1024)
+        allocate_file(f3, 1 * Size.GIB)
 
         preTest()
         ret = runWithPrint(["zpool", "create", "-f", "test01", tounc(f1)])
@@ -299,14 +287,14 @@ def main():
         print("Drive letters after pool create:", get_driveletters())
 
         f = PureWindowsPath(get_driveletters()[0][1], "test01.file")
-        allocate_file(f, 1024)
+        allocate_file(f, 1 * Size.KIB)
 
         ret = runWithPrint(["zfs", "snapshot", "testsn01@friday"])
         if ret.returncode != 0:
             print("FAIL")
 
         f = PureWindowsPath(get_driveletters()[0][1], "test02.file")
-        allocate_file(f, 1024)
+        allocate_file(f, 1 * Size.KIB)
 
         ret = runWithPrint(["zpool", "export", "-a"])
         if ret.returncode != 0:
@@ -327,7 +315,7 @@ def main():
         # print("Drive letters after pool create:", get_driveletters())
         #
         # f = PureWindowsPath(get_driveletters()[0][1], "test01.file")
-        # allocate_file(f, 1024)
+        # allocate_file(f, 1 * Size.KIB)
         #
         # ret = runWithPrint(["zfs", "snapshot", "testsn02@friday"])
         # if ret.returncode != 0:
@@ -335,7 +323,7 @@ def main():
         #
         #
         # f = PureWindowsPath(get_driveletters()[0][1], "test02.file")
-        # allocate_file(f, 1024)
+        # allocate_file(f, 1 * Size.KIB)
         #
         # ret = runWithPrint(["zfs", "mount", "testsn02@friday"])
         # if ret.returncode != 0:
@@ -408,7 +396,7 @@ def main():
 
             f = PureWindowsPath(get_driveletters()[0][1], "test01.file")
             try:
-                allocate_file(f, 1024)
+                allocate_file(f, 1 * Size.KIB)
             except Exception:
                 print("FAIL")
 
