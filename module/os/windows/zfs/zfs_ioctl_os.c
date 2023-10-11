@@ -90,6 +90,31 @@ zfs_vfs_ref(zfsvfs_t **zfvp)
 	return (error);
 }
 
+/*
+ * Returns the actual usable pool size adjusting the slop space which
+ * is same as reported by "zfs list" cmd.
+ *
+ * See the comment above spa_get_slop_space() for more details.
+ */
+static uint64_t
+spa_get_usable_dspace(spa_t *spa)
+{
+	uint64_t poolsize = 0;
+
+	if (spa != NULL) {
+		uint64_t space = metaslab_class_get_dspace(spa_normal_class(spa));
+		uint64_t resv = spa_get_slop_space(spa);
+
+		poolsize = (space >= resv) ? (space - resv) : 0;
+
+		TraceEvent(TRACE_VERBOSE,
+		    "%s:%d: total_dspace: %llu, slop_space: %llu, poolsize: %llu, spa_dedup_dspace: %llu\n",
+		    __func__, __LINE__, space, resv, poolsize, spa->spa_dedup_dspace);
+	}
+
+	return (poolsize);
+}
+
 extern kstat_t* perf_arc_ksp;
 extern uint64_t getL2ArcAllocSize(arc_stats_t* arc_ptr);
 NTSTATUS zpool_zfs_get_metrics(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
@@ -150,13 +175,17 @@ NTSTATUS zpool_zfs_get_metrics(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_
 	vdev_get_stats(spa_perf->spa_root_vdev, &vs);
 	perf->zpool_dedup_ratio = ddt_get_pool_dedup_ratio(spa_perf);
 	const char* healthState = spa_state_to_name(spa_perf);
+
+	// SSV-22900: get the actual usable spa pool size.
+	uint64_t pool_size = spa_get_usable_dspace(spa_perf);
+	uint64_t pool_alloc = (pool_size >= perf->available) ? (pool_size - perf->available) : 0;
+
 	spa_config_exit(spa_perf, SCL_ALL, FTAG);
 	mutex_exit(&spa_namespace_lock);
 
-	perf->zpool_allocated = vs.vs_alloc;
-	perf->zpool_size = vs.vs_space;
+	perf->zpool_allocated = pool_alloc;
+	perf->zpool_size = pool_size;
 	strcpy(perf->zpoolHealthState, healthState);
-
     }
     else
 	perf->zfs_volSize = getZvolSize(perf->name);
