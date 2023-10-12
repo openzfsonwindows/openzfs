@@ -83,6 +83,7 @@
  * Rough stubbed Port for XNU.
  *
  * Copyright (c) 2014 Brendon Humphrey (brendon.humphrey@mac.com)
+ * Copyright (c) 2023 Jorgen Lundman (lundman@lundman.net)
  */
 
 
@@ -131,7 +132,6 @@ osif_malloc(uint64_t size)
 	} else {
 		dprintf("%s:%d: ExAllocatePoolWithTag failed (memusage: %llu)"
 		    "\n", __func__, __LINE__, segkmem_total_mem_allocated);
-		ASSERT(0);
 		extern volatile unsigned int vm_page_free_wanted;
 		extern volatile unsigned int vm_page_free_min;
 		spl_free_set_pressure(vm_page_free_min);
