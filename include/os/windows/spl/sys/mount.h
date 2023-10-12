@@ -119,6 +119,9 @@ typedef struct mount mount_t;
 typedef struct mount vfsp_t;
 #define	LK_NOWAIT 1
 
+int spl_vfs_init(void);
+void spl_vfs_fini(void);
+
 int   vfs_busy(mount_t *mp, int flags);
 void  vfs_unbusy(mount_t *mp);
 int   vfs_isrdonly(mount_t *mp);

@@ -1612,7 +1612,9 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 
 out_unlock:
 		// counter to getzfvfs
-		vfs_unbusy(zfsvfs->z_vfs);
+		zfsvfs->z_vfs = NULL;
+		vfs_unbusy(zmo);
+
 	}
 	return (error);
 }

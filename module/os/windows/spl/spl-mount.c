@@ -29,15 +29,45 @@
 #include <sys/types.h>
 #include <sys/mount.h>
 
+/*
+ * In Unix, this lock is to protect the list of
+ * mounted file-systems, to add and remove mounts.
+ * XNU uses mount_lock() to hold all, then calls
+ * lck_rw_lock_shared(mount_t) to hold this specific
+ * mount - in future we can make this enhancement.
+ */
+static kmutex_t vfs_main_lock;
+
+
+int
+spl_vfs_init(void)
+{
+	mutex_init(&vfs_main_lock, NULL, MUTEX_DEFAULT, NULL);
+	return (0);
+}
+
+void
+spl_vfs_fini(void)
+{
+	mutex_destroy(&vfs_main_lock);
+}
+
 int
 vfs_busy(mount_t *mp, int flags)
 {
+	mutex_enter(&vfs_main_lock);
+	if (mp == NULL) {
+		mutex_exit(&vfs_main_lock);
+		return (EINVAL);
+	}
+
 	return (0);
 }
 
 void
 vfs_unbusy(mount_t *mp)
 {
+	mutex_exit(&vfs_main_lock);
 }
 
 int

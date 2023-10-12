@@ -545,6 +545,7 @@ spl_start(PUNICODE_STRING RegistryPath)
 	spl_mutex_subsystem_init();
 	spl_kmem_init(total_memory);
 
+	spl_vfs_init();
 	spl_vnode_init();
 	spl_kmem_thread_init();
 	spl_kmem_mp_init();
@@ -565,6 +566,7 @@ spl_stop(void)
 {
 	spl_kmem_thread_fini();
 	spl_vnode_fini();
+	spl_vfs_fini();
 	spl_taskq_fini();
 	spl_rwlock_fini();
 	spl_tsd_fini();
