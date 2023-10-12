@@ -133,10 +133,16 @@ zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 	dprintf("%s:fo %p\n", __func__, fo);
 
 	/* Confirm we are mounted, and stop unmounting */
-	if ((zfsvfs->z_vfs == NULL) ||
-	    zfsvfs->z_unmounted ||
-	    zfs_enter(zfsvfs, FTAG) != 0)
+	if (vfs_busy(zfsvfs->z_vfs, 0) != 0)
 		return (FALSE);
+
+	if (zfsvfs->z_unmounted ||
+	    zfs_enter(zfsvfs, FTAG) != 0) {
+		vfs_unbusy(zfsvfs);
+		return (FALSE);
+	}
+
+	vfs_unbusy(zfsvfs);
 
 	if (vp == NULL ||
 	    VTOZ(vp) == NULL ||
@@ -204,10 +210,16 @@ zfs_AcquireForReadAhead(void *Context, BOOLEAN Wait)
 
 	dprintf("%s:\n", __func__);
 
-	if ((zfsvfs->z_vfs == NULL) ||
-	    zfsvfs->z_unmounted ||
-	    zfs_enter(zfsvfs, FTAG) != 0)
+	if (vfs_busy(zfsvfs->z_vfs, 0) != 0)
 		return (FALSE);
+
+	if (zfsvfs->z_unmounted ||
+	    zfs_enter(zfsvfs, FTAG) != 0) {
+		vfs_unbusy(zfsvfs);
+		return (FALSE);
+	}
+
+	vfs_unbusy(zfsvfs);
 
 	if (vp == NULL ||
 	    VTOZ(vp) == NULL ||
@@ -7938,10 +7950,16 @@ fastio_acquire_for_mod_write(PFILE_OBJECT FileObject,
 	NTSTATUS Status = STATUS_INVALID_PARAMETER;
 	dprintf("%s: \n", __func__);
 
-	if ((zfsvfs->z_vfs == NULL) ||
-	    zfsvfs->z_unmounted ||
-	    zfs_enter(zfsvfs, FTAG) != 0)
+	if (vfs_busy(zfsvfs->z_vfs, 0) != 0)
 		return (STATUS_INVALID_PARAMETER);
+
+	if (zfsvfs->z_unmounted ||
+	    zfs_enter(zfsvfs, FTAG) != 0) {
+		vfs_unbusy(zfsvfs);
+		return (STATUS_INVALID_PARAMETER);
+	}
+
+	vfs_unbusy(zfsvfs);
 
 	vp = FileObject->FsContext;
 
