@@ -1066,13 +1066,9 @@ fetch_zpool_stats(zpool_size_stats *zstats) {
 
 		zstats->alloc = metaslab_class_get_alloc(mc);
 		zstats->alloc +=
-		    metaslab_class_get_alloc(spa_special_class(spa));
-		zstats->alloc +=
 		    metaslab_class_get_alloc(spa_dedup_class(spa));
 
 		zstats->size = metaslab_class_get_space(mc);
-		zstats->size +=
-		    metaslab_class_get_space(spa_special_class(spa));
 		zstats->size += metaslab_class_get_space(spa_dedup_class(spa));
 		mutex_exit(&spa->spa_props_lock);
 		ret = 0;
