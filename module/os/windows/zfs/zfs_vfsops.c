@@ -1565,6 +1565,7 @@ zfsvfs_teardown(zfsvfs_t *zfsvfs, boolean_t unmounting)
 int
 zfs_vfs_unmount(struct mount *mp, int mntflags, vfs_context_t context)
 {
+	mount_t *mp_dcb = NULL;
 	zfsvfs_t *zfsvfs = vfs_fsprivate(mp);
 	objset_t *os;
 	char osname[MAXNAMELEN];
@@ -1668,6 +1669,15 @@ zfs_vfs_unmount(struct mount *mp, int mntflags, vfs_context_t context)
 		 * Finally release the objset
 		 */
 		dmu_objset_disown(os, B_TRUE, zfsvfs);
+	}
+
+	mp_dcb = mp->parent_device;
+	if (likely(mp_dcb != NULL)) {
+		if (mp_dcb->type == MOUNT_TYPE_DCB) {
+			// dcb also has a reference to zfsvfs, we need to
+			// remove that before it is freed.
+			vfs_setfsprivate(mp_dcb, NULL);
+		}
 	}
 
 	zfs_freevfs(zfsvfs->z_vfs);
