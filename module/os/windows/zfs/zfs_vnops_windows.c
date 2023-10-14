@@ -132,6 +132,11 @@ zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 	struct vnode *vp = fo->FsContext;
 	dprintf("%s:fo %p\n", __func__, fo);
 
+	if (unlikely(zfsvfs == NULL)) {
+		dprintf("%s: fo %p already freed zfsvfs\n", __func__, fo);
+		return (FALSE);
+	}
+
 	/* Confirm we are mounted, and stop unmounting */
 	if (vfs_busy(zfsvfs->z_vfs, 0) != 0)
 		return (FALSE);
@@ -209,6 +214,11 @@ zfs_AcquireForReadAhead(void *Context, BOOLEAN Wait)
 	struct vnode *vp = fo->FsContext;
 
 	dprintf("%s:\n", __func__);
+
+	if (unlikely(zfsvfs == NULL)) {
+		dprintf("%s: fo %p already freed zfsvfs\n", __func__, fo);
+		return (FALSE);
+	}
 
 	if (vfs_busy(zfsvfs->z_vfs, 0) != 0)
 		return (FALSE);
@@ -7949,6 +7959,12 @@ fastio_acquire_for_mod_write(PFILE_OBJECT FileObject,
 	int error;
 	NTSTATUS Status = STATUS_INVALID_PARAMETER;
 	dprintf("%s: \n", __func__);
+
+	if (unlikely(zfsvfs == NULL)) {
+		dprintf("%s: fo %p already freed zfsvfs\n", __func__,
+		    FileObject);
+		return (STATUS_INVALID_PARAMETER);
+	}
 
 	if (vfs_busy(zfsvfs->z_vfs, 0) != 0)
 		return (STATUS_INVALID_PARAMETER);
