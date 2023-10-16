@@ -91,6 +91,12 @@ OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
 	sysctl_os_fini();
 
 	spl_stop();
+#ifdef DBG
+	if (KD_DEBUGGER_ENABLED && !KD_DEBUGGER_NOT_PRESENT) {
+		xprintf("Breaking into debugger after unload\n");
+		DbgBreakPoint();
+	}
+#endif
 	finiDbgCircularBuffer();
 
 	if (STOR_wzvolDriverInfo.zvContextArray) {
