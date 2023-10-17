@@ -41,8 +41,8 @@ extern PDEVICE_OBJECT fsDiskDeviceObject;
 
 // We have to remember "query directory" related items, like index and
 // search pattern. This is attached in IRP_MJ_CREATE to fscontext2
-#define	ZFS_DIRLIST_MAGIC 0x6582feac
-struct zfs_dirlist {
+#define	ZFS_CCB_MAGIC 0x6582feac
+struct zfs_ccb {
 	uint32_t magic;			// Identifier
 	uint32_t dir_eof;		// Directory listing completed?
 	uint64_t dirlist_index;		// Directory list offset
@@ -50,7 +50,13 @@ struct zfs_dirlist {
 	uint64_t uio_offset;		// uio offset
 	uint32_t deleteonclose;		// Marked for deletion
 	uint32_t ContainsWildCards;	// searchname has wildcards
-	UNICODE_STRING searchname;	// Search pattern
+
+	uint32_t z_name_len;		// name at open
+	uint32_t z_name_offset;		// offset to name (skipping dirs)
+	char *z_name_cache;		// ptr to full path
+	uint64_t z_name_rename;		// last rename time, if any
+
+	UNICODE_STRING searchname;	// Search pattern (dirlist)
 
 	uint64_t cacheinit;
 	uint64_t real_file_id;
@@ -61,7 +67,7 @@ struct zfs_dirlist {
 	ACCESS_MASK access;
 };
 
-typedef struct zfs_dirlist zfs_dirlist_t;
+typedef struct zfs_ccb zfs_ccb_t;
 
 extern uint64_t zfs_module_busy;
 
@@ -84,7 +90,8 @@ extern int zfs_attach_security(struct vnode *vp, struct vnode *dvp);
 extern uint64_t zfs_sid2uid(SID *sid);
 
 BOOLEAN vattr_apply_lx_ea(vattr_t *vap, PFILE_FULL_EA_INFORMATION ea);
-NTSTATUS vnode_apply_eas(struct vnode *vp, PFILE_FULL_EA_INFORMATION eas,
+NTSTATUS vnode_apply_eas(struct vnode *vp, zfs_ccb_t *,
+    PFILE_FULL_EA_INFORMATION eas,
     ULONG eaLength, PULONG pEaErrorOffset);
 
 /* Main function to handle all VFS "vnops" */

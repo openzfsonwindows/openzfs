@@ -572,9 +572,7 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, int blksz,
 	zp->z_uid = 0;
 	zp->z_gid = 0;
 	zp->z_size = 0;
-	zp->z_name_cache = NULL;
-	zp->z_name_len = 0;
-	zp->z_name_offset = 0;
+	zp->z_name_renamed = 0;
 
 	taskq_init_ent(&zp->z_attach_taskq);
 
@@ -1454,11 +1452,6 @@ zfs_znode_free(znode_t *zp)
 	if (zp->z_xattr_cached) {
 		nvlist_free(zp->z_xattr_cached);
 		zp->z_xattr_cached = NULL;
-	}
-
-	if (zp->z_name_cache != NULL) {
-		kmem_free(zp->z_name_cache, zp->z_name_len);
-		zp->z_name_cache = NULL;
 	}
 
 	ASSERT(zp->z_sa_hdl == NULL);

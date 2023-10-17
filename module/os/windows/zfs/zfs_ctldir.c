@@ -218,8 +218,7 @@ zfsctl_vnode_alloc(zfsvfs_t *zfsvfs, uint64_t id,
 	ZFS_TIME_ENCODE(&now, zp->z_atime);
 
 	zp->z_snap_mount_time = 0; /* Allow automount attempt */
-	zp->z_name_cache = NULL;
-	zp->z_name_len = 0;
+	zp->z_name_renamed = 0;
 
 	dprintf("%s zp %p with vp %p zfsvfs %p vfs %p\n", __func__,
 	    zp, vp, zfsvfs, zfsvfs->z_vfs);
@@ -269,12 +268,6 @@ zfsctl_vnode_alloc(zfsvfs_t *zfsvfs, uint64_t id,
 	// Update startid before buildpath.
 	if (id < zfsvfs->z_ctldir_startid)
 		zfsvfs->z_ctldir_startid = id;
-
-	// Build fullpath string here, for Notifications & set_name_information
-	if (zfs_build_path(zp, NULL, &zp->z_name_cache,
-	    &zp->z_name_len, &zp->z_name_offset) == -1) {
-		dprintf("%s: failed to build fullpath\n", __func__);
-	}
 
 	zfs_attach_security(vp, NULL);
 
@@ -443,7 +436,7 @@ out:
 
 int
 zfsctl_vnop_readdir_root(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
-    zfs_dirlist_t *zccb, int flags)
+    zfs_ccb_t *zccb, int flags)
 {
 	int error = 0;
 	znode_t *zp = VTOZ(vp);
@@ -510,7 +503,7 @@ zfsctl_vnop_readdir_root(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 
 int
 zfsctl_vnop_readdir_snapdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
-    zfs_dirlist_t *zccb, int flags)
+    zfs_ccb_t *zccb, int flags)
 {
 	int error = 0;
 	boolean_t case_conflict;
@@ -572,7 +565,7 @@ zfsctl_vnop_readdir_snapdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 /* We need to spit out a valid "." ".." entries for mount to work */
 int
 zfsctl_vnop_readdir_snapdirs(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
-    zfs_dirlist_t *zccb, int flags)
+    zfs_ccb_t *zccb, int flags)
 {
 	int error = 0;
 	znode_t *zp = VTOZ(vp);
@@ -616,7 +609,7 @@ zfsctl_vnop_readdir_snapdirs(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 
 int
 zfsctl_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
-    zfs_dirlist_t *zccb, int flags)
+    zfs_ccb_t *zccb, int flags)
 {
 	znode_t *zp = VTOZ(vp);
 
@@ -796,6 +789,7 @@ zfsctl_vnop_access(struct vnop_access_args *ap)
 	return (0);
 }
 
+#if 0
 int
 zfsctl_vnop_open(struct vnop_open_args *ap)
 {
@@ -805,6 +799,7 @@ zfsctl_vnop_open(struct vnop_open_args *ap)
 		return (EACCES);
 	return (zfsctl_snapshot_mount(ap->a_vp, 0));
 }
+#endif
 
 int
 zfsctl_vnop_close(struct vnop_close_args *ap)
@@ -865,6 +860,7 @@ zfsctl_snapshot_name(zfsvfs_t *zfsvfs, const char *snap_name, int len,
 	return (0);
 }
 
+#if 0
 int
 zfsctl_snapshot_mount(struct vnode *vp, int flags)
 {
@@ -973,6 +969,7 @@ zfsctl_snapshot_mount(struct vnode *vp, int flags)
 
 	return (ret);
 }
+#endif
 
 /* Called whenever zfs_vfs_mount() is called with a snapshot */
 void
