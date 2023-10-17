@@ -292,7 +292,7 @@ CACHE_MANAGER_CALLBACKS CacheManagerCallbacks =
 int
 zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp, CC_FILE_SIZES *ccfs)
 {
-	zfs_dirlist_t *zccb = fo->FsContext2;
+	zfs_ccb_t *zccb = fo->FsContext2;
 
 	try {
 		if (fo->PrivateCacheMap == NULL) {
@@ -326,25 +326,28 @@ zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp, CC_FILE_SIZES *ccfs)
 /*
  * FileObject->FsContext will point to vnode, many FileObjects can point
  * to same vnode.
- * FileObject->FsContext2 will point to own "zfs_dirlist_t" and be unique
+ * FileObject->FsContext2 will point to own "zfs_ccb_t" and be unique
  * to each FileObject.
  * - which could also be done with TSD data, but this appears to be
  * the Windows norm.
  */
 static void
 zfs_couplefileobject(vnode_t *vp, vnode_t *dvp, FILE_OBJECT *fileobject,
-    uint64_t size, uint64_t alloc, ACCESS_MASK access)
+    uint64_t size, zfs_ccb_t **ccb, uint64_t alloc, ACCESS_MASK access)
 {
-	zfs_dirlist_t *zccb;
+	zfs_ccb_t *zccb;
 
 	if (fileobject->FsContext2 == NULL) {
-		zccb = kmem_zalloc(sizeof (zfs_dirlist_t), KM_SLEEP);
-		zccb->magic = ZFS_DIRLIST_MAGIC;
+		zccb = kmem_zalloc(sizeof (zfs_ccb_t), KM_SLEEP);
+		zccb->magic = ZFS_CCB_MAGIC;
 		fileobject->FsContext2 = zccb;
 	} else {
 		zccb = fileobject->FsContext2;
 	}
 	zccb->access = access;
+
+	if (ccb != NULL)
+		*ccb = zccb;
 
 	vnode_ref(vp);
 	vnode_couplefileobject(vp, fileobject, size);
@@ -368,6 +371,11 @@ zfs_couplefileobject(vnode_t *vp, vnode_t *dvp, FILE_OBJECT *fileobject,
 	vp->FileHeader.IsFastIoPossible = fast_io_possible(vp);
 #endif
 
+	zfs_build_path(VTOZ(vp), dvp ? VTOZ(dvp) : NULL,
+	    &zccb->z_name_cache,
+	    &zccb->z_name_len,
+	    &zccb->z_name_offset);
+
 }
 
 static void
@@ -375,7 +383,7 @@ zfs_decouplefileobject(vnode_t *vp, FILE_OBJECT *fileobject)
 {
 	// We release FsContext2 at CLEANUP, but fastfat releases it in
 	// CLOSE. Does this matter?
-	zfs_dirlist_t *zccb = fileobject->FsContext2;
+	zfs_ccb_t *zccb = fileobject->FsContext2;
 
 	if (zccb != NULL) {
 
@@ -386,10 +394,19 @@ zfs_decouplefileobject(vnode_t *vp, FILE_OBJECT *fileobject)
 			zccb->searchname.MaximumLength = 0;
 		}
 
-		kmem_free(zccb, sizeof (zfs_dirlist_t));
+		if (zccb->z_name_cache != NULL)
+			kmem_free(zccb->z_name_cache, zccb->z_name_len);
+		zccb->z_name_cache = NULL;
+#if DBG
+		zccb->z_name_len = 0x12345678; // DBG: show we freed
+#else
+		zccb->z_name_len = 0;
+#endif
+		kmem_free(zccb, sizeof (zfs_ccb_t));
 		fileobject->FsContext2 = NULL;
 	}
 
+	CcUninitializeCacheMap(fileobject, NULL, NULL);
 	vnode_decouplefileobject(vp, fileobject);
 
 }
@@ -400,7 +417,7 @@ check_and_set_stream_parent(char *stream_name, PFILE_OBJECT FileObject,
 {
 	if (stream_name != NULL && FileObject != NULL &&
 	    FileObject->FsContext2 != NULL) {
-		zfs_dirlist_t *zccb = FileObject->FsContext2;
+		zfs_ccb_t *zccb = FileObject->FsContext2;
 
 		zccb->real_file_id = id;
 
@@ -413,8 +430,9 @@ check_and_set_stream_parent(char *stream_name, PFILE_OBJECT FileObject,
 				int error = zfs_zget(zp->z_zfsvfs, id, &dzp);
 				if (!error) {
 					zfs_build_path_stream(zp, dzp,
-					    &zp->z_name_cache, &zp->z_name_len,
-					    &zp->z_name_offset, stream_name);
+					    &zccb->z_name_cache,
+					    &zccb->z_name_len,
+					    &zccb->z_name_offset, stream_name);
 					zrele(dzp);
 				}
 			}
@@ -754,6 +772,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	ACCESS_MASK granted_access = 0;
 	ACCESS_MASK DesiredAccess =
 	    IrpSp->Parameters.Create.SecurityContext->DesiredAccess;
+	zfs_ccb_t *zccb = NULL;
 
 	if (zfsvfs == NULL)
 		return (STATUS_OBJECT_PATH_NOT_FOUND);
@@ -864,7 +883,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 		dvp = ZTOV(zp);
 
-		zfs_couplefileobject(dvp, NULL, FileObject, 0ULL,
+		zfs_couplefileobject(dvp, NULL, FileObject, 0ULL, &zccb,
 		    Irp->Overlay.AllocationSize.QuadPart, DesiredAccess);
 
 		VN_RELE(dvp);
@@ -929,7 +948,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				if (error == 0) {
 					vp = ZTOV(zp);
 					zfs_couplefileobject(vp, NULL,
-					    FileObject, zp->z_size,
+					    FileObject, zp->z_size, &zccb,
 					    Irp->
 					    Overlay.AllocationSize.QuadPart,
 					    DesiredAccess);
@@ -954,8 +973,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			// Related set, return it as opened.
 			dvp = FileObject->RelatedFileObject->FsContext;
 			zp = VTOZ(dvp);
-			dprintf("%s: Relative null-name open: '%s'\n",
-			    __func__, zp->z_name_cache);
+			dprintf("%s: Relative null-name open\n",
+			    __func__);
 			// Check types
 			if (NonDirectoryFile && vnode_isdir(dvp)) {
 				Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
@@ -968,7 +987,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			// Grab vnode to ref
 			if (VN_HOLD(dvp) == 0) {
 				zfs_couplefileobject(dvp, NULL, FileObject,
-				    0ULL, Irp->Overlay.AllocationSize.QuadPart,
+				    0ULL, &zccb,
+				    Irp->Overlay.AllocationSize.QuadPart,
 				    DesiredAccess);
 				VN_RELE(dvp);
 			} else {
@@ -1124,6 +1144,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				error = STATUS_SUCCESS;
 				zfs_couplefileobject(vp, NULL, FileObject,
 				    zp ? zp->z_size : 0ULL,
+				    &zccb,
 				    Irp->Overlay.AllocationSize.QuadPart,
 				    DesiredAccess);
 			}
@@ -1234,6 +1255,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 			dprintf("%s: opening PARENT directory\n", __func__);
 			zfs_couplefileobject(dvp, NULL, FileObject, 0ULL,
+			    &zccb,
 			    Irp->Overlay.AllocationSize.QuadPart,
 			    DesiredAccess);
 			if (DeleteOnClose)
@@ -1295,6 +1317,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		if (error == 0) {
 			vp = ZTOV(zp);
 			zfs_couplefileobject(vp, NULL, FileObject, 0ULL,
+			    &zccb,
 			    Irp->Overlay.AllocationSize.QuadPart,
 			    DesiredAccess);
 
@@ -1311,8 +1334,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    FileObject,
 				    &vp->share_access);
 
-				zfs_send_notify(zfsvfs, zp->z_name_cache,
-				    zp->z_name_offset,
+				zfs_send_notify(zfsvfs, zccb->z_name_cache,
+				    zccb->z_name_offset,
 				    FILE_NOTIFY_CHANGE_DIR_NAME,
 				    FILE_ACTION_ADDED);
 			}
@@ -1561,18 +1584,20 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 			if (!reenter_for_xattr) {
 				zfs_couplefileobject(vp, dvp, FileObject,
-				    zp ? zp->z_size : 0ULL,
+				    zp ? zp->z_size : 0ULL, &zccb,
 				    Irp->Overlay.AllocationSize.QuadPart,
 				    granted_access ?
 				    granted_access : DesiredAccess);
+
+				zfs_build_path(VTOZ(vp), VTOZ(dvp),
+				    &zccb->z_name_cache,
+				    &zccb->z_name_len,
+				    &zccb->z_name_offset);
 
 				if (DeleteOnClose)
 					Status =
 					    zfs_setunlink_masked(FileObject,
 					    dvp);
-			}
-
-			if (Status == STATUS_SUCCESS) {
 
 				Irp->IoStatus.Information = replacing ?
 				    CreateDisposition == FILE_SUPERSEDE ?
@@ -1590,8 +1615,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				// Did we create file, or stream?
 				if (!(zp->z_pflags & ZFS_XATTR)) {
 					zfs_send_notify(zfsvfs,
-					    zp->z_name_cache,
-					    zp->z_name_offset,
+					    zccb->z_name_cache,
+					    zccb->z_name_offset,
 					    FILE_NOTIFY_CHANGE_FILE_NAME,
 					    FILE_ACTION_ADDED);
 				} else {
@@ -1600,20 +1625,19 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 					    VTOZ(dvp)->z_xattr_parent);
 
 					zfs_send_notify_stream(zfsvfs, // WOOT
-					    zp->z_name_cache,
-					    zp->z_name_offset,
+					    zccb->z_name_cache,
+					    zccb->z_name_offset,
 					    FILE_NOTIFY_CHANGE_STREAM_NAME,
 					    FILE_ACTION_ADDED_STREAM,
 					    NULL);
 				}
-
+			}
 		/* Windows lets you create a file, and stream, in one. */
 		/* Call this function again, lets hope, only once */
-				if (reenter_for_xattr) {
-					Status = EAGAIN;
-				}
-
+			if (NT_SUCCESS(Status) && reenter_for_xattr) {
+				Status = EAGAIN;
 			}
+
 			VN_RELE(vp);
 			VN_RELE(dvp);
 
@@ -1643,6 +1667,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	ASSERT(IrpSp->FileObject->FsContext == NULL);
 	if (vp == NULL) {
 		zfs_couplefileobject(dvp, NULL, FileObject, 0ULL,
+		    &zccb,
 		    Irp->Overlay.AllocationSize.QuadPart,
 		    granted_access ? granted_access : DesiredAccess);
 
@@ -1667,7 +1692,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		// Technically, this should call zfs_open() -
 		// but zfs_open is mostly empty
 
-		zfs_couplefileobject(vp, NULL, FileObject, zp->z_size,
+		zfs_couplefileobject(vp, dvp, FileObject, zp->z_size,
+		    &zccb,
 		    Irp->Overlay.AllocationSize.QuadPart,
 		    granted_access ? granted_access : DesiredAccess);
 
@@ -1676,15 +1702,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			Status = zfs_setunlink_masked(FileObject, dvp);
 
 		if (Status == STATUS_SUCCESS) {
-
-			/* When multiple links are involved, update parent */
-			vnode_setparent(vp, dvp);
-			if ((zp->z_links > 1) &&
-			    zfs_build_path(zp, dzp, &zp->z_name_cache,
-			    &zp->z_name_len,
-			    &zp->z_name_offset) == -1)
-				dprintf("%s: 2 failed to build fullpath\n",
-				    __func__);
 
 			Irp->IoStatus.Information = FILE_OPENED;
 
@@ -1865,6 +1882,7 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 			// Second pass: this will apply all EAs that are
 			// not only LX EAs
 			vnode_apply_eas(IrpSp->FileObject->FsContext,
+			    IrpSp->FileObject->FsContext2,
 			    (PFILE_FULL_EA_INFORMATION)
 			    Irp->AssociatedIrp.SystemBuffer,
 			    IrpSp->Parameters.Create.EaLength, NULL);
@@ -1904,8 +1922,7 @@ zfs_vnop_reclaim(struct vnode *vp)
 
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
-	dprintf("  zfs_vnop_recycle: releasing zp %p and vp %p: '%s'\n", zp, vp,
-	    zp->z_name_cache ? zp->z_name_cache : "");
+	dprintf("  zfs_vnop_recycle: releasing zp %p and vp %p\n", zp, vp);
 
 	// Decouple the nodes
 	ASSERT(ZTOV(zp) != (vnode_t *)0xdeadbeefdeadbeef);
@@ -1927,11 +1944,6 @@ zfs_vnop_reclaim(struct vnode *vp)
 	vnode_setsecurity(vp, NULL);
 
 	vp = NULL;
-
-	if (zp->z_name_cache != NULL)
-		kmem_free(zp->z_name_cache, zp->z_name_len);
-	zp->z_name_cache = NULL;
-	zp->z_name_len = 0x12345678; // DBG: show we have been reclaimed
 
 	// Release znode
 	/*
@@ -2047,17 +2059,6 @@ zfs_znode_getvnode(znode_t *zp, znode_t *dzp, zfsvfs_t *zfsvfs)
 	// dprintf("Assigned zp %p with vp %p\n", zp, vp);
 	zp->z_vid = vnode_vid(vp);
 	zp->z_vnode = vp;
-
-	// Build a fullpath string here, for Notifications
-	// and set_name_information
-	ASSERT(zp->z_name_cache == NULL);
-	if (zfs_build_path(zp, dzp, &zp->z_name_cache, &zp->z_name_len,
-	    &zp->z_name_offset) == -1)
-		dprintf("%s: failed to build fullpath\n", __func__);
-
-	if (parentvp != NULL)
-		dprintf("Created '%s' with parent '%s'\n",
-		    zp->z_name_cache, VTOZ(parentvp)->z_name_cache);
 
 	// Assign security here. But, if we are XATTR, we do not? In Windows,
 	// it refers to Streams and they do not have Security?
@@ -2480,7 +2481,7 @@ query_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		if (Status != STATUS_SUCCESS)
 			break;
 #if 1
-		zfs_dirlist_t *zccb = IrpSp->FileObject->FsContext2;
+		zfs_ccb_t *zccb = IrpSp->FileObject->FsContext2;
 		all->AccessInformation.AccessFlags =
 		    GENERIC_ALL | GENERIC_EXECUTE |
 		    GENERIC_READ | GENERIC_WRITE;
@@ -2803,7 +2804,7 @@ query_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	uint64_t start_index = 0;
 
-	zfs_dirlist_t *zccb = IrpSp->FileObject->FsContext2;
+	zfs_ccb_t *zccb = IrpSp->FileObject->FsContext2;
 
 	if (RestartScan) {
 		start_index = 0;
@@ -2911,12 +2912,17 @@ set_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	uint8_t *buffer = NULL;
 	NTSTATUS Status = STATUS_SUCCESS;
 	struct vnode *vp = NULL;
+	zfs_ccb_t *zccb = NULL;
 
 	if (IrpSp->FileObject == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
 	vp = IrpSp->FileObject->FsContext;
 	if (vp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	zccb = IrpSp->FileObject->FsContext2;
+	if (zccb == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
 	dprintf("%s\n", __func__);
@@ -2935,7 +2941,8 @@ set_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	buffer = BufferUserBuffer(Irp, input_len);
 
 	ULONG eaErrorOffset = 0;
-	Status = vnode_apply_eas(vp, (PFILE_FULL_EA_INFORMATION)buffer,
+	Status = vnode_apply_eas(vp, zccb,
+	    (PFILE_FULL_EA_INFORMATION)buffer,
 	    input_len, &eaErrorOffset);
 	// (Information is ULONG_PTR; as win64 is a LLP64 platform,
 	// ULONG isn't the right length.)
@@ -3788,10 +3795,10 @@ request_oplock(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 			oplock_count = vnode_iocount(vp);
 		}
 
-		zfs_dirlist_t *zccb = FileObject->FsContext2;
+		zfs_ccb_t *zccb = FileObject->FsContext2;
 
 		if (zccb != NULL &&
-		    zccb->magic == ZFS_DIRLIST_MAGIC &&
+		    zccb->magic == ZFS_CCB_MAGIC &&
 		    zccb->deleteonclose) {
 
 			if ((fsctl == FSCTL_REQUEST_FILTER_OPLOCK ||
@@ -4116,9 +4123,9 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 		return (STATUS_INVALID_PARAMETER);
 
 	struct vnode *dvp = IrpSp->FileObject->FsContext;
-	zfs_dirlist_t *zccb = IrpSp->FileObject->FsContext2;
+	zfs_ccb_t *zccb = IrpSp->FileObject->FsContext2;
 
-	if (zccb->magic != ZFS_DIRLIST_MAGIC)
+	if (zccb->magic != ZFS_CCB_MAGIC)
 		return (STATUS_INVALID_PARAMETER);
 
 	if (flag_index_specified) {
@@ -4356,7 +4363,7 @@ notify_change_directory(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	struct vnode *vp = fileObject->FsContext;
-	zfs_dirlist_t *zccb = fileObject->FsContext2;
+	zfs_ccb_t *zccb = fileObject->FsContext2;
 	ASSERT(vp != NULL);
 
 	VN_HOLD(vp);
@@ -4374,7 +4381,8 @@ notify_change_directory(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	ASSERT(zmo->NotifySync != NULL);
 
 	dprintf("%s: '%s' for %wZ\n", __func__,
-	    zp&&zp->z_name_cache?zp->z_name_cache:"", &fileObject->FileName);
+	    zccb&&zccb->z_name_cache?zccb->z_name_cache:"",
+	    &fileObject->FileName);
 
 	FsRtlNotifyFilterChangeDirectory(
 	    zmo->NotifySync, &zmo->DirNotifyList, zccb,
@@ -4735,7 +4743,7 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 
 	struct vnode *vp = FileObject->FsContext;
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 
 	if (!vp || !zccb || !zmo) {
 		Status = STATUS_INVALID_PARAMETER;
@@ -4866,7 +4874,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	LARGE_INTEGER time;
 	timestruc_t now;
 	vnode_t *vp;
-	zfs_dirlist_t *ccb;
+	zfs_ccb_t *ccb;
 	boolean_t paging_lock = FALSE, acquired_vp_lock = FALSE,
 	    pagefile;
 	ULONG filter = 0;
@@ -5099,14 +5107,14 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 			if (zp->z_pflags & ZFS_XATTR) {
 				zfs_send_notify_stream(zp->z_zfsvfs,
-				    zp->z_name_cache,
-				    zp->z_name_offset,
+				    ccb->z_name_cache,
+				    ccb->z_name_offset,
 				    FILE_NOTIFY_CHANGE_STREAM_SIZE,
 				    FILE_ACTION_MODIFIED_STREAM,
 				    NULL);
 			} else {
-				zfs_send_notify(zp->z_zfsvfs, zp->z_name_cache,
-				    zp->z_name_offset, FILE_NOTIFY_CHANGE_SIZE,
+				zfs_send_notify(zp->z_zfsvfs, ccb->z_name_cache,
+				    ccb->z_name_offset, FILE_NOTIFY_CHANGE_SIZE,
 				    FILE_ACTION_MODIFIED);
 			}
 		}
@@ -5213,14 +5221,14 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		if (zp->z_pflags & ZFS_XATTR) {
 			zfs_send_notify_stream(zfsvfs,
-			    zp->z_name_cache,
-			    zp->z_name_offset,
+			    ccb->z_name_cache,
+			    ccb->z_name_offset,
 			    filter,
 			    FILE_ACTION_MODIFIED_STREAM,
 			    NULL);
 		} else {
-			zfs_send_notify(zfsvfs, zp->z_name_cache,
-			    zp->z_name_offset, filter,
+			zfs_send_notify(zfsvfs, ccb->z_name_cache,
+			    ccb->z_name_offset, filter,
 			    FILE_ACTION_MODIFIED);
 		}
 	}
@@ -5361,7 +5369,7 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	}
 
 	struct vnode *vp = fileObject->FsContext;
-	zfs_dirlist_t *zccb = fileObject->FsContext2;
+	zfs_ccb_t *zccb = fileObject->FsContext2;
 
 	if (zccb == NULL) {
 		dprintf("zccb == NULL\n");
@@ -5764,6 +5772,7 @@ set_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		return (STATUS_INVALID_PARAMETER);
 
 	struct vnode *vp = FileObject->FsContext;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 	VN_HOLD(vp);
 	PSECURITY_DESCRIPTOR oldsd;
 	oldsd = vnode_security(vp);
@@ -5823,7 +5832,7 @@ set_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	}
 
 	Irp->IoStatus.Information = 0;
-	zfs_send_notify(zfsvfs, zp->z_name_cache, zp->z_name_offset,
+	zfs_send_notify(zfsvfs, zccb->z_name_cache, zccb->z_name_offset,
 	    FILE_NOTIFY_CHANGE_SECURITY,
 	    FILE_ACTION_MODIFIED);
 
@@ -5940,7 +5949,7 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	struct vnode *vp = FileObject->FsContext;
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 
 	if (zmo->type != MOUNT_TYPE_VCB) {
 		Status = STATUS_SUCCESS;
@@ -5969,7 +5978,7 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	znode_t *zp = VTOZ(vp); // zp for notify removal
 
 	dprintf("IRP_MJ_CLEANUP: '%s' iocount %u usecount %u\n",
-	    zp && zp->z_name_cache ? zp->z_name_cache : "",
+	    zccb && zccb->z_name_cache ? zccb->z_name_cache : "",
 	    vp->v_iocount, vp->v_usecount);
 
 	// ExAcquireResourceSharedLite(&fcb->Vcb->tree_lock, true);
@@ -5999,27 +6008,27 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			zccb->deleteonclose = 0;
 			int isdir = vnode_isdir(vp);
 
-			if (zp->z_name_cache != NULL) {
+			if (zccb->z_name_cache != NULL) {
 				if (isdir) {
 					dprintf("DIR: FileDelete "
 					    "'%s' name '%s'\n",
-					    zp->z_name_cache,
-					    &zp->z_name_cache[
-					    zp->z_name_offset]);
+					    zccb->z_name_cache,
+					    &zccb->z_name_cache[
+					    zccb->z_name_offset]);
 					zfs_send_notify(zfsvfs,
-					    zp->z_name_cache,
-					    zp->z_name_offset,
+					    zccb->z_name_cache,
+					    zccb->z_name_offset,
 					    FILE_NOTIFY_CHANGE_DIR_NAME,
 					    FILE_ACTION_REMOVED);
 				} else {
 					dprintf("FILE: FileDelete "
 					    "'%s' name '%s'\n",
-					    zp->z_name_cache,
-					    &zp->z_name_cache[
-					    zp->z_name_offset]);
+					    zccb->z_name_cache,
+					    &zccb->z_name_cache[
+					    zccb->z_name_offset]);
 				zfs_send_notify(zfsvfs,
-				    zp->z_name_cache,
-				    zp->z_name_offset,
+				    zccb->z_name_cache,
+				    zccb->z_name_offset,
 				    FILE_NOTIFY_CHANGE_FILE_NAME,
 				    FILE_ACTION_REMOVED);
 				}
@@ -6109,7 +6118,7 @@ exit:
 	if (vp && zp)
 		dprintf("%s: '%s' iocount %u usecount %u Status 0x%lx.\n",
 		    __func__,
-		    zp &&zp->z_name_cache ? zp->z_name_cache : "",
+		    zccb&&zccb->z_name_cache ? zccb->z_name_cache : "",
 		    vp->v_iocount, vp->v_usecount, Status);
 
 	Irp->IoStatus.Status = Status;
@@ -6143,7 +6152,7 @@ zfs_fileobject_close(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 // released right here, but marked to be released upon
 // reaching 0 count
 			vnode_t *vp = IrpSp->FileObject->FsContext;
-			zfs_dirlist_t *zccb = IrpSp->FileObject->FsContext2;
+			zfs_ccb_t *zccb = IrpSp->FileObject->FsContext2;
 
 			int isdir = vnode_isdir(vp);
 

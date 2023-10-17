@@ -89,9 +89,7 @@ extern int zfs_zget_ext(zfsvfs_t *zfsvfs, uint64_t obj_num,
 	hrtime_t		z_snap_mount_time;	\
 	krwlock_t		z_map_lock; \
 	boolean_t		z_fastpath; \
-	uint32_t		z_name_len; \
-	uint32_t		z_name_offset; \
-	char			*z_name_cache;
+	uint64_t		z_name_renamed;
 
 #define	ZFS_LINK_MAX	UINT64_MAX
 

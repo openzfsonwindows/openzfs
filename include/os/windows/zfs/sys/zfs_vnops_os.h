@@ -90,9 +90,9 @@ extern int zfs_lookup(znode_t *dzp, char *nm, znode_t **zpp,
 extern int zfs_ioctl(vnode_t *vp, ulong_t com, intptr_t data, int flag,
     cred_t *cred, int *rvalp, caller_context_t *ct);
 extern int zfs_readdir(vnode_t *vp, emitdir_ptr_t *, cred_t *cr,
-	zfs_dirlist_t *zccb, int flags);
+    zfs_ccb_t *zccb, int flags);
 extern int zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name,
-    emitdir_ptr_t *ctx, zfs_dirlist_t *zccb, ino64_t objnum);
+    emitdir_ptr_t *ctx, zfs_ccb_t *zccb, ino64_t objnum);
 extern void zfs_readdir_complete(emitdir_ptr_t *ctx);
 
 extern int zfs_fsync(znode_t *zp, int syncflag, cred_t *cr);
@@ -137,7 +137,7 @@ extern uint32_t getuseraccess(znode_t *zp, vfs_context_t ctx);
 extern void zfs_zrele_async(znode_t *zp);
 
 extern int zfsctl_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
-    zfs_dirlist_t *zccb, int flags);
+    zfs_ccb_t *zccb, int flags);
 
 /*
  * Windows ACL Helper funcions
