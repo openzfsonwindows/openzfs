@@ -1307,7 +1307,7 @@ out:
  * we use the offset 2 for the '.zfs' directory.
  */
 int
-zfs_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr, zfs_dirlist_t *zccb,
+zfs_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr, zfs_ccb_t *zccb,
     int flags)
 {
 	int		error = 0;

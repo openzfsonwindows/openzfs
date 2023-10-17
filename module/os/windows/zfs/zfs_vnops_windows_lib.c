@@ -676,8 +676,9 @@ vnode_apply_single_ea(struct vnode *vp, struct vnode *xdvp,
  * set UID/GID/Mode/rdev.
  */
 NTSTATUS
-vnode_apply_eas(struct vnode *vp, PFILE_FULL_EA_INFORMATION eas,
-    ULONG eaLength, PULONG pEaErrorOffset)
+vnode_apply_eas(struct vnode *vp, zfs_ccb_t *zccb,
+    PFILE_FULL_EA_INFORMATION eas, ULONG eaLength,
+    PULONG pEaErrorOffset)
 {
 	NTSTATUS Status = STATUS_SUCCESS;
 
@@ -732,8 +733,8 @@ vnode_apply_eas(struct vnode *vp, PFILE_FULL_EA_INFORMATION eas,
 	if (vap.va_active != 0)
 		zfs_setattr(zp, &vap, 0, NULL, NULL);
 
-	zfs_send_notify(zfsvfs, zp->z_name_cache,
-	    zp->z_name_offset,
+	zfs_send_notify(zfsvfs, zccb->z_name_cache,
+	    zccb->z_name_offset,
 	    FILE_NOTIFY_CHANGE_EA,
 	    FILE_ACTION_MODIFIED);
 
@@ -774,7 +775,7 @@ zfs_readdir_complete(emitdir_ptr_t *ctx)
  */
 int
 zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
-    zfs_dirlist_t *zccb, ino64_t objnum)
+    zfs_ccb_t *zccb, ino64_t objnum)
 {
 	znode_t *tzp = NULL;
 	int structsize = 0;
@@ -2228,8 +2229,14 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 	if (start_zp_offset)
 		*start_zp_offset = *start_zp_offset - index;
 
+	// Free existing, if any
+	if (*fullpath != NULL)
+		kmem_free(*fullpath, *returnsize);
+
+	// Allocate new
 	*returnsize = size;
 	ASSERT(size != 0);
+
 	*fullpath = kmem_alloc(size, KM_SLEEP);
 	memmove(*fullpath, &work[index], size);
 	kmem_free(work, MAXPATHLEN * 2);
@@ -2262,6 +2269,7 @@ int
 zfs_build_path_stream(znode_t *start_zp, znode_t *start_parent, char **fullpath,
     uint32_t *returnsize, uint32_t *start_zp_offset, char *stream)
 {
+	int error;
 
 	if (start_zp == NULL)
 		return (EINVAL);
@@ -2269,18 +2277,25 @@ zfs_build_path_stream(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 	if (stream == NULL)
 		return (EINVAL);
 
-	if (start_zp->z_name_cache != NULL) {
-		kmem_free(start_zp->z_name_cache, start_zp->z_name_len);
-		start_zp->z_name_cache = NULL;
-		start_zp->z_name_len = 0;
-	}
+	error = zfs_build_path(start_zp, start_parent, fullpath,
+	    returnsize, start_zp_offset);
 
-	// start_parent->name + ":" + streamname + null
-	start_zp->z_name_cache = kmem_asprintf("%s:%s",
-	    start_parent->z_name_cache, stream);
-	start_zp->z_name_len = strlen(start_zp->z_name_cache) + 1;
-	// start_zp->z_name_offset = start_parent->z_name_len + 1;
-	start_zp->z_name_offset = start_parent->z_name_offset;
+	if (error) {
+		// name + ":" + streamname + null
+		// TODO: clean this up to not realloc
+		char *newname;
+		newname = kmem_asprintf("%s:%s",
+		    *fullpath, stream);
+
+		// Fetch new offset, before ":stream"
+		*start_zp_offset = *returnsize;
+		// free previous full name
+		kmem_free(*fullpath, *returnsize);
+		// assign new size
+		*returnsize = strlen(newname) + 1;
+		// assign new string
+		*fullpath = newname;
+	}
 
 	return (0);
 }
@@ -3025,7 +3040,7 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 
 	znode_t *zp = NULL;
 	znode_t *dzp = NULL;
-	zfs_dirlist_t *zccb = fo->FsContext2;
+	zfs_ccb_t *zccb = fo->FsContext2;
 
 	zfsvfs_t *zfsvfs;
 
@@ -3189,7 +3204,7 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	struct vnode *vp = FileObject->FsContext;
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	ULONG NotifyFilter = 0;
 
@@ -3334,8 +3349,8 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 
 		if (NotifyFilter != 0) {
-			zfs_send_notify(zp->z_zfsvfs, zp->z_name_cache,
-			    zp->z_name_offset,
+			zfs_send_notify(zp->z_zfsvfs, zccb->z_name_cache,
+			    zccb->z_name_offset,
 			    NotifyFilter,
 			    FILE_ACTION_MODIFIED);
 		}
@@ -3358,7 +3373,7 @@ set_file_disposition_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	struct vnode *vp = FileObject->FsContext;
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	ULONG flags = 0;
 
@@ -3425,7 +3440,7 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	uint64_t new_end_of_file;
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	struct vnode *vp = FileObject->FsContext;
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 	FILE_END_OF_FILE_INFORMATION *feofi = Irp->AssociatedIrp.SystemBuffer;
 	int changed = 0;
 	int error = 0;
@@ -3538,15 +3553,15 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	if (zp->z_pflags & ZFS_XATTR) {
 		filter = FILE_NOTIFY_CHANGE_STREAM_SIZE;
-		zfs_send_notify(zfsvfs, zp->z_name_cache,
-		    zp->z_name_offset,
+		zfs_send_notify(zfsvfs, zccb->z_name_cache,
+		    zccb->z_name_offset,
 		    filter,
 		    FILE_ACTION_MODIFIED_STREAM);
 	} else {
 		filter = FILE_NOTIFY_CHANGE_SIZE; // if ccb->user_set_write_time
 		filter |= FILE_NOTIFY_CHANGE_LAST_WRITE;
-		zfs_send_notify(zfsvfs, zp->z_name_cache,
-		    zp->z_name_offset,
+		zfs_send_notify(zfsvfs, zccb->z_name_cache,
+		    zccb->z_name_offset,
 		    filter,
 		    FILE_ACTION_MODIFIED);
 	}
@@ -3772,7 +3787,9 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	// So, use FileObject to get VP.
 	// Use VP to lookup parent.
 	// Use Filename to find destonation dvp, and vp if it exists.
-	if (IrpSp->FileObject == NULL || IrpSp->FileObject->FsContext == NULL)
+	if (IrpSp->FileObject == NULL ||
+	    IrpSp->FileObject->FsContext == NULL ||
+	    IrpSp->FileObject->FsContext2 == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
 	mount_t *zmo = DeviceObject->DeviceExtension;
@@ -3788,6 +3805,8 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	struct vnode *fvp = FileObject->FsContext;
+	zfs_ccb_t *fccb = FileObject->FsContext2;
+	zfs_ccb_t *tdccb = NULL;
 	znode_t *zp = VTOZ(fvp);
 	znode_t *dzp = NULL;
 	int error;
@@ -3897,6 +3916,7 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		// Assign tdvp
 		tdvp = dFileObject->FsContext;
+		tdccb = dFileObject->FsContext2;
 
 		// Filename is '\??\E:\dir\dir\file' and we only care about
 		// the last part.
@@ -3943,7 +3963,7 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		VERIFY0(VN_HOLD(tdvp));
 	}
 
-	error = zfs_rename(VTOZ(fdvp), &zp->z_name_cache[zp->z_name_offset],
+	error = zfs_rename(VTOZ(fdvp), &fccb->z_name_cache[fccb->z_name_offset],
 	    VTOZ(tdvp), remainder ? remainder : filename, NULL, 0, 0, NULL,
 	    NULL);
 
@@ -3954,25 +3974,30 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		// Moving to different volume:
 		// FILE_ACTION_REMOVED, FILE_ACTION_ADDED
 		// send CHANGE_LAST_WRITE
-		znode_t *tdzp = VTOZ(tdvp);
-		zfs_send_notify(zfsvfs, tdzp->z_name_cache, tdzp->z_name_offset,
-		    FILE_NOTIFY_CHANGE_LAST_WRITE,
-		    FILE_ACTION_MODIFIED);
 
-		zfs_send_notify(zfsvfs, zp->z_name_cache, zp->z_name_offset,
+		// remember we renamed, so get-filename on already open
+		// files can rescan.
+		atomic_inc_64(&zp->z_name_renamed);
+
+		znode_t *tdzp = VTOZ(tdvp);
+
+		if (tdccb != NULL) {
+			zfs_send_notify(zfsvfs, tdccb->z_name_cache,
+			    tdccb->z_name_offset,
+			    FILE_NOTIFY_CHANGE_LAST_WRITE,
+			    FILE_ACTION_MODIFIED);
+		}
+
+		zfs_send_notify(zfsvfs, fccb->z_name_cache, fccb->z_name_offset,
 		    vnode_isdir(fvp) ?
 		    FILE_NOTIFY_CHANGE_DIR_NAME :
 		    FILE_NOTIFY_CHANGE_FILE_NAME,
 		    FILE_ACTION_RENAMED_OLD_NAME);
 
-		// Release fromname, and lookup new name
-		kmem_free(zp->z_name_cache, zp->z_name_len);
-		zp->z_name_cache = NULL;
-
-		if (zfs_build_path(zp, tdzp, &zp->z_name_cache,
-		    &zp->z_name_len, &zp->z_name_offset) == 0) {
-			zfs_send_notify(zfsvfs, zp->z_name_cache,
-			    zp->z_name_offset,
+		if (zfs_build_path(zp, tdzp, &fccb->z_name_cache,
+		    &fccb->z_name_len, &fccb->z_name_offset) == 0) {
+			zfs_send_notify(zfsvfs, fccb->z_name_cache,
+			    fccb->z_name_offset,
 			    vnode_isdir(fvp) ?
 			    FILE_NOTIFY_CHANGE_DIR_NAME :
 			    FILE_NOTIFY_CHANGE_FILE_NAME,
@@ -4021,6 +4046,7 @@ set_file_valid_data_length_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_INVALID_PARAMETER);
 
 	struct vnode *vp = IrpSp->FileObject->FsContext;
+	zfs_ccb_t *ccb = IrpSp->FileObject->FsContext2;
 	znode_t *zp = VTOZ(vp);
 
 	if (zmo == NULL || zp == NULL)
@@ -4062,8 +4088,8 @@ set_file_valid_data_length_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	ccfs.ValidDataLength = fvdli->ValidDataLength;
 	set_size = B_TRUE;
 
-	zfs_send_notify(zp->z_zfsvfs, zp->z_name_cache,
-	    zp->z_name_offset,
+	zfs_send_notify(zp->z_zfsvfs, ccb->z_name_cache,
+	    ccb->z_name_offset,
 	    FILE_NOTIFY_CHANGE_SIZE,
 	    FILE_ACTION_MODIFIED);
 
@@ -4173,7 +4199,7 @@ file_internal_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	if (IrpSp->FileObject && IrpSp->FileObject->FsContext) {
 		struct vnode *vp = IrpSp->FileObject->FsContext;
-		zfs_dirlist_t *zccb = IrpSp->FileObject->FsContext2;
+		zfs_ccb_t *zccb = IrpSp->FileObject->FsContext2;
 		znode_t *zp = VTOZ(vp);
 		/* For streams, we need to reply with parent file */
 		if (zccb && zp->z_pflags & ZFS_XATTR)
@@ -4372,7 +4398,7 @@ file_standard_information_impl(PDEVICE_OBJECT DeviceObject,
     size_t length, PIO_STATUS_BLOCK IoStatus)
 {
 	struct vnode *vp = FileObject->FsContext;
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 	znode_t *zp = VTOZ(vp);
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
@@ -4519,7 +4545,7 @@ file_network_open_information_impl(PDEVICE_OBJECT DeviceObject,
 {
 	dprintf("   %s\n", __func__);
 	struct vnode *vp = FileObject->FsContext;
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 	znode_t *zp = VTOZ(vp);
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
@@ -4602,7 +4628,7 @@ file_standard_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	if (IrpSp->FileObject && IrpSp->FileObject->FsContext) {
 		struct vnode *vp = IrpSp->FileObject->FsContext;
-		zfs_dirlist_t *zccb = IrpSp->FileObject->FsContext2;
+		zfs_ccb_t *zccb = IrpSp->FileObject->FsContext2;
 
 		znode_t *zp = VTOZ(vp);
 
@@ -4688,7 +4714,7 @@ file_stat_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	/* vp is already help in query_information */
 	struct vnode *vp = FileObject->FsContext;
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 
 	if (vp && zccb) {
 
@@ -4768,7 +4794,7 @@ file_stat_lx_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	/* vp is already help in query_information */
 	struct vnode *vp = FileObject->FsContext;
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 
 	if (vp && zccb) {
 		znode_t *zp = VTOZ(vp);
@@ -4841,6 +4867,7 @@ file_name_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	struct vnode *vp = FileObject->FsContext;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 	znode_t *zp = VTOZ(vp);
 	char strname[MAXPATHLEN + 2];
 	int error = 0;
@@ -4857,11 +4884,15 @@ file_name_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		strlcpy(strname, "\\", MAXPATHLEN);
 	} else {
 
-		// Should never be unset!
-		if (zp->z_name_cache == NULL) {
+		// Should never be unset, but detect renames
+		if ((zccb->z_name_cache == NULL) ||
+		    (zp->z_name_renamed > zccb->z_name_rename)) {
+
+			zccb->z_name_rename = zp->z_name_renamed;
+
 			dprintf("%s: name not set path taken\n", __func__);
-			if (zfs_build_path(zp, NULL, &zp->z_name_cache,
-			    &zp->z_name_len, &zp->z_name_offset) == -1) {
+			if (zfs_build_path(zp, NULL, &zccb->z_name_cache,
+			    &zccb->z_name_len, &zccb->z_name_offset) == -1) {
 				dprintf("%s: failed to build fullpath\n",
 				    __func__);
 				// VN_RELE(vp);
@@ -4870,21 +4901,25 @@ file_name_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 
 		// Safety
-		if (zp->z_name_cache != NULL) {
+		if (zccb->z_name_cache != NULL) {
 #if 0
 			// Just name
-			strlcpy(strname, &zp->z_name_cache[zp->z_name_offset],
+			strlcpy(strname, &zccb->z_name_cache[zp->z_name_offset],
 			    MAXPATHLEN);
 #else
 			// Full path name
-			strlcpy(strname, zp->z_name_cache,
+			strlcpy(strname, zccb->z_name_cache,
 			    MAXPATHLEN);
 #endif
 			// If it is a DIR, make sure it ends with "\",
 			// except for root, that is just "\"
+			// When running ifstext.exe HardLinkInformationTest
+			// it will fail if we return "\" at the end of dirs.
+#if 0
 			if (S_ISDIR(zp->z_mode))
 				strlcat(strname, "\\",
 				    MAXPATHLEN);
+#endif
 		}
 	}
 	VN_RELE(vp);
@@ -5115,7 +5150,7 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	struct vnode *vp = FileObject->FsContext;
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 	znode_t *zp = VTOZ(vp), *xzp = NULL;
 	znode_t *xdzp = NULL;
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
@@ -5219,27 +5254,84 @@ file_hard_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	NTSTATUS Status;
 	uint64_t availablebytes = IrpSp->Parameters.QueryFile.Length;
+	uint64_t bytes_needed;
+	mount_t *zmo;
+	int error;
+	zmo = (mount_t *)DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+	znode_t *zp = NULL;
+	ULONG namelenholder = 0;
+	FILE_LINK_ENTRY_INFORMATION *flei;
+
+	if (zfsvfs == NULL)
+		return (SET_ERROR(STATUS_INVALID_PARAMETER));
 
 	dprintf("%s: \n", __func__);
 
-	if (FileObject == NULL || FileObject->FsContext == NULL)
-		return (STATUS_INVALID_PARAMETER);
+	if (FileObject == NULL ||
+	    FileObject->FsContext == NULL ||
+	    FileObject->FsContext2 == NULL)
+		return (SET_ERROR(STATUS_INVALID_PARAMETER));
 
 	if (IrpSp->Parameters.QueryFile.Length <
 	    sizeof (FILE_LINKS_INFORMATION)) {
 		Irp->IoStatus.Information = sizeof (FILE_LINKS_INFORMATION);
-		return (STATUS_BUFFER_TOO_SMALL);
+		return (SET_ERROR(STATUS_BUFFER_TOO_SMALL));
 	}
 
 	struct vnode *vp = FileObject->FsContext;
-	zfs_dirlist_t *zccb = FileObject->FsContext2;
+	struct vnode *dvp = NULL;
+	zfs_ccb_t *zccb = FileObject->FsContext2;
 
-	fhli->EntriesReturned = 0;
-	fhli->BytesNeeded = sizeof (FILE_LINKS_INFORMATION);
+	bytes_needed = offsetof(FILE_LINKS_INFORMATION, Entry);
 
+	zp = VTOZ(vp);
+
+	if ((zp == NULL) || (zccb == NULL) || (zccb->z_name_cache == NULL))
+		return (SET_ERROR(STATUS_INVALID_PARAMETER));
+
+	// This exits when unmounting
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
+
+	dvp = zfs_parent(vp);
+
+	char *name = &zccb->z_name_cache[zccb->z_name_offset];
+	Status = RtlUTF8ToUnicodeN(NULL, 0, &namelenholder,
+	    name,
+	    strlen(name)); /* zp->z_name_len - zp->z_name_offset */
+
+	bytes_needed += sizeof (FILE_LINK_ENTRY_INFORMATION) +
+	    namelenholder - sizeof (WCHAR);
+
+	fhli->BytesNeeded = bytes_needed;
 	Irp->IoStatus.Information = sizeof (FILE_LINKS_INFORMATION);
 
-	return (STATUS_SUCCESS);
+	if (bytes_needed > availablebytes) {
+		Status = STATUS_BUFFER_OVERFLOW;
+		goto out;
+	}
+
+	flei = &fhli->Entry;
+
+	flei->NextEntryOffset = 0;
+	flei->ParentFileId = dvp && VTOZ(dvp) ? VTOZ(dvp)->z_id : 0;
+	flei->FileNameLength = namelenholder / sizeof (WCHAR);
+
+	Status = RtlUTF8ToUnicodeN(flei->FileName, namelenholder,
+	    &namelenholder, name, strlen(name));
+
+	fhli->EntriesReturned = 1;
+	Status = STATUS_SUCCESS;
+	Irp->IoStatus.Information = bytes_needed;
+
+out:
+	if (dvp != NULL)
+		VN_RELE(dvp);
+
+	zfs_exit(zfsvfs, FTAG);
+
+	return (Status);
 }
 
 /* IRP_MJ_DEVICE_CONTROL helpers */
@@ -5968,7 +6060,7 @@ fsctl_set_zero_data(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	LARGE_INTEGER time;
 	uint64_t start, end;
 	IO_STATUS_BLOCK iosb;
-	zfs_dirlist_t *zccb;
+	zfs_ccb_t *zccb;
 
 	if (!fzdi || length < sizeof (FILE_ZERO_DATA_INFORMATION))
 		return (STATUS_INVALID_PARAMETER);
