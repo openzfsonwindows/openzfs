@@ -100,7 +100,7 @@ def main():
             allocate_file(pool.mount_path / "test01.file", 1 * Size.KIB)
             run_cmd(ctx.ZFS, ["snapshot", "testsn01@friday"])
             allocate_file(pool.mount_path / "test02.file", 1 * Size.KIB)
-            run_cmd(ctx.ZPOOL, ["export", "-a"])
+            run_cmd(ctx.ZPOOL, ["export", "testsn01"])
             pool.destroy = False  # already exported
 
         #######################################################################
@@ -112,7 +112,7 @@ def main():
             run_cmd(ctx.ZFS, ["snapshot", "testsn02@friday"])
             allocate_file(pool.mount_path / "test02.file", 1 * Size.KIB)
             run_cmd(ctx.ZFS, ["mount", "testsn02@friday"])
-            run_cmd(ctx.ZPOOL, ["export", "-a"])
+            run_cmd(ctx.ZPOOL, ["export", "testsn02"])
             pool.destroy = False  # already exported
 
         #######################################################################
