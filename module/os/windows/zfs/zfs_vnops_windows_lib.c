@@ -871,6 +871,9 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 	if (tzp->z_pflags & ZFS_REPARSE)
 		reparse_tag = get_reparse_tag(tzp);
 
+	uint64_t AllocationSize;
+	AllocationSize = allocationsize(tzp);
+
 	structsize = 0; /* size of win struct desired */
 	/* bufptr : output memory area, incrementing */
 	/* outcount : amount written to output, incrementing */
@@ -892,9 +895,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 
 		eodp->FileIndex = ctx->offset;
 		eodp->AllocationSize.QuadPart =
-		    S_ISDIR(tzp->z_mode) ? 0 :
-		    P2ROUNDUP(tzp->z_size,
-		    zfs_blksz(tzp));
+		    AllocationSize;
 		eodp->EndOfFile.QuadPart =
 		    S_ISDIR(tzp->z_mode) ? 0 :
 		    tzp->z_size;
@@ -931,9 +932,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		next_offset = &fibdi->NextEntryOffset;
 
 		fibdi->AllocationSize.QuadPart =
-		    S_ISDIR(tzp->z_mode) ? 0 :
-		    P2ROUNDUP(tzp->z_size,
-		    zfs_blksz(tzp));
+		    AllocationSize;
 		fibdi->EndOfFile.QuadPart =
 		    S_ISDIR(tzp->z_mode) ? 0 :
 		    tzp->z_size;
@@ -971,9 +970,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		next_offset = &fbdi->NextEntryOffset;
 
 		fbdi->AllocationSize.QuadPart =
-		    S_ISDIR(tzp->z_mode) ? 0 :
-		    P2ROUNDUP(tzp->z_size,
-		    zfs_blksz(tzp));
+		    AllocationSize;
 		fbdi->EndOfFile.QuadPart =
 		    S_ISDIR(tzp->z_mode) ? 0 :
 		    tzp->z_size;
@@ -1011,9 +1008,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		next_offset = &fdi->NextEntryOffset;
 
 		fdi->AllocationSize.QuadPart =
-		    S_ISDIR(tzp->z_mode) ? 0 :
-		    P2ROUNDUP(tzp->z_size,
-		    zfs_blksz(tzp));
+		    AllocationSize;
 		fdi->EndOfFile.QuadPart =
 		    S_ISDIR(tzp->z_mode) ? 0 :
 		    tzp->z_size;
@@ -1062,9 +1057,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 
 		fifdi->FileIndex = ctx->offset;
 		fifdi->AllocationSize.QuadPart =
-		    S_ISDIR(tzp->z_mode) ? 0 :
-		    P2ROUNDUP(tzp->z_size,
-		    zfs_blksz(tzp));
+		    AllocationSize;
 		fifdi->EndOfFile.QuadPart =
 		    S_ISDIR(tzp->z_mode) ? 0 :
 		    tzp->z_size;
@@ -1101,9 +1094,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 
 		fiedi->FileIndex = ctx->offset;
 		fiedi->AllocationSize.QuadPart =
-		    S_ISDIR(tzp->z_mode) ? 0 :
-		    P2ROUNDUP(tzp->z_size,
-		    zfs_blksz(tzp));
+		    AllocationSize;
 		fiedi->EndOfFile.QuadPart =
 		    S_ISDIR(tzp->z_mode) ? 0 :
 		    tzp->z_size;
@@ -1143,9 +1134,7 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 
 		fiebdi->FileIndex = ctx->offset;
 		fiebdi->AllocationSize.QuadPart =
-		    S_ISDIR(tzp->z_mode) ? 0 :
-		    P2ROUNDUP(tzp->z_size,
-		    zfs_blksz(tzp));
+		    AllocationSize;
 		fiebdi->EndOfFile.QuadPart =
 		    S_ISDIR(tzp->z_mode) ? 0 :
 		    tzp->z_size;
@@ -4406,12 +4395,9 @@ file_standard_information_impl(PDEVICE_OBJECT DeviceObject,
 	if (zp != NULL) {
 		fsi->Directory = vnode_isdir(vp) ? TRUE : FALSE;
 		// sa_object_size(zp->z_sa_hdl, &blksize, &nblks);
-		uint64_t blk = zfs_blksz(zp);
 		// space taken on disk, multiples of block size
 
-		// fsi->AllocationSize.QuadPart = allocationsize(zp);
-		fsi->AllocationSize.QuadPart =
-		    vp->FileHeader.AllocationSize.QuadPart;
+		fsi->AllocationSize.QuadPart = allocationsize(zp);
 		fsi->EndOfFile.QuadPart = vnode_isdir(vp) ? 0 : zp->z_size;
 		fsi->NumberOfLinks = zp->z_links;
 		fsi->DeletePending = zccb &&
@@ -4578,7 +4564,7 @@ file_network_open_information_impl(PDEVICE_OBJECT DeviceObject,
 			    netopen->LastAccessTime.QuadPart);
 		}
 		netopen->AllocationSize.QuadPart =
-		    P2ROUNDUP(zp->z_size, zfs_blksz(zp));
+		    allocationsize(zp);
 		netopen->EndOfFile.QuadPart = vnode_isdir(vp) ? 0 : zp->z_size;
 		netopen->FileAttributes =
 		    zfs_getwinflags(zp->z_pflags, vnode_isdir(vp));
@@ -4748,7 +4734,7 @@ file_stat_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 		fsi->FileId.QuadPart = zp->z_id;
 		fsi->AllocationSize.QuadPart =
-		    P2ROUNDUP(zp->z_size, zfs_blksz(zp));
+		    allocationsize(zp);
 		fsi->EndOfFile.QuadPart = zp->z_size;
 		fsi->FileAttributes =
 		    zfs_getwinflags(zp->z_pflags, vnode_isdir(vp));
@@ -4824,7 +4810,7 @@ file_stat_lx_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 		fsli->FileId.QuadPart = zp->z_id;
 		fsli->AllocationSize.QuadPart =
-		    P2ROUNDUP(zp->z_size, zfs_blksz(zp));
+		    allocationsize(zp);
 		fsli->EndOfFile.QuadPart = zp->z_size;
 		fsli->FileAttributes =
 		    zfs_getwinflags(zp->z_pflags, vnode_isdir(vp));
