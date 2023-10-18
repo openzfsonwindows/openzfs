@@ -150,3 +150,5 @@
 
 /* Define the project alias string. */
 #define	ZFS_META_ALIAS ZFS_META_GITREV
+
+#define	ZFSEXECDIR "C:/Program Files/OpenZFS on Windows"

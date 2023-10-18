@@ -169,6 +169,7 @@ extern void printBuffer(const char *fmt, ...);
 #define	ASSERT3S(x, y, z)	VERIFY3S(x, y, z)
 #define	ASSERT3U(x, y, z)	VERIFY3U(x, y, z)
 #define	ASSERT3P(x, y, z)	VERIFY3P(x, y, z)
+#define	ASSERT0P(x)	VERIFY0P(x)
 #define	ASSERT0(x)	VERIFY0(x)
 
 #define	ASSERTV(x)	x
@@ -190,6 +191,7 @@ extern void printBuffer(const char *fmt, ...);
 #define	ASSERT3S(x, y, z)	((void)0)
 #define	ASSERT3U(x, y, z)	((void)0)
 #define	ASSERT3P(x, y, z)	((void)0)
+#define	ASSERT0P(x)	((void)0)
 #define	ASSERT0(x)	((void)0)
 
 #endif /* DBG */
@@ -210,6 +212,7 @@ extern void printBuffer(const char *fmt, ...);
 #define	VERIFY3U(x, y, z) VERIFY3_IMPL(x, y, z, uint64_t, "%llu", \
 	(unsigned long long))
 #define	VERIFY3P(x, y, z) VERIFY3_IMPL(x, y, z, uintptr_t, "%p", (void *))
+#define	VERIFY0P(x) VERIFY3_IMPL(0, ==, x, uintptr_t, "%p", (void *))
 #define	VERIFY0(x) VERIFY3_IMPL(0, ==, x, int64_t, "%lld", (long long))
 
 #define	VERIFY(EX) do { \
