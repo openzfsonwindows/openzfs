@@ -564,6 +564,26 @@ param_set_arc_int(ZFS_MODULE_PARAM_ARGS)
 /* dsl_scan.c */
 
 /* metaslab.c */
+int
+param_set_active_allocator(ZFS_MODULE_PARAM_ARGS)
+{
+	char buf[16];
+
+	*type = ZT_TYPE_STRING;
+
+	if (set == B_FALSE) {
+		*ptr = (void *)zfs_active_allocator;
+		*len = strlen(zfs_active_allocator) + 1;
+		return (0);
+	}
+
+	strlcpy(buf, *ptr, sizeof (buf));
+
+	if (strcmp(buf, zfs_active_allocator) == 0)
+		return (0);
+
+	return (-param_set_active_allocator_common(buf));
+}
 
 /* spa_misc.c */
 extern int zfs_flags;
