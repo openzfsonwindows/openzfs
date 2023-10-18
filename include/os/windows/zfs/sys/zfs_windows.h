@@ -107,8 +107,18 @@ extern uint64_t zfs_blksz(znode_t *zp);
 inline static uint64_t
 allocationsize(struct znode *zp)
 {
-	if (zp->z_size == 0)
+	if (S_ISDIR(zp->z_mode))
 		return (0ULL);
+
+	if (zp->z_size == 0) {
+		// Did they prealloc?
+		struct vnode *vp = ZTOV(zp);
+		if ((vp != NULL) &&
+		    (vp->FileHeader.AllocationSize.QuadPart > 0ULL))
+			return (vp->FileHeader.AllocationSize.QuadPart);
+		return (0ULL);
+	}
+
 	return (P2ROUNDUP(zp->z_size, zfs_blksz(zp)));
 }
 
