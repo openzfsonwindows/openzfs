@@ -5,8 +5,32 @@
 
 import re
 import subprocess
+import os
 
-cdbstr = "C:\\Program Files\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe"
+
+def find_first_existing_file(file_paths):
+    for file_path in file_paths:
+        if os.path.exists(file_path):
+            return file_path
+    return None  # Return None if no file is found
+
+
+# List of file paths to check
+cdb_file_paths_to_check = [
+    "C:\\Program Files\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe",
+    "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe",
+    "C:\\Program Files\\Windows Kits\\10\\Debuggers\\x86\\cdb.exe",
+    "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x86\\cdb.exe"
+]
+
+cdbstr = find_first_existing_file(cdb_file_paths_to_check)
+
+if cdbstr:
+    print(cdbstr)
+else:
+    print("cdb not found.")
+    exit()
+
 dumpfilestr = "C:\\Windows\\MEMORY.DMP"
 symbolstr = "srv*;C:\\Program Files\\OpenZFS On Windows\\symbols\\;"
 
