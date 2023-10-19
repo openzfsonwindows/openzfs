@@ -17,10 +17,10 @@ def find_first_existing_file(file_paths):
 
 # List of file paths to check
 cdb_file_paths_to_check = [
-    "C:\\Program Files\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe",
-    "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe",
-    "C:\\Program Files\\Windows Kits\\10\\Debuggers\\x86\\cdb.exe",
-    "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x86\\cdb.exe"
+    "%ProgramFiles%\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe",
+    "%ProgramFiles(x86)%\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe",
+    "%ProgramFiles%\\Windows Kits\\10\\Debuggers\\x86\\cdb.exe",
+    "%ProgramFiles(x86)%\\Windows Kits\\10\\Debuggers\\x86\\cdb.exe"
 ]
 
 cdbstr = find_first_existing_file(cdb_file_paths_to_check)
