@@ -314,8 +314,19 @@ unmount_snapshots(zfs_handle_t *zhp, const char *mntpt, int flags)
 			if (strncmp("/.zfs/snapshot/", &entry.mnt_mountp[len],
 			    15) == 0) {
 				/* Unmount it */
-				do_unmount_impl(zhp, entry.mnt_mountp,
+				zfs_handle_t *szhp;
+				szhp =	make_dataset_handle(zhp->zfs_hdl,
+				    entry.mnt_special);
+				if (szhp == NULL) {
+					fprintf(stderr,
+					    "Unable to unmount '%s'\r\n",
+					    entry.mnt_special);
+					continue;
+				}
+
+				do_unmount_impl(szhp, entry.mnt_mountp,
 				    MS_FORCE);
+				zfs_close(szhp);
 			}
 		}
 	}
