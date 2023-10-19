@@ -58,6 +58,8 @@ WizardImageFile="{#SourcePath}\openzfs-large.bmp"
 ; SignTool=signtoola
 ; SignTool=signtoolb
 SignTool=signtoolc
+ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64
 
 
 [Languages]
@@ -119,3 +121,6 @@ Filename: "{app}\ZFSInstaller.exe"; Parameters: "install .\OpenZFS.inf"; StatusM
 [UninstallRun]
 Filename: "{app}\ZFSInstaller.exe"; Parameters: "uninstall .\OpenZFS.inf"; RunOnceId: "driver"; Flags: runascurrentuser;
 
+[Registry]
+Root: HKLM; Subkey: "Software\{#MyAppPublisher}\{#MyAppName}"; Flags: uninsdeletekeyifempty
+Root: HKLM; Subkey: "Software\{#MyAppPublisher}\{#MyAppName}"; ValueType: string; ValueName: "InstallLocation"; ValueData: "{app}"
