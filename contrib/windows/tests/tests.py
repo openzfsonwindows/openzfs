@@ -103,17 +103,17 @@ def main():
             run_cmd(ctx.ZPOOL, ["export", "-a"])
             pool.destroy = False  # already exported
 
-        # #######################################################################
-        # preTest("snapshot hang")
-        # with zpool_create(ctx, "testsn02", paths_to_unc(bf[:1])) as pool:
-        #     log_dl("after testsn02 pool create")
+        #######################################################################
+        preTest("snapshot hang")
+        with zpool_create(ctx, "testsn02", paths_to_unc(bf[:1])) as pool:
+            log_dl("after testsn02 pool create")
 
-        #     allocate_file(pool.mount_path / "test01.file", 1 * Size.KIB)
-        #     run_cmd(ctx.ZFS, ["snapshot", "testsn02@friday"])
-        #     allocate_file(pool.mount_path / "test02.file", 1 * Size.KIB)
-        #     run_cmd(ctx.ZFS, ["mount", "testsn02@friday"])
-        #     run_cmd(ctx.ZPOOL, ["export", "-a"])
-        #     pool.destroy = False  # already exported
+            allocate_file(pool.mount_path / "test01.file", 1 * Size.KIB)
+            run_cmd(ctx.ZFS, ["snapshot", "testsn02@friday"])
+            allocate_file(pool.mount_path / "test02.file", 1 * Size.KIB)
+            run_cmd(ctx.ZFS, ["mount", "testsn02@friday"])
+            run_cmd(ctx.ZPOOL, ["export", "-a"])
+            pool.destroy = False  # already exported
 
         #######################################################################
         preTest("regex for key file")
