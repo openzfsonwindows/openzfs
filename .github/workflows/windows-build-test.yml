@@ -190,9 +190,31 @@ jobs:
     - name: debug - print log
       run: cat "${{github.workspace}}\InnoSetup-Install.log"
 
+    - name: Check InstallLocation Registry Value
+      shell: powershell
+      run: |
+        $registryPath = "HKLM:\Software\OpenZFS\OpenZFS On Windows"
+        $valueName = "InstallLocation"
+        $expectedValue = "C:\Program Files\OpenZFS On Windows"
 
+        if (-Not (Test-Path -Path $registryPath)) {
+          Write-Host "Registry path $registryPath does not exist."
+          exit 1
+        }
 
+        $registryValues = Get-ItemProperty -Path $registryPath
+        if (-Not ($registryValues.PSObject.Properties.Name -contains $valueName)) {
+          Write-Host "Registry path $registryPath does not contain value $valueName."
+          exit 1
+        }
 
+        $value = $registryValues.$valueName
+        if (-Not ($value -eq $expectedValue)) {
+          Write-Host "Registry value $valueName=$value not as expected, expected $expectedValue."
+          exit 1
+        }
+
+        Write-Host "Found installation location $value"
 
 
 
