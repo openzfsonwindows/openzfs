@@ -79,36 +79,12 @@ jobs:
     - name: debug - get git rev
       run: git describe --always --long --dirty
 
-    - name: Download Inno Setup istaller
-      uses: suisei-cn/actions-download-file@v1.3.0
-      id: innoinstaller
-      with:
-        url: 'https://jrsoftware.org/download.php/is.exe'
-        target: ${{github.workspace}}/
-
-    - name: debug - echo filename
-      run: echo ${{ steps.innoinstaller.outputs.filename }}
-
-    - name: debug - list
-      run: ls ${{github.workspace}}\
-
-    - name: debug - list
-      run: ls ${{github.workspace}}\${{ steps.innoinstaller.outputs.filename }}
-
-    - name: install inno
-      run: 'Start-Process -FilePath "${{github.workspace}}\${{ steps.innoinstaller.outputs.filename }}" -Wait -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{github.workspace}}\InnoSetup-Install.log`""'
-
-    #- name: Wait for install to finish
-    #  run: Start-Sleep -Seconds 30
-    #  uses: iFaxity/wait-on-action@v1
-    #  with:
-    #    resource: 'C:\Program Files\OpenZFS On Windows\zpool.exe'
-
-    - name: debug - print log
-      run: cat "${{github.workspace}}\InnoSetup-Install.log"
+    # InnoSetup is part of the Github actions runner
+    # - name: Install InnoSetup
+    #   run: choco install -y InnoSetup
 
     - name: run ISCC.exe to construct OpenZFS installer
-      run: '&"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\ZFSInstall-debug.iss "/Ssigntoolc=C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe sign /v /fd sha256 /n `$qOpenZFS Test Signing Certificate`$q /t http://timestamp.digicert.com `$f" | Tee-Object -FilePath "${{github.workspace}}\iscc.log"'
+      run: '&"${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" .\ZFSInstall-debug.iss "/Ssigntoolc=${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe sign /v /fd sha256 /n `$qOpenZFS Test Signing Certificate`$q /t http://timestamp.digicert.com `$f" | Tee-Object -FilePath "${{github.workspace}}\iscc.log"'
       working-directory: ${{github.workspace}}\contrib\windows\Inno.Setup
 
     #- name: debug - get exe name
