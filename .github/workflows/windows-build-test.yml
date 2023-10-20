@@ -22,6 +22,7 @@ on:
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Debug
+  IS_STEP_DEBUG: ${{ secrets.ACTIONS_STEP_DEBUG }}
 
 jobs:
   build_windows:
@@ -41,6 +42,7 @@ jobs:
 
     - name: debug - git status
       run: git status
+      if: ${{ env.IS_STEP_DEBUG == 'true' }}
 
     #https://stackoverflow.com/a/60883893
     #  "C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --progress --no-recurse-submodules --depth=1 origin +90acd8f20e6d0c14b83241cc7dcd17df27d5a95b:refs/remotes/origin/andrew_workflows-7
@@ -159,6 +161,7 @@ jobs:
 
     - name: debug - print log
       run: cat "${{github.workspace}}\InnoSetup-Install.log"
+      if: ${{ env.IS_STEP_DEBUG == 'true' }}
 
     - name: Check InstallLocation Registry Value
       run: |
