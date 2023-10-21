@@ -20,7 +20,6 @@ def find_first_existing_file(file_paths):
     return None  # Return None if no file is found
 
 
-
 def read_reg(path: pathlib.Path, hive=winreg.HKEY_LOCAL_MACHINE):
     try:
         with winreg.OpenKey(hive, str(path.parent)) as key:
@@ -28,6 +27,7 @@ def read_reg(path: pathlib.Path, hive=winreg.HKEY_LOCAL_MACHINE):
             return value
     except (OSError, FileNotFoundError):
         return None
+
 
 def find_zfs():
     zfs_reg_path = (
@@ -64,8 +64,24 @@ else:
 
 zfs = find_zfs()
 
+if zfs:
+    print(zfs)
+else:
+    print("zfs not found.")
+    exit()
+
+
 dumpfilestr = "C:\\Windows\\MEMORY.DMP"
 symbolstr = "srv*;" + str(zfs / "symbols") + "\\;"
+
+
+def quote(string):
+    return '"' + string + '"'
+
+
+print(" ".join(["cdb command", quote(str(cdb)),
+                "-z", quote(dumpfilestr),
+                "-y", quote(symbolstr)]))
 
 
 def run(arg):
