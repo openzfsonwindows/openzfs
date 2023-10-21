@@ -7,6 +7,7 @@ import re
 import subprocess
 import pathlib
 import os
+import winreg
 
 pf64 = pathlib.WindowsPath(os.environ["ProgramFiles"])
 pf86 = pathlib.WindowsPath(os.environ["ProgramFiles(x86)"])
@@ -17,6 +18,32 @@ def find_first_existing_file(file_paths):
         if file_path.exists():
             return file_path
     return None  # Return None if no file is found
+
+
+
+def read_reg(path: pathlib.Path, hive=winreg.HKEY_LOCAL_MACHINE):
+    try:
+        with winreg.OpenKey(hive, str(path.parent)) as key:
+            value, _ = winreg.QueryValueEx(key, path.name)
+            return value
+    except (OSError, FileNotFoundError):
+        return None
+
+def find_zfs():
+    zfs_reg_path = (
+        pathlib.Path("SOFTWARE")
+        / "OpenZFS"
+        / "OpenZFS On Windows"
+        / "InstallLocation"
+    )
+
+    res = read_reg(zfs_reg_path)
+    if not res:
+        return None
+
+    zfs_install_path = pathlib.WindowsPath(res)
+
+    return zfs_install_path
 
 
 # List of file paths to check
@@ -35,8 +62,10 @@ else:
     print("cdb not found.")
     exit()
 
+zfs = find_zfs()
+
 dumpfilestr = "C:\\Windows\\MEMORY.DMP"
-symbolstr = "srv*;C:\\Program Files\\OpenZFS On Windows\\symbols\\;"
+symbolstr = "srv*;" + str(zfs / "symbols") + "\\;"
 
 
 def run(arg):
