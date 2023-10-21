@@ -99,6 +99,8 @@ analyze = run("!analyze -v ; q")
 
 stack = run("k ; q")
 
+info = run(".lines -e;.kframes 100;.echo ***** process info *****;|;!peb;!analyze -vp;.ecxr;kp;!uniqstack -vp;!gle -all;q")
+
 cbuf = run(".writemem C:\\cbuf.txt poi(OpenZFS!cbuf) L100000 ; q")
 
 with open("C:\\stack.txt", "w") as file:
@@ -106,6 +108,8 @@ with open("C:\\stack.txt", "w") as file:
     file.write("\n")
     file.write(stack)
 
+with open("C:\\info.txt", "w") as file:
+    file.write(info)
 
-print("Please upload C:\\stack.txt and C:\\cbuf.txt "
+print("Please upload C:\\stack.txt, C:\\info.txt and C:\\cbuf.txt "
       "when creating an issue on GitHub")
