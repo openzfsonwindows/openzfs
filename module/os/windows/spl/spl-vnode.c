@@ -1573,11 +1573,16 @@ filesanddirs:
 
 			// If we aren't FORCE and asked to SKIPROOT, and node
 			// is MARKROOT, then go to next.
-			if (!(flags & FORCECLOSE))
+			if (!(flags & FORCECLOSE)) {
 				if ((flags & SKIPROOT))
 					if (rvp->v_flags & VNODE_MARKROOT)
 						continue;
-
+#if 0 // when we use SYSTEM vnodes
+				if ((flags & SKIPSYSTEM))
+					if (rvp->v_flags & VNODE_MARKSYSTEM)
+						continue;
+#endif
+			}
 			// We are to remove this node, even if ROOT - unmark it.
 			mutex_exit(&vnode_all_list_lock);
 
@@ -1712,6 +1717,56 @@ restart:
 
 	dprintf("vflush end: deadlisted %d nodes\n", deadlist);
 
+	return (0);
+}
+
+int
+vnode_umount_preflight(struct mount *mp, struct vnode *skipvp, int flags)
+{
+	struct vnode *rvp;
+	int Status;
+
+	dprintf("%s start\n", __func__);
+
+	mutex_enter(&vnode_all_list_lock);
+
+	for (rvp = list_head(&vnode_all_list);
+	    rvp;
+	    rvp = list_next(&vnode_all_list, rvp)) {
+
+		// skip vnodes not belonging to this mount
+		if (mp && rvp->v_mount != mp)
+			continue;
+
+		if (vnode_isdir(rvp))
+			continue;
+
+		if (rvp == skipvp)
+			continue;
+
+		if (!(flags & FORCECLOSE)) {
+			if ((flags & SKIPROOT))
+				if (rvp->v_flags & VNODE_MARKROOT)
+					continue;
+#if 0 // when we use SYSTEM vnodes
+			if ((flags & SKIPSYSTEM))
+				if (rvp->v_flags & VNODE_MARKSYSTEM)
+					continue;
+#endif
+		}
+
+		if (rvp->v_usecount != 0) {
+			mutex_exit(&vnode_all_list_lock);
+			return (EBUSY);
+		}
+#if 0
+		else if (rvp->v_iocount > 0) {
+			// macOS waits upto 3s here and tries again.
+		}
+#endif
+	} // for all vnodes
+
+	mutex_exit(&vnode_all_list_lock);
 	return (0);
 }
 
