@@ -1496,6 +1496,14 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 		NTSTATUS ntstatus;
 		ASSERT(zmo->type == MOUNT_TYPE_VCB);
 
+		// As part of unmount-preflight, we call vflush()
+		// as it will indicate if we should return EBUSY.
+		if (vnode_umount_preflight(zmo, NULL,
+		    SKIPROOT|SKIPSYSTEM|SKIPSWAP)) {
+			vfs_unbusy(zmo);
+			return (SET_ERROR(EBUSY));
+		}
+
 		// getzfsvfs() grabs a READER lock,
 		// convert it to WRITER, and wait for it.
 		vfs_busy(zmo, LK_UPGRADE);
