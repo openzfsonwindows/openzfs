@@ -3009,7 +3009,12 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 
 			if (literal ||
 			    localtime_r(&time, &t) == NULL ||
-			    strftime(propbuf, proplen, "%a %b %e %k:%M:%S %Y",
+			    strftime(propbuf, proplen,
+#ifdef _WIN32
+			    "%a %b %e %H:%M:%S %Y",
+#else
+			    "%a %b %e %k:%M:%S %Y",
+#endif
 			    &t) == 0)
 				(void) snprintf(propbuf, proplen, "%llu",
 				    (u_longlong_t)val);
