@@ -1489,11 +1489,17 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 	int error = EBUSY;
 	// znode_t *zp;
 	// int rdonly;
+
 	if (getzfsvfs(zc->zc_name, &zfsvfs) == 0) {
 
 		zmo = zfsvfs->z_vfs;
 		NTSTATUS ntstatus;
 		ASSERT(zmo->type == MOUNT_TYPE_VCB);
+
+		// getzfsvfs() grabs a READER lock,
+		// convert it to WRITER, and wait for it.
+		vfs_busy(zmo, LK_UPGRADE);
+		// All readers are no punted until properly unmounted.
 
 		// Try issuing DISMOUNT ... this wont work unless
 		// "attached" in RegisterDeviceInterface()
