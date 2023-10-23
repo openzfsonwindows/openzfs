@@ -117,7 +117,8 @@ struct mount
 };
 typedef struct mount mount_t;
 typedef struct mount vfsp_t;
-#define	LK_NOWAIT 1
+#define	LK_NOWAIT	(1<<0)
+#define	LK_UPGRADE	(1<<1)
 
 int spl_vfs_init(void);
 void spl_vfs_fini(void);
