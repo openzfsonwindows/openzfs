@@ -155,6 +155,7 @@ zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 		zfs_exit(zfsvfs, FTAG);
 		return (FALSE);
 	}
+	zfs_exit(zfsvfs, FTAG);
 
 	if (!ExAcquireResourceExclusiveLite(
 	    vp->FileHeader.Resource, Wait)) {
@@ -194,7 +195,6 @@ zfs_ReleaseFromLazyWrite(void *Context)
 		    (PIRP)FSRTL_CACHE_TOP_LEVEL_IRP)
 			IoSetTopLevelIrp(NULL);
 
-		zfs_exit(zfsvfs, FTAG);
 		return;
 	}
 	dprintf("%s WARNING FAILED\n", __func__);
@@ -237,6 +237,7 @@ zfs_AcquireForReadAhead(void *Context, BOOLEAN Wait)
 		zfs_exit(zfsvfs, FTAG);
 		return (FALSE);
 	}
+	zfs_exit(zfsvfs, FTAG);
 
 	if (!ExAcquireResourceSharedLite(vp->FileHeader.Resource,
 	    Wait)) {
@@ -275,7 +276,6 @@ zfs_ReleaseFromReadAhead(void *Context)
 		    (PIRP)FSRTL_CACHE_TOP_LEVEL_IRP)
 			IoSetTopLevelIrp(NULL);
 
-		zfs_exit(zfsvfs, FTAG);
 		return;
 	}
 	dprintf("%s WARNING FAILED\n", __func__);
@@ -7994,6 +7994,7 @@ fastio_acquire_for_mod_write(PFILE_OBJECT FileObject,
 		zfs_exit(zfsvfs, FTAG);
 		return (STATUS_INVALID_PARAMETER);
 	}
+	zfs_exit(zfsvfs, FTAG);
 
 	znode_t *zp = VTOZ(vp);
 
@@ -8041,7 +8042,6 @@ fastio_release_for_mod_write(PFILE_OBJECT FileObject,
 	}
 
 	dprintf("%s WARNING FAILED\n", __func__);
-	zfs_exit(zfsvfs, FTAG);
 	return (STATUS_SUCCESS);
 }
 
