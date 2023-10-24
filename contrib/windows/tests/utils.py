@@ -399,7 +399,7 @@ def zpool_create(
     devices: typing.Iterable[os.PathLike],
     zpool_options: typing.Dict[str, str] = {},
     zfs_options: typing.Dict[str, str] = {},
-) -> pathlib.Path:
+) -> ZpoolInfo:
     """Context manager that creates a zpool and destroys it when done
 
     Args:
