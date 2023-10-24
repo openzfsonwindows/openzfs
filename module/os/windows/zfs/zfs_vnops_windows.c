@@ -8037,7 +8037,6 @@ fastio_release_for_mod_write(PFILE_OBJECT FileObject,
 		vnode_rele(vp);
 		VN_RELE(vp);
 
-		zfs_exit(zfsvfs, FTAG);
 		return (STATUS_SUCCESS);
 	}
 
