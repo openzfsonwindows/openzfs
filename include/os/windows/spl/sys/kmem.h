@@ -72,7 +72,7 @@ extern uint64_t physmem;
 
 void *zfs_kmem_alloc(size_t size, int kmflags);
 void *zfs_kmem_zalloc(size_t size, int kmflags);
-void zfs_kmem_free(void *buf, size_t size);
+void zfs_kmem_free(const void *buf, size_t size);
 
 void spl_kmem_init(uint64_t);
 void spl_kmem_thread_init();
@@ -128,7 +128,7 @@ kmem_cache_t *kmem_cache_create(char *name, size_t bufsize, size_t align,
     void *_private, struct vmem *vmp, int cflags);
 void kmem_cache_destroy(kmem_cache_t *cache);
 void *kmem_cache_alloc(kmem_cache_t *cache, int flags);
-void kmem_cache_free(kmem_cache_t *cache, void *buf);
+void kmem_cache_free(kmem_cache_t *cache, const void *buf);
 void kmem_cache_free_to_slab(kmem_cache_t *cache, void *buf);
 void kmem_cache_reap_now(kmem_cache_t *cache);
 void kmem_depot_ws_zero(kmem_cache_t *cache);

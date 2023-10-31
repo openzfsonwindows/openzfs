@@ -826,3 +826,11 @@ void
 arc_unregister_hotplug(void)
 {
 }
+
+void
+spl_set_arc_no_grow(int i)
+{
+	arc_no_grow = i;
+	if (i == B_TRUE)
+		membar_producer(); /* make it visible to other threads */
+}

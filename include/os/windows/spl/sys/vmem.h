@@ -125,7 +125,7 @@ struct vmem;
 
 typedef struct vmem vmem_t;
 typedef void *(vmem_alloc_t)(vmem_t *, size_t, int);
-typedef void (vmem_free_t)(vmem_t *, void *, size_t);
+typedef void (vmem_free_t)(vmem_t *, const void *, size_t);
 
 /*
  * Alternate import style; the requested size is passed in a pointer,
@@ -151,8 +151,8 @@ extern void vmem_destroy(vmem_t *);
 extern void *vmem_alloc_impl(vmem_t *, size_t, int);
 extern void *vmem_xalloc(vmem_t *, size_t, size_t, size_t, size_t,
     void *, void *, int);
-extern void vmem_free_impl(vmem_t *, void *, size_t);
-extern void vmem_xfree(vmem_t *, void *, size_t);
+extern void vmem_free_impl(vmem_t *, const void *, size_t);
+extern void vmem_xfree(vmem_t *, const void *, size_t);
 extern void *vmem_add(vmem_t *, void *, size_t, int);
 extern int vmem_contains(vmem_t *, void *, size_t);
 extern void vmem_walk(vmem_t *, int, void (*)(void *, void *, size_t),

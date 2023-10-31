@@ -88,16 +88,13 @@
 
 
 #ifdef _KERNEL
-#define	XNU_KERNEL_PRIVATE
-
 #include <Trace.h>
-
 #endif /* _KERNEL */
 
 typedef int page_t;
 
 void *segkmem_alloc(vmem_t *vmp, size_t size, int vmflag);
-void segkmem_free(vmem_t *vmp, void *inaddr, size_t size);
+void segkmem_free(vmem_t *vmp, const void *inaddr, size_t size);
 
 /* Total memory held allocated */
 uint64_t segkmem_total_mem_allocated = 0;
@@ -107,13 +104,21 @@ vmem_t *heap_arena;
 
 /* qcaches abd */
 vmem_t *abd_arena;
+vmem_t *abd_subpage_arena;
 
 #ifdef _KERNEL
 extern uint64_t total_memory;
 uint64_t stat_osif_malloc_success = 0;
+uint64_t stat_osif_malloc_fail = 0;
 uint64_t stat_osif_free = 0;
 uint64_t stat_osif_malloc_bytes = 0;
 uint64_t stat_osif_free_bytes = 0;
+uint64_t stat_osif_malloc_sub128k = 0;
+uint64_t stat_osif_malloc_sub64k = 0;
+uint64_t stat_osif_malloc_sub32k = 0;
+uint64_t stat_osif_malloc_page = 0;
+uint64_t stat_osif_malloc_subpage = 0;
+void spl_free_set_emergency_pressure(int64_t new_p);
 #endif
 
 void *
@@ -121,6 +126,17 @@ osif_malloc(uint64_t size)
 {
 #ifdef _KERNEL
 	void *tr = NULL;
+
+	if (size < PAGESIZE)
+		atomic_inc_64(&stat_osif_malloc_subpage);
+	else if (size == PAGESIZE)
+		atomic_inc_64(&stat_osif_malloc_page);
+	else if (size < 32768)
+		atomic_inc_64(&stat_osif_malloc_sub32k);
+	else if (size < 65536)
+		atomic_inc_64(&stat_osif_malloc_sub64k);
+	else if (size < 131072)
+		atomic_inc_64(&stat_osif_malloc_sub128k);
 
 	tr = ExAllocatePoolWithTag(NonPagedPoolNx, size, '!SFZ');
 	ASSERT(P2PHASE(tr, PAGE_SIZE) == 0);
@@ -132,10 +148,13 @@ osif_malloc(uint64_t size)
 	} else {
 		dprintf("%s:%d: ExAllocatePoolWithTag failed (memusage: %llu)"
 		    "\n", __func__, __LINE__, segkmem_total_mem_allocated);
+
 		extern volatile unsigned int vm_page_free_wanted;
 		extern volatile unsigned int vm_page_free_min;
-		spl_free_set_pressure(vm_page_free_min);
+		spl_free_set_emergency_pressure(vm_page_free_min);
 		vm_page_free_wanted = vm_page_free_min;
+
+		atomic_inc_64(&stat_osif_malloc_fail);
 		return (NULL);
 	}
 #else
@@ -144,7 +163,7 @@ osif_malloc(uint64_t size)
 }
 
 void
-osif_free(void *buf, uint64_t size)
+osif_free(const void *buf, uint64_t size)
 {
 #ifdef _KERNEL
 	ExFreePoolWithTag(buf, '!SFZ');
@@ -163,7 +182,13 @@ osif_free(void *buf, uint64_t size)
 void
 kernelheap_init()
 {
-	heap_arena = vmem_init("heap", NULL, 0, PAGESIZE, segkmem_alloc,
+	heap_arena = vmem_init("heap", NULL, 0,
+#if defined(__arm64__)
+	    4096,
+#else
+	    PAGESIZE,
+#endif
+	    segkmem_alloc,
 	    segkmem_free);
 }
 
@@ -181,7 +206,7 @@ segkmem_alloc(vmem_t *vmp, size_t size, int maybe_unmasked_vmflag)
 }
 
 void
-segkmem_free(vmem_t *vmp, void *inaddr, size_t size)
+segkmem_free(vmem_t *vmp, const void *inaddr, size_t size)
 {
 	osif_free(inaddr, size);
 	// since this is mainly called by spl_root_arena and free_arena,
@@ -230,18 +255,22 @@ segkmem_abd_init()
 	 * PAGESIZE is an even multiple of at least several SPA_MINBLOCKSIZE.
 	 * This will be _Static_assert-ed in abd_os.c.
 	 */
-#if 0 // macos
+
 	abd_subpage_arena = vmem_create("abd_subpage_cache", NULL, 0,
 	    512, vmem_alloc_impl, vmem_free_impl, abd_arena,
 	    131072, VM_SLEEP | VMC_NO_QCACHE | VM_FIRSTFIT);
 
 	VERIFY3P(abd_subpage_arena, !=, NULL);
-#endif
+
 }
 
 void
 segkmem_abd_fini(void)
 {
+	if (abd_subpage_arena) {
+		vmem_destroy(abd_subpage_arena);
+	}
+
 	if (abd_arena) {
 		vmem_destroy(abd_arena);
 	}
