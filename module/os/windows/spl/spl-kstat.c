@@ -700,7 +700,7 @@ kstat_free(ekstat_t *e)
 
 extern vmem_t		*heap_arena;
 void *segkmem_alloc(vmem_t *vmp, size_t size, int vmflag);
-void segkmem_free(vmem_t *vmp, void *inaddr, size_t size);
+void segkmem_free(vmem_t *vmp, const void *inaddr, size_t size);
 
 /*
  * Create various system kstats.

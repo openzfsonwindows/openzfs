@@ -48,11 +48,6 @@ unsigned int max_ncpus = 0;
 uint64_t  total_memory = 0;
 uint64_t  real_total_memory = 0;
 
-volatile unsigned int vm_page_free_wanted = 0;
-volatile unsigned int vm_page_free_min = 512;
-volatile unsigned int vm_page_free_count = 5000;
-volatile unsigned int vm_page_speculative_count = 5500;
-
 uint64_t spl_GetPhysMem(void);
 uint64_t spl_GetZfsTotalMemory(PUNICODE_STRING RegistryPath);
 
@@ -64,7 +59,7 @@ extern uint64_t	segkmem_total_mem_allocated;
 #define	MAXHOSTNAMELEN 64
 extern char hostname[MAXHOSTNAMELEN];
 
-#define	    ZFS_MIN_MEMORY_LIMIT	2ULL * 1024ULL * 1024ULL * 1024ULL
+#define	ZFS_MIN_MEMORY_LIMIT	2ULL * 1024ULL * 1024ULL * 1024ULL
 
 /*
  * Windows internal tunables, we use the RAW method when
@@ -525,11 +520,6 @@ spl_start(PUNICODE_STRING RegistryPath)
 	    zfs_total_memory_limit, total_memory);
 	physmem = total_memory / PAGE_SIZE;
 
-	// We need to set these to some non-zero values
-	// so we don't think there is permanent memory
-	// pressure.
-	vm_page_free_count = (unsigned int)(physmem / 2ULL);
-	vm_page_speculative_count = vm_page_free_count;
 
 	// Set hostid here, it will be overwritten if it is in registry
 	if (spl_hostid == 0)

@@ -42,6 +42,7 @@ extern "C" {
 extern uint64_t segkmem_total_allocated;
 
 extern vmem_t *abd_arena;
+extern vmem_t *abd_subpage_arena;
 
 /*
  * segkmem page vnodes
@@ -54,7 +55,7 @@ extern vmem_t *abd_arena;
 #endif	/* __sparc */
 
 void *segkmem_alloc(vmem_t *, size_t, int);
-extern void segkmem_free(vmem_t *, void *, size_t);
+extern void segkmem_free(vmem_t *, const void *, size_t);
 extern void kernelheap_init(void);
 extern void kernelheap_fini(void);
 extern void *segkmem_zio_alloc(vmem_t *, size_t, int);

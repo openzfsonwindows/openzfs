@@ -114,6 +114,8 @@ typedef struct vmem_kstat {
 	kstat_named_t	vk_parent_free;	/* called the source free function */
 	kstat_named_t   vk_threads_waiting; /* threads in cv_wait in vmem */
 	kstat_named_t   vk_excess;	/* count of retained excess imports */
+	kstat_named_t	vk_lowest_stack; /* least remaining stack seen */
+	kstat_named_t	vk_async_stack_calls; /* times allocated off-thread */
 } vmem_kstat_t;
 
 struct vmem {

@@ -372,6 +372,7 @@ struct kmem_cache {
 	uint64_t cache_bufmax;		/* max buffers ever */
 	uint64_t cache_bufslab;		/* buffers free in slab layer */
 	uint64_t cache_reap;		/* cache reaps */
+	kmutex_t cache_reap_lock;	/* one reap at a time */
 	uint64_t cache_rescale;		/* hash table rescales */
 	uint64_t cache_lookup_depth;	/* hash lookup depth */
 	uint64_t cache_depot_contention; /* mutex contention count */
@@ -464,7 +465,7 @@ typedef struct kmem_log_header {
 	kmutex_t	lh_lock;
 	char		*lh_base;
 	uint32_t	*lh_free;
-	uint32_t	lh_chunksize;
+	size_t		lh_chunksize;
 	uint32_t	lh_nchunks;
 	uint32_t	lh_head;
 	uint32_t	lh_tail;
