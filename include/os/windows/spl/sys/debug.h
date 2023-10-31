@@ -91,6 +91,11 @@
 
 #endif
 
+// cdefs.h
+#ifndef	__DECONST
+#define	__DECONST(type, var) ((type)(uintptr_t)(const void *)(var))
+#endif
+
 extern void _Noreturn panic(const char *fmt, ...);
 
 
