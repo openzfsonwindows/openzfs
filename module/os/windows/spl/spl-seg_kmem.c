@@ -149,11 +149,6 @@ osif_malloc(uint64_t size)
 		dprintf("%s:%d: ExAllocatePoolWithTag failed (memusage: %llu)"
 		    "\n", __func__, __LINE__, segkmem_total_mem_allocated);
 
-		extern volatile unsigned int vm_page_free_wanted;
-		extern volatile unsigned int vm_page_free_min;
-		spl_free_set_emergency_pressure(vm_page_free_min);
-		vm_page_free_wanted = vm_page_free_min;
-
 		atomic_inc_64(&stat_osif_malloc_fail);
 		return (NULL);
 	}
@@ -240,9 +235,24 @@ segkmem_abd_init()
 
 	extern vmem_t *spl_heap_arena;
 
-	abd_arena = vmem_create("abd_cache", NULL, 0,
-	    PAGESIZE, vmem_alloc_impl, vmem_free_impl, spl_heap_arena,
-	    131072, VM_SLEEP | VMC_NO_QCACHE | VM_FIRSTFIT);
+#define	BIG_SLAB 131072
+#ifdef __arm64__
+#define	BIG_BIG_SLAB (BIG_SLAB * 2)
+#else
+#define	BIG_BIG_SLAB BIG_SLAB
+#endif
+
+#define	SMALL_RAM_MACHINE (4ULL * 1024ULL * 1024ULL * 1024ULL)
+
+	if (total_memory >= SMALL_RAM_MACHINE) {
+		abd_arena = vmem_create("abd_cache", NULL, 0,
+		    PAGESIZE, vmem_alloc_impl, vmem_free_impl, spl_heap_arena,
+		    BIG_BIG_SLAB, VM_SLEEP | VMC_NO_QCACHE);
+	} else {
+		abd_arena = vmem_create("abd_cache", NULL, 0,
+		    PAGESIZE, vmem_alloc_impl, vmem_free_impl, spl_heap_arena,
+		    131072, VM_SLEEP | VMC_NO_QCACHE);
+	}
 
 	VERIFY3P(abd_arena, !=, NULL);
 
@@ -256,12 +266,18 @@ segkmem_abd_init()
 	 * This will be _Static_assert-ed in abd_os.c.
 	 */
 
-	abd_subpage_arena = vmem_create("abd_subpage_cache", NULL, 0,
-	    512, vmem_alloc_impl, vmem_free_impl, abd_arena,
-	    131072, VM_SLEEP | VMC_NO_QCACHE | VM_FIRSTFIT);
+	if (total_memory >= SMALL_RAM_MACHINE) {
+		abd_subpage_arena = vmem_create("abd_subpage_cache", NULL, 0,
+		    sizeof (void *), vmem_alloc_impl, vmem_free_impl,
+		    spl_heap_arena,
+		    BIG_SLAB, VM_SLEEP | VMC_NO_QCACHE);
+	} else {
+		abd_subpage_arena = vmem_create("abd_subpage_cache", NULL, 0,
+		    512, vmem_alloc_impl, vmem_free_impl, abd_arena,
+		    131072, VM_SLEEP | VMC_NO_QCACHE);
+	}
 
 	VERIFY3P(abd_subpage_arena, !=, NULL);
-
 }
 
 void

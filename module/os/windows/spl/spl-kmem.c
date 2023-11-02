@@ -2467,7 +2467,8 @@ kmem_cache_free(kmem_cache_t *cp, const void *buf)
 			return;
 		}
 		if (ccp->cc_flags & KMF_BUFTAG) {
-			if (kmem_cache_free_debug(cp, buf, caller()) == -1)
+			if (kmem_cache_free_debug(cp, __DECONST(void *, buf),
+			    caller()) == -1)
 				return;
 		}
 	}
@@ -2918,7 +2919,7 @@ kmem_reap_common(void *flag_arg)
 	 */
 
 	/*
-	 * It may not be safe to do memory allocation when a reap is called
+	 * It may not be safe to do memory allocation when a reap
 	 * is called (for example, if vmem_populate() is in the call chain).
 	 * So we start the reap going with a TQ_NOALLOC dispatch.  If the
 	 * dispatch fails, we reset the flag, and the next reap will try again.
@@ -4458,9 +4459,6 @@ spl_reduce_dynamic_cap(void)
 int64_t
 spl_free_wrapper(void)
 {
-//    MEMORYSTATUSEX memInfo;
-//    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
-
 	if (spl_enforce_memory_caps != 0 && spl_free > 0) {
 		if (segkmem_total_mem_allocated >=
 		    spl_dynamic_memory_cap) {
