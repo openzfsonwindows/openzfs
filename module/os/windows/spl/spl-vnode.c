@@ -546,6 +546,8 @@ spl_vnode_fini(void)
 			    rvp = list_next(&vnode_all_list, rvp)) {
 				vnode_fileobjects_t *node;
 
+				dprintf("%p marked DEAD3\n", rvp);
+
 				rvp->v_flags |= VNODE_DEAD|VNODE_FLUSHING;
 				rvp->v_age = then;
 
@@ -1086,6 +1088,10 @@ vnode_put(vnode_t *vp)
 	ASSERT(!(vp->v_flags & VNODE_DEAD));
 	ASSERT(vp->v_iocount > 0);
 	ASSERT((vp->v_flags & ~VNODE_VALIDBITS) == 0);
+
+	// Now idle?
+	mutex_enter(&vp->v_mutex);
+
 #ifdef DEBUG_IOCOUNT
 	if (vp) {
 		znode_t *zp = VTOZ(vp);
@@ -1098,8 +1104,6 @@ vnode_put(vnode_t *vp)
 #else
 	atomic_dec_32(&vp->v_iocount);
 #endif
-	// Now idle?
-	mutex_enter(&vp->v_mutex);
 
 	if ((vp->v_usecount == 0) && (vp->v_iocount == 0)) {
 		// XNU always calls inactive in vnode_put
@@ -1197,6 +1201,7 @@ vnode_recycle_int(vnode_t *vp, int flags)
 		vp->v_flags |= VNODE_DEAD; // Mark it dead
 // Since we might get swapped out (noticably FsRtlTeardownPerStreamContexts)
 // we hold a look until the very end.
+		dprintf("%p marked DEAD\n", vp);
 		atomic_inc_32(&vp->v_iocount);
 
 		mutex_exit(&vp->v_mutex);
@@ -1207,8 +1212,9 @@ vnode_recycle_int(vnode_t *vp, int flags)
 		// KIRQL OldIrql;
 		mutex_enter(&vp->v_mutex);
 
-		dprintf("Dropping %d references",
-		    avl_numnodes(&vp->v_fileobjects));
+		if (avl_numnodes(&vp->v_fileobjects) > 0)
+			dprintf("Dropping %d references\n",
+			    avl_numnodes(&vp->v_fileobjects));
 		vnode_fileobjects_t *node;
 		while (node = avl_first(&vp->v_fileobjects)) {
 			avl_remove(&vp->v_fileobjects, node);
@@ -1216,7 +1222,6 @@ vnode_recycle_int(vnode_t *vp, int flags)
 		}
 		ASSERT(avl_is_empty(&vp->v_fileobjects));
 		// We are all done with it.
-		VERIFY3U(vp->v_iocount, ==, 1);
 		atomic_dec_32(&vp->v_iocount);
 		mutex_exit(&vp->v_mutex);
 
@@ -1377,9 +1382,10 @@ vnode_rele(vnode_t *vp)
 	} else {
 		// We are idle, call inactive, grab a hold
 		// so we can call inactive unlocked
+		ASSERT0(vp->v_flags & VNODE_DEAD);
 		vp->v_flags &= ~VNODE_NEEDINACTIVE;
-		mutex_exit(&vp->v_mutex);
 		atomic_inc_32(&vp->v_iocount);
+		mutex_exit(&vp->v_mutex);
 
 		zfs_inactive(vp, NULL, NULL);
 #ifdef DEBUG_VERBOSE
@@ -1390,10 +1396,10 @@ vnode_rele(vnode_t *vp)
 				    __func__, vp->v_iocount, zp->z_name_cache);
 		}
 #endif
-		atomic_dec_32(&vp->v_iocount);
 		// Re-check we are still free, and recycle (markterm) was called
 		// we can reclaim now
 		mutex_enter(&vp->v_mutex);
+		atomic_dec_32(&vp->v_iocount);
 		if ((vp->v_iocount == 0) && (vp->v_usecount == 0) &&
 		    ((vp->v_flags & (VNODE_MARKTERM)))) {
 			mutex_exit(&vp->v_mutex);
@@ -1706,6 +1712,8 @@ restart:
 			} else {
 				rvp->v_age = gethrtime() - SEC2NSEC(6);
 			}
+			dprintf("%p marked DEAD2\n", rvp);
+
 			rvp->v_flags |= VNODE_DEAD;
 			rvp->v_data = NULL;
 		}

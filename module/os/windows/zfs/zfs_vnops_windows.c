@@ -6207,6 +6207,7 @@ zfs_fileobject_close(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 				Status = STATUS_SUCCESS;
 			}
 		}
+		return (Status);
 	}
 
 	return (Status);
