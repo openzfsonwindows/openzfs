@@ -385,43 +385,9 @@ abd_init(void)
 	/* check if we guessed ABD_PGSIZE correctly */
 	ASSERT3U(ABD_PGSIZE, ==, PAGE_SIZE);
 
-#ifdef DEBUG
-	/*
-	 * KMF_BUFTAG | KMF_LITE on the abd kmem_caches causes them to waste
-	 * up to 50% of their memory for redzone.  Even in DEBUG builds this
-	 * therefore should be KMC_NOTOUCH unless there are concerns about
-	 * overruns, UAFs, etc involving abd chunks or subpage chunks.
-	 *
-	 * Additionally these KMF_
-	 * flags require the definitions from <sys/kmem_impl.h>
-	 */
-
-	/*
-	 * DEBUGGING: do this
-	 * const int cflags = KMF_BUFTAG | KMF_LITE;
-	 * or
-	 * const int cflags = KMC_ARENA_SLAB;
-	 */
-
-	int cflags = KMC_ARENA_SLAB;
-#else
-	int cflags = KMC_ARENA_SLAB;
-#endif
-
-#ifdef _KERNEL
-/* This must all match spl-seg_kmem.c : segkmem_abd_init() */
-#define	SMALL_RAM_MACHINE (4ULL * 1024ULL * 1024ULL * 1024ULL)
-
-	extern uint64_t total_memory;
-
-	if (total_memory < SMALL_RAM_MACHINE) {
-		cflags = KMC_NOTOUCH;
-	}
-#endif
-
 	abd_chunk_cache = kmem_cache_create("abd_chunk", zfs_abd_chunk_size,
 	    ABD_PGSIZE,
-	    NULL, NULL, NULL, NULL, abd_arena, cflags);
+	    NULL, NULL, NULL, NULL, abd_arena, KMC_ARENA_SLAB | KMC_NOTOUCH);
 
 	wmsum_init(&abd_sums.abdstat_struct_size, 0);
 	wmsum_init(&abd_sums.abdstat_scatter_cnt, 0);
@@ -463,18 +429,10 @@ abd_init(void)
 		VERIFY3S(index, >=, 0);
 		VERIFY3S(index, <, SUBPAGE_CACHE_INDICES);
 
-#ifdef DEBUG
-		int csubflags = KMF_LITE;
-#else
-		int csubflags = 0;
-#endif
-#ifdef _KERNEL
-		if (total_memory < SMALL_RAM_MACHINE)
-			csubflags = cflags;
-#endif
 		abd_subpage_cache[index] =
 		    kmem_cache_create(name, bytes, sizeof (void *),
-		    NULL, NULL, NULL, NULL, abd_subpage_arena, csubflags);
+		    NULL, NULL, NULL, NULL, abd_subpage_arena,
+		    KMC_ARENA_SLAB | KMC_NOTOUCH);
 
 		VERIFY3P(abd_subpage_cache[index], !=, NULL);
 	}
