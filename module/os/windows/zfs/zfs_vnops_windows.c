@@ -5026,7 +5026,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    (uint64_t)vp->FileHeader.AllocationSize.QuadPart) {
 
 			Status = zfs_freesp(zp,
-			    newlength, 0, FWRITE, B_TRUE);
+			    newlength, 0, FWRITE, B_FALSE);
 			if (!NT_SUCCESS(Status)) {
 				dprintf("extend_file returned %08lx\n",
 				    Status);
