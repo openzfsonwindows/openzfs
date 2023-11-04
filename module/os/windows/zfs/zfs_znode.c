@@ -550,9 +550,6 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, int blksz,
 	ASSERT(zp->z_dirlocks == NULL);
 	ASSERT(!POINTER_IS_VALID(zp->z_zfsvfs));
 
-	if (blksz == 0)
-		blksz = 0x200;
-
 	/*
 	 * Defer setting z_zfsvfs until the znode is ready to be a candidate for
 	 * the zfs_znode_move() callback.
@@ -626,6 +623,9 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, int blksz,
 	 */
 	zp->z_zfsvfs = zfsvfs;
 	mutex_exit(&zfsvfs->z_znodes_lock);
+
+	if (zp->z_blksz == 0)
+		zp->z_blksz = zfs_blksz(zp);
 
 	return (zp);
 }

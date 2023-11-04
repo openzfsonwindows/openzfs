@@ -387,7 +387,7 @@ abd_init(void)
 
 	abd_chunk_cache = kmem_cache_create("abd_chunk", zfs_abd_chunk_size,
 	    ABD_PGSIZE,
-	    NULL, NULL, NULL, NULL, abd_arena, KMC_ARENA_SLAB | KMC_NOTOUCH);
+	    NULL, NULL, NULL, NULL, abd_arena, KMC_NOTOUCH);
 
 	wmsum_init(&abd_sums.abdstat_struct_size, 0);
 	wmsum_init(&abd_sums.abdstat_scatter_cnt, 0);
@@ -432,7 +432,7 @@ abd_init(void)
 		abd_subpage_cache[index] =
 		    kmem_cache_create(name, bytes, sizeof (void *),
 		    NULL, NULL, NULL, NULL, abd_subpage_arena,
-		    KMC_ARENA_SLAB | KMC_NOTOUCH);
+		    KMC_NOTOUCH);
 
 		VERIFY3P(abd_subpage_cache[index], !=, NULL);
 	}
