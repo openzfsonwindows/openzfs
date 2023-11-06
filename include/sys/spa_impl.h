@@ -187,6 +187,12 @@ typedef struct spa_taskqs {
 	taskq_t **stqs_taskq;
 } spa_taskqs_t;
 
+/* one for each thread in the spa sync taskq */
+typedef struct spa_syncthread_info {
+	kthread_t	*sti_thread;
+	taskq_t		*sti_wr_iss_tq;		/* assigned wr_iss taskq */
+} spa_syncthread_info_t;
+
 typedef enum spa_all_vdev_zap_action {
 	AVZ_ACTION_NONE = 0,
 	AVZ_ACTION_DESTROY,	/* Destroy all per-vdev ZAPs and the AVZ. */
@@ -261,6 +267,10 @@ struct spa {
 	 */
 	spa_alloc_t	*spa_allocs;
 	int		spa_alloc_count;
+
+	/* per-allocator sync thread taskqs */
+	taskq_t		*spa_sync_tq;
+	spa_syncthread_info_t *spa_syncthreads;
 
 	spa_aux_vdev_t	spa_spares;		/* hot spares */
 	spa_aux_vdev_t	spa_l2cache;		/* L2ARC cache devices */
@@ -445,7 +455,7 @@ extern char *spa_config_path;
 extern char *zfs_deadman_failmode;
 extern int spa_slop_shift;
 extern void spa_taskq_dispatch_ent(spa_t *spa, zio_type_t t, zio_taskq_type_t q,
-    task_func_t *func, void *arg, uint_t flags, taskq_ent_t *ent);
+    task_func_t *func, void *arg, uint_t flags, taskq_ent_t *ent, zio_t *zio);
 extern void spa_taskq_dispatch_sync(spa_t *, zio_type_t t, zio_taskq_type_t q,
     task_func_t *func, void *arg, uint_t flags);
 extern void spa_load_spares(spa_t *spa);
