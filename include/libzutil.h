@@ -218,6 +218,8 @@ int for_each_vdev_in_nvlist(nvlist_t *nvroot, pool_vdev_iter_f func,
 void update_vdevs_config_dev_sysfs_path(nvlist_t *config);
 int zfs_resolve_shortname_os(const char *name, char *path, size_t len);
 
+_LIBZUTIL_H void update_vdev_config_dev_sysfs_path(nvlist_t *nv,
+    const char *path, const char *key);
 #ifdef	__cplusplus
 }
 #endif
