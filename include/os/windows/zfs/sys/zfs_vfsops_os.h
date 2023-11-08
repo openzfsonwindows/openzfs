@@ -121,16 +121,6 @@ struct zfsvfs {
 	avl_tree_t	z_hardlinks;	/* linkid hash avl tree for vget */
 	avl_tree_t	z_hardlinks_linkid;	/* sorted on linkid */
 	krwlock_t	z_hardlinks_lock;	/* lock to access z_hardlinks */
-
-	uint64_t	z_notification_conditions; /* HFSIOC_VOLUME_STATUS */
-	uint64_t	z_freespace_notify_warninglimit;
-	uint64_t	z_freespace_notify_dangerlimit;
-	uint64_t	z_freespace_notify_desiredlevel;
-
-	void	*z_devdisk; /* Hold fake disk if prop devdisk is on */
-
-	uint64_t	z_findernotify_space;
-
 #endif
 	uint64_t	z_replay_eof;	/* New end of file - replay only */
 	sa_attr_type_t	*z_attr_table;	/* SA attr mapping->id */
