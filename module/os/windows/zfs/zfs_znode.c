@@ -69,8 +69,6 @@
 #include <sys/zfs_sa.h>
 #include <sys/zfs_stat.h>
 
-#include <sys/spa_impl.h> // spa_min_alloc
-
 #include "zfs_prop.h"
 #include "zfs_comutil.h"
 
@@ -628,10 +626,6 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, int blksz,
 
 	if (zp->z_blksz == 0)
 		zp->z_blksz = zfs_blksz(zp);
-
-	/* This makes a large difference on 4096 block devices */
-	if (zfsvfs->z_os->os_spa->spa_min_alloc > zp->z_blksz)
-		zp->z_blksz = zfsvfs->z_os->os_spa->spa_min_alloc;
 
 	return (zp);
 }
