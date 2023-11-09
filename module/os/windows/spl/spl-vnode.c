@@ -1537,6 +1537,37 @@ mount_count_nodes(struct mount *mp, int flags)
 	return (count);
 }
 
+static void
+print_reclaim_stats(boolean_t init, int reclaims)
+{
+	static int last_reclaims = 0;
+	int reclaims_delta;
+	int reclaims_per_second;
+	static hrtime_t last_stats_time = 0;
+	hrtime_t last_stats_time_delta;
+
+	if (init) {
+		last_stats_time = gethrtime();
+		return;
+	}
+
+	if ((reclaims % 1000) != 0) {
+		return;
+	}
+
+	reclaims_delta = reclaims - last_reclaims;
+	last_stats_time_delta = gethrtime() - last_stats_time;
+
+	reclaims_per_second = (((int64_t)reclaims_delta) * NANOSEC) /
+	    MAX(last_stats_time_delta, 1);
+
+	dprintf("%s: %d reclaims processed (%d/s).\n", __func__, reclaims,
+	    reclaims_per_second);
+
+	last_reclaims = reclaims;
+	last_stats_time = gethrtime();
+}
+
 
 /*
  * Let's try something new. If we are to vflush, lets do everything we can
@@ -1567,6 +1598,8 @@ vflush(struct mount *mp, struct vnode *skipvp, int flags)
 	mutex_enter(&vnode_all_list_lock);
 
 filesanddirs:
+	print_reclaim_stats(B_TRUE, 0);
+
 	while (1) {
 		for (rvp = list_head(&vnode_all_list);
 		    rvp;
@@ -1668,6 +1701,7 @@ restart:
 
 			if (!isbusy) {
 				reclaims++;
+				print_reclaim_stats(B_FALSE, reclaims);
 				break; // must restart loop if unlinked node
 			}
 		}
@@ -1684,8 +1718,8 @@ restart:
 
 	mutex_exit(&vnode_all_list_lock);
 
-	if (mp == NULL && reclaims > 0) {
-		dprintf("%s: %llu reclaims processed.\n", __func__, reclaims);
+	if (reclaims > 0) {
+		dprintf("%s: %d reclaims processed.\n", __func__, reclaims);
 	}
 
 
