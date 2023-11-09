@@ -99,7 +99,23 @@ analyze = run("!analyze -v ; q")
 
 stack = run("k ; q")
 
-info = run(".lines -e;.kframes 100;.echo ***** process info *****;|;!peb;!analyze -vp;.ecxr;kp;!uniqstack -vp;!gle -all;q")
+info = run(
+    ";".join(
+        [
+            ".lines -e",
+            ".kframes 100",
+            ".echo ***** process info *****",
+            "|",
+            "!peb",
+            "!analyze -vp",
+            ".ecxr",
+            "kp",
+            "!uniqstack -vp",
+            "!gle -all",
+            "q",
+        ]
+    )
+)
 
 cbuf = run(".writemem C:\\cbuf.txt poi(OpenZFS!cbuf) L100000 ; q")
 
