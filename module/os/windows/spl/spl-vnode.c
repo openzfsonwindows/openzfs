@@ -1538,6 +1538,64 @@ mount_count_nodes(struct mount *mp, int flags)
 }
 
 static void
+flush_file_objects(struct vnode *rvp)
+{
+	// Release the AVL tree
+	// Attempt to flush out any caches;
+
+	FILE_OBJECT *fileobject;
+	vnode_fileobjects_t *node;
+	int Status;
+
+	// Make sure we don't call vnode_flushcache() again from IRP_MJ_CLOSE.
+	rvp->v_flags |= VNODE_FLUSHING;
+
+	if (avl_is_empty(&rvp->v_fileobjects))
+		return;
+
+	for (node = avl_first(&rvp->v_fileobjects); node != NULL;
+	    node = AVL_NEXT(&rvp->v_fileobjects, node)) {
+	    fileobject = node->fileobject;
+
+		// Because the CC* calls can re-enter ZFS, we need to
+		// release the lock, and because we release the lock the
+		// while has to start from the top each time. We release
+		// the node at end of this while.
+
+		try {
+			Status = ObReferenceObjectByPointer(fileobject, 0,
+			    *IoFileObjectType, KernelMode);
+		} except(EXCEPTION_EXECUTE_HANDLER) {
+			Status = GetExceptionCode();
+		}
+
+		// Try to lock fileobject before we use it.
+		if (NT_SUCCESS(Status)) {
+			// Let go of mutex, as flushcache will re-enter
+			// (IRP_MJ_CLEANUP)
+			mutex_exit(&rvp->v_mutex);
+			node->remove = vnode_flushcache(rvp, fileobject, TRUE);
+			ObDereferenceObject(fileobject);
+			mutex_enter(&rvp->v_mutex);
+		} // if ObReferenceObjectByPointer
+	} // for
+
+	// Remove any nodes we successfully closed.
+restart_remove_closed:
+	for (node = avl_first(&rvp->v_fileobjects); node != NULL;
+	    node = AVL_NEXT(&rvp->v_fileobjects, node)) {
+		if (node->remove) {
+			avl_remove(&rvp->v_fileobjects, node);
+			kmem_free(node, sizeof (*node));
+			goto restart_remove_closed;
+		}
+	}
+
+	dprintf("vp %p has %d fileobject(s) remaining\n", rvp,
+	    avl_numnodes(&rvp->v_fileobjects));
+}
+
+static void
 print_reclaim_stats(boolean_t init, int reclaims)
 {
 	static int last_reclaims = 0;
@@ -1586,129 +1644,56 @@ vflush(struct mount *mp, struct vnode *skipvp, int flags)
 	// FORCECLOSE : release everything, force unmount
 
 	// if mp is NULL, we are reclaiming nodes, until threshold
-	int isbusy = 0;
 	int reclaims = 0;
 	vnode_fileobjects_t *node;
 	struct vnode *rvp;
-	int Status;
 	boolean_t filesonly = B_TRUE;
 
 	dprintf("vflush start\n");
 
 	mutex_enter(&vnode_all_list_lock);
 
-filesanddirs:
 	print_reclaim_stats(B_TRUE, 0);
 
-	while (1) {
-		for (rvp = list_head(&vnode_all_list);
-		    rvp;
-		    rvp = list_next(&vnode_all_list, rvp)) {
+filesanddirs:
+	for (rvp = list_head(&vnode_all_list); rvp;
+	    rvp = list_next(&vnode_all_list, rvp)) {
+		// skip vnodes not belonging to this mount
+		if (mp && rvp->v_mount != mp)
+			continue;
 
-			// skip vnodes not belonging to this mount
-			if (mp && rvp->v_mount != mp)
-				continue;
+		if (filesonly && vnode_isdir(rvp))
+			continue;
 
-			if (filesonly && vnode_isdir(rvp))
-				continue;
-
-			// If we aren't FORCE and asked to SKIPROOT, and node
-			// is MARKROOT, then go to next.
-			if (!(flags & FORCECLOSE)) {
-				if ((flags & SKIPROOT))
-					if (rvp->v_flags & VNODE_MARKROOT)
-						continue;
+		// If we aren't FORCE and asked to SKIPROOT, and node
+		// is MARKROOT, then go to next.
+		if (!(flags & FORCECLOSE)) {
+			if ((flags & SKIPROOT))
+				if (rvp->v_flags & VNODE_MARKROOT)
+					continue;
 #if 0 // when we use SYSTEM vnodes
-				if ((flags & SKIPSYSTEM))
-					if (rvp->v_flags & VNODE_MARKSYSTEM)
-						continue;
+			if ((flags & SKIPSYSTEM))
+				if (rvp->v_flags & VNODE_MARKSYSTEM)
+					continue;
 #endif
-			}
-			// We are to remove this node, even if ROOT - unmark it.
-			mutex_exit(&vnode_all_list_lock);
+		}
+		// We are to remove this node, even if ROOT - unmark it.
 
-			// Release the AVL tree
-			// KIRQL OldIrql;
-
-			// Attempt to flush out any caches;
-			mutex_enter(&rvp->v_mutex);
-			// Make sure we don't call vnode_cacheflush() again
-			// from IRP_MJ_CLOSE.
-			rvp->v_flags |= VNODE_FLUSHING;
-
-			for (node = avl_first(&rvp->v_fileobjects);
-			    node != NULL;
-			    node = AVL_NEXT(&rvp->v_fileobjects, node)) {
-				FILE_OBJECT *fileobject = node->fileobject;
-
-			// Because the CC* calls can re-enter ZFS, we need to
-			// release the lock, and because we release the lock the
-			// while has to start from the top each time. We release
-			// the node at end of this while.
-
-				try {
-					Status = ObReferenceObjectByPointer(
-					    fileobject,
-					    0,
-					    *IoFileObjectType,
-					    KernelMode);
-				} except(EXCEPTION_EXECUTE_HANDLER) {
-					Status = GetExceptionCode();
-				}
-
-			// Try to lock fileobject before we use it.
-				if (NT_SUCCESS(Status)) {
-					int ok;
-
-				// Let go of mutex, as flushcache will re-enter
-				// (IRP_MJ_CLEANUP)
-					mutex_exit(&rvp->v_mutex);
-					node->remove = vnode_flushcache(rvp,
-					    fileobject, TRUE);
-
-					ObDereferenceObject(fileobject);
-
-					mutex_enter(&rvp->v_mutex);
-
-				} // if ObReferenceObjectByPointer
-			} // for
-
-			// Remove any nodes we successfully closed.
-restart:
-			for (node = avl_first(&rvp->v_fileobjects);
-			    node != NULL;
-			    node = AVL_NEXT(&rvp->v_fileobjects, node)) {
-				if (node->remove) {
-					avl_remove(&rvp->v_fileobjects, node);
-					kmem_free(node, sizeof (*node));
-					goto restart;
-				}
-			}
-
-			dprintf("vp %p has %d fileobject(s) remaining\n", rvp,
-			    avl_numnodes(&rvp->v_fileobjects));
-
-		// vnode_recycle_int() will call mutex_exit(&rvp->v_mutex);
-		// re-check flags, due to releasing locks
-			isbusy = 1;
-			if (!(rvp->v_flags & VNODE_DEAD))
-				isbusy = vnode_recycle_int(rvp,
-				    (flags & FORCECLOSE) | VNODELOCKED);
-			else
-				mutex_exit(&rvp->v_mutex);
-
-			mutex_enter(&vnode_all_list_lock);
-
-			if (!isbusy) {
-				reclaims++;
-				print_reclaim_stats(B_FALSE, reclaims);
-				break; // must restart loop if unlinked node
-			}
+		if (rvp->v_flags & VNODE_DEAD) {
+			continue;
 		}
 
-		// If the end of the list was reached, stop entirely
-		if (!rvp)
-			break;
+		mutex_enter(&rvp->v_mutex);
+
+		flush_file_objects(rvp);
+
+		// vnode_recycle_int() will exit v_mutex
+		// re-check flags, due to releasing locks
+		if (!vnode_recycle_int(rvp, (flags & FORCECLOSE) |
+		    VNODELOCKED)) {
+			reclaims++;
+			print_reclaim_stats(B_FALSE, reclaims);
+		}
 	}
 
 	if (filesonly) {
