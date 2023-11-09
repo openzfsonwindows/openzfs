@@ -37,20 +37,12 @@
  * origin. Hence its primary use is to specify intervals.
  */
 
-static hrtime_t
-zfs_abs_to_nano(uint64_t elapsed)
-{
-	return (elapsed * KeQueryTimeIncrement() * 100);
-}
-
 /* Open Solaris lbolt is in hz */
 uint64_t
 zfs_lbolt(void)
 {
 	uint64_t lbolt_hz;
-	LARGE_INTEGER ticks;
-	KeQueryTickCount(&ticks);
-	lbolt_hz = ticks.QuadPart * KeQueryTimeIncrement();
+	lbolt_hz = gethrtime() / 100;
 	lbolt_hz /= (10000000 / 119); // Solaris hz ?
 	return (lbolt_hz);
 }
@@ -59,14 +51,13 @@ hrtime_t
 gethrtime(void)
 {
 	static LARGE_INTEGER start = { 0 };
+	static LARGE_INTEGER freq = { 0 };
 	LARGE_INTEGER now;
 	if (start.QuadPart == 0) {
-		KeQueryTickCount(&start);
-		start.QuadPart--;
+		start = KeQueryPerformanceCounter(&freq);
 	}
-	KeQueryTickCount(&now);
-	ASSERT((now.QuadPart != start.QuadPart));
-	return (zfs_abs_to_nano(now.QuadPart - start.QuadPart));
+	now = KeQueryPerformanceCounter(NULL);
+	return (now.QuadPart - start.QuadPart) * (NANOSEC / freq.QuadPart);
 }
 
 /*
@@ -76,21 +67,21 @@ gethrtime(void)
 int
 random_get_bytes(uint8_t *ptr, uint32_t len)
 {
-	LARGE_INTEGER TickCount;
+	LARGE_INTEGER PerfCounter;
 	ULONG r;
 	PULONG b;
 	int i;
 
-	KeQueryTickCount(&TickCount);
+	PerfCounter = KeQueryPerformanceCounter(NULL);
 
 	b = (PULONG) ptr;
 
 	for (i = 0; i < len / sizeof (ULONG); i++)
-		b[i] = RtlRandomEx(&TickCount.LowPart);
+		b[i] = RtlRandomEx(&PerfCounter.LowPart);
 
 	len &= (sizeof (ULONG) - 1);
 	if (len > 0) {
-		r = RtlRandomEx(&TickCount.LowPart);
+		r = RtlRandomEx(&PerfCounter.LowPart);
 		RtlCopyMemory(&b[i], &r, len);
 	}
 	return (0);
