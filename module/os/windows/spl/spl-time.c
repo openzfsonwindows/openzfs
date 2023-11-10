@@ -55,9 +55,12 @@ gethrtime(void)
 	LARGE_INTEGER now;
 	if (start.QuadPart == 0) {
 		start = KeQueryPerformanceCounter(&freq);
+		ASSERT(freq.QuadPart < NANOSEC);
+		ASSERT(freq.QuadPart > 0);
+		freq.QuadPart = NANOSEC / freq.QuadPart;
 	}
 	now = KeQueryPerformanceCounter(NULL);
-	return (now.QuadPart - start.QuadPart) * (NANOSEC / freq.QuadPart);
+	return ((now.QuadPart - start.QuadPart) * freq.QuadPart);
 }
 
 /*
