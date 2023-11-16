@@ -47,10 +47,6 @@
 #include <sys/zfs_fuid.h>
 #include <sys/dsl_dataset.h>
 
-#ifdef _WIN32
-#include <sys/spa_impl.h> // spa_min_alloc
-#endif
-
 /*
  * These zfs_log_* functions must be called within a dmu tx, in one
  * of 2 contexts depending on zilog->z_replay:
@@ -645,10 +641,8 @@ zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
 		return;
 	}
 
-#ifdef _WIN32
-	if (zp->z_zfsvfs->z_os->os_spa->spa_min_alloc > blocksize)
-		blocksize = zp->z_zfsvfs->z_os->os_spa->spa_min_alloc;
-#endif
+	if (unlikely(blocksize == 0))
+		blocksize = SPA_MINBLOCKSIZE;
 
 	if (zilog->zl_logbias == ZFS_LOGBIAS_THROUGHPUT)
 		write_state = WR_INDIRECT;
