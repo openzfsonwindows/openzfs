@@ -85,6 +85,7 @@
 modules.order
 Makefile
 Makefile.in
+changelog
 *.patch
 *.orig
 *.tmp
