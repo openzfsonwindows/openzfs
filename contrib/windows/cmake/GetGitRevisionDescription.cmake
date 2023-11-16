@@ -68,7 +68,7 @@ function(_git_find_closest_git_dir _start_dir _git_dir_var)
     while(NOT EXISTS "${git_dir}")
         # .git dir not found, search parent directories
         set(git_previous_parent "${cur_dir}")
-        get_filename_component(cur_dir ${cur_dir} DIRECTORY)
+        get_filename_component(cur_dir "${cur_dir}" DIRECTORY)
         if(cur_dir STREQUAL git_previous_parent)
             # We have reached the root directory, we are not in git
             set(${_git_dir_var}
@@ -94,7 +94,8 @@ function(get_git_head_revision _refspecvar _hashvar)
     if(NOT "${GIT_DIR}" STREQUAL "")
         file(RELATIVE_PATH _relative_to_source_dir "${CMAKE_SOURCE_DIR}"
              "${GIT_DIR}")
-        if("${_relative_to_source_dir}" MATCHES "[.][.]" AND NOT ALLOW_LOOKING_ABOVE_CMAKE_SOURCE_DIR)
+        if("${_relative_to_source_dir}" MATCHES "[.][.]"
+           AND NOT ALLOW_LOOKING_ABOVE_CMAKE_SOURCE_DIR)
             # We've gone above the CMake root dir.
             set(GIT_DIR "")
         endif()
