@@ -624,9 +624,6 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, int blksz,
 	zp->z_zfsvfs = zfsvfs;
 	mutex_exit(&zfsvfs->z_znodes_lock);
 
-	if (zp->z_blksz == 0)
-		zp->z_blksz = zfs_blksz(zp);
-
 	return (zp);
 }
 
