@@ -821,14 +821,8 @@ get_device_number(char *device_path, STORAGE_DEVICE_NUMBER *device_number)
 	HANDLE hDevice = INVALID_HANDLE_VALUE;
 	DWORD returned = 0;
 
-	hDevice = CreateFile(device_path,
-	    GENERIC_READ,
-	    FILE_SHARE_READ /* | FILE_SHARE_WRITE */,
-	    NULL,
-	    OPEN_EXISTING,
-	    FILE_ATTRIBUTE_NORMAL /* | FILE_FLAG_OVERLAPPED */,
-	    NULL);
-	if (hDevice == INVALID_HANDLE_VALUE) {
+	hDevice = open(device_path, O_RDONLY);
+	if (hDevice < 0) {
 		// fprintf(stderr, "invalid handle value\n"); fflush(stderr);
 		return (GetLastError());
 	}
@@ -838,7 +832,8 @@ get_device_number(char *device_path, STORAGE_DEVICE_NUMBER *device_number)
 	    (LPVOID)device_number, (DWORD)sizeof (*device_number),
 	    (LPDWORD)&returned, (LPOVERLAPPED)NULL);
 
-	CloseHandle(hDevice);
+	// CloseHandle(hDevice);
+	close(hDevice);
 
 	if (!ret) {
 		// fprintf(stderr, "DeviceIoControl returned error\n");
@@ -1011,25 +1006,29 @@ update_vdev_config_dev_strs(nvlist_t *nv)
 	devid = strdup(path);
 
 	HANDLE h;
-	h = CreateFile(path, GENERIC_READ,
-	    FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
-	if (h != INVALID_HANDLE_VALUE) {
-		struct dk_gpt *vtoc;
-		if ((efi_alloc_and_read(HTOI(h), &vtoc)) == 0) {
-			// Slice 1 should be ZFS
-			fprintf(stderr,
-			"this code assumes ZFS is on partition 1\n");
-			fflush(stderr);
-			snprintf(udevpath, MAXPATHLEN, "#%llu#%llu#%s",
-			    vtoc->efi_parts[0].p_start * (uint64_t)vtoc->
-			    efi_lbasize,
-			    vtoc->efi_parts[0].p_size * (uint64_t)vtoc->
-			    efi_lbasize,
-			    path);
-			efi_free(vtoc);
-			path = udevpath;
+
+	// If path already has #int#int/path, dont need to look it up again
+	if (path[0] != '#') {
+		h = open(path, O_RDONLY);
+
+		if (h >= 0) {
+			struct dk_gpt *vtoc;
+			if ((efi_alloc_and_read(HTOI(h), &vtoc)) == 0) {
+				// Slice 1 should be ZFS
+				fprintf(stderr,
+				"this code assumes ZFS is on partition 1\n");
+				fflush(stderr);
+				snprintf(udevpath, MAXPATHLEN, "#%llu#%llu#%s",
+				    vtoc->efi_parts[0].p_start * (uint64_t)
+				    vtoc->efi_lbasize,
+				    vtoc->efi_parts[0].p_size * (uint64_t)
+				    vtoc->efi_lbasize,
+				    path);
+				efi_free(vtoc);
+				path = udevpath;
+			}
+			close(h);
 		}
-		CloseHandle(h);
 	}
 
 	remove_partition_offset_hack(devid, &end);
