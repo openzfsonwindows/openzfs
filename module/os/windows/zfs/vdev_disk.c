@@ -248,7 +248,7 @@ vdev_disk_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	    &iostatus,
 	    0,
 	    FILE_ATTRIBUTE_NORMAL,
-	    /* FILE_SHARE_WRITE | */ FILE_SHARE_READ,
+	    FILE_SHARE_WRITE | FILE_SHARE_READ,
 	    FILE_OPEN,
 	    FILE_SYNCHRONOUS_IO_NONALERT |
 	    (spa_mode(spa) == SPA_MODE_READ ? 0 :
