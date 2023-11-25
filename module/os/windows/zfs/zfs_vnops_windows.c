@@ -735,7 +735,7 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
  */
 int
 zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
-    char *filename, vattr_t *vap)
+    char *filename, xvattr_t *xvap)
 {
 	int error;
 	cred_t *cr = NULL;
@@ -773,6 +773,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	ACCESS_MASK DesiredAccess =
 	    IrpSp->Parameters.Create.SecurityContext->DesiredAccess;
 	zfs_ccb_t *zccb = NULL;
+	vattr_t *vap = &xvap->xva_vattr;
 
 	if (zfsvfs == NULL)
 		return (STATUS_OBJECT_PATH_NOT_FOUND);
@@ -1311,9 +1312,17 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		vap->va_mode |= S_IFDIR;
 		vap->va_mask |= (ATTR_MODE | ATTR_TYPE);
 
+		/* If parent is CaseSensitive, sub-Dir should be too */
+		if (VTOZ(dvp)->z_pflags & ZFS_CASESENSITIVEDIR) {
+			xoptattr_t *xoap;
+			xoap = xva_getxoptattr(xvap);
+			xoap->xoa_case_sensitive_dir = 1;
+			XVA_SET_REQ(xvap, XAT_CASESENSITIVEDIR);
+		}
+
 		ASSERT(strchr(finalname, '\\') == NULL);
 		error = zfs_mkdir(VTOZ(dvp), finalname, vap, &zp, NULL,
-		    0, NULL, NULL);
+		    flags, NULL, NULL);
 		if (error == 0) {
 			vp = ZTOV(zp);
 			zfs_couplefileobject(vp, NULL, FileObject, 0ULL,
@@ -1572,7 +1581,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		// O_EXCL only if FILE_CREATE
 		error = zfs_create(VTOZ(dvp), finalname, vap,
 		    CreateDisposition == FILE_CREATE, vap->va_mode,
-		    &zp, NULL, 0, NULL, NULL);
+		    &zp, NULL, flags, NULL, NULL);
 		if (error == 0) {
 			boolean_t reenter_for_xattr = B_FALSE;
 
@@ -1827,7 +1836,7 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 	do {
 
 		// Call ZFS
-		status = zfs_vnop_lookup_impl(Irp, IrpSp, zmo, filename, vap);
+		status = zfs_vnop_lookup_impl(Irp, IrpSp, zmo, filename, &xva);
 
 	} while (status == EAGAIN);
 
@@ -4439,6 +4448,10 @@ set_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 	case FileValidDataLengthInformation:
 		Status = set_file_valid_data_length_information(DeviceObject,
+		    Irp, IrpSp);
+		break;
+	case FileCaseSensitiveInformation:
+		Status = set_file_case_sensitive_information(DeviceObject,
 		    Irp, IrpSp);
 		break;
 	default:
