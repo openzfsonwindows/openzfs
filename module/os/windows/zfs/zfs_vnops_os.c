@@ -2012,6 +2012,16 @@ zfs_setattr(znode_t *zp, vattr_t *vap, int flags, cred_t *cr, zidmap_t *mnt_ns)
 			}
 		}
 
+		if (XVA_ISSET_REQ(xvap, XAT_CASESENSITIVEDIR)) {
+			if (xoap->xoa_case_sensitive_dir !=
+			    ((zp->z_pflags & ZFS_CASESENSITIVEDIR) != 0)) {
+				need_policy = TRUE;
+			} else {
+				XVA_CLR_REQ(xvap, XAT_CASESENSITIVEDIR);
+				XVA_SET_REQ(&tmpxvattr, XAT_CASESENSITIVEDIR);
+			}
+		}
+
 		if (XVA_ISSET_REQ(xvap, XAT_AV_MODIFIED)) {
 			if (xoap->xoa_av_modified !=
 			    ((zp->z_pflags & ZFS_AV_MODIFIED) != 0)) {
@@ -2403,6 +2413,9 @@ zfs_setattr(znode_t *zp, vattr_t *vap, int flags, cred_t *cr, zidmap_t *mnt_ns)
 		}
 		if (XVA_ISSET_REQ(&tmpxvattr, XAT_PROJINHERIT)) {
 			XVA_SET_REQ(xvap, XAT_PROJINHERIT);
+		}
+		if (XVA_ISSET_REQ(&tmpxvattr, XAT_CASESENSITIVEDIR)) {
+			XVA_SET_REQ(xvap, XAT_CASESENSITIVEDIR);
 		}
 
 		if (XVA_ISSET_REQ(xvap, XAT_AV_SCANSTAMP))

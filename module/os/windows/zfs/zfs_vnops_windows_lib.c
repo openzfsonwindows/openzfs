@@ -4021,7 +4021,6 @@ set_file_valid_data_length_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	int error;
 	CC_FILE_SIZES ccfs;
-	LIST_ENTRY rollback;
 	boolean_t set_size = B_FALSE;
 
 	dprintf("* FileValidDataLengthInformation: \n");
@@ -4100,6 +4099,65 @@ end:
 		else
 			vp->FileHeader.AllocationSize = ccfs.AllocationSize;
 	}
+
+	zfs_exit(zfsvfs, FTAG);
+	return (Status);
+}
+
+NTSTATUS
+set_file_case_sensitive_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	NTSTATUS Status;
+	FILE_CASE_SENSITIVE_INFORMATION *fcsi =
+	    Irp->AssociatedIrp.SystemBuffer;
+	mount_t *zmo = DeviceObject->DeviceExtension;
+	int error;
+
+	dprintf("* FileCaseSensitiveInformation: \n");
+
+	if (IrpSp->Parameters.SetFile.Length <
+	    sizeof (FILE_CASE_SENSITIVE_INFORMATION))
+		return (STATUS_INFO_LENGTH_MISMATCH);
+
+	if (IrpSp->FileObject == NULL ||
+	    IrpSp->FileObject->FsContext == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	struct vnode *vp = IrpSp->FileObject->FsContext;
+	zfs_ccb_t *ccb = IrpSp->FileObject->FsContext2;
+	znode_t *zp = VTOZ(vp);
+
+	if (zmo == NULL || zp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (!vnode_isdir(vp))
+		return (STATUS_INVALID_PARAMETER);
+
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+	if (zfsvfs == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+		return (error);
+
+	xvattr_t xva = { 0 };
+	vattr_t *vap = &xva.xva_vattr;
+	xoptattr_t *xoap;
+
+	xva_init(&xva);
+	xoap = xva_getxoptattr(&xva);
+
+	/*
+	 * We need to check if there are case issues in this dir, if
+	 * the request is to make it case insensitive again. Return
+	 * the code: STATUS_CASE_DIFFERING_NAMES_IN_DIR
+	 */
+	xoap->xoa_case_sensitive_dir =
+	    (fcsi->Flags & FILE_CS_FLAG_CASE_SENSITIVE_DIR);
+	XVA_SET_REQ(&xva, XAT_CASESENSITIVEDIR);
+
+	Status = zfs_setattr(zp, vap, 0, NULL, NULL);
 
 	zfs_exit(zfsvfs, FTAG);
 	return (Status);
@@ -4677,13 +4735,9 @@ file_case_sensitive_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	struct vnode *vp = FileObject->FsContext;
 	if (vp != NULL) {
 		znode_t *zp = VTOZ(vp);
-		if (zp != NULL) {
-		zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
-		if (zfsvfs->z_case == ZFS_CASE_SENSITIVE)
+		if (zp && (zp->z_pflags & ZFS_CASESENSITIVEDIR))
 			fcsi->Flags |= FILE_CS_FLAG_CASE_SENSITIVE_DIR;
-
-		}
 	}
 
 	Irp->IoStatus.Information = sizeof (FILE_CASE_SENSITIVE_INFORMATION);

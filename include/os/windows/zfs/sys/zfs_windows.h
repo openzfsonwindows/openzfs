@@ -183,6 +183,8 @@ extern NTSTATUS set_file_rename_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
 extern NTSTATUS set_file_valid_data_length_information(
     PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp);
+extern NTSTATUS set_file_case_sensitive_information(
+    PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp);
 extern NTSTATUS set_file_position_information(PDEVICE_OBJECT DeviceObject,
     PIRP Irp, PIO_STACK_LOCATION IrpSp);
 

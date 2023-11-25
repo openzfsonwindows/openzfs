@@ -179,6 +179,18 @@ zfs_dirent_lock(zfs_dirlock_t **dlpp, znode_t *dzp, char *name, znode_t **zpp,
 	 * once so that simultaneous case-insensitive/case-sensitive
 	 * behaves as rationally as possible.
 	 */
+#ifdef _WIN32
+	/*
+	 * Windows lets you set Case-Sensitive on
+	 * a directory while the dataset as a whole
+	 * is insensitive.
+	 */
+	if (S_ISDIR(dzp->z_mode) &&
+	    (dzp->z_pflags & ZFS_CASESENSITIVEDIR)) {
+		flag &= ~ZCILOOK;
+		flag |= ZCIEXACT;
+	}
+#endif
 
 	/*
 	 * When matching we may need to normalize & change case according to
