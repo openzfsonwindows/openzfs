@@ -2359,6 +2359,8 @@ taskq_create_common(const char *name, int instance, int nthreads, pri_t pri,
 	taskq_t *tq = kmem_cache_alloc(taskq_cache, KM_SLEEP);
 #ifdef _WIN32
 	uint_t ncpus = max_ncpus;
+	if (!(flags & TASKQ_CREATE_SYNCED))
+		ncpus = boot_ncpus; /* possibly deflated by num_ecores */
 #else
 	uint_t ncpus = ((boot_max_ncpus == -1) ? max_ncpus : boot_max_ncpus);
 #endif
@@ -2820,9 +2822,22 @@ taskq_create_synced(const char *name, int nthreads, pri_t pri,
 	flags &= ~(TASKQ_DYNAMIC | TASKQ_THREADS_CPU_PCT | TASKQ_DC_BATCH);
 
 	tq = taskq_create(name, nthreads, minclsyspri, nthreads, INT_MAX,
-	    flags | TASKQ_PREPOPULATE);
+	    flags | TASKQ_PREPOPULATE | TASKQ_CREATE_SYNCED);
+
 	VERIFY(tq != NULL);
-	VERIFY(tq->tq_nthreads == nthreads);
+
+	/* wait until our minalloc (nthreads) threads are created */
+	mutex_enter(&tq->tq_lock);
+	for (int i = 1; tq->tq_nthreads != nthreads; i++) {
+		dprintf("SPL: %s:%d: waiting for tq_nthreads (%d)"
+		    " to be nthreads (%d), (target = %d, pass %d)\n",
+		    __func__, __LINE__,
+		    tq->tq_nthreads, tq->tq_nthreads_target,  nthreads, i);
+		cv_wait(&tq->tq_wait_cv, &tq->tq_lock);
+	}
+	mutex_exit(&tq->tq_lock);
+
+	VERIFY3U(tq->tq_nthreads, ==, nthreads);
 
 	/* spawn all syncthreads */
 	for (int i = 0; i < nthreads; i++) {
