@@ -61,6 +61,8 @@ extern uint32_t cpu_number(void);
 #define	is_system_labeled()		0
 
 extern unsigned int max_ncpus;
+extern unsigned	int boot_ncpus;
+extern unsigned int num_ecores;
 
 #ifndef RLIM64_INFINITY
 #define	RLIM64_INFINITY			(~0ULL)
@@ -133,7 +135,6 @@ extern uint32_t zone_get_hostid(void *zone);
 extern void spl_setup(void);
 extern void spl_cleanup(void);
 
-#define	boot_ncpus max_ncpus
 #define	SET_ERROR(err) \
 	(__set_error(__FILE__, __func__, __LINE__, err), err)
 

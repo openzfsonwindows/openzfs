@@ -45,6 +45,7 @@
 static utsname_t utsname_static = { { 0 } };
 
 unsigned int max_ncpus = 0;
+unsigned int boot_ncpus = 0;
 uint64_t  total_memory = 0;
 uint64_t  real_total_memory = 0;
 
@@ -495,6 +496,12 @@ spl_start(PUNICODE_STRING RegistryPath)
 	max_ncpus = KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);
 	if (!max_ncpus) max_ncpus = 1;
 	dprintf("SPL: total ncpu %d\n", max_ncpus);
+#if defined(__arm64__)
+	num_ecores = (max_ncpus > 4) ? 4 : 0; // Apple has 4 eCores, fixme
+	boot_ncpus = MAX(1, (int)max_ncpus - (int)num_ecores);
+#else
+	boot_ncpus = max_ncpus;
+#endif
 
 	// Not sure how to get physical RAM size in a Windows Driver
 	// So until then, pull some numbers out of the aether. Next
