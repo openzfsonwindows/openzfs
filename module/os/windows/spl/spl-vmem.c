@@ -1630,35 +1630,51 @@ do_alloc:
 		mutex_enter(&vmp->vm_lock);
 		if (vmflag & VM_NOSLEEP)
 			break;
-		atomic_inc_64(&vmp->vm_kstat.vk_wait.value.ui64);
-		atomic_inc_64(&vmp->vm_kstat.vk_threads_waiting.value.ui64);
-		atomic_inc_64(&spl_vmem_threads_waiting);
-		if (spl_vmem_threads_waiting > 0) {
-			dprintf("SPL: %s: vmem waiting for %lu sized alloc "
-			    "for %s, waiting threads %llu, total threads "
-			    "waiting = %llu\n",
-			    __func__, size, vmp->vm_name,
-			    vmp->vm_kstat.vk_threads_waiting.value.ui64,
-			    spl_vmem_threads_waiting);
-			extern int64_t spl_free_set_and_wait_pressure(int64_t,
-			    boolean_t, clock_t);
-			extern int64_t spl_free_manual_pressure_wrapper(void);
-			mutex_exit(&vmp->vm_lock);
-			// release other waiting threads
-			spl_free_set_pressure(0);
-			int64_t target_pressure = size *
-			    spl_vmem_threads_waiting;
-			int64_t delivered_pressure =
-			    spl_free_set_and_wait_pressure(target_pressure,
-			    TRUE, USEC2NSEC(500));
-			dprintf("SPL: %s: pressure %lld targeted, %lld "
-			    "delivered\n", __func__, target_pressure,
-			    delivered_pressure);
-			mutex_enter(&vmp->vm_lock);
+
+		extern volatile boolean_t spl_free_thread_running;
+
+		if (spl_free_thread_running) {
+			atomic_inc_64(&vmp->vm_kstat.vk_wait.value.ui64);
+			atomic_inc_64(
+			    &vmp->vm_kstat.vk_threads_waiting.value.ui64);
+			atomic_inc_64(&spl_vmem_threads_waiting);
+			if (spl_vmem_threads_waiting > 0) {
+				dprintf("SPL: %s: vmem waiting for %lu sized "
+				    "alloc for %s, waiting threads %llu, total "
+				    "threads waiting = %llu\n",
+				    __func__, size, vmp->vm_name,
+				    vmp->vm_kstat.vk_threads_waiting.value.ui64,
+				    spl_vmem_threads_waiting);
+				extern int64_t spl_free_set_and_wait_pressure(
+				    int64_t, boolean_t, clock_t);
+				extern int64_t spl_free_manual_pressure_wrapper(
+				    void);
+				mutex_exit(&vmp->vm_lock);
+				// release other waiting threads
+				spl_free_set_pressure(0);
+				int64_t target_pressure = size *
+				    spl_vmem_threads_waiting;
+				int64_t delivered_pressure =
+				    spl_free_set_and_wait_pressure(
+				    target_pressure, TRUE,
+				    USEC2NSEC(500));
+				dprintf("SPL: %s: pressure %lld targeted, %lld "
+				    "delivered\n", __func__, target_pressure,
+				    delivered_pressure);
+				mutex_enter(&vmp->vm_lock);
+			}
+			cv_wait(&vmp->vm_cv, &vmp->vm_lock);
+			atomic_dec_64(&spl_vmem_threads_waiting);
+			atomic_dec_64(
+			    &vmp->vm_kstat.vk_threads_waiting.value.ui64);
 		}
-		cv_wait(&vmp->vm_cv, &vmp->vm_lock);
-		atomic_dec_64(&spl_vmem_threads_waiting);
-		atomic_dec_64(&vmp->vm_kstat.vk_threads_waiting.value.ui64);
+		else
+		{
+			DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
+			    "SPL: %s: Not able to set pressure %lld as free"
+			    "thread is not running\n", __func__, size);
+			delay(hz);
+		}
 	}
 	if (vbest != NULL) {
 		ASSERT(vbest->vs_type == VMEM_FREE);

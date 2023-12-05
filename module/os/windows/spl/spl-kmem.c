@@ -71,6 +71,7 @@ const unsigned int spl_vm_page_free_min = 3500;
 static kcondvar_t spl_free_thread_cv;
 static kmutex_t spl_free_thread_lock;
 static boolean_t spl_free_thread_exit;
+volatile boolean_t spl_free_thread_running = FALSE;
 static volatile _Atomic int64_t spl_free = 0;
 
 static boolean_t spl_event_thread_exit = FALSE;
@@ -5725,6 +5726,7 @@ spl_kmem_thread_init(void)
 	spl_free_thread_exit = FALSE;
 	(void) cv_init(&spl_free_thread_cv, NULL, CV_DEFAULT, NULL);
 	(void) thread_create(NULL, 0, spl_free_thread, 0, 0, 0, 0, 92);
+	spl_free_thread_running = TRUE;
 
 	spl_event_thread_exit = FALSE;
 	(void) thread_create(NULL, 0, spl_event_thread, 0, 0, 0, 0, 92);
@@ -5751,6 +5753,7 @@ spl_kmem_thread_fini(void)
 		cv_signal(&spl_free_thread_cv);
 		cv_wait(&spl_free_thread_cv, &spl_free_thread_lock);
 	}
+	spl_free_thread_running = FALSE;
 	mutex_exit(&spl_free_thread_lock);
 	cv_destroy(&spl_free_thread_cv);
 	mutex_destroy(&spl_free_thread_lock);
