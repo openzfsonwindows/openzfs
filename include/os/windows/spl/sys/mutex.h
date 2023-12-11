@@ -89,6 +89,13 @@ void spl_mutex_init(kmutex_t *mp, char *name, kmutex_type_t type, void *ibc);
 #define	mutex_enter spl_mutex_enter
 void spl_mutex_enter(kmutex_t *mp);
 
+/* Until we can investigate interruptible on Windows */
+static inline int mutex_enter_interruptible(kmutex_t *mp)
+{
+	spl_mutex_enter(mp);
+	return (0);
+}
+
 #define	mutex_enter_nested(A, B)	mutex_enter(A)
 #define	MUTEX_NOLOCKDEP	0
 
