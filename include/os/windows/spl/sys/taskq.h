@@ -91,6 +91,8 @@ extern taskq_t	*taskq_create_proc(const char *, int, pri_t, int, int,
     proc_t *, uint_t);
 extern taskq_t	*taskq_create_sysdc(const char *, int, int, int,
     proc_t *, uint_t, uint_t);
+extern taskq_t *taskq_create_synced(const char *, int, pri_t, int, int, uint_t,
+    kthread_t ***);
 extern taskqid_t taskq_dispatch(taskq_t *, task_func_t, void *, uint_t);
 extern void	nulltask(void *);
 extern void	taskq_destroy(taskq_t *);
