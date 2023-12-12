@@ -74,6 +74,7 @@ endif()
 # Add .pdb debug symbols - always.
 # /Z7 is embedded, /Zi is .pdb.
 add_compile_options(/Zi)
+add_link_options(/DEBUG)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_definitions(-DDBG -DZFS_DEBUG)
