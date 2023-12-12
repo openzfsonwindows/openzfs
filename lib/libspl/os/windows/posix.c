@@ -1855,3 +1855,27 @@ timer_settime(timer_t, int, const struct itimerspec *__restrict,
 {
 	return (0);
 }
+
+int
+wosix_access(const char *name, int mode)
+{
+	DWORD dwAttrib = GetFileAttributes(name);
+	boolean_t isFile;
+
+	isFile = (dwAttrib != INVALID_FILE_ATTRIBUTES &&
+	    !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
+
+	if (!isFile) {
+		errno = ENOENT;
+		return (-1);
+	}
+
+	/* Windows does not have X_OK (execute), and it assert()s */
+	if (mode == X_OK)
+		return (0);
+
+	mode &= ~X_OK;
+
+#undef access
+	return (access(name, mode));
+}

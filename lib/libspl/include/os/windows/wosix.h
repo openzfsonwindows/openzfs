@@ -95,6 +95,8 @@ extern FILE *wosix_freopen(const char *path, const char *mode, FILE *stream);
 /* Technically not needed, but handle mode */
 extern FILE *wosix_fopen(const char *name, const char *mode);
 
+extern int wosix_access(const char *name, int mode);
+
 /*
  * Thin wrapper for the POSIX IO calls, to translate to HANDLEs
  *
@@ -168,4 +170,5 @@ extern FILE *wosix_fopen(const char *name, const char *mode);
 #define	mmap wosix_mmap
 #define	munmap wosix_munmap
 #define	fopen	wosix_fopen
+#define	access	wosix_access
 #endif /* WOSIX_HEADER */
