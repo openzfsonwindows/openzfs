@@ -54,8 +54,6 @@ add_compile_options(
 	-Wno-unused-local-typedef
 	-Wno-int-to-void-pointer-cast
 	# ZFS related
-	-Wno-misleading-indentation
-	-Wno-dangling-else
 	-Wno-missing-field-initializers
 	#-fms-extensions
 	-Wno-unused-function
@@ -73,10 +71,12 @@ else()
     message(FATAL_ERROR "Unsupported architecture")
 endif()
 
+# Add .pdb debug symbols - always.
+# /Z7 is embedded, /Zi is .pdb.
+add_compile_options(/Zi)
+
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_definitions(-DDBG -DZFS_DEBUG)
-	# Add .pdb debug symbols
-	add_compile_options(/Z7)
 endif()
 
 # Avoid dependency add_compile_definitions vcruntime140.dll
