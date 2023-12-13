@@ -911,7 +911,7 @@ static int
 libzfs_run_process_impl(const char *path, char *argv[], char *env[], int flags,
     char **lines[], int *lines_cnt)
 {
-	return (-1);
+	return (0);
 }
 
 #else
