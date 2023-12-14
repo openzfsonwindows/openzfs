@@ -2173,6 +2173,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	Status = STATUS_NOT_IMPLEMENTED;
 	int space;
 	int error = 0;
+	uint64_t refdbytes, availbytes, usedobjs, availobjs;
 
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	if (!zmo ||
@@ -2275,6 +2276,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		ASSERT(Irp->IoStatus.Information <=
 		    IrpSp->Parameters.QueryVolume.Length);
 		break;
+
 	case FileFsControlInformation:
 		dprintf("* %s: FileFsControlInformation NOT IMPLEMENTED\n",
 		    __func__);
@@ -2296,6 +2298,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		dprintf("* %s: FileFsDriverPathInformation NOT IMPLEMENTED\n",
 		    __func__);
 		break;
+
 	case FileFsFullSizeInformation:
 		dprintf("* %s: FileFsFullSizeInformation\n", __func__);
 		if (IrpSp->Parameters.QueryVolume.Length <
@@ -2305,7 +2308,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			Status = STATUS_BUFFER_TOO_SMALL;
 			break;
 		}
-		uint64_t refdbytes, availbytes, usedobjs, availobjs;
+
 		dmu_objset_space(zfsvfs->z_os,
 		    &refdbytes, &availbytes, &usedobjs, &availobjs);
 
@@ -2323,6 +2326,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    sizeof (FILE_FS_FULL_SIZE_INFORMATION);
 		Status = STATUS_SUCCESS;
 		break;
+
 	case FileFsObjectIdInformation:
 		dprintf("* %s: FileFsObjectIdInformation\n", __func__);
 		FILE_FS_OBJECTID_INFORMATION* ffoi =
@@ -2334,6 +2338,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    sizeof (FILE_FS_OBJECTID_INFORMATION);
 		Status = STATUS_OBJECT_NAME_NOT_FOUND; // returned by NTFS
 		break;
+
 	case FileFsVolumeInformation:
 		dprintf("* %s: FileFsVolumeInformation\n", __func__);
 		if (IrpSp->Parameters.QueryVolume.Length <
@@ -2373,6 +2378,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			Status = STATUS_SUCCESS;
 
 		break;
+
 	case FileFsSizeInformation:
 		dprintf("* %s: FileFsSizeInformation\n", __func__);
 		if (IrpSp->Parameters.QueryVolume.Length <
@@ -2383,15 +2389,21 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			break;
 		}
 
+		dmu_objset_space(zfsvfs->z_os,
+		    &refdbytes, &availbytes, &usedobjs, &availobjs);
+
 		FILE_FS_SIZE_INFORMATION *ffsi =
 		    Irp->AssociatedIrp.SystemBuffer;
-		ffsi->TotalAllocationUnits.QuadPart = 1024 * 1024 * 1024;
-		ffsi->AvailableAllocationUnits.QuadPart = 1024 * 1024 * 1024;
+		ffsi->TotalAllocationUnits.QuadPart =
+		    (refdbytes + availbytes) / 512ULL;
+		ffsi->AvailableAllocationUnits.QuadPart =
+		    availbytes / 512ULL;
 		ffsi->SectorsPerAllocationUnit = 1;
 		ffsi->BytesPerSector = 512;
 		Irp->IoStatus.Information = sizeof (FILE_FS_SIZE_INFORMATION);
 		Status = STATUS_SUCCESS;
 		break;
+
 	case FileFsSectorSizeInformation:
 		dprintf("* %s: FileFsSectorSizeInformation\n", __func__);
 		if (IrpSp->Parameters.QueryVolume.Length <
