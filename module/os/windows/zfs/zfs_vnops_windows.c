@@ -1284,7 +1284,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	// Fail if FILE_CREATE but target exist
 	if ((CreateDisposition == FILE_CREATE) && (vp != NULL)) {
 		VN_RELE(vp);
-		VN_RELE(dvp);
+		if (dvp)
+			VN_RELE(dvp);
 		Irp->IoStatus.Information = FILE_EXISTS;
 		if (CreateDirectory && !vnode_isdir(vp))
 			return (STATUS_NOT_A_DIRECTORY);
@@ -1361,7 +1362,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	if (DirectoryFile && vp != NULL && !vnode_isdir(vp)) {
 		dprintf("%s: asked for directory but found file\n", __func__);
 		VN_RELE(vp);
-		VN_RELE(dvp);
+		if (dvp)
+			VN_RELE(dvp);
 		Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
 		return (STATUS_FILE_IS_A_DIRECTORY);
 	}
@@ -1369,7 +1371,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	// Asked for non-directory, but we got directory
 	if (NonDirectoryFile && !CreateFile && vp == NULL) {
 		dprintf("%s: asked for file but found directory\n", __func__);
-		VN_RELE(dvp);
+		if (dvp)
+			VN_RELE(dvp);
 		Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
 		return (STATUS_FILE_IS_A_DIRECTORY);
 	}
@@ -1391,7 +1394,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		    !FlagOn(IrpSp->Parameters.Create.FileAttributes,
 		    FILE_ATTRIBUTE_SYSTEM))) {
 			VN_RELE(vp);
-			VN_RELE(dvp);
+			if (dvp)
+				VN_RELE(dvp);
 			dprintf("%s: denied due to hidden+system combo\n",
 			    __func__);
 			return (STATUS_ACCESS_DENIED);
