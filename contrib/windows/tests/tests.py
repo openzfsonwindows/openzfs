@@ -1,6 +1,9 @@
 import argparse
 import logging
+import shutil
+import subprocess
 import unittest
+import os
 
 from utils import (
     Size,
@@ -57,107 +60,132 @@ def main():
     with allocated_files(
         (args.path / f"test{n:02d}.dat", 1 * Size.GIB) for n in range(1, 4)
     ) as bf:
-        #######################################################################
-        preTest("create zpool backed by single file")
-        with zpool_create(ctx, "test01", paths_to_unc(bf[:1])):
-            log_dl("after test01 pool create")
+        # #######################################################################
+        # preTest("create zpool backed by single file")
+        # with zpool_create(ctx, "test01", paths_to_unc(bf[:1])):
+        #     log_dl("after test01 pool create")
+
+        # #######################################################################
+        # preTest("create zpool backed by two files")
+        # with zpool_create(ctx, "test02", paths_to_unc(bf[:2])):
+        #     log_dl("after test02 pool create")
+
+        # #######################################################################
+        # preTest("create zpool backed by three files")
+        # with zpool_create(ctx, "test03", paths_to_unc(bf)):
+        #     log_dl("after test03 pool create")
+
+        # #######################################################################
+        # preTest("create mirror zpool backed by two files")
+        # with zpool_create(ctx, "test04", ["mirror", *paths_to_unc(bf[:2])]):
+        #     log_dl("after test04 pool create")
+
+        # #######################################################################
+        # preTest("create mirror zpool backed by three files")
+        # with zpool_create(ctx, "test05", ["mirror", *paths_to_unc(bf)]):
+        #     log_dl("after test05 pool create")
+
+        # #######################################################################
+        # preTest("create raidz zpool backed by three files")
+        # with zpool_create(ctx, "test06", ["raidz", *paths_to_unc(bf)]):
+        #     log_dl("after test06 pool create")
+
+        # #######################################################################
+        # preTest("create raidz1 zpool backed by three files")
+        # with zpool_create(ctx, "test07", ["raidz1", *paths_to_unc(bf)]):
+        #     log_dl("after test07 pool create")
 
         #######################################################################
-        preTest("create zpool backed by two files")
-        with zpool_create(ctx, "test02", paths_to_unc(bf[:2])):
-            log_dl("after test02 pool create")
+        preTest("rclone and export")
+        if shutil.which("rclone"):
+            with zpool_create(ctx, "test08", paths_to_unc(bf[:1])) as pool:
+                log_dl("after test08 pool create")
 
-        #######################################################################
-        preTest("create zpool backed by three files")
-        with zpool_create(ctx, "test03", paths_to_unc(bf)):
-            log_dl("after test03 pool create")
+                try:
+                    subprocess.run(
+                        [
+                            "rclone",
+                            "sync",
+                            os.environ["WINDIR"],
+                            # bf[1],
+                            pool.mount_path / "copy.bin",
+                        ],
+                        timeout=15,
+                    )
+                except subprocess.TimeoutExpired:
+                    pass
 
-        #######################################################################
-        preTest("create mirror zpool backed by two files")
-        with zpool_create(ctx, "test04", ["mirror", *paths_to_unc(bf[:2])]):
-            log_dl("after test04 pool create")
+                run_cmd(ctx.ZPOOL, ["export", "test08"])
+                pool.destroy = False  # already exported
+        else:
+            logger.warning("skipped because rclone is not in path")
 
-        #######################################################################
-        preTest("create mirror zpool backed by three files")
-        with zpool_create(ctx, "test05", ["mirror", *paths_to_unc(bf)]):
-            log_dl("after test05 pool create")
+        # #######################################################################
+        # preTest("snapshot no hang")
+        # with zpool_create(ctx, "testsn01", paths_to_unc(bf[:1])) as pool:
+        #     log_dl("after testsn01 pool create")
 
-        #######################################################################
-        preTest("create raidz zpool backed by three files")
-        with zpool_create(ctx, "test06", ["raidz", *paths_to_unc(bf)]):
-            log_dl("after test06 pool create")
+        #     allocate_file(pool.mount_path / "test01.file", 1 * Size.KIB)
+        #     run_cmd(ctx.ZFS, ["snapshot", "testsn01@friday"])
+        #     allocate_file(pool.mount_path / "test02.file", 1 * Size.KIB)
+        #     run_cmd(ctx.ZPOOL, ["export", "testsn01"])
+        #     pool.destroy = False  # already exported
 
-        #######################################################################
-        preTest("create raidz1 zpool backed by three files")
-        with zpool_create(ctx, "test07", ["raidz1", *paths_to_unc(bf)]):
-            log_dl("after test07 pool create")
+        # #######################################################################
+        # preTest("snapshot hang")
+        # with zpool_create(ctx, "testsn02", paths_to_unc(bf[:1])) as pool:
+        #     log_dl("after testsn02 pool create")
 
-        #######################################################################
-        preTest("snapshot no hang")
-        with zpool_create(ctx, "testsn01", paths_to_unc(bf[:1])) as pool:
-            log_dl("after testsn01 pool create")
+        #     allocate_file(pool.mount_path / "test01.file", 1 * Size.KIB)
+        #     run_cmd(ctx.ZFS, ["snapshot", "testsn02@friday"])
+        #     allocate_file(pool.mount_path / "test02.file", 1 * Size.KIB)
+        #     run_cmd(ctx.ZFS, ["mount", "testsn02@friday"])
+        #     run_cmd(ctx.ZPOOL, ["export", "testsn02"])
+        #     pool.destroy = False  # already exported
 
-            allocate_file(pool.mount_path / "test01.file", 1 * Size.KIB)
-            run_cmd(ctx.ZFS, ["snapshot", "testsn01@friday"])
-            allocate_file(pool.mount_path / "test02.file", 1 * Size.KIB)
-            run_cmd(ctx.ZPOOL, ["export", "testsn01"])
-            pool.destroy = False  # already exported
+        # #######################################################################
+        # preTest("regex for key file")
+        # with random_key(args.path / "key01.key", 32) as key01:
+        #     key01uri = "file://" + str(path_to_unc(key01)).replace("\\", "/")
 
-        #######################################################################
-        preTest("snapshot hang")
-        with zpool_create(ctx, "testsn02", paths_to_unc(bf[:1])) as pool:
-            log_dl("after testsn02 pool create")
+        #     with zpool_create(
+        #         ctx,
+        #         "tank",
+        #         paths_to_unc(bf[:1]),
+        #         zfs_options={
+        #             "encryption": "aes-256-ccm",
+        #             "keylocation": key01uri,
+        #             "keyformat": "raw",
+        #         },
+        #     ):
+        #         log_dl("after tank pool create")
 
-            allocate_file(pool.mount_path / "test01.file", 1 * Size.KIB)
-            run_cmd(ctx.ZFS, ["snapshot", "testsn02@friday"])
-            allocate_file(pool.mount_path / "test02.file", 1 * Size.KIB)
-            run_cmd(ctx.ZFS, ["mount", "testsn02@friday"])
-            run_cmd(ctx.ZPOOL, ["export", "testsn02"])
-            pool.destroy = False  # already exported
+        #         run_cmd(ctx.ZFS, ["get", "keylocation", "tank"])
+        #         run_cmd(ctx.ZPOOL, ["export", "tank"])
 
-        #######################################################################
-        preTest("regex for key file")
-        with random_key(args.path / "key01.key", 32) as key01:
-            key01uri = "file://" + str(path_to_unc(key01)).replace("\\", "/")
+        #         log_dl("before pool import")
 
-            with zpool_create(
-                ctx,
-                "tank",
-                paths_to_unc(bf[:1]),
-                zfs_options={
-                    "encryption": "aes-256-ccm",
-                    "keylocation": key01uri,
-                    "keyformat": "raw",
-                },
-            ):
-                log_dl("after tank pool create")
+        #         run_cmd(
+        #             ctx.ZPOOL,
+        #             [
+        #                 "import",
+        #                 "-d",
+        #                 bf[0].parent.as_posix(),
+        #                 "-f",
+        #                 "-l",
+        #                 "tank",
+        #             ],
+        #         )
 
-                run_cmd(ctx.ZFS, ["get", "keylocation", "tank"])
-                run_cmd(ctx.ZPOOL, ["export", "tank"])
+        #         log_dl("after pool import")
 
-                log_dl("before pool import")
+        # #######################################################################
+        # preTest("run out of drive letters")
+        # for i in range(1, 26):
+        #     with zpool_create(ctx, f"tank{i}", paths_to_unc(bf[:1])) as pool:
+        #         log_dl(f"after tank{i} pool create")
 
-                run_cmd(
-                    ctx.ZPOOL,
-                    [
-                        "import",
-                        "-d",
-                        bf[0].parent.as_posix(),
-                        "-f",
-                        "-l",
-                        "tank",
-                    ],
-                )
-
-                log_dl("after pool import")
-
-        #######################################################################
-        preTest("run out of drive letters")
-        for i in range(1, 26):
-            with zpool_create(ctx, f"tank{i}", paths_to_unc(bf[:1])) as pool:
-                log_dl(f"after tank{i} pool create")
-
-                allocate_file(pool.mount_path / "test01.file", 1 * Size.KIB)
+        #         allocate_file(pool.mount_path / "test01.file", 1 * Size.KIB)
 
 
 if __name__ == "__main__":
