@@ -1038,8 +1038,10 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			// assign "dvp" - but
 			// the stream_name check below will expect it in "vp".
 			// dvp_no_rele is already set.
+			dprintf("special case Zone.Identifier\n");
 			dvp_no_rele = 1;
 			vp = FileObject->RelatedFileObject->FsContext;
+			zp = VTOZ(vp);
 			dvp = NULL;
 			VERIFY0(VN_HOLD(vp));
 
@@ -1221,6 +1223,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		if (dvp && !dvp_no_rele)
 			VN_RELE(dvp);
 		vp = NULL;
+		zp = NULL;
 		dvp = ZTOV(dzp);
 		int direntflags = 0; // To detect ED_CASE_CONFLICT
 		error = zfs_dirlook(dzp, stream_name, &zp, FIGNORECASE,
