@@ -199,6 +199,14 @@
     <DriverSign>
       <AdditionalOptions>/tr http://timestamp.digicert.com /td sha256 /fd sha256 %(AdditionalOptions)</AdditionalOptions>
     </DriverSign>
+    <PostBuildEvent>
+      <Command>
+      </Command>
+    </PostBuildEvent>
+    <PreLinkEvent>
+      <Command>copy /Y "$(SolutionDir)..\..\..\out\build\x64-Debug\module\os\windows\driver\OpenZFS.man" "$(TargetDir)\OpenZFS"</Command>
+      <Message>Copy OpenZFS.man to deploy dir - no better way?</Message>
+    </PreLinkEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>

@@ -86,6 +86,7 @@ LoadOrderGroup   = "File System"
 
 [OpenZFS.DriverFiles]
 OpenZFS.sys
+OpenZFS.man
 
 [OpenZFS.DllFiles]
 ;;zpool.exe
@@ -93,6 +94,7 @@ OpenZFS.sys
 
 [SourceDisksFiles]
 OpenZFS.sys = 1,,
+OpenZFS.man = 1,,
 ;;zpool.exe = 1,,
 ;;zfs.exe = 1,,
 
