@@ -26,6 +26,8 @@
 #ifndef	_LIBZUTIL_H
 #define	_LIBZUTIL_H extern __attribute__((visibility("default")))
 
+#include <string.h>
+#include <locale.h>
 #include <sys/nvpair.h>
 #include <sys/fs/zfs.h>
 
@@ -277,6 +279,14 @@ int zfs_resolve_shortname_os(const char *name, char *path, size_t len);
 
 _LIBZUTIL_H void update_vdev_config_dev_sysfs_path(nvlist_t *nv,
     const char *path, const char *key);
+
+/*
+ * Thread-safe strerror() for use in ZFS libraries
+ */
+static inline char *zfs_strerror(int errnum) {
+	return (strerror_l(errnum, uselocale(0)));
+}
+
 #ifdef	__cplusplus
 }
 #endif

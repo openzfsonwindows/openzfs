@@ -5238,7 +5238,7 @@ tryagain:
 
 	nvbuf = malloc(nvsz);
 	if (nvbuf == NULL) {
-		err = (zfs_error(hdl, EZFS_NOMEM, strerror(errno)));
+		err = (zfs_error(hdl, EZFS_NOMEM, zfs_strerror(errno)));
 		goto out;
 	}
 
