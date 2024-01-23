@@ -1357,7 +1357,14 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 				SetNextDriveletterManually(mountmgr,
 				    &dcb->device_name);
 			}
-		} // !MOUNTMGR_IS_DRIVE_LETTER(&actualDriveletter)
+		} else { // !MOUNTMGR_IS_DRIVE_LETTER(&actualDriveletter)
+
+			// mountpath is "/DosDevices/E:" but we need to
+			// save that in dcb, for future query.
+			FreeUnicodeString(&dcb->mountpoint);
+			RtlDuplicateUnicodeString(0, &mountpath,
+			    &dcb->mountpoint);
+		}
 	} else {
 		OBJECT_ATTRIBUTES poa;
 		// 36(uuid) + 6 (punct) + 6 (Volume)

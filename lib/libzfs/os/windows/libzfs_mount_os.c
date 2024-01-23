@@ -162,10 +162,13 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 				    entry.mnt_special);
 				char *part = strstr(dir, parent);
 				if (part) dir = &part[strlen(parent) - 1];
+				snprintf(zc.zc_value, sizeof (zc.zc_value),
+				    "\\??\\%s%s", entry.mnt_mountp, dir);
+			} else {
+				snprintf(zc.zc_value, sizeof (zc.zc_value),
+				    "\\??\\%c:%s", tolower(driveletter[0]),
+				    dir);
 			}
-
-			snprintf(zc.zc_value, sizeof (zc.zc_value),
-			    "\\??\\%c:%s", tolower(driveletter[0]), dir);
 		}
 	} else {
 		/* snapshot */
