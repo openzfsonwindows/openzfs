@@ -124,13 +124,14 @@ zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 	FILE_OBJECT *fo = Context;
 	BOOLEAN result = FALSE;
 
+	dprintf("%s:fo %p\n", __func__, fo);
+
 	if (fo == NULL)
 		return (FALSE);
 
 	mount_t *zmo = fo->DeviceObject->DeviceExtension;
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	struct vnode *vp = fo->FsContext;
-	dprintf("%s:fo %p\n", __func__, fo);
 
 	if (unlikely(zfsvfs == NULL)) {
 		dprintf("%s: fo %p already freed zfsvfs\n", __func__, fo);
@@ -178,14 +179,13 @@ zfs_ReleaseFromLazyWrite(void *Context)
 {
 	FILE_OBJECT *fo = Context;
 
+	dprintf("%s:\n", __func__);
 	if (fo == NULL)
 		return;
 
 	mount_t *zmo = fo->DeviceObject->DeviceExtension;
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	struct vnode *vp = fo->FsContext;
-
-	dprintf("%s:\n", __func__);
 
 	if (vp != NULL && VN_HOLD(vp) == 0) {
 		ExReleaseResourceLite(vp->FileHeader.Resource);
@@ -206,14 +206,14 @@ zfs_AcquireForReadAhead(void *Context, BOOLEAN Wait)
 	FILE_OBJECT *fo = Context;
 	BOOLEAN result = FALSE;
 
+	dprintf("%s:\n", __func__);
+
 	if (fo == NULL)
 		return (FALSE);
 
 	mount_t *zmo = fo->DeviceObject->DeviceExtension;
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	struct vnode *vp = fo->FsContext;
-
-	dprintf("%s:\n", __func__);
 
 	if (unlikely(zfsvfs == NULL)) {
 		dprintf("%s: fo %p already freed zfsvfs\n", __func__, fo);
@@ -260,6 +260,7 @@ zfs_ReleaseFromReadAhead(void *Context)
 {
 	FILE_OBJECT *fo = Context;
 
+	dprintf("%s:\n", __func__);
 	if (fo == NULL)
 		return;
 
@@ -267,7 +268,7 @@ zfs_ReleaseFromReadAhead(void *Context)
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 
 	struct vnode *vp = fo->FsContext;
-	dprintf("%s:\n", __func__);
+
 	if (vp != NULL && VN_HOLD(vp) == 0) {
 		ExReleaseResourceLite(vp->FileHeader.Resource);
 		vnode_rele(vp);
@@ -333,7 +334,8 @@ zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp, CC_FILE_SIZES *ccfs)
  */
 static void
 zfs_couplefileobject(vnode_t *vp, vnode_t *dvp, FILE_OBJECT *fileobject,
-    uint64_t size, zfs_ccb_t **ccb, uint64_t alloc, ACCESS_MASK access)
+    uint64_t size, zfs_ccb_t **ccb, uint64_t alloc, ACCESS_MASK access,
+    char *stream)
 {
 	zfs_ccb_t *zccb;
 
@@ -371,10 +373,11 @@ zfs_couplefileobject(vnode_t *vp, vnode_t *dvp, FILE_OBJECT *fileobject,
 	vp->FileHeader.IsFastIoPossible = fast_io_possible(vp);
 #endif
 
-	zfs_build_path(VTOZ(vp), dvp ? VTOZ(dvp) : NULL,
+	zfs_build_path_stream(VTOZ(vp), dvp ? VTOZ(dvp) : NULL,
 	    &zccb->z_name_cache,
 	    &zccb->z_name_len,
-	    &zccb->z_name_offset);
+	    &zccb->z_name_offset,
+	    stream);
 
 }
 
@@ -885,7 +888,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		dvp = ZTOV(zp);
 
 		zfs_couplefileobject(dvp, NULL, FileObject, 0ULL, &zccb,
-		    Irp->Overlay.AllocationSize.QuadPart, DesiredAccess);
+		    Irp->Overlay.AllocationSize.QuadPart, DesiredAccess,
+		    stream_name);
 
 		VN_RELE(dvp);
 
@@ -952,7 +956,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 					    FileObject, zp->z_size, &zccb,
 					    Irp->
 					    Overlay.AllocationSize.QuadPart,
-					    DesiredAccess);
+					    DesiredAccess,
+					    stream_name);
 					VN_RELE(vp);
 
 					Irp->IoStatus.Information = FILE_OPENED;
@@ -990,7 +995,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				zfs_couplefileobject(dvp, NULL, FileObject,
 				    0ULL, &zccb,
 				    Irp->Overlay.AllocationSize.QuadPart,
-				    DesiredAccess);
+				    DesiredAccess,
+				    stream_name);
 				VN_RELE(dvp);
 			} else {
 				Irp->IoStatus.Information = 0;
@@ -1149,7 +1155,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    zp ? zp->z_size : 0ULL,
 				    &zccb,
 				    Irp->Overlay.AllocationSize.QuadPart,
-				    DesiredAccess);
+				    DesiredAccess,
+				    stream_name);
 			}
 #endif
 			VN_RELE(vp);
@@ -1261,7 +1268,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			zfs_couplefileobject(dvp, NULL, FileObject, 0ULL,
 			    &zccb,
 			    Irp->Overlay.AllocationSize.QuadPart,
-			    DesiredAccess);
+			    DesiredAccess,
+			    stream_name);
 			if (DeleteOnClose)
 				Status = zfs_setunlink_masked(FileObject, NULL);
 			if (Status == STATUS_SUCCESS)
@@ -1332,7 +1340,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			zfs_couplefileobject(vp, NULL, FileObject, 0ULL,
 			    &zccb,
 			    Irp->Overlay.AllocationSize.QuadPart,
-			    DesiredAccess);
+			    DesiredAccess,
+			    stream_name);
 
 			if (DeleteOnClose)
 				Status = zfs_setunlink_masked(FileObject, dvp);
@@ -1603,12 +1612,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    zp ? zp->z_size : 0ULL, &zccb,
 				    Irp->Overlay.AllocationSize.QuadPart,
 				    granted_access ?
-				    granted_access : DesiredAccess);
-
-				zfs_build_path(VTOZ(vp), VTOZ(dvp),
-				    &zccb->z_name_cache,
-				    &zccb->z_name_len,
-				    &zccb->z_name_offset);
+				    granted_access : DesiredAccess,
+				    stream_name);
 
 				if (DeleteOnClose)
 					Status =
@@ -1685,7 +1690,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		zfs_couplefileobject(dvp, NULL, FileObject, 0ULL,
 		    &zccb,
 		    Irp->Overlay.AllocationSize.QuadPart,
-		    granted_access ? granted_access : DesiredAccess);
+		    granted_access ? granted_access : DesiredAccess,
+		    stream_name);
 
 		if (DeleteOnClose)
 			Status = zfs_setunlink_masked(FileObject, NULL);
@@ -1711,7 +1717,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		zfs_couplefileobject(vp, dvp, FileObject, zp->z_size,
 		    &zccb,
 		    Irp->Overlay.AllocationSize.QuadPart,
-		    granted_access ? granted_access : DesiredAccess);
+		    granted_access ? granted_access : DesiredAccess,
+		    stream_name);
 
 		// Now that vp is set, check delete
 		if (DeleteOnClose)
@@ -5678,6 +5685,14 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		finalname = &finalname[1];
 	else
 		finalname = filename;
+
+	// Check if it has :stream
+	char *stream_name = NULL;
+	error = stream_parse(filename, &stream_name);
+	if (error == 0 && stream_name != NULL)
+		finalname = stream_name;
+
+	dprintf("final delete name as '%s'\n", finalname);
 
 	// Release final HOLD on item, ready for deletion
 	int isdir = vnode_isdir(vp);

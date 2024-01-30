@@ -2263,18 +2263,15 @@ zfs_build_path_stream(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 	if (start_zp == NULL)
 		return (EINVAL);
 
-	if (stream == NULL)
-		return (EINVAL);
-
 	error = zfs_build_path(start_zp, start_parent, fullpath,
 	    returnsize, start_zp_offset);
 
-	if (error) {
+	if (error && stream) {
 		// name + ":" + streamname + null
 		// TODO: clean this up to not realloc
 		char *newname;
 		newname = kmem_asprintf("%s:%s",
-		    *fullpath, stream);
+		    *fullpath ? *fullpath : "", stream);
 
 		// Fetch new offset, before ":stream"
 		*start_zp_offset = *returnsize;
@@ -2284,6 +2281,10 @@ zfs_build_path_stream(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 		*returnsize = strlen(newname) + 1;
 		// assign new string
 		*fullpath = newname;
+	} else if (error) {
+		*fullpath = kmem_asprintf("(nameunknown)");
+		*returnsize = strlen(*fullpath) + 1;
+		*start_zp_offset = 0;
 	}
 
 	return (0);
