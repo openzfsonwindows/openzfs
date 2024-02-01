@@ -1303,6 +1303,7 @@ zfs_znode_asyncwait(zfsvfs_t *zfsvfs, znode_t *zp)
 	// Work out if we need to block, that is, we have
 	// no vnode AND a taskq was launched. Unsure if we should
 	// look inside taskqent node like this.
+again:
 	mutex_enter(&zp->z_attach_lock);
 	if (zp->z_vnode == NULL &&
 	    zp->z_attach_taskq.tqent_func != NULL) {
@@ -1311,6 +1312,11 @@ zfs_znode_asyncwait(zfsvfs_t *zfsvfs, znode_t *zp)
 		ret = 0;
 	}
 	mutex_exit(&zp->z_attach_lock);
+
+	// Why would it be NULL?
+	if (zp->z_vnode == NULL &&
+	    zp->z_attach_taskq.tqent_func != NULL)
+		goto again;
 
 out:
 	zfs_exit(zfsvfs, FTAG);
@@ -1327,6 +1333,11 @@ zfs_znode_asyncput_impl(znode_t *zp)
 	// This may block, if waiting is required.
 	zfs_znode_asyncwait(zp->z_zfsvfs, zp);
 
+	// This shouldn't happen
+	if (ZTOV(zp) == NULL) {
+		dprintf("%s: zp %p vp still NULL after wait?\n", __func__, zp);
+		return;
+	}
 	// Safe to release now that it is attached.
 	VN_RELE(ZTOV(zp));
 
