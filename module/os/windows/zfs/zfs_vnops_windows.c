@@ -144,11 +144,11 @@ zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 
 	if (zfsvfs->z_unmounted ||
 	    zfs_enter(zfsvfs, FTAG) != 0) {
-		vfs_unbusy(zfsvfs);
+		vfs_unbusy(zfsvfs->z_vfs);
 		return (FALSE);
 	}
 
-	vfs_unbusy(zfsvfs);
+	vfs_unbusy(zfsvfs->z_vfs);
 
 	if (vp == NULL ||
 	    VTOZ(vp) == NULL ||
@@ -225,11 +225,11 @@ zfs_AcquireForReadAhead(void *Context, BOOLEAN Wait)
 
 	if (zfsvfs->z_unmounted ||
 	    zfs_enter(zfsvfs, FTAG) != 0) {
-		vfs_unbusy(zfsvfs);
+		vfs_unbusy(zfsvfs->z_vfs);
 		return (FALSE);
 	}
 
-	vfs_unbusy(zfsvfs);
+	vfs_unbusy(zfsvfs->z_vfs);
 
 	if (vp == NULL ||
 	    VTOZ(vp) == NULL ||
@@ -8028,11 +8028,11 @@ fastio_acquire_for_mod_write(PFILE_OBJECT FileObject,
 
 	if (zfsvfs->z_unmounted ||
 	    zfs_enter(zfsvfs, FTAG) != 0) {
-		vfs_unbusy(zfsvfs);
+		vfs_unbusy(zfsvfs->z_vfs);
 		return (STATUS_INVALID_PARAMETER);
 	}
 
-	vfs_unbusy(zfsvfs);
+	vfs_unbusy(zfsvfs->z_vfs);
 
 	vp = FileObject->FsContext;
 
