@@ -8158,6 +8158,11 @@ fastio_query_open(PIRP Irp,
 
 	PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
 
+	// If it has never been open, make it do that through full
+	// first, so vp is set.
+	if (IrpSp->FileObject->FsContext == NULL)
+		return (FALSE);
+
 	if (IrpSp->FileObject->FileName.Buffer != NULL &&
 	    IrpSp->FileObject->FileName.Length > 0) {
 
@@ -8192,9 +8197,10 @@ fastio_query_open(PIRP Irp,
 			/* call sets the IoStatus */
 			dprintf("%s: open OK stat()ing.\n", __func__);
 
-			if (IrpSp->FileObject->FsContext == NULL)
-				IrpSp->FileObject->FsContext =
-				    (vp == NULL) ? dvp : vp;
+//			if (IrpSp->FileObject->FsContext == NULL)
+//				zfs_couplefileobject(dvp, vp,
+//				    IrpSp->FileObject->FsContext, 0ULL, &zccb,
+//				    NULL, 0, NULL);
 
 			file_network_open_information_impl(DeviceObject,
 			    IrpSp->FileObject, NetworkInformation,
