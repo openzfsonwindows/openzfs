@@ -58,8 +58,9 @@ struct proc;
 #define	TASKQ_DC_BATCH		0x0010	/* Taskq uses SDC in batch mode */
 
 #ifdef _WIN32
-#define	TASKQ_TIMESHARE         0x0020  /* macOS dynamic thread priority */
-#define	TASKQ_REALLY_DYNAMIC    0x0040  /* don't filter out TASKQ_DYNAMIC */
+#define	TASKQ_TIMESHARE		0x0020  /* macOS dynamic thread priority */
+#define	TASKQ_REALLY_DYNAMIC	0x0040  /* don't filter out TASKQ_DYNAMIC */
+#define	TASKQ_CREATE_SYNCED	0x0080	/* don't deflate ncpus */
 #endif
 /*
  * Flags for taskq_dispatch. TQ_SLEEP/TQ_NOSLEEP should be same as
