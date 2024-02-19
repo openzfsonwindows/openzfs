@@ -206,7 +206,7 @@ extern NTSTATUS file_ea_information(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION,
 extern NTSTATUS file_alignment_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION, FILE_ALIGNMENT_INFORMATION *);
 extern void file_network_open_information_impl(PDEVICE_OBJECT, PFILE_OBJECT,
-    FILE_NETWORK_OPEN_INFORMATION *, PIO_STATUS_BLOCK);
+    struct vnode *, FILE_NETWORK_OPEN_INFORMATION *, PIO_STATUS_BLOCK);
 extern NTSTATUS file_network_open_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION,	FILE_NETWORK_OPEN_INFORMATION *);
 extern NTSTATUS file_standard_link_information(PDEVICE_OBJECT, PIRP,

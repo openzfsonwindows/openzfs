@@ -2319,6 +2319,9 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 	if (name == NULL)
 		return;
 
+	if (nameoffset > strlen(name))
+		return;
+
 	AsciiStringToUnicodeString(name, &ustr);
 
 	dprintf("%s: '%wZ' part '%S' %lu %u\n", __func__, &ustr,
@@ -4596,12 +4599,11 @@ file_alignment_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 void
 file_network_open_information_impl(PDEVICE_OBJECT DeviceObject,
-    PFILE_OBJECT FileObject, FILE_NETWORK_OPEN_INFORMATION *netopen,
+    PFILE_OBJECT FileObject, vnode_t *vp,
+    FILE_NETWORK_OPEN_INFORMATION *netopen,
     PIO_STATUS_BLOCK IoStatus)
 {
 	dprintf("   %s\n", __func__);
-	struct vnode *vp = FileObject->FsContext;
-	zfs_ccb_t *zccb = FileObject->FsContext2;
 	znode_t *zp = VTOZ(vp);
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
@@ -4662,7 +4664,7 @@ file_network_open_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	// This function relies on VN_HOLD in dispatcher.
 	file_network_open_information_impl(DeviceObject, IrpSp->FileObject,
-	    netopen, &Irp->IoStatus);
+	    IrpSp->FileObject->FsContext, netopen, &Irp->IoStatus);
 
 	return (Irp->IoStatus.Status);
 }

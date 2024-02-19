@@ -1138,11 +1138,16 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			 * Should include the leading "/", when finalname
 			 * here would be "lower".
 			 */
-			rpb->Reserved = strlen(finalname) * sizeof (WCHAR);
-			if (rpb->Reserved != 0)
-				rpb->Reserved += sizeof (WCHAR); // the slash
+			ULONG len = 0;
+			if (finalname && *finalname) {
+				RtlUTF8ToUnicodeN(NULL, 0, &len,
+				    finalname, strlen(finalname));
+				len += sizeof (WCHAR);
+			}
+			rpb->Reserved = len;
 
-			dprintf("%s: returning REPARSE\n", __func__);
+			dprintf("%s: returning REPARSE (remainder %d)\n",
+			    __func__, rpb->Reserved);
 			Irp->IoStatus.Information = rpb->ReparseTag;
 			Irp->Tail.Overlay.AuxiliaryBuffer = (void *)rpb;
 
@@ -7994,7 +7999,8 @@ fastio_query_network_open_info(PFILE_OBJECT FileObject,
 		return (FALSE);
 	}
 
-	file_network_open_information_impl(DeviceObject, FileObject, fnoi,
+	file_network_open_information_impl(DeviceObject, FileObject, vp,
+	    fnoi,
 	    IoStatus);
 
 	ExReleaseResourceLite(vp->FileHeader.Resource);
@@ -8197,13 +8203,9 @@ fastio_query_open(PIRP Irp,
 			/* call sets the IoStatus */
 			dprintf("%s: open OK stat()ing.\n", __func__);
 
-//			if (IrpSp->FileObject->FsContext == NULL)
-//				zfs_couplefileobject(dvp, vp,
-//				    IrpSp->FileObject->FsContext, 0ULL, &zccb,
-//				    NULL, 0, NULL);
-
 			file_network_open_information_impl(DeviceObject,
-			    IrpSp->FileObject, NetworkInformation,
+			    IrpSp->FileObject, vp ? vp : dvp,
+			    NetworkInformation,
 			    &Irp->IoStatus);
 			if (vp)
 				VN_RELE(vp);
