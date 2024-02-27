@@ -135,14 +135,6 @@ int zfs_delay_min_dirty_percent = 60;
 unsigned long zfs_delay_scale = 1000 * 1000 * 1000 / 2000;
 
 /*
-<<<<<<< HEAD
- * This determines the number of threads used by the dp_sync_taskq.
- */
-int zfs_sync_taskq_batch_pct = 75;
-
-/*
-=======
->>>>>>> 85a589016 (Improve ZFS objset sync parallelism)
  * These tunables determine the behavior of how zil_itxg_clean() is
  * called via zil_clean() in the context of spa_sync(). When an itxg
  * list needs to be cleaned, TQ_NOSLEEP will be used when dispatching.
