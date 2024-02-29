@@ -724,7 +724,8 @@ vdev_disk_io_start(zio_t *zio)
 #endif
 		zio->io_error = -blkdev_issue_discard_bytes(
 		    dvd->vd_DeviceObject,
-		    zio->io_offset, zio->io_size, trim_flags);
+		    zio->io_offset + dvd->vdev_win_offset, zio->io_size,
+		    trim_flags);
 		zio_interrupt(zio);
 		return;
 

@@ -235,6 +235,13 @@ kernel_ioctl(PDEVICE_OBJECT DeviceObject, FILE_OBJECT *FileObject,
 }
 
 /* Linux TRIM API */
+
+#include </sys/mod_os.h>
+
+uint64_t windows_trim_enabled = 0;
+ZFS_MODULE_PARAM(, windows_, trim_enabled, U64, ZMOD_RW,
+	"Windows: enable trim");
+
 int
 blk_queue_discard(PDEVICE_OBJECT dev)
 {
@@ -245,8 +252,8 @@ blk_queue_discard(PDEVICE_OBJECT dev)
 	// DWORD bytesReturned = 0;
 	DEVICE_TRIM_DESCRIPTOR dtd = { 0 };
 
-	// Disabled until we can verify #356 "zpool import hangs forever"
-	return (0); // No trim
+	if (!windows_trim_enabled)
+		return (0);
 
 	if (kernel_ioctl(dev, NULL, IOCTL_STORAGE_QUERY_PROPERTY,
 	    &spqTrim, sizeof (spqTrim), &dtd, sizeof (dtd)) == 0) {
@@ -286,6 +293,9 @@ blkdev_issue_discard_bytes(PDEVICE_OBJECT dev, uint64_t offset,
 		DEVICE_MANAGE_DATA_SET_ATTRIBUTES dmdsa;
 		DEVICE_DATA_SET_RANGE range;
 	} set;
+
+	if (!windows_trim_enabled)
+		return (-ENODEV);
 
 	set.dmdsa.Size = sizeof (DEVICE_MANAGE_DATA_SET_ATTRIBUTES);
 	set.dmdsa.Action = DeviceDsmAction_Trim;
