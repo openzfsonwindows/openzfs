@@ -414,6 +414,51 @@ zfs_decouplefileobject(vnode_t *vp, FILE_OBJECT *fileobject)
 
 }
 
+static void
+allocate_reparse(struct vnode *vp, char *finalname, PIRP Irp)
+{
+	znode_t *zp;
+	REPARSE_DATA_BUFFER *rpb;
+	size_t size;
+	PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
+	PFILE_OBJECT FileObject = IrpSp->FileObject;
+
+	zp = VTOZ(vp);
+	// fix me, direct vp access
+	size = zfsctl_is_node(zp) ? vp->v_reparse_size :
+	    zp->z_size;
+	rpb = ExAllocatePoolWithTag(PagedPool,
+	    size, '!FSZ');
+	get_reparse_point_impl(zp, (char *)rpb, size);
+
+	/*
+	 * Length, in bytes, of the unparsed portion of the
+	 * file name pointed to by the FileName member of the
+	 * associated file object.
+	 * Should include the leading "/", when finalname
+	 * here would be "lower".
+	 */
+	ULONG len = 0;
+	if (finalname && *finalname) {
+		RtlUTF8ToUnicodeN(NULL, 0, &len,
+		    finalname, strlen(finalname));
+		len += sizeof (WCHAR);
+	}
+	rpb->Reserved = len;
+
+	dprintf("%s: returning REPARSE (remainder %d)\n",
+	    __func__, rpb->Reserved);
+	Irp->IoStatus.Information = rpb->ReparseTag;
+	Irp->Tail.Overlay.AuxiliaryBuffer = (void *)rpb;
+
+	/* Unknown why, but btrfs does this */
+	if (FileObject) {
+		UNICODE_STRING *fn = &FileObject->FileName;
+		if (fn->Buffer[(fn->Length / sizeof (WCHAR)) - 1] == '\\')
+			rpb->Reserved = sizeof (WCHAR);
+	}
+}
+
 void
 check_and_set_stream_parent(char *stream_name, PFILE_OBJECT FileObject,
     uint64_t id)
@@ -1121,35 +1166,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			 * translation for us.
 			 * - maharmstone
 			 */
-			zp = VTOZ(vp);
-			REPARSE_DATA_BUFFER *rpb;
-			size_t size;
-			// fix me, direct vp access
-			size = zfsctl_is_node(zp) ? vp->v_reparse_size :
-			    zp->z_size;
-			rpb = ExAllocatePoolWithTag(PagedPool,
-			    size, '!FSZ');
-			get_reparse_point_impl(zp, (char *)rpb, size);
-
-			/*
-			 * Length, in bytes, of the unparsed portion of the
-			 * file name pointed to by the FileName member of the
-			 * associated file object.
-			 * Should include the leading "/", when finalname
-			 * here would be "lower".
-			 */
-			ULONG len = 0;
-			if (finalname && *finalname) {
-				RtlUTF8ToUnicodeN(NULL, 0, &len,
-				    finalname, strlen(finalname));
-				len += sizeof (WCHAR);
-			}
-			rpb->Reserved = len;
-
-			dprintf("%s: returning REPARSE (remainder %d)\n",
-			    __func__, rpb->Reserved);
-			Irp->IoStatus.Information = rpb->ReparseTag;
-			Irp->Tail.Overlay.AuxiliaryBuffer = (void *)rpb;
+			Irp->IoStatus.Information = 0;
+			Irp->IoStatus.Status = 0;
+			allocate_reparse(vp, finalname, Irp);
 
 			// should this only work on the final component?
 #if 0
@@ -1206,7 +1225,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		if ((dvp == NULL) || (error == ENOTDIR)) {
 			dprintf("%s: failed to find dvp - or dvp is a file\n",
 			    __func__);
-			Irp->IoStatus.Information = 0;
+			Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
 			return (STATUS_OBJECT_NAME_NOT_FOUND);
 		}
 		dprintf("%s: failed to find vp in dvp\n", __func__);
@@ -8163,12 +8182,12 @@ fastio_query_open(PIRP Irp,
 	struct vnode *vp = NULL, *dvp = NULL;
 
 	PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
-
+#if 0
 	// If it has never been open, make it do that through full
 	// first, so vp is set.
 	if (IrpSp->FileObject->FsContext == NULL)
 		return (FALSE);
-
+#endif
 	if (IrpSp->FileObject->FileName.Buffer != NULL &&
 	    IrpSp->FileObject->FileName.Length > 0) {
 
@@ -8193,6 +8212,11 @@ fastio_query_open(PIRP Irp,
 
 		error = zfs_find_dvp_vp(zfsvfs, filename, 0, 0,
 		    &lastname, &dvp, &vp, 0, 0);
+
+// Handle reparse, or return FALSE/FAIL?
+//		if (error == STATUS_REPARSE)
+//			allocate_reparse(vp, lastname, Irp);
+// But NTFS returns FALSE, so let's do same, so traces match.
 
 		kmem_free(filename, PATH_MAX);
 
@@ -8219,8 +8243,12 @@ fastio_query_open(PIRP Irp,
 	}
 
 	/* Probably can skip setting these, we return FALSE */
-	Irp->IoStatus.Information = 0;
 	Irp->IoStatus.Status = error;
+//	if (error == STATUS_REPARSE)
+//		return (TRUE);
+
+	Irp->IoStatus.Information = 0;
+
 	return (FALSE);
 }
 
