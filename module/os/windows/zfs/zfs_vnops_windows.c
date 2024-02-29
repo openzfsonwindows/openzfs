@@ -60,6 +60,7 @@
 #include <sys/dmu.h>
 #include <sys/dmu_objset.h>
 #include <sys/spa.h>
+#include <sys/spa_impl.h>
 #include <sys/txg.h>
 #include <sys/dbuf.h>
 #include <sys/zap.h>
@@ -2227,6 +2228,10 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
 		return (error);  // This returns EIO if fail
 
+	uint64_t sectorsz = 512ULL;
+	if (zfsvfs->z_os && zfsvfs->z_os->os_spa)
+		sectorsz = zfsvfs->z_os->os_spa->spa_min_alloc;
+
 	switch (IrpSp->Parameters.QueryVolume.FsInformationClass) {
 
 	case FileFsAttributeInformation:
@@ -2353,12 +2358,12 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		FILE_FS_FULL_SIZE_INFORMATION *fffsi =
 		    Irp->AssociatedIrp.SystemBuffer;
 		fffsi->TotalAllocationUnits.QuadPart =
-		    (refdbytes + availbytes) / 512ULL;
+		    (refdbytes + availbytes) / sectorsz;
 		fffsi->ActualAvailableAllocationUnits.QuadPart =
-		    availbytes / 512ULL;
+		    availbytes / sectorsz;
 		fffsi->CallerAvailableAllocationUnits.QuadPart =
-		    availbytes / 512ULL;
-		fffsi->BytesPerSector = 512;
+		    availbytes / sectorsz;
+		fffsi->BytesPerSector = sectorsz;
 		fffsi->SectorsPerAllocationUnit = 1;
 		Irp->IoStatus.Information =
 		    sizeof (FILE_FS_FULL_SIZE_INFORMATION);
@@ -2433,11 +2438,11 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		FILE_FS_SIZE_INFORMATION *ffsi =
 		    Irp->AssociatedIrp.SystemBuffer;
 		ffsi->TotalAllocationUnits.QuadPart =
-		    (refdbytes + availbytes) / 512ULL;
+		    (refdbytes + availbytes) / sectorsz;
 		ffsi->AvailableAllocationUnits.QuadPart =
-		    availbytes / 512ULL;
+		    availbytes / sectorsz;
 		ffsi->SectorsPerAllocationUnit = 1;
-		ffsi->BytesPerSector = 512;
+		ffsi->BytesPerSector = sectorsz;
 		Irp->IoStatus.Information = sizeof (FILE_FS_SIZE_INFORMATION);
 		Status = STATUS_SUCCESS;
 		break;
@@ -2453,11 +2458,11 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 		FILE_FS_SECTOR_SIZE_INFORMATION *ffssi =
 		    Irp->AssociatedIrp.SystemBuffer;
-		ffssi->LogicalBytesPerSector = 512;
-		ffssi->PhysicalBytesPerSectorForAtomicity = 512;
-		ffssi->PhysicalBytesPerSectorForPerformance = 512;
+		ffssi->LogicalBytesPerSector = sectorsz;
+		ffssi->PhysicalBytesPerSectorForAtomicity = sectorsz;
+		ffssi->PhysicalBytesPerSectorForPerformance = sectorsz;
 		ffssi->FileSystemEffectivePhysicalBytesPerSectorForAtomicity =
-		    512;
+		    sectorsz;
 		ffssi->Flags = SSINFO_FLAGS_NO_SEEK_PENALTY;
 		ffssi->ByteOffsetForSectorAlignment = SSINFO_OFFSET_UNKNOWN;
 		ffssi->ByteOffsetForPartitionAlignment = SSINFO_OFFSET_UNKNOWN;
