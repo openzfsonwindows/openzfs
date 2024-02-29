@@ -2315,6 +2315,7 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 	zmo = zfsvfs->z_vfs;
 	UNICODE_STRING ustr;
 	UNICODE_STRING ustream;
+	int wideoffset = nameoffset * sizeof (WCHAR);
 
 	if (name == NULL)
 		return;
@@ -2324,8 +2325,11 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 
 	AsciiStringToUnicodeString(name, &ustr);
 
+	if (wideoffset > ustr.Length)
+		return;
+
 	dprintf("%s: '%wZ' part '%S' %lu %u\n", __func__, &ustr,
-	    /* &name[nameoffset], */ &ustr.Buffer[nameoffset],
+	    /* &name[nameoffset], */ &ustr.Buffer[wideoffset],
 	    FilterMatch, Action);
 
 	if (stream != NULL) {
@@ -2336,7 +2340,7 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 	/* Is nameoffset in bytes, or in characters? */
 	FsRtlNotifyFilterReportChange(zmo->NotifySync, &zmo->DirNotifyList,
 	    (PSTRING)&ustr,
-	    nameoffset * sizeof (WCHAR),
+	    wideoffset,
 	    stream == NULL ? NULL : (PSTRING)&ustream, // StreamName
 	    NULL, FilterMatch, Action, NULL, NULL);
 
