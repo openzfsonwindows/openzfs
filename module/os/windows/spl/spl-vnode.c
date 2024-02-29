@@ -245,6 +245,9 @@ blk_queue_discard(PDEVICE_OBJECT dev)
 	// DWORD bytesReturned = 0;
 	DEVICE_TRIM_DESCRIPTOR dtd = { 0 };
 
+	// Disabled until we can verify #356 "zpool import hangs forever"
+	return (0); // No trim
+
 	if (kernel_ioctl(dev, NULL, IOCTL_STORAGE_QUERY_PROPERTY,
 	    &spqTrim, sizeof (spqTrim), &dtd, sizeof (dtd)) == 0) {
 		return (dtd.TrimEnabled);
