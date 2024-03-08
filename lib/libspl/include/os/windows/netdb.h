@@ -3,8 +3,8 @@
  *
  * The contents of this file are subject to the terms of the
  * Common Development and Distribution License, Version 1.0 only
- * (t  he "License").  You may not use this file except in compliance
- * wit h the License.
+ * (the "License").  You may not use this file except in compliance
+ * with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
  * or http://www.opensolaris.org/os/licensing.
@@ -19,15 +19,28 @@
  *
  * CDDL HEADER END
  */
-/*
- * Copyright(c) 2017 Jorgen Lundman <lundman@lundman.net>
- */
 
-#ifndef _LIBSPL_SYS_SOCKET_H
-#define	_LIBSPL_SYS_SOCKET_H
+#ifndef _LIBSPL_NETDB_H
+#define	_LIBSPL_NETDB_H
 
-#include <WinSock2.h>
+#include <sys/cdefs.h>
+#include <winsock2.h>
+#include <ws2ipdef.h>
+#include <ws2tcpip.h>
 
-#define	SO_NOSIGPIPE 0x00000800
+#pragma comment(lib, "Ws2_32.lib")
+
+#define	EAI_ADDRFAMILY	1 /* address family for hostname not supported */
+
+#define	EAI_SYSTEM	11 /* system error returned in errno */
+#define	EAI_BADHINTS	12 /* invalid value for hints */
+#define	EAI_PROTOCOL	13 /* resolved protocol is unknown */
+#define	EAI_OVERFLOW	14 /* argument buffer overflow */
+#define	EAI_MAX		15
+
+#define	poll WSAPoll
+#define	INFTIM		(-1)
+
+extern ssize_t writev(int fd, struct iovec *iov, unsigned iov_cnt);
 
 #endif

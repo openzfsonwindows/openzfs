@@ -25,6 +25,9 @@
 
 #include <errno.h>
 #define	ECKSUM  EBADE
+#define	EHOSTDOWN	64
+#define	EAUTH		80
+#define	ENEEDAUTH	81
 #define	ERESTART	85  /* Interrupted system call should be restarted */
 
 #endif

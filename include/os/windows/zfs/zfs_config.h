@@ -106,6 +106,7 @@
 #define	HAVE_AVX512VBMI 1
 #define	HAVE_AVX512PF 1
 
+#define	LIBFETCH_IS_FETCH 1
 
 /* Path where the kernel module is installed. */
 #define	KERNEL_MODPREFIX "/Library/Extensions"

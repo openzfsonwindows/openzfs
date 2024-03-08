@@ -3,8 +3,8 @@
  *
  * The contents of this file are subject to the terms of the
  * Common Development and Distribution License, Version 1.0 only
- * (t  he "License").  You may not use this file except in compliance
- * wit h the License.
+ * (the "License").  You may not use this file except in compliance
+ * with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
  * or http://www.opensolaris.org/os/licensing.
@@ -19,15 +19,14 @@
  *
  * CDDL HEADER END
  */
-/*
- * Copyright(c) 2017 Jorgen Lundman <lundman@lundman.net>
- */
 
-#ifndef _LIBSPL_SYS_SOCKET_H
-#define	_LIBSPL_SYS_SOCKET_H
+#ifndef _LIBSPL_NETINET_IN_H
+#define	_LIBSPL_NETINET_IN_H
 
-#include <WinSock2.h>
+#include <sys/cdefs.h>
+#include <winsock2.h>
 
-#define	SO_NOSIGPIPE 0x00000800
+#define	IPPORT_RESERVEDSTART 600
+#define	IPPORT_MAX 65535
 
 #endif
