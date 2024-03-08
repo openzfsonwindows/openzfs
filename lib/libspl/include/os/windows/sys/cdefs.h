@@ -21,16 +21,16 @@
  */
 
 #ifndef _LIBSPL_SYS_CDEFS_H
-#define _LIBSPL_SYS_CDEFS_H
+#define	_LIBSPL_SYS_CDEFS_H
 
 #undef BEGIN_C_DECLS
 #undef END_C_DECLS
 #ifdef __cplusplus
-# define BEGIN_C_DECLS extern "C" {
-# define END_C_DECLS }
+#define	BEGIN_C_DECLS extern "C" {
+#define	END_C_DECLS }
 #else
-# define BEGIN_C_DECLS /* empty */
-# define END_C_DECLS /* empty */
+#define	BEGIN_C_DECLS /* empty */
+#define	END_C_DECLS /* empty */
 #endif
 
 /* FreeBSD still uses the legacy defines */

@@ -21,7 +21,7 @@
  */
 
 #ifndef _LIBSPL_NETINET_IN_H
-#define _LIBSPL_NETINET_IN_H
+#define	_LIBSPL_NETINET_IN_H
 
 #include <sys/cdefs.h>
 #include <winsock2.h>

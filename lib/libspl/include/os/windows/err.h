@@ -40,7 +40,7 @@ errx(int x, const char *f, ...)
 }
 
 inline static void
-warnx(const char *, ...)
+warnx(const char *f, ...)
 {
 	exit(1);
 }

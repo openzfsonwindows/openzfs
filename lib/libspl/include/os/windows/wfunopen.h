@@ -41,14 +41,16 @@
  * For the same of this project, we need relatively few interceptions.
  *
  * Copyright (c) 2024 Jorgen Lundman <lundman@lundman.net>
- * 
+ *
  */
 
 #ifndef _LIBSPL_WFUNOPEN_H
-#define _LIBSPL_WFUNOPEN_H
+#define	_LIBSPL_WFUNOPEN_H
+
+#include <sys/errno.h>
 
 struct fakeFILE_s {
-	const void *cookie;
+	void *cookie;
 	int (*readfn)(void *, char *, int);
 	int (*writefn)(void *, const char *, int);
 	fpos_t(*seekfn)(void *, fpos_t, int);
@@ -59,7 +61,7 @@ struct fakeFILE_s {
 typedef struct fakeFILE_s fakeFILE;
 
 static inline FILE *
-wosix_funopen(const void *cookie,
+wosix_funopen(void *cookie,
     int (*readfn)(void *, char *, int),
     int (*writefn)(void *, const char *, int),
     fpos_t(*seekfn)(void *, fpos_t, int),
@@ -67,13 +69,14 @@ wosix_funopen(const void *cookie,
 {
 	fakeFILE *fFILE = malloc(sizeof (fakeFILE));
 	if (fFILE) {
-		fFILE->cookie = cookie;		
+		fFILE->cookie = cookie;
 		fFILE->seekfn = seekfn;
 		fFILE->readfn = readfn;
 		fFILE->writefn = writefn;
 		fFILE->closefn = closefn;
 		fFILE->realFILE = NULL;
 	}
+
 	return ((FILE *)fFILE);
 }
 #define	funopen wosix_funopen
@@ -155,5 +158,19 @@ static inline size_t wosix_fwrite(void *ptr, size_t size, size_t nmemb, FILE *f)
 	return (result);
 }
 #define	fwrite wosix_fwrite
+
+static inline int wosix_ferror(FILE *f)
+{
+	fakeFILE *fFILE = (fakeFILE *)f;
+	int result;
+
+	if (fFILE->realFILE)
+		result = ferror(fFILE->realFILE);
+	else
+		result = 0;
+
+	return (result);
+}
+#define	ferror wosix_ferror
 
 #endif

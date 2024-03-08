@@ -58,7 +58,7 @@ struct stat64 {
 #define	dirent64 dirent
 #define	statfs64 statfs
 
-#define fseeko _fseeki64
+#define	fseeko _fseeki64
 
 extern int wosix_fsync(int fd);
 extern int wosix_open(const char *path, int oflag, ...);

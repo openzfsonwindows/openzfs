@@ -40,6 +40,10 @@
 #include "libzfs_impl.h"
 #include "zfeature_common.h"
 
+#ifdef _WIN32
+#include <wfunopen.h>
+#endif
+
 /*
  * User keys are used to decrypt the master encryption keys of a dataset. This
  * indirection allows a user to change his / her access key without having to

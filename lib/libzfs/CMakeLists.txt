@@ -33,6 +33,26 @@ find_library(CRYPTO_STATIC_TEST
 	REQUIRED
   )
 
-target_include_directories(libzfs PRIVATE "${CMAKE_SOURCE_DIR}/lib/libzfs")
-target_link_libraries(libzfs PUBLIC libpthread zlib libzutil libshare libzfs_core libnvpair libuutil)
+# Optionally, if there is a "lib/curl*" directory
+# for example, "lib/curl-8.6.0_4-win64-mingw" we also enable
+# LIBFETCH_IS_LIBCURL define, and link in
+# "lib/curl-8.6.0_4-win64-mingw/lib/libcurl"
+# https://curl.se/windows/
+#file( GLOB curl_paths "${CMAKE_SOURCE_DIR}/lib/curl*" )
+#list(LENGTH curl_paths paths_len)
+#if(paths_len GREATER 0)
+#	list(GET curl_paths 0 curl_path)
+#	message("Good News Everyone: Found lib/curl: ${curl_path}")
+#	add_definitions(-DLIBFETCH_IS_LIBCURL -DCURL_STATICLIB -DCURL_DISABLE_LDAP)
+#	include_directories(AFTER "${curl_path}/include")
+#	target_link_libraries(libzfs PRIVATE
+#		"${curl_path}/lib/libcurl.a"
+#		"${curl_path}/lib/libssh2.a"
+#		"${curl_path}/lib/libpsl.a"
+#		"${curl_path}/lib/libnghttp2.a")
+#endif()
+
+
+target_include_directories(libzfs PRIVATE "${CMAKE_SOURCE_DIR}/lib/libzfs" "${CMAKE_SOURCE_DIR}/lib/os/windows/libfetch")
+target_link_libraries(libzfs PUBLIC libpthread zlib libzutil libshare libzfs_core libnvpair libuutil libfetch)
 target_link_libraries(libzfs PRIVATE Crypt32.lib ${CRYPTO_STATIC_TEST})
