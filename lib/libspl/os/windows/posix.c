@@ -303,6 +303,29 @@ mkstemp(char *tmpl)
 }
 
 int
+mkostemps(char *template, int suffixlen, DWORD flags)
+{
+	// Generate a temporary file name
+	char tempPath[MAX_PATH];
+	GetTempPathA(MAX_PATH, tempPath);
+
+	char tempFileName[MAX_PATH];
+	if (GetTempFileNameA(tempPath, "temp", 0, tempFileName) == 0)
+		return (-1);
+
+	strcpy(template, tempFileName);
+	// strncpy(template + strlen(template) - suffixlen, SUFFIX, suffixlen);
+
+	// Open the file with desired flags
+	HANDLE hFile = CreateFileA(template, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+	    FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+	if (hFile == INVALID_HANDLE_VALUE) {
+		return (-1);
+	}
+	return (HTOI(hFile));
+}
+
+int
 readlink(const char *path, char *buf, size_t bufsize)
 {
 	return (-1);
@@ -364,6 +387,40 @@ strncasecmp(const char *s1, const char *s2, size_t n)
 	}
 
 	return (tolower(*(unsigned char *)s1) - tolower(*(unsigned char *)s2));
+}
+
+char *
+strchrnul(const char *p, int ch)
+{
+	for (; *p != 0 && *p != ch; p++)
+		;
+	return (__DECONST(char *, p));
+}
+
+
+/*
+ * Find the first occurrence of find in s, where the search is limited to the
+ * first slen characters of s.
+ */
+char *
+strnstr(const char *s, const char *find, size_t slen)
+{
+	char c, sc;
+	size_t len;
+
+	if ((c = *find++) != '\0') {
+		len = strlen(find);
+		do {
+			do {
+				if (slen-- < 1 || (sc = *s++) == '\0')
+					return (NULL);
+			} while (sc != c);
+			if (len > slen)
+				return (NULL);
+		} while (strncmp(s, find, len) != 0);
+		s--;
+	}
+	return (__DECONST(char *, s));
 }
 
 #define	DIRNAME		0
@@ -1115,6 +1172,35 @@ wosix_write(int fd, const void *data, uint32_t len)
 			return (-1);
 	}
 	return (wrote);
+}
+
+ssize_t
+writev(int fd, struct iovec *iov, unsigned iov_cnt)
+{
+	unsigned i = 0;
+	ssize_t ret = 0;
+	while (i < iov_cnt) {
+		ssize_t r = wosix_write(fd, iov[i].iov_base, iov[i].iov_len);
+
+		if (r > 0) {
+			ret += r;
+		} else if (!r) {
+			break;
+		} else if (errno == EINTR) {
+			continue;
+		} else {
+			/*
+			 * else it is some "other" error,
+			 * only return if there was no data processed.
+			 */
+			if (ret == 0) {
+				ret = -1;
+			}
+			break;
+		}
+		+i++;
+	}
+	return (ret);
 }
 
 #define	is_wprefix(s, prefix) \
@@ -1878,4 +1964,14 @@ wosix_access(const char *name, int mode)
 
 #undef access
 	return (access(name, mode));
+}
+
+char *
+strptime(const char *s,
+    const char *f,
+    struct tm *tm)
+{
+	/* This desperately needs implementing */
+	localtime(tm);
+	return (s);
 }

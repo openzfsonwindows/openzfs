@@ -74,8 +74,10 @@ extern int asprintf(char **strp, const char *fmt, ...);
 extern int strncasecmp(const char *s1, const char *s2, size_t n);
 extern int readlink(const char *path, char *buf, size_t bufsize);
 extern const char *getexecname(void);
+#define	getprogname getexecname
 extern uid_t getuid(void);
 extern uid_t geteuid(void);
+extern pid_t getpid(void);
 
 struct zfs_cmd;
 extern int mkstemp(char *tmpl);
@@ -99,5 +101,8 @@ static inline pid_t fork(void)
 {
 	return (0);
 }
+
+extern int mkostemps(char *templ, int suffixlen, DWORD flags);
+void *reallocarray(void *optr, size_t nmemb, size_t size);
 
 #endif /* _LIBSPL_WINDOWS_UNISTD_H */
