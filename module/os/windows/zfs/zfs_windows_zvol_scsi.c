@@ -113,7 +113,7 @@ wzvol_decref_target(wzvolContext* zvc)
 		// when refCnt is 0 we can free the remove lock block.
 		// All IoReleaseRemoveLock have been called.
 		atomic_cas_ptr(&zvc->pIoRemLock, pIoRemLock, NULL);
-		kmem_free(pIoRemLock, sizeof (*pIoRemLock));
+		ExFreePoolWithTag(pIoRemLock, MP_TAG_GENERAL);
 	}
 }
 
@@ -156,8 +156,9 @@ wzvol_assign_targetid(zvol_state_t *zv)
 {
 	wzvolContext* zv_targets = STOR_wzvolDriverInfo.zvContextArray;
 	ASSERT(zv->zv_zso->zso_target_context == NULL);
-	PIO_REMOVE_LOCK pIoRemLock = kmem_zalloc(sizeof (*pIoRemLock),
-	    KM_SLEEP);
+	PIO_REMOVE_LOCK pIoRemLock = ExAllocatePoolWithTag(NonPagedPoolNx,
+	    sizeof (*pIoRemLock), MP_TAG_GENERAL);
+
 	if (!pIoRemLock) {
 		dprintf("ZFS: Unable to assign targetid - out of memory.\n");
 		ASSERT("Unable to assign targetid - out of memory.");
@@ -212,7 +213,7 @@ wzvol_assign_targetid(zvol_state_t *zv)
 		IoReleaseRemoveLock(pIoRemLock, zv);
 	}
 
-	kmem_free(pIoRemLock, sizeof (*pIoRemLock));
+	ExFreePoolWithTag(pIoRemLock, MP_TAG_GENERAL);
 	dprintf("ZFS: Unable to assign targetid - out of room.\n");
 	ASSERT("Unable to assign targetid - out of room.");
 	return (0);
