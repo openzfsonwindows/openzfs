@@ -2315,7 +2315,7 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 	zmo = zfsvfs->z_vfs;
 	UNICODE_STRING ustr;
 	UNICODE_STRING ustream;
-	int wideoffset = nameoffset * sizeof (WCHAR);
+	int wideoffset = nameoffset / sizeof (WCHAR);
 
 	if (name == NULL)
 		return;
