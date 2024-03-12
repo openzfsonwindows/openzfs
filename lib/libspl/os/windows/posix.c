@@ -44,6 +44,20 @@
 /* Magic instruction to compiler to add library */
 #pragma comment(lib, "ws2_32.lib")
 
+/*
+ * Windows needs the winsock2 code to be initialised before
+ * use, and we don't really know who will be called first.
+ */
+static __attribute__((constructor)) void
+posix_init_winsock(void)
+{
+	WSADATA wsaData;
+	int ret;
+	ret = WSAStartup(MAKEWORD(2, 2), &wsaData);
+	if (ret != 0)
+		fprintf(stderr, "Initialising winsock2 failed: %d\r\n", ret);
+}
+
 void
 clock_gettime(clock_type_t t, struct timespec *ts)
 {
@@ -317,8 +331,9 @@ mkostemps(char *template, int suffixlen, DWORD flags)
 	// strncpy(template + strlen(template) - suffixlen, SUFFIX, suffixlen);
 
 	// Open the file with desired flags
-	HANDLE hFile = CreateFileA(template, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
-	    FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+	HANDLE hFile = CreateFileA(template, GENERIC_READ | GENERIC_WRITE, 0,
+	    NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY |
+	    FILE_FLAG_DELETE_ON_CLOSE | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
 	if (hFile == INVALID_HANDLE_VALUE) {
 		return (-1);
 	}
@@ -1051,9 +1066,6 @@ wosix_open(const char *inpath, int oflag, ...)
 	return (HTOI(h));
 }
 
-// Figure out when to call WSAStartup();
-static int posix_init_winsock = 0;
-
 int
 wosix_close(int fd)
 {
@@ -1177,7 +1189,7 @@ wosix_write(int fd, const void *data, uint32_t len)
 ssize_t
 writev(int fd, struct iovec *iov, unsigned iov_cnt)
 {
-	unsigned i = 0;
+	unsigned int i = 0;
 	ssize_t ret = 0;
 	while (i < iov_cnt) {
 		ssize_t r = wosix_write(fd, iov[i].iov_base, iov[i].iov_len);
@@ -1520,19 +1532,6 @@ wosix_socketpair(int domain, int type, int protocol, int sv[2])
 	int nameLen;
 	unsigned long option_arg = 1;
 	int err = 0;
-	WSADATA wsaData;
-
-	// Do we need to init winsock? Is this the right way, should we
-	// add _init/_exit calls? If socketpair is the only winsock call
-	// we have, this might be ok.
-	if (posix_init_winsock == 0) {
-		posix_init_winsock = 1;
-		err = WSAStartup(MAKEWORD(2, 2), &wsaData);
-		if (err != 0) {
-			errno = err;
-			return (-1);
-		}
-	}
 
 	nameLen = sizeof (saddr);
 
@@ -1918,26 +1917,26 @@ timer_create(clockid_t id, struct sigevent *__restrict se,
 }
 
 int
-timer_delete(timer_t)
+timer_delete(timer_t t)
 {
 	return (0);
 }
 
 int
-timer_gettime(timer_t, struct itimerspec *)
+timer_gettime(timer_t t, struct itimerspec *v)
 {
 	return (0);
 }
 
 int
-timer_getoverrun(timer_t)
+timer_getoverrun(timer_t t)
 {
 	return (0);
 }
 
 int
-timer_settime(timer_t, int, const struct itimerspec *__restrict,
-    struct itimerspec *__restrict)
+timer_settime(timer_t t, int x, const struct itimerspec *tv,
+    struct itimerspec *itv)
 {
 	return (0);
 }
