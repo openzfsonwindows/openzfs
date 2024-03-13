@@ -35,4 +35,7 @@ struct  group { /* see getgrent(3C) */
 
 extern struct group *getgrnam(const char *);    /* MT-unsafe */
 
+int getgrnam_r(const char *name, struct group *grp,
+    char *buf, size_t buflen, struct group **result);
+
 #endif
