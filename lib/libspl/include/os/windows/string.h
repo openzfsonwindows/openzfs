@@ -75,4 +75,6 @@ char *strsep(char **stringp, const char *delim);
 char *strchrnul(const char *p, int ch);
 char *strnstr(const char *s, const char *find, size_t slen);
 
+#define	strerror_l(X, Y) strerror(X)
+
 #endif
