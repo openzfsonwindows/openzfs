@@ -241,7 +241,7 @@ ddi_soft_state_free(void *state, int item)
 		cmn_err(CE_WARN, "%s bad handle",
 		    msg);
 	} else if (item < 0 || item >= ss->n_items) {
-		cmn_err(CE_WARN, "%s item %d not in range [0..%lu]",
+		cmn_err(CE_WARN, "%s item %d not in range [0..%u]",
 		    msg, item, ss->n_items - 1);
 	} else if (array[item] != NULL) {
 		element = array[item];
@@ -379,13 +379,15 @@ ddi_strtol(const char *str, char **nptr, int base, long *result)
 			c = *++ustr;
 		}
 	}
-	if (base == 0)
+	if (base == 0) {
 		if (c != '0')
 			base = 10;
 		else if (ustr[1] == 'x' || ustr[1] == 'X')
 			base = 16;
 		else
 			base = 8;
+	}
+
 	/*
 	 * for any base > 10, the digits incrementally following
 	 *	9 are assumed to be "abc...z" or "ABC...Z"
@@ -493,13 +495,14 @@ ddi_strtoll(const char *str, char **nptr, int base, long long *result)
 			c = *++ustr;
 		}
 	}
-	if (base == 0)
+	if (base == 0) {
 		if (c != '0')
 			base = 10;
 		else if (ustr[1] == 'x' || ustr[1] == 'X')
 			base = 16;
 		else
 			base = 8;
+	}
 	/*
 	 * for any base > 10, the digits incrementally following
 	 *	9 are assumed to be "abc...z" or "ABC...Z"
@@ -586,7 +589,7 @@ strlcpy(char *s, const char *t, size_t n)
 				*s = 0;
 				break;
 			}
-		} while (*s++ = *t++);
+		} while ((*s++ = *t++) != 0);
 	if (!n)
 		while (*t++)
 			;
@@ -599,7 +602,7 @@ strlcat(char *s, const char *t, size_t n)
 	register size_t m;
 	const char *o = t;
 
-	if (m = n) {
+	if ((m = n) != 0) {
 		while (n && *s) {
 			n--;
 			s++;
@@ -611,7 +614,7 @@ strlcat(char *s, const char *t, size_t n)
 					*s = 0;
 					break;
 				}
-			} while (*s++ = *t++);
+			} while ((*s++ = *t++) != 0);
 		else
 			*s = 0;
 	}

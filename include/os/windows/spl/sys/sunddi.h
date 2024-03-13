@@ -141,15 +141,15 @@ typedef void 	*ldi_ident_t;
 #define	bioerror(bp, er)	(buf_seterror((bp), (er)))
 #define	biodone(bp) buf_biodone(bp)
 
-static inline long ddi_fls(long mask) {      \
-	/* Algorithm courtesy of Steve Chessin. */	\
-    while (mask) {                           \
-		long nx;                             \
-		if ((nx = (mask & (mask - 1))) == 0) \
-			break;                           \
-		mask = nx;                           \
-	}                                        \
-	return (__lzcnt(mask));                  \
+static inline long ddi_fls(long mask) {
+	/* Algorithm courtesy of Steve Chessin. */
+	while (mask) {
+		long nx;
+		if ((nx = (mask & (mask - 1))) == 0)
+			break;
+		mask = nx;
+	}
+	return (__lzcnt(mask));
 }
 
 // find_first_bits_de_bruijn(unsigned nums[ARRAY_SIZE])

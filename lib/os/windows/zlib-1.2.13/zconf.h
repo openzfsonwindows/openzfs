@@ -449,19 +449,19 @@ typedef uLong FAR uLongf;
 
 #ifdef STDC
 #  ifndef Z_SOLO
-/* TODO MERGE: #    include <sys/types.h>      /* for off_t */
+// TODO MERGE: #    include <sys/types.h>      /* for off_t */
 #  endif
 #endif
 
 #if defined(STDC) || defined(Z_HAVE_STDARG_H)
 #  ifndef Z_SOLO
-/* TODO MERGE: #    include <stdarg.h>         /* for va_list */
+// TODO MERGE: #    include <stdarg.h>         /* for va_list */
 #  endif
 #endif
 
 #ifdef _WIN32
 #  ifndef Z_SOLO
-/* TODO MERGE: #    include <stddef.h>         /* for wchar_t */
+// TODO MERGE: #    include <stddef.h>         /* for wchar_t */
 #  endif
 #endif
 

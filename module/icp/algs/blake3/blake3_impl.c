@@ -355,8 +355,6 @@ blake3_param_set(const char *val, zfs_kernel_param_t *unused)
 int
 win32_blake3_param_set(ZFS_MODULE_PARAM_ARGS)
 {
-	static char str[1024] = "";
-
 	*type = ZT_TYPE_STRING;
 
 	if (set == B_FALSE) {

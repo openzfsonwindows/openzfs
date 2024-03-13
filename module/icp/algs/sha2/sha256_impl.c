@@ -258,8 +258,7 @@ sha256_param_set(const char *val, zfs_kernel_param_t *unused)
 int
 win32_sha256_param_set(ZFS_MODULE_PARAM_ARGS)
 {
-	uint32_t val;
-	static unsigned char str[1024] = "";
+	static char str[1024] = "";
 
 	*type = ZT_TYPE_STRING;
 
