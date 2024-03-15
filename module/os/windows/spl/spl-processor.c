@@ -86,10 +86,10 @@ spl_cpuid_features(void)
 
 	if (first_time == 1) {
 		first_time = 0;
-		// Wikipedia: stored in EAX, EBX, EDX, ECX (in that order).
-		_spl_cpuid(0, a, b, d, c);
+
+		_spl_cpuid(0, a, b, c, d);
 		if (a >= 1) {
-			_spl_cpuid(1, a, b, d, c);
+			_spl_cpuid(1, a, b, c, d);
 			_spl_cpuid_features = d | (c << 32);
 
 			// GETBV is bit 26 in ECX. Apple defines it as:
@@ -101,7 +101,7 @@ spl_cpuid_features(void)
 		}
 		if (a >= 7) {
 			c = 0;
-			_spl_cpuid(7, a, b, d, c);
+			_spl_cpuid(7, a, b, c, d);
 			_spl_cpuid_features_leaf7 = b | (c << 32);
 		}
 		xprintf("SPL: CPUID 0x%08llx and leaf7 0x%08llx\n",
