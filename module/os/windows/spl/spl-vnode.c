@@ -1512,6 +1512,8 @@ vnode_drain_delayclose(int force)
 			vnode_unlock(vp);
 			dprintf("%s: freeing DEAD vp %p\n", __func__, vp);
 
+			vnode_set_reparse(vp, NULL, 0);
+			ASSERT0(vnode_security(vp));
 			kmem_cache_free(vnode_cache, vp);
 			atomic_dec_64(&vnode_active);
 

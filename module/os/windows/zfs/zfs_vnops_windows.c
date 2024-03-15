@@ -8208,6 +8208,7 @@ fastio_query_open(PIRP Irp,
 			dprintf("RtlUnicodeToUTF8N returned 0x%x "
 			    "input len %d\n",
 			    error, IrpSp->FileObject->FileName.Length);
+			kmem_free(filename, PATH_MAX);
 			Irp->IoStatus.Status = STATUS_OBJECT_NAME_INVALID;
 			Irp->IoStatus.Information = 0;
 			return (FALSE);
@@ -8324,4 +8325,5 @@ fastio_init(FAST_IO_DISPATCH **fast)
 	*fast = &FastIoDispatch;
 	dprintf("Using FASTIO\n");
 #endif // ZFS_HAVE_FASTIO
+
 }

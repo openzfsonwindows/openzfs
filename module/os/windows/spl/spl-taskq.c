@@ -1032,7 +1032,7 @@ again:
 			if (tqdnode == task) {
 				/*
 				 * First check if it has already started
-				 * executing, if so, we want for signal
+				 * executing, if so, we wait for signal
 				 * that it has finished and restart the loop.
 				 */
 				if (tqdnode->tqd_ent != TASKQID_INVALID) {

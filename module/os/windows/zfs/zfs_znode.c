@@ -204,6 +204,7 @@ zfs_znode_cache_destructor(void *buf, void *arg)
 static int
 zfs_znode_hold_cache_constructor(void *buf, void *arg, int kmflags)
 {
+	(void) arg, (void) kmflags;
 	znode_hold_t *zh = buf;
 
 	mutex_init(&zh->zh_lock, NULL, MUTEX_DEFAULT, NULL);
@@ -215,6 +216,7 @@ zfs_znode_hold_cache_constructor(void *buf, void *arg, int kmflags)
 static void
 zfs_znode_hold_cache_destructor(void *buf, void *arg)
 {
+	(void) arg;
 	znode_hold_t *zh = buf;
 
 	mutex_destroy(&zh->zh_lock);
