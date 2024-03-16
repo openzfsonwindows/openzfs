@@ -26,33 +26,10 @@
  */
 
 #include <sys/processor.h>
+#include <sys/simd.h>
 
 /* Holds the flags for KeSaveExtendedProcessorState() in simd.h */
 uint32_t kfpu_state = 0;
-
-#ifdef __x86_64__
-
-/* Should probably use MS cpuid() call */
-
-#define	_spl_cpuid(func, a, b, c, d)	\
-	__asm__ __volatile__( \
-	"        pushq %%rbx        \n" \
-	"        xorq %%rcx,%%rcx   \n" \
-	"        cpuid              \n" \
-	"        movq %%rbx, %%rsi  \n" \
-	"        popq %%rbx         \n" : \
-	"=a" (a), "=S" (b), "=c" (c), "=d" (d) : "a" (func))
-
-#else /* Add ARM */
-
-#define	_spl_cpuid(func, a, b, c, d)				\
-	a = b = c = d = 0
-
-#endif
-
-static uint64_t _spl_cpuid_features = 0ULL;
-static uint64_t _spl_cpuid_features_leaf7 = 0ULL;
-static boolean_t _spl_cpuid_has_xgetbv = B_FALSE;
 
 uint32_t
 cpu_number(void)
@@ -70,58 +47,27 @@ getcpuid()
 	return (cpuid % max_ncpus);
 }
 
-uint64_t
-spl_cpuid_features(void)
+int
+spl_processor_init(void)
 {
-
-#if defined(__aarch64__)
-
-	// Find arm64 solution.
-	_spl_cpuid_has_xgetbv = B_FALSE; /* Silence unused */
-
-#else /* X64 */
-
-	static int first_time = 1;
-	uint64_t a, b, c, d;
-
-	if (first_time == 1) {
-		first_time = 0;
-
-		_spl_cpuid(0, a, b, c, d);
-		if (a >= 1) {
-			_spl_cpuid(1, a, b, c, d);
-			_spl_cpuid_features = d | (c << 32);
-
-			// GETBV is bit 26 in ECX. Apple defines it as:
-			// CPUID_FEATURE_XSAVE _HBit(26)
-			// ( ECX & (1 << 26)
-			// or, (feature & 400000000000000)
-			_spl_cpuid_has_xgetbv =
-			    _spl_cpuid_features & CPUID_FEATURE_XSAVE;
-		}
-		if (a >= 7) {
-			c = 0;
-			_spl_cpuid(7, a, b, c, d);
-			_spl_cpuid_features_leaf7 = b | (c << 32);
-		}
-		xprintf("SPL: CPUID 0x%08llx and leaf7 0x%08llx\n",
-		    _spl_cpuid_features, _spl_cpuid_features_leaf7);
-
-		if (_spl_cpuid_features & CPUID_FEATURE_AVX1_0)
-			kfpu_state |= XSTATE_MASK_AVX;
-		if (_spl_cpuid_features_leaf7 & CPUID_LEAF7_FEATURE_AVX2)
-			kfpu_state |= XSTATE_MASK_AVX;
-		if (_spl_cpuid_features_leaf7 & CPUID_LEAF7_FEATURE_AVX512F)
-			kfpu_state |= XSTATE_MASK_AVX512;
-
-	}
+#if defined(__x86_64__)
+	dprintf("CPUID: %s%s%s%s%s%s%s\n",
+	    zfs_osxsave_available() ? "osxsave " : "",
+	    zfs_sse_available() ? "sse " : "",
+	    zfs_sse2_available() ? "sse2 " : "",
+	    zfs_sse3_available() ? "sse3 " : "",
+	    zfs_ssse3_available() ? "ssse3 " : "",
+	    zfs_sse4_1_available() ? "sse4.1 " : "",
+	    zfs_sse4_2_available() ? "sse4.2 " : "");
+	dprintf("CPUID: %s%s%s%s%s%s%s\n",
+	    zfs_avx_available() ? "avx " : "",
+	    zfs_avx2_available() ? "avx2 " : "",
+	    zfs_aes_available() ? "aes " : "",
+	    zfs_pclmulqdq_available() ? "pclmulqdq " : "",
+	    zfs_avx512f_available() ? "avx512f " : "",
+	    zfs_movbe_available() ? "movbe " : "",
+	    zfs_shani_available() ? "sha-ni " : "");
 #endif
 
-	return (_spl_cpuid_features);
-}
-
-uint64_t
-spl_cpuid_leaf7_features(void)
-{
-	return (_spl_cpuid_features_leaf7);
+	return (0);
 }

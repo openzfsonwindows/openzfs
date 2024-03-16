@@ -38,6 +38,7 @@
 #include <sys/sunddi.h>
 #include <sys/mod_os.h>
 #include <sys/random.h>
+#include <sys/processor.h>
 #include <zfs_gitrev.h>
 
 #define	DEBUG 1  // for backtrace debugging info
@@ -548,6 +549,8 @@ spl_start(PUNICODE_STRING RegistryPath)
 	spl_kmem_mp_init();
 
 	kstat_init();
+
+	spl_processor_init();
 
 	IOLog("SPL: Loaded module v%s-%s%s, "
 	    "(ncpu %d, memsize %llu, pages %llu)\n",
