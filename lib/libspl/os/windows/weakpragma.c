@@ -27,7 +27,6 @@
 #include <sys/dmu.h>
 #include <sys/dbuf.h>
 
-
 /* No #pragma weaks here! */
 void
 dmu_buf_add_ref(dmu_buf_t *db, const void *tag)
