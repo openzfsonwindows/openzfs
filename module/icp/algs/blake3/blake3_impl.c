@@ -355,10 +355,10 @@ blake3_param_set(const char *val, zfs_kernel_param_t *unused)
 int
 win32_blake3_param_set(ZFS_MODULE_PARAM_ARGS)
 {
+	static char buffer[PAGE_SIZE]; /* Looks like they use page size */
 	*type = ZT_TYPE_STRING;
 
 	if (set == B_FALSE) {
-		char buffer[PAGE_SIZE]; /* Looks like they use page size */
 		blake3_param_get(buffer, NULL);
 		*ptr = buffer;
 		*len = strlen(buffer);

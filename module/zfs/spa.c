@@ -1485,7 +1485,7 @@ spa_taskq_write_param(ZFS_MODULE_PARAM_ARGS)
 static int
 win32_spa_taskq_read_param_set(ZFS_MODULE_PARAM_ARGS)
 {
-	char str[1024] = "";
+	static char str[1024] = "";
 
 	*type = ZT_TYPE_STRING;
 
@@ -1506,7 +1506,7 @@ win32_spa_taskq_read_param_set(ZFS_MODULE_PARAM_ARGS)
 static int
 win32_spa_taskq_write_param_set(ZFS_MODULE_PARAM_ARGS)
 {
-	char str[1024] = "";
+	static char str[1024] = "";
 
 	*type = ZT_TYPE_STRING;
 

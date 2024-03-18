@@ -1031,15 +1031,15 @@ icp_gcm_impl_get(char *buffer, zfs_kernel_param_t *kp)
 int
 win32_icp_gcm_impl_set(ZFS_MODULE_PARAM_ARGS)
 {
-	static char str[1024] = "";
+	static char buffer[PAGE_SIZE] = "";
 
 	*type = ZT_TYPE_STRING;
 
 	if (set == B_FALSE) {
 		if (gcm_impl_initialized)
-			icp_gcm_impl_get(str, NULL);
-		*ptr = str;
-		*len = strlen(str);
+			icp_gcm_impl_get(buffer, NULL);
+		*ptr = buffer;
+		*len = strlen(buffer);
 		return (0);
 	}
 
