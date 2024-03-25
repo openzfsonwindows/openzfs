@@ -2372,14 +2372,15 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	case FileFsObjectIdInformation:
 		dprintf("* %s: FileFsObjectIdInformation\n", __func__);
-		FILE_FS_OBJECTID_INFORMATION* ffoi =
+		FILE_FS_OBJECTID_INFORMATION *ffoi =
 		    Irp->AssociatedIrp.SystemBuffer;
-		// RtlCopyMemory(ffoi->ObjectId, &Vcb->superblock.uuid.uuid[0],
-	    // sizeof (UCHAR) * 16);
+		RtlZeroMemory(ffoi->ObjectId, sizeof (ffoi->ObjectId));
+		uint64_t guid = dmu_objset_fsid_guid(zfsvfs->z_os);
+		RtlCopyMemory(ffoi->ObjectId, &guid, sizeof (ffoi->ObjectId));
 		RtlZeroMemory(ffoi->ExtendedInfo, sizeof (ffoi->ExtendedInfo));
 		Irp->IoStatus.Information =
 		    sizeof (FILE_FS_OBJECTID_INFORMATION);
-		Status = STATUS_OBJECT_NAME_NOT_FOUND; // returned by NTFS
+		Status = STATUS_SUCCESS;
 		break;
 
 	case FileFsVolumeInformation:
@@ -3378,6 +3379,7 @@ create_or_get_object_id(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	RtlCopyMemory(&fob->ObjectId[0], &zp->z_id, sizeof (UINT64));
 	uint64_t guid = dmu_objset_fsid_guid(zfsvfs->z_os);
 	RtlCopyMemory(&fob->ObjectId[sizeof (UINT64)], &guid, sizeof (UINT64));
+	RtlZeroMemory(fob->ExtendedInfo, sizeof (fob->ExtendedInfo));
 
 	VN_RELE(vp);
 
