@@ -859,10 +859,14 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	    BooleanFlagOn(Options, FILE_OPEN_REPARSE_POINT);
 
 
-	// Should be passed an 8 byte FileId instead.
-	if (FileOpenByFileId && FileObject->FileName.Length !=
-	    sizeof (ULONGLONG))
-		return (STATUS_INVALID_PARAMETER);
+	// Should be passed an 8/16 byte FileId instead.
+	if (FileOpenByFileId) {
+		if (FileObject->FileName.Length !=
+		    sizeof (ULONGLONG) &&
+		    FileObject->FileName.Length !=
+		    sizeof (FILE_ID_128))
+			return (STATUS_INVALID_PARAMETER);
+	}
 
 	TemporaryFile = BooleanFlagOn(IrpSp->Parameters.Create.FileAttributes,
 	    FILE_ATTRIBUTE_TEMPORARY);
@@ -1107,8 +1111,11 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 		}
 
-	} else {  // Open By File ID
+	} else {  // Open By File ID FileOpenByFileId
 
+		// Filename.Length is 16 (ObjectID) should we
+		// verify the VolumeID matches? Lookup VolumeID?
+		// or can we rely on zfsvfs being correct?
 		error = zfs_zget(zfsvfs,
 		    *((uint64_t *)IrpSp->FileObject->FileName.Buffer), &zp);
 		// Code below assumed dvp is also , so we need to
