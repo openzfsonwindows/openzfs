@@ -3364,7 +3364,8 @@ zfs_inactive(struct vnode *vp)
 		return;
 	}
 
-	if (zp->z_atime_dirty && zp->z_unlinked == 0) {
+	if (zp->z_atime_dirty && zp->z_unlinked == 0 &&
+	    !spa_suspended(dmu_objset_spa(zfsvfs->z_os))) {
 		dmu_tx_t *tx = dmu_tx_create(zfsvfs->z_os);
 
 		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
