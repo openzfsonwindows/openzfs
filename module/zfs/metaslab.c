@@ -640,7 +640,7 @@ metaslab_class_evict_old(metaslab_class_t *mc, uint64_t txg)
 	multilist_t *ml = &mc->mc_metaslab_txg_list;
 	hrtime_t now = gethrtime();
 	for (int i = 0; i < multilist_get_num_sublists(ml); i++) {
-		multilist_sublist_t *mls = multilist_sublist_lock(ml, i);
+		multilist_sublist_t *mls = multilist_sublist_lock_idx(ml, i);
 		metaslab_t *msp = multilist_sublist_head(mls);
 		multilist_sublist_unlock(mls);
 		while (msp != NULL) {
@@ -657,7 +657,7 @@ metaslab_class_evict_old(metaslab_class_t *mc, uint64_t txg)
 				i--;
 				break;
 			}
-			mls = multilist_sublist_lock(ml, i);
+			mls = multilist_sublist_lock_idx(ml, i);
 			metaslab_t *next_msp = multilist_sublist_next(mls, msp);
 			multilist_sublist_unlock(mls);
 			if (txg >
@@ -2235,12 +2235,12 @@ metaslab_potentially_evict(metaslab_class_t *mc)
 		unsigned int idx = multilist_get_random_index(
 		    &mc->mc_metaslab_txg_list);
 		multilist_sublist_t *mls =
-		    multilist_sublist_lock(&mc->mc_metaslab_txg_list, idx);
+		    multilist_sublist_lock_idx(&mc->mc_metaslab_txg_list, idx);
 		metaslab_t *msp = multilist_sublist_head(mls);
 		multilist_sublist_unlock(mls);
 		while (msp != NULL && allmem * zfs_metaslab_mem_limit / 100 <
 		    inuse * size) {
-			VERIFY3P(mls, ==, multilist_sublist_lock(
+			VERIFY3P(mls, ==, multilist_sublist_lock_idx(
 			    &mc->mc_metaslab_txg_list, idx));
 			ASSERT3U(idx, ==,
 			    metaslab_idx_func(&mc->mc_metaslab_txg_list, msp));
