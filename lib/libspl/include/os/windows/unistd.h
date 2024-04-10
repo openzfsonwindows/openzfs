@@ -63,6 +63,8 @@ extern size_t strlcpy(register char *s, register const char *t,
 extern size_t strlcat(register char *s, register const char *t,
     register size_t n);
 
+extern ssize_t getline_impl(char **linep, size_t *linecapp, FILE *stream,
+    boolean_t internal);
 extern ssize_t getline(char **linep, size_t *linecapp, FILE *stream);
 
 // int pread_win(HANDLE h, void *buf, size_t nbyte, off_t offset);

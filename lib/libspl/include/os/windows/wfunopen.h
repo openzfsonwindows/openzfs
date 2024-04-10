@@ -122,10 +122,12 @@ static inline ssize_t wosix_getline(char **linep, size_t *linecap, FILE *f)
 	fakeFILE *fFILE = (fakeFILE *)f;
 	int result;
 
-	if (fFILE->realFILE)
+	if (f == stdin)
+		result = getline_impl(linep, linecap, f, FALSE);
+	else if (fFILE->realFILE)
 		result = getline(linep, linecap, fFILE->realFILE);
 	else
-		result = fFILE->readfn(fFILE->cookie, *linep, *linecap);
+		result = getline_impl(linep, linecap, (FILE *)fFILE, TRUE);
 
 	return (result);
 }
