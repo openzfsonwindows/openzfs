@@ -40,6 +40,7 @@
 #include <langinfo.h>
 #include <os/windows/zfs/sys/zfs_ioctl_compat.h>
 #include <sys/mman.h>
+#include <wfunopen.h>
 
 /* Magic instruction to compiler to add library */
 #pragma comment(lib, "ws2_32.lib")
@@ -796,10 +797,10 @@ strlcpy(register char *s, register const char *t, register size_t n)
 				break;
 			}
 		} while ((*s++ = *t++));
-		if (!n)
-			while (*t++)
-				;
-		return (t - o - 1);
+	if (!n)
+		while (*t++)
+			;
+	return (t - o - 1);
 }
 
 extern size_t
@@ -889,17 +890,21 @@ console_echo(boolean_t willecho)
 // Not really getline, just used for password input in libzfs_crypto.c
 #define	MAX_GETLINE 128
 ssize_t
-getline(char **linep, size_t *linecapp,
-    FILE *stream)
+getline_impl(char **linep, size_t *linecapp,
+    FILE *stream, boolean_t internal)
 {
 	static char getpassbuf[MAX_GETLINE + 1];
 	size_t i = 0;
+	fakeFILE *fFILE = (fakeFILE *)stream;
 
 	console_echo(FALSE);
 
 	int c;
 	for (;;) {
-		c = getc(stream);
+		if (internal)
+			fFILE->readfn(fFILE->cookie, (char *)&c, 1);
+		else
+			c = getc(stream);
 		if ((c == '\r') || (c == '\n')) {
 			getpassbuf[i] = '\0';
 			break;
@@ -918,6 +923,14 @@ getline(char **linep, size_t *linecapp,
 	console_echo(TRUE);
 
 	return (i);
+}
+
+#undef getline
+ssize_t
+getline(char **linep, size_t *linecapp, FILE *stream)
+{
+	return (getline_impl(linep, linecapp,
+	    stream, FALSE));
 }
 
 
