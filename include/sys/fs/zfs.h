@@ -983,8 +983,14 @@ typedef struct zpool_load_policy {
 /*
  * Settings for zpool compatibility features files
  */
+#ifdef _WIN32
+/* Lets stay away from C:/windows */
+#define	ZPOOL_SYSCONF_COMPAT_D	ZFSEXECDIR "\\compatibility.d"
+#define	ZPOOL_DATA_COMPAT_D	ZFSEXECDIR "\\compatibility.d"
+#else
 #define	ZPOOL_SYSCONF_COMPAT_D	SYSCONFDIR "/zfs/compatibility.d"
 #define	ZPOOL_DATA_COMPAT_D	PKGDATADIR "/compatibility.d"
+#endif
 #define	ZPOOL_COMPAT_MAXSIZE	16384
 
 /*
