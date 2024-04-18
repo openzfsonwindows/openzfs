@@ -315,7 +315,7 @@ get_usage(zfs_help_t idx)
 		    "[-S property]... [-t type[,...]] "
 		    "[filesystem|volume|snapshot] ...\n"));
 	case HELP_MOUNT:
-		return (gettext("\tmount\n"
+		return (gettext("\tmount [-j]\n"
 		    "\tmount [-flvO] [-o opts] <-a|-R filesystem|"
 		    "filesystem>\n"));
 	case HELP_PROMOTE:
@@ -7451,14 +7451,17 @@ share_mount(int op, int argc, char **argv)
 	int do_all = 0;
 	int recursive = 0;
 	boolean_t verbose = B_FALSE;
+	boolean_t json = B_FALSE;
 	int c, ret = 0;
 	char *options = NULL;
 	int flags = 0;
+	nvlist_t *jsobj, *data, *item;
 	const uint_t mount_nthr = 512;
 	uint_t nthr;
+	jsobj = data = item = NULL;
 
 	/* check options */
-	while ((c = getopt(argc, argv, op == OP_MOUNT ? ":aRlvo:Of" : "al"))
+	while ((c = getopt(argc, argv, op == OP_MOUNT ? ":ajRlvo:Of" : "al"))
 	    != -1) {
 		switch (c) {
 		case 'a':
@@ -7472,6 +7475,11 @@ share_mount(int op, int argc, char **argv)
 			break;
 		case 'l':
 			flags |= MS_CRYPT;
+			break;
+		case 'j':
+			json = B_TRUE;
+			jsobj = zfs_json_schema(0, 1);
+			data = fnvlist_alloc();
 			break;
 		case 'o':
 			if (*optarg == '\0') {
@@ -7506,6 +7514,11 @@ share_mount(int op, int argc, char **argv)
 
 	argc -= optind;
 	argv += optind;
+
+	if (json && argc != 0) {
+		(void) fprintf(stderr, gettext("too many arguments\n"));
+		usage(B_FALSE);
+	}
 
 	/* check number of arguments */
 	if (do_all || recursive) {
@@ -7617,12 +7630,30 @@ share_mount(int op, int argc, char **argv)
 			    strchr(entry.mnt_special, '@') != NULL)
 				continue;
 #endif
-
-			(void) printf("%-30s  %s\n", entry.mnt_special,
-			    entry.mnt_mountp);
+			if (json) {
+				item = fnvlist_alloc();
+				fnvlist_add_string(item, "filesystem",
+				    entry.mnt_special);
+				fnvlist_add_string(item, "mountpoint",
+				    entry.mnt_mountp);
+				fnvlist_add_nvlist(data, entry.mnt_special,
+				    item);
+				fnvlist_free(item);
+			} else {
+				(void) printf("%-30s  %s\n", entry.mnt_special,
+				    entry.mnt_mountp);
+			}
 		}
 
 		(void) fclose(mnttab);
+		if (json) {
+			fnvlist_add_nvlist(jsobj, "datasets", data);
+			if (nvlist_empty(data))
+				fnvlist_free(jsobj);
+			else
+				zcmd_print_json(jsobj);
+			fnvlist_free(data);
+		}
 	} else {
 		zfs_handle_t *zhp;
 
