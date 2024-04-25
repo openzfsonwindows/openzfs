@@ -53,6 +53,8 @@
 #define	MNTOPT_DEFCONTEXT "defcontext"	/* selinux defcontext */
 #define	MNTOPT_ROOTCONTEXT "rootcontext" /* selinux rootcontext */
 #define	MNTOPT_DEFAULTS	"defaults"	/* defaults */
+#define	MNTOPT_DEVICES	"dev"		/* device-special allowed */
+#define	MNTOPT_NODEVICES "nodev"	/* device-special disallowed */
 #define	MNTOPT_DIRATIME	"diratime"	/* update atime for dirs */
 #define	MNTOPT_NODIRATIME "nodiratime"	/* do not update atime for dirs */
 #define	MNTOPT_DIRSYNC	"dirsync"	/* do dir updates synchronously */
@@ -62,6 +64,8 @@
 #define	MNTOPT_NOGROUP	"nogroup"	/* do not allow group mount */
 #define	MNTOPT_IVERSION	"iversion"	/* update inode version */
 #define	MNTOPT_NOIVERSION "noiversion"	/* do not update inode version */
+#define	MNTOPT_NBMAND	"mand"		/* allow non-blocking mandatory locks */
+#define	MNTOPT_NONBMAND	"nomand"	/* deny non-blocking mandatory locks */
 #define	MNTOPT_NETDEV	"_netdev"	/* network device */
 #define	MNTOPT_NOFAIL	"nofail"	/* no failure */
 #define	MNTOPT_RELATIME	"relatime"	/* allow relative time updates */
