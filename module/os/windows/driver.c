@@ -75,7 +75,7 @@ sysctl_os_registry_change(PVOID Parameter);
 void
 OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
 {
-	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL, "OpenZFS_Fini\n"));
+	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "OpenZFS_Fini\n"));
 
 	zfs_vfsops_fini();
 
@@ -105,6 +105,9 @@ OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
 		STOR_wzvolDriverInfo.zvContextArray = NULL;
 	}
 	ZFSWppCleanup(DriverObject);
+
+	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+	    "OpenZFS: Goodbye.\n"));
 }
 
 /*
@@ -119,9 +122,6 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 	    "OpenZFS: DriverEntry\n"));
 
 	ZFSWppInit(DriverObject, pRegistryPath);
-
-	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
-	    "OpenZFS: DriverEntry\n"));
 
 	// Setup global so zfs_ioctl.c can setup devnode
 	WIN_DriverObject = DriverObject;

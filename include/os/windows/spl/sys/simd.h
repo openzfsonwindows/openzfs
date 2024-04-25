@@ -93,10 +93,6 @@ xgetbv(uint32_t c)
 
 #endif
 
-#ifndef ZFS_ASM_BUG
-#define	ZFS_ASM_BUG()	{ ASSERT(0); } break
-#endif
-
 #define	kfpu_allowed()		1
 
 #endif
@@ -133,8 +129,6 @@ extern uint32_t kfpu_state;
 #else
 #include <assert.h>
 #endif // KERNEL
-
-#define	ZFS_ASM_BUG()	{ assert(0); } break
 
 /*
  * x86 registers used implicitly by CPUID
@@ -256,14 +250,10 @@ __cpuid_check_feature(const cpuid_feature_desc_t *desc)
 {
 	uint32_t r[CPUID_REG_CNT];
 
-	if (__get_cpuid_max(0, NULL) >= desc->leaf) {
-		/*
-		 * __cpuid_count is needed to properly check
-		 * for AVX2. It is a macro, so return parameters
-		 * are passed by value.
-		 */
-		__cpuid_count(desc->leaf, desc->subleaf,
-		    r[EAX], r[EBX], r[ECX], r[EDX]);
+	__cpuidex((int *)r, 0, 0);
+	// EAX has leaf count
+	if (r[EAX] >= desc->leaf) {
+		__cpuidex((int *)r, desc->leaf, desc->subleaf);
 		return ((r[desc->reg] & desc->flag) == desc->flag);
 	}
 	return (B_FALSE);
