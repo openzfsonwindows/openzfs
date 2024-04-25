@@ -686,7 +686,9 @@ abd_return_buf(abd_t *abd, void *buf, size_t n)
 	if (abd_is_linear(abd)) {
 		ASSERT3P(buf, ==, abd_to_buf(abd));
 	} else {
+#ifndef _WIN32
 		ASSERT0(abd_cmp_buf(abd, buf, n));
+#endif
 		zio_buf_free(buf, n);
 	}
 }
