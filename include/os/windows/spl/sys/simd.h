@@ -262,12 +262,8 @@ __cpuid_check_feature(const cpuid_feature_desc_t *desc)
 		 * for AVX2. It is a macro, so return parameters
 		 * are passed by value.
 		 */
-#ifdef _WIN32
-		__cpuidex((int32_t *)r, desc->leaf, desc->subleaf);
-#else
 		__cpuid_count(desc->leaf, desc->subleaf,
 		    r[EAX], r[EBX], r[ECX], r[EDX]);
-#endif
 		return ((r[desc->reg] & desc->flag) == desc->flag);
 	}
 	return (B_FALSE);

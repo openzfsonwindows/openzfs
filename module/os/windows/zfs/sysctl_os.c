@@ -567,7 +567,7 @@ param_set_arc_int(ZFS_MODULE_PARAM_ARGS)
 int
 param_set_active_allocator(ZFS_MODULE_PARAM_ARGS)
 {
-	static char buf[16];
+	char buf[16];
 
 	*type = ZT_TYPE_STRING;
 
@@ -668,7 +668,7 @@ param_set_deadman_ziotime(ZFS_MODULE_PARAM_ARGS)
 int
 param_set_deadman_failmode(ZFS_MODULE_PARAM_ARGS)
 {
-	static char buf[16];
+	char buf[16];
 
 	*type = ZT_TYPE_STRING;
 
