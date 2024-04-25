@@ -253,8 +253,9 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 
 			// _CALL style has to 'type', so look it up first.
 			if (zt->zt_perm == ZT_ZMOD_RW) {
-				char **maybestr = NULL;
-				ZT_GET_VALUE(zt, &maybestr, &len, &type);
+				char *maybestr = NULL;
+				ZT_GET_VALUE(zt, (void **)&maybestr, &len,
+				    &type);
 
 				// Set up buffers to SET value.
 				val = &buffer[kv->DataOffset];
@@ -276,8 +277,7 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 					/* Already set? free it */
 					if (!(zt->zt_flag & ZT_FLAG_STATIC)) {
 
-						if (maybestr != NULL &&
-						    *maybestr != NULL)
+						if (maybestr != NULL)
 							ExFreePool(*maybestr);
 
 						*maybestr = NULL;
@@ -418,7 +418,6 @@ sysctl_os_init(PUNICODE_STRING RegistryPath)
 {
 	// iterate the linker-set
 	ztunable_t **iter = NULL;
-	int count = 0;
 
 	SET_DECLARE(zt, ztunable_t);
 
@@ -427,7 +426,7 @@ sysctl_os_init(PUNICODE_STRING RegistryPath)
 			ztunable_t *zt = *iter;
 
 			sysctl_os_process(RegistryPath, zt);
-			count++;
+
 		}
 	}
 }
@@ -567,13 +566,13 @@ param_set_arc_int(ZFS_MODULE_PARAM_ARGS)
 int
 param_set_active_allocator(ZFS_MODULE_PARAM_ARGS)
 {
-	char buf[16];
+	static char buf[16];
 
 	*type = ZT_TYPE_STRING;
 
 	if (set == B_FALSE) {
 		*ptr = (void *)zfs_active_allocator;
-		*len = strlen(zfs_active_allocator) + 1;
+		*len = strlen(zfs_active_allocator);
 		return (0);
 	}
 
@@ -668,13 +667,13 @@ param_set_deadman_ziotime(ZFS_MODULE_PARAM_ARGS)
 int
 param_set_deadman_failmode(ZFS_MODULE_PARAM_ARGS)
 {
-	char buf[16];
+	static char buf[16];
 
 	*type = ZT_TYPE_STRING;
 
 	if (set == B_FALSE) {
 		*ptr = (void *)zfs_deadman_failmode;
-		*len = strlen(zfs_deadman_failmode) + 1;
+		*len = strlen(zfs_deadman_failmode);
 		return (0);
 	}
 

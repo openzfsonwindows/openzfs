@@ -673,8 +673,7 @@ zfs_vdev_raidz_impl_get(char *buffer, zfs_kernel_param_t *kp)
 int
 win32_zfs_vdev_raidz_impl_set(ZFS_MODULE_PARAM_ARGS)
 {
-	uint32_t val;
-	static unsigned char str[1024] = "";
+	static char str[1024] = "";
 
 	*type = ZT_TYPE_STRING;
 

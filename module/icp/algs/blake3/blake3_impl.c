@@ -358,7 +358,7 @@ win32_blake3_param_set(ZFS_MODULE_PARAM_ARGS)
 	*type = ZT_TYPE_STRING;
 
 	if (set == B_FALSE) {
-		char buffer[PAGE_SIZE]; /* Looks like they use page size */
+		static char buffer[PAGE_SIZE];
 		blake3_param_get(buffer, NULL);
 		*ptr = buffer;
 		*len = strlen(buffer);
