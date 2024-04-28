@@ -27,6 +27,7 @@
  */
 
 #include <assert.h>
+#include <pthread.h>
 
 #if defined(__linux__)
 #include <errno.h>
@@ -61,11 +62,15 @@ libspl_set_assert_ok(boolean_t val)
 	libspl_assert_ok = val;
 }
 
+static pthread_mutex_t assert_lock = PTHREAD_MUTEX_INITIALIZER;
+
 /* printf version of libspl_assert */
 void
 libspl_assertf(const char *file, const char *func, int line,
     const char *format, ...)
 {
+	pthread_mutex_lock(&assert_lock);
+
 	va_list args;
 	char tname[64];
 
@@ -85,6 +90,7 @@ libspl_assertf(const char *file, const char *func, int line,
 
 #if !__has_feature(attribute_analyzer_noreturn) && !defined(__COVERITY__)
 	if (libspl_assert_ok) {
+		pthread_mutex_unlock(&assert_lock);
 		return;
 	}
 #endif
