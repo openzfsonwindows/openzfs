@@ -85,6 +85,7 @@
 #include <sys/brt_impl.h>
 #include <zfs_comutil.h>
 #include <sys/zstd/zstd.h>
+#include <sys/backtrace.h>
 
 #include <libnvpair.h>
 #include <libzutil.h>
@@ -845,7 +846,7 @@ static void sig_handler(int signo)
 {
 	struct sigaction action;
 
-	libspl_dump_backtrace();
+	libspl_backtrace();
 	dump_debug_buffer();
 
 	/*
