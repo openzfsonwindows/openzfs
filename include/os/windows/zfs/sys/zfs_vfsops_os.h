@@ -121,6 +121,7 @@ struct zfsvfs {
 	avl_tree_t	z_hardlinks;	/* linkid hash avl tree for vget */
 	avl_tree_t	z_hardlinks_linkid;	/* sorted on linkid */
 	krwlock_t	z_hardlinks_lock;	/* lock to access z_hardlinks */
+	uint64_t	z_mimic; /* zfs? ntfs ? */
 #endif
 	uint64_t	z_replay_eof;	/* New end of file - replay only */
 	sa_attr_type_t	*z_attr_table;	/* SA attr mapping->id */

@@ -2309,7 +2309,10 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    FIELD_OFFSET(FILE_FS_ATTRIBUTE_INFORMATION, FileSystemName);
 
 		UNICODE_STRING name;
-		RtlInitUnicodeString(&name, L"NTFS");
+		if (zfsvfs->z_mimic == ZFS_MIMIC_OFF)
+			RtlInitUnicodeString(&name, L"ZFS");
+		else
+			RtlInitUnicodeString(&name, L"NTFS");
 
 		space = MIN(space, name.Length);
 		ffai->FileSystemNameLength = name.Length;
