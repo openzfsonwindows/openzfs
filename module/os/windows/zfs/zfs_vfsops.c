@@ -332,14 +332,9 @@ static void
 mimic_changed_cb(void *arg, uint64_t newval)
 {
 	zfsvfs_t *zfsvfs = arg;
-	struct vfsstatfs *vfsstatfs;
-	vfsstatfs = vfs_statfs(zfsvfs->z_vfs);
 
-	if (newval == 0) {
-	//	strlcpy(vfsstatfs->f_fstypename, "zfs", MFSTYPENAMELEN);
-	} else {
-	//	strlcpy(vfsstatfs->f_fstypename, "hfs", MFSTYPENAMELEN);
-	}
+	if (zfsvfs != NULL)
+		zfsvfs->z_mimic = newval;
 }
 
 static int
@@ -942,8 +937,6 @@ zfs_domount(struct mount *vfsp, dev_t mount_dev, char *osname,
 {
 	int error = 0;
 	zfsvfs_t *zfsvfs;
-	uint64_t mimic = 0;
-	// struct timeval tv;
 
 	ASSERT(vfsp);
 	ASSERT(osname);
@@ -974,18 +967,6 @@ zfs_domount(struct mount *vfsp, dev_t mount_dev, char *osname,
 	 * The 8-bit fs type must be put in the low bits of fsid[1]
 	 * because that's where other Solaris filesystems put it.
 	 */
-
-	error = dsl_prop_get_integer(osname, "com.apple.mimic", &mimic, NULL);
-
-	/*
-	 * If we are readonly (ie, waiting for rootmount) we need to reply
-	 * honestly, so launchd runs fsck_zfs and mount_zfs
-	 */
-	if (mimic /* == ZFS_MIMIC_NTFS */) {
-		struct vfsstatfs *vfsstatfs;
-		vfsstatfs = vfs_statfs(vfsp);
-		strlcpy(vfsstatfs->f_fstypename, "ntfs", MFSTYPENAMELEN);
-	}
 
 	/*
 	 * Set features for file system.
