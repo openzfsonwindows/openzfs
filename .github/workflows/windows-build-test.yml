@@ -35,7 +35,7 @@ jobs:
     steps:
     - uses: ilammy/msvc-dev-cmd@v1
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         #repository: openzfsonwindows/openzfs
         fetch-depth: 0
@@ -63,7 +63,7 @@ jobs:
     #  run: git clone https://github.com/andrewc12/openssl.git
 
     - name: Checkout openssl
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         repository: andrewc12/openssl # optional, default is ${{ github.repository }}
         path: openssl # optional
@@ -114,7 +114,7 @@ jobs:
 
     - name: Upload a Build Artifact
       if: ${{ failure() }}
-      uses: actions/upload-artifact@v3.1.0
+      uses: actions/upload-artifact@v4
       with:
         name: build_output
         path: ${{github.workspace}}/out
@@ -133,13 +133,13 @@ jobs:
 
     - name: Upload dev build
       if: ${{ failure() }}
-      uses: actions/upload-artifact@v3.1.0
+      uses: actions/upload-artifact@v4
       with:
         name: dev_build
         path: ${{github.workspace}}/zfs_collect/*
 
     - name: Upload dev build with Inno Setup
-      uses: actions/upload-artifact@v3.1.0
+      uses: actions/upload-artifact@v4
       with:
         name: dev_build_inno
         path: ${{github.workspace}}\contrib\windows\${{ steps.innoout.outputs.name }}
@@ -212,14 +212,14 @@ jobs:
     if: ${{ false }}
     steps:
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         name: dev_build_inno
 
-#    - uses: actions/download-artifact@v3
+#    - uses: actions/download-artifact@v4
 #      with:
 #        name: build result
 
@@ -230,7 +230,7 @@ jobs:
       run: wmic diskdrive list
 
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/testdrives.zip'
@@ -242,7 +242,7 @@ jobs:
 #        Expand-Archive -LiteralPath ${{github.workspace}}/testdrives.zip -DestinationPath D:\
 #
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/scriptname.txt'
@@ -474,14 +474,14 @@ jobs:
 #    if:  ${{ inputs.run-failing }}
     steps:
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         name: dev_build_inno
 
-#    - uses: actions/download-artifact@v3
+#    - uses: actions/download-artifact@v4
 #      with:
 #        name: build result
 
@@ -492,7 +492,7 @@ jobs:
       run: wmic diskdrive list
 
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/testdrives.zip'
@@ -504,7 +504,7 @@ jobs:
 #        Expand-Archive -LiteralPath ${{github.workspace}}/testdrives.zip -DestinationPath D:\
 #
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/scriptname.txt'
@@ -606,7 +606,7 @@ jobs:
 
 
     - name: Download winbtrfs
-      uses: suisei-cn/actions-download-file@v1.3.0
+      uses: suisei-cn/actions-download-file@v1.6.0
       id: winbtrs  # Remember to give an ID if you need the output filename
       with:
         url: "https://github.com/andrewc12/btrfs/releases/download/v1.8/x64-Debug.zip"
@@ -876,14 +876,14 @@ jobs:
 #    runs-on: windows-latest
 #    steps:
 #
-#    - uses: actions/checkout@v3
+#    - uses: actions/checkout@v4
 #
 #
-#    - uses: actions/download-artifact@v3
+#    - uses: actions/download-artifact@v4
 #      with:
 #        name: dev_build_inno
 #
-##    - uses: actions/download-artifact@v3
+##    - uses: actions/download-artifact@v4
 ##      with:
 ##        name: build result
 #
@@ -894,7 +894,7 @@ jobs:
 #      run: wmic diskdrive list
 #
 ##    - name: Download
-##      uses: suisei-cn/actions-download-file@v1.3.0
+##      uses: suisei-cn/actions-download-file@v1.6.0
 ##      #id: innoinstaller
 ##      with:
 ##        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/testdrives.zip'
@@ -906,7 +906,7 @@ jobs:
 ##        Expand-Archive -LiteralPath ${{github.workspace}}/testdrives.zip -DestinationPath D:\
 ##
 ##    - name: Download
-##      uses: suisei-cn/actions-download-file@v1.3.0
+##      uses: suisei-cn/actions-download-file@v1.6.0
 ##      #id: innoinstaller
 ##      with:
 ##        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/scriptname.txt'
@@ -1201,7 +1201,7 @@ jobs:
 ##
 ##
 ##    - name: Upload dev build with Inno Setup
-##      uses: actions/upload-artifact@v3.1.0
+##      uses: actions/upload-artifact@v4
 ##      with:
 ##        name: testres
 ##        path: d:\test_results\*
@@ -1235,7 +1235,7 @@ jobs:
 ##      run: 'bcdedit'
 ##
 ##    - name: Download winbtrfs
-##      uses: suisei-cn/actions-download-file@v1.3.0
+##      uses: suisei-cn/actions-download-file@v1.6.0
 ##      id: winbtrs  # Remember to give an ID if you need the output filename
 ##      with:
 ##        url: "https://github.com/andrewc12/btrfs/releases/download/v1.8/x64-Debug.zip"
@@ -1401,7 +1401,7 @@ jobs:
 #
 #    steps:
 #
-#    - uses: actions/checkout@v3
+#    - uses: actions/checkout@v4
 #      with:
 #        #repository: openzfsonwindows/openzfs
 #        fetch-depth: 0
@@ -1449,14 +1449,14 @@ jobs:
 #    if:  ${{ inputs.run-failing }}
     steps:
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         name: dev_build_inno
 
-#    - uses: actions/download-artifact@v3
+#    - uses: actions/download-artifact@v4
 #      with:
 #        name: build result
 
@@ -1467,7 +1467,7 @@ jobs:
       run: wmic diskdrive list
 
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/testdrives.zip'
@@ -1479,7 +1479,7 @@ jobs:
 #        Expand-Archive -LiteralPath ${{github.workspace}}/testdrives.zip -DestinationPath D:\
 #
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/scriptname.txt'
@@ -1584,7 +1584,7 @@ jobs:
 
 
     - name: Download winbtrfs
-      uses: suisei-cn/actions-download-file@v1.3.0
+      uses: suisei-cn/actions-download-file@v1.6.0
       id: winbtrs  # Remember to give an ID if you need the output filename
       with:
         url: "https://github.com/andrewc12/btrfs/releases/download/v1.8/x64-Debug.zip"
@@ -1619,7 +1619,7 @@ jobs:
 #          Copy-Item "${{github.workspace}}\out\build\x64-Debug\cmd\os\windows\winfstest\winfstest.exe" -Destination "${{ steps.drive.outputs.drive }}\winfstest"
 
     - name: Download
-      uses: suisei-cn/actions-download-file@v1.3.0
+      uses: suisei-cn/actions-download-file@v1.6.0
       #id: innoinstaller
       with:
         url: 'https://github.com/andrewc12/zfsfiledump/raw/main/winfstest.zip'
@@ -1662,14 +1662,14 @@ jobs:
 
     steps:
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         name: dev_build_inno
 
-#    - uses: actions/download-artifact@v3
+#    - uses: actions/download-artifact@v4
 #      with:
 #        name: build result
 
@@ -1680,7 +1680,7 @@ jobs:
       run: wmic diskdrive list
 
 
-    #- uses: suisei-cn/actions-download-file@v1.3.0
+    #- uses: suisei-cn/actions-download-file@v1.6.0
     #  #id: innoinstaller
     #  with:
     #    url: 'https://github.com/andrewc12/zfsfiledump/raw/main/OpenZFSOnWindowsaa'
@@ -1688,7 +1688,7 @@ jobs:
 
 
 
-    #- uses: suisei-cn/actions-download-file@v1.3.0
+    #- uses: suisei-cn/actions-download-file@v1.6.0
     #  #id: innoinstaller
     #  with:
     #    url: 'https://github.com/andrewc12/zfsfiledump/raw/main/OpenZFSOnWindowsab'
@@ -1696,7 +1696,7 @@ jobs:
 
 
 
-    #- uses: suisei-cn/actions-download-file@v1.3.0
+    #- uses: suisei-cn/actions-download-file@v1.6.0
     #  #id: innoinstaller
     #  with:
     #    url: 'https://github.com/andrewc12/zfsfiledump/raw/main/OpenZFSOnWindowsac'
@@ -1704,7 +1704,7 @@ jobs:
 
 
 
-    #- uses: suisei-cn/actions-download-file@v1.3.0
+    #- uses: suisei-cn/actions-download-file@v1.6.0
     #  #id: innoinstaller
     #  with:
     #    url: 'https://github.com/andrewc12/zfsfiledump/raw/main/OpenZFSOnWindowsad'
@@ -1718,7 +1718,7 @@ jobs:
 
 
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/testdrives.zip'
@@ -1730,7 +1730,7 @@ jobs:
 #        Expand-Archive -LiteralPath ${{github.workspace}}/testdrives.zip -DestinationPath D:\
 #
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/scriptname.txt'
@@ -1766,7 +1766,7 @@ jobs:
 
 
 
-    - uses: suisei-cn/actions-download-file@v1.3.0
+    - uses: suisei-cn/actions-download-file@v1.6.0
       #id: innoinstaller
       with:
         url: 'https://github.com/andrewc12/zfsfiledump/raw/main/ads_split.vhd.zst.001'
@@ -1774,7 +1774,7 @@ jobs:
 
 
 
-    - uses: suisei-cn/actions-download-file@v1.3.0
+    - uses: suisei-cn/actions-download-file@v1.6.0
       #id: innoinstaller
       with:
         url: 'https://github.com/andrewc12/zfsfiledump/raw/main/ads_split.vhd.zst.002'
@@ -1782,7 +1782,7 @@ jobs:
 
 
 
-    - uses: suisei-cn/actions-download-file@v1.3.0
+    - uses: suisei-cn/actions-download-file@v1.6.0
       #id: innoinstaller
       with:
         url: 'https://github.com/andrewc12/zfsfiledump/raw/main/ads_split.vhd.zst.003'
@@ -1790,7 +1790,7 @@ jobs:
 
 
 
-    - uses: suisei-cn/actions-download-file@v1.3.0
+    - uses: suisei-cn/actions-download-file@v1.6.0
       #id: innoinstaller
       with:
         url: 'https://github.com/andrewc12/zfsfiledump/raw/main/ads_split.vhd.zst.004'
@@ -1798,7 +1798,7 @@ jobs:
 
 
 
-    - uses: suisei-cn/actions-download-file@v1.3.0
+    - uses: suisei-cn/actions-download-file@v1.6.0
       #id: innoinstaller
       with:
         url: 'https://github.com/andrewc12/zfsfiledump/raw/main/ads_split.vhd.zst.005'
@@ -1807,7 +1807,7 @@ jobs:
 
 
 
-    - uses: suisei-cn/actions-download-file@v1.3.0
+    - uses: suisei-cn/actions-download-file@v1.6.0
       #id: innoinstaller
       with:
         url: 'https://github.com/andrewc12/zfsfiledump/raw/main/ads_split.vhd.zst.006'
@@ -1815,7 +1815,7 @@ jobs:
 
 
 
-    - uses: suisei-cn/actions-download-file@v1.3.0
+    - uses: suisei-cn/actions-download-file@v1.6.0
       #id: innoinstaller
       with:
         url: 'https://github.com/andrewc12/zfsfiledump/raw/main/ads_split.vhd.zst.007'
@@ -1824,7 +1824,7 @@ jobs:
 
 
 
-    - uses: suisei-cn/actions-download-file@v1.3.0
+    - uses: suisei-cn/actions-download-file@v1.6.0
       #id: innoinstaller
       with:
         url: 'https://github.com/andrewc12/zfsfiledump/raw/main/ads_split.vhd.zst.008'
@@ -1990,14 +1990,14 @@ jobs:
 
     steps:
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         name: dev_build_inno
 
-#    - uses: actions/download-artifact@v3
+#    - uses: actions/download-artifact@v4
 #      with:
 #        name: build result
 
@@ -2008,7 +2008,7 @@ jobs:
       run: wmic diskdrive list
 
 
-    #- uses: suisei-cn/actions-download-file@v1.3.0
+    #- uses: suisei-cn/actions-download-file@v1.6.0
     #  #id: innoinstaller
     #  with:
     #    url: 'https://github.com/andrewc12/zfsfiledump/raw/main/OpenZFSOnWindowsaa'
@@ -2016,7 +2016,7 @@ jobs:
 
 
 
-    #- uses: suisei-cn/actions-download-file@v1.3.0
+    #- uses: suisei-cn/actions-download-file@v1.6.0
     #  #id: innoinstaller
     #  with:
     #    url: 'https://github.com/andrewc12/zfsfiledump/raw/main/OpenZFSOnWindowsab'
@@ -2024,7 +2024,7 @@ jobs:
 
 
 
-    #- uses: suisei-cn/actions-download-file@v1.3.0
+    #- uses: suisei-cn/actions-download-file@v1.6.0
     #  #id: innoinstaller
     #  with:
     #    url: 'https://github.com/andrewc12/zfsfiledump/raw/main/OpenZFSOnWindowsac'
@@ -2032,7 +2032,7 @@ jobs:
 
 
 
-    #- uses: suisei-cn/actions-download-file@v1.3.0
+    #- uses: suisei-cn/actions-download-file@v1.6.0
     #  #id: innoinstaller
     #  with:
     #    url: 'https://github.com/andrewc12/zfsfiledump/raw/main/OpenZFSOnWindowsad'
@@ -2046,7 +2046,7 @@ jobs:
 
 
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/testdrives.zip'
@@ -2058,7 +2058,7 @@ jobs:
 #        Expand-Archive -LiteralPath ${{github.workspace}}/testdrives.zip -DestinationPath D:\
 #
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/scriptname.txt'
@@ -2187,14 +2187,14 @@ jobs:
 #    if:  ${{ inputs.run-failing }}
     steps:
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         name: dev_build_inno
 
-#    - uses: actions/download-artifact@v3
+#    - uses: actions/download-artifact@v4
 #      with:
 #        name: build result
 
@@ -2205,7 +2205,7 @@ jobs:
       run: wmic diskdrive list
 
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/testdrives.zip'
@@ -2217,7 +2217,7 @@ jobs:
 #        Expand-Archive -LiteralPath ${{github.workspace}}/testdrives.zip -DestinationPath D:\
 #
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/scriptname.txt'
@@ -2295,7 +2295,7 @@ jobs:
 
 
     - name: Download winbtrfs
-      uses: suisei-cn/actions-download-file@v1.3.0
+      uses: suisei-cn/actions-download-file@v1.6.0
       id: winbtrs  # Remember to give an ID if you need the output filename
       with:
         url: "https://github.com/andrewc12/btrfs/releases/download/v1.8/x64-Debug.zip"
@@ -2325,9 +2325,9 @@ jobs:
         cat ${{github.workspace}}\winbtrfs.log | Out-File $env:GITHUB_STEP_SUMMARY
 
     - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v3.1.0
+      uses: actions/upload-artifact@v4
       with:
-        name: build_output
+        name: build_output_winbtrfs.log
         path: ${{github.workspace}}/winbtrfs.log
 
 
@@ -2349,14 +2349,14 @@ jobs:
 #    if:  ${{ inputs.run-failing }}
     steps:
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         name: dev_build_inno
 
-#    - uses: actions/download-artifact@v3
+#    - uses: actions/download-artifact@v4
 #      with:
 #        name: build result
 
@@ -2367,7 +2367,7 @@ jobs:
       run: wmic diskdrive list
 
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/testdrives.zip'
@@ -2379,7 +2379,7 @@ jobs:
 #        Expand-Archive -LiteralPath ${{github.workspace}}/testdrives.zip -DestinationPath D:\
 #
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/scriptname.txt'
@@ -2488,7 +2488,7 @@ jobs:
 #          Copy-Item "${{github.workspace}}\out\build\x64-Debug\cmd\os\windows\winfstest\winfstest.exe" -Destination "${{ steps.drive.outputs.drive }}\winfstest"
 
     - name: Download
-      uses: suisei-cn/actions-download-file@v1.3.0
+      uses: suisei-cn/actions-download-file@v1.6.0
       #id: innoinstaller
       with:
         url: 'https://github.com/andrewc12/zfsfiledump/raw/main/winfstest.zip'
@@ -2517,9 +2517,9 @@ jobs:
         cat ${{github.workspace}}\winfs.log | Out-File $env:GITHUB_STEP_SUMMARY
 
     - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v3.1.0
+      uses: actions/upload-artifact@v4
       with:
-        name: build_output
+        name: build_output_winfs.log
         path: ${{github.workspace}}/winfs.log
 
 
@@ -2580,14 +2580,14 @@ jobs:
 #    if:  ${{ inputs.run-failing }}
     steps:
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         name: dev_build_inno
 
-#    - uses: actions/download-artifact@v3
+#    - uses: actions/download-artifact@v4
 #      with:
 #        name: build result
 
@@ -2598,7 +2598,7 @@ jobs:
       run: wmic diskdrive list
 
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/testdrives.zip'
@@ -2610,7 +2610,7 @@ jobs:
 #        Expand-Archive -LiteralPath ${{github.workspace}}/testdrives.zip -DestinationPath D:\
 #
 #    - name: Download
-#      uses: suisei-cn/actions-download-file@v1.3.0
+#      uses: suisei-cn/actions-download-file@v1.6.0
 #      #id: innoinstaller
 #      with:
 #        url: 'https://github.com/andrewc12/zfsfiledump/raw/main/scriptname.txt'
@@ -2688,7 +2688,7 @@ jobs:
 
 
     - name: Download ifstest
-      uses: suisei-cn/actions-download-file@v1.3.0
+      uses: suisei-cn/actions-download-file@v1.6.0
       id: winbtrs  # Remember to give an ID if you need the output filename
       with:
         url: "https://github.com/andrewc12/ifstest/raw/main/ifs_test_kit.zip"
@@ -2715,17 +2715,17 @@ jobs:
         cat ${{github.workspace}}\ifstest.log | Out-File $env:GITHUB_STEP_SUMMARY
 
     - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v3.1.0
+      uses: actions/upload-artifact@v4
       with:
-        name: build_output
+        name: build_output_ifstest.log
         path: ${{github.workspace}}/ifstest.log
 
 
 
     - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v3.1.0
+      uses: actions/upload-artifact@v4
       with:
-        name: build_output
+        name: build_output_TestResults.log
         path: ${{github.workspace}}/TestResults.log
 
 
@@ -2743,9 +2743,9 @@ jobs:
     timeout-minutes: 30
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
         name: dev_build_inno
 
