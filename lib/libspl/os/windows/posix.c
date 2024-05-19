@@ -994,6 +994,10 @@ wosix_open(const char *inpath, int oflag, ...)
 	if (!(oflag&O_EXLOCK)) share |= FILE_SHARE_WRITE;
 #endif
 
+	// URLs have to start with "/" as in, "/C:"
+	if (path[0] == '\\' && path[2] == ':')
+		path++;
+
 	// Win users might not supply \\?\ paths, make them so
 	if (path[1] == ':' && strncmp("\\\\.\\", path, 4) != 0) {
 		snprintf(otherpath, MAXPATHLEN, "\\\\.\\%s", &path[0]);
@@ -1503,12 +1507,49 @@ check_file_mode(const char *mode)
 	return (mode);
 }
 
+int
+file_mode_fmode(const char *mode)
+{
+	/* Unknown mode causes abort() */
+	if (strcmp(mode, "rb") == 0)
+		return (O_RDONLY | O_BINARY);
+	if (strcmp(mode, "r") == 0)
+		return (O_RDONLY);
+	return (O_RDWR | O_BINARY);
+}
+
 FILE *
 wosix_fopen(const char *name, const char *mode)
 {
+	int fd;
+	int fmode = 0;
+	FILE *fp;
+
 	mode = check_file_mode(mode);
-#undef fopen
-	return (fopen(name, mode));
+
+	fmode = file_mode_fmode(mode);
+
+	// Lets enjoy the path translation work we do
+	// in open.
+	fd = wosix_open(name, fmode);
+	if (fd < 0)
+		return (NULL);
+
+	fp = wosix_fdopen(fd, mode);
+
+	if (fp == NULL) {
+		wosix_close(fd);
+		return (NULL);
+	}
+
+	fakeFILE *fFILE = malloc(sizeof (fakeFILE));
+	if (!fFILE) {
+		fclose(fp);
+		return (NULL);
+	}
+
+	fFILE->realFILE = fp;
+	return ((FILE *)fFILE);
 }
 
 FILE *
