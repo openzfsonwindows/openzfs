@@ -82,7 +82,7 @@ wosix_funopen(void *cookie,
 #define	funopen wosix_funopen
 
 #if 0
-static inline FILE *wosix_fopen(const char *path, const char *mode)
+static inline FILE *wosix_fopenX(const char *path, const char *mode)
 {
 	FILE *realFILE;
 
@@ -101,6 +101,7 @@ static inline FILE *wosix_fopen(const char *path, const char *mode)
 }
 #define	fopen wosix_fopen
 #endif
+#define	fopen wosix_fopen
 
 static inline int wosix_fclose(FILE *f)
 {
