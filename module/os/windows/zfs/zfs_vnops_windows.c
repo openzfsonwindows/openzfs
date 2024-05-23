@@ -7104,6 +7104,7 @@ _Function_class_(DRIVER_DISPATCH)
 			dprintf("IOCTL_VOLUME_POST_ONLINE\n");
 			Status = STATUS_SUCCESS;
 			break;
+		case IOCTL_DISK_CHECK_VERIFY:
 		case IOCTL_STORAGE_CHECK_VERIFY:
 			dprintf("IOCTL_STORAGE_CHECK_VERIFY\n");
 			Status = STATUS_SUCCESS;
