@@ -49,6 +49,10 @@
 
 #include <sys/errno.h>
 
+#ifdef  __cplusplus
+extern "C" {
+#endif
+
 struct fakeFILE_s {
 	void *cookie;
 	int (*readfn)(void *, char *, int);
@@ -67,7 +71,7 @@ wosix_funopen(void *cookie,
     fpos_t(*seekfn)(void *, fpos_t, int),
     int (*closefn)(void *))
 {
-	fakeFILE *fFILE = malloc(sizeof (fakeFILE));
+	fakeFILE *fFILE = (fakeFILE *)malloc(sizeof (fakeFILE));
 	if (fFILE) {
 		fFILE->cookie = cookie;
 		fFILE->seekfn = seekfn;
@@ -118,17 +122,22 @@ static inline int wosix_fclose(FILE *f)
 }
 #define	fclose wosix_fclose
 
+extern ssize_t getline_impl(char **linep, size_t *linecapp, FILE *stream,
+    boolean_t internal);
+extern ssize_t getline(char **linep, size_t *linecapp, FILE *stream);
+
 static inline ssize_t wosix_getline(char **linep, size_t *linecap, FILE *f)
 {
 	fakeFILE *fFILE = (fakeFILE *)f;
 	int result;
 
 	if (f == stdin)
-		result = getline_impl(linep, linecap, f, FALSE);
+		result = getline_impl(linep, linecap, f, (boolean_t)FALSE);
 	else if (fFILE->realFILE)
 		result = getline(linep, linecap, fFILE->realFILE);
 	else
-		result = getline_impl(linep, linecap, (FILE *)fFILE, TRUE);
+		result = getline_impl(linep, linecap, (FILE *)fFILE,
+		    (boolean_t)TRUE);
 
 	return (result);
 }
@@ -142,7 +151,8 @@ static inline size_t wosix_fread(void *ptr, size_t size, size_t nmemb, FILE *f)
 	if (fFILE->realFILE)
 		result = fread(ptr, size, nmemb, fFILE->realFILE);
 	else
-		result = fFILE->readfn(fFILE->cookie, ptr, size * nmemb);
+		result = fFILE->readfn(fFILE->cookie, (char *)ptr,
+		    size * nmemb);
 
 	return (result);
 }
@@ -156,7 +166,8 @@ static inline size_t wosix_fwrite(void *ptr, size_t size, size_t nmemb, FILE *f)
 	if (fFILE->realFILE)
 		result = fwrite(ptr, size, nmemb, fFILE->realFILE);
 	else
-		result = fFILE->writefn(fFILE->cookie, ptr, size * nmemb);
+		result = fFILE->writefn(fFILE->cookie, (const char *)ptr,
+		    size * nmemb);
 
 	return (result);
 }
@@ -175,5 +186,9 @@ static inline int wosix_ferror(FILE *f)
 	return (result);
 }
 #define	ferror wosix_ferror
+
+#ifdef  __cplusplus
+}
+#endif
 
 #endif
