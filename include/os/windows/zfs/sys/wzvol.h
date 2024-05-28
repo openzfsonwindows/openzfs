@@ -176,6 +176,7 @@ typedef struct _HW_HBA_EXT {
 
 	BOOLEAN		bDontReport;	// TRUE => no Report LUNs.
 	BOOLEAN		bReportAdapterDone;
+	BOOLEAN		bInitialised;
 	// To be set only by a kernel debugger.
 	LUNInfo		LUNInfoArray[LUNInfoMax];
 } HW_HBA_EXT, *pHW_HBA_EXT;
