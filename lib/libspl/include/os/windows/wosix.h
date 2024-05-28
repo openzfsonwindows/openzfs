@@ -37,6 +37,10 @@
 #include <sys/stat.h>
 #include <corecrt_io.h>
 
+#ifdef  __cplusplus
+extern "C" {
+#endif
+
 #define	HTOI(H) ((int)(unsigned __int64)(H))
 #define	ITOH(I) ((HANDLE)(unsigned __int64)(I))
 
@@ -172,4 +176,10 @@ extern int wosix_access(const char *name, int mode);
 #define	munmap wosix_munmap
 #define	fopen	wosix_fopen
 #define	access	wosix_access
+#include <wfunopen.h>
+
+#ifdef  __cplusplus
+}
+#endif
+
 #endif /* WOSIX_HEADER */
