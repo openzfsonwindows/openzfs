@@ -34,6 +34,9 @@
 extern PDRIVER_OBJECT WIN_DriverObject;
 static pHW_HBA_EXT STOR_HBAExt = NULL;
 
+static uint64_t windows_zvol_enabled = 0;
+ZFS_MODULE_PARAM(, windows_, zvol_enabled, U64, ZMOD_RW,
+        "Windows: enable zvol");
 
 // Verbose
 
@@ -43,6 +46,9 @@ zvol_start(PDRIVER_OBJECT  DriverObject, PUNICODE_STRING pRegistryPath)
 	pwzvolDriverInfo pwzvolDrvInfo;
 	NTSTATUS status;
 	VIRTUAL_HW_INITIALIZATION_DATA hwInitData;
+
+	if (windows_zvol_enabled == 0)
+		return (STATUS_FS_DRIVER_REQUIRED);
 
 	RtlZeroMemory(&STOR_wzvolDriverInfo, sizeof (STOR_wzvolDriverInfo));
 	pwzvolDrvInfo = &STOR_wzvolDriverInfo;
@@ -181,7 +187,7 @@ wzvol_HwFindAdapter(
 	__in __out PPORT_CONFIGURATION_INFORMATION pConfigInfo,
 	__in PBOOLEAN pBAgain)
 {
-	ULONG i, len, status = SP_RETURN_FOUND;
+	ULONG i, len;
 	PCHAR pChar;
 
 	dprintf("%s: entry\n", __func__);
@@ -217,6 +223,15 @@ wzvol_HwFindAdapter(
 		pHBAExt->bDontReport =
 		    !STOR_wzvolDriverInfo.wzvolRegInfo.bCombineVirtDisks;
 	}
+
+	/* Already initialised? Skip */
+	if (pHBAExt->bInitialised) {
+		*pBAgain = FALSE;
+		return (SP_RETURN_FOUND);
+	}
+
+	pHBAExt->bInitialised = TRUE;
+	*pBAgain = FALSE;
 
 	InitializeListHead(&pHBAExt->MPIOLunList);
 	InitializeListHead(&pHBAExt->LUList);
@@ -293,9 +308,7 @@ wzvol_HwFindAdapter(
 
 	InitializeWmiContext(pHBAExt);
 
-	// *pBAgain = FALSE;  // should not touch this.
-
-	return (status);
+	return (SP_RETURN_FOUND);
 }
 
 
