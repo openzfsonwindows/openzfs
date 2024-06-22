@@ -4995,11 +4995,14 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	dprintf("vp->Header.Flags = %x\n", vp->FileHeader.Flags);
 
 	if (!no_cache && !CcCanIWrite(FileObject, *length, wait,
-	    deferred_write))
+	    deferred_write)) {
+		IoMarkIrpPending(Irp);
 		return (STATUS_PENDING);
-
-	if (!wait && no_cache)
+	}
+	if (!wait && no_cache) {
+		IoMarkIrpPending(Irp);
 		return (STATUS_PENDING);
+	}
 
 	if (no_cache && !paging_io &&
 	    FileObject->SectionObjectPointer->DataSectionObject) {
@@ -5029,6 +5032,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		if (!ExAcquireResourceSharedLite(
 		    vp->FileHeader.PagingIoResource, wait)) {
 			Status = STATUS_PENDING;
+			IoMarkIrpPending(Irp);
 			goto end;
 		} else
 			paging_lock = TRUE;
@@ -5052,6 +5056,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		if (!ExAcquireResourceSharedLite(vp->FileHeader.Resource,
 		    wait)) {
 			Status = STATUS_PENDING;
+			IoMarkIrpPending(Irp);
 			goto end;
 		} else {
 			acquired_vp_lock = TRUE;
@@ -5062,6 +5067,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		if (!ExAcquireResourceExclusiveLite(
 		    vp->FileHeader.Resource, wait)) {
 			Status = STATUS_PENDING;
+			IoMarkIrpPending(Irp);
 			goto end;
 		} else {
 			acquired_vp_lock = TRUE;
@@ -5168,12 +5174,14 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 				if (!CcCopyWriteEx(FileObject, &offset, *length,
 				    TRUE, buf, Irp->Tail.Overlay.Thread)) {
 					Status = STATUS_PENDING;
+					IoMarkIrpPending(Irp);
 					goto end;
 				}
 #else
 				if (!CcCopyWrite(FileObject, &offset, *length,
 				    TRUE, buf)) {
 					Status = STATUS_PENDING;
+					IoMarkIrpPending(Irp);
 					goto end;
 				}
 #endif
@@ -5632,7 +5640,7 @@ add_thread_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
 	struct do_job_s *job;
 
-	job = ExAllocatePoolWithTag(NonPagedPool,
+	job = ExAllocatePoolWithTag(NonPagedPoolNx,
 	    sizeof (struct do_job_s) + IoSizeofWorkItem(),
 	    'ZJOB');
 
@@ -6624,6 +6632,15 @@ _Function_class_(DRIVER_DISPATCH)
 		case IRP_MN_QUERY_INTERFACE:
 			Status = pnp_query_di(DeviceObject, Irp, IrpSp);
 			break;
+		default:
+			dprintf("Unknown IRP_MJ_PNP(ioctl): 0x%x\n", IrpSp->MinorFunction);
+			break;
+		}
+		if (DeviceObject->NextDevice != NULL) {
+			dprintf("Calling down\n");
+			IoSkipCurrentIrpStackLocation(Irp);
+			Status = IoCallDriver(DeviceObject->NextDevice, Irp);
+			return (STATUS_PENDING); // So we dont IoComplete this Irp
 		}
 		break;
 
@@ -6871,6 +6888,15 @@ _Function_class_(DRIVER_DISPATCH)
 			dprintf("IRP_MN_CANCEL_REMOVE_DEVICE\n");
 			Status = STATUS_SUCCESS;
 			break;
+		default:
+			dprintf("Unknown IRP_MJ_PNP(disk): 0x%x\n", IrpSp->MinorFunction);
+			break;
+		}
+		if (DeviceObject->NextDevice != NULL) {
+			dprintf("Calling down2\n");
+			IoSkipCurrentIrpStackLocation(Irp);
+			Status = IoCallDriver(DeviceObject->NextDevice, Irp);
+			return (STATUS_PENDING); // So we dont IoComplete this Irp
 		}
 		break;
 
@@ -7219,7 +7245,7 @@ _Function_class_(DRIVER_DISPATCH)
 					break;
 				}
 
-				dprintf("TargetDeviceRelations\n");
+				dprintf("TargetDeviceRelations: returning DO %p\n", DeviceObject);
 
 /* The PnP manager will remove this when it is done with device */
 				ObReferenceObject(DeviceObject);
@@ -7263,7 +7289,15 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = pnp_device_usage_notification(DeviceObject,
 			    Irp, IrpSp);
 			break;
-
+		default:
+			dprintf("Unknown IRP_MJ_PNP(fs): 0x%x\n", IrpSp->MinorFunction);
+			break;
+		}
+		if (DeviceObject->NextDevice != NULL) {
+			dprintf("Calling down3\n");
+			IoSkipCurrentIrpStackLocation(Irp);
+			Status = IoCallDriver(DeviceObject->NextDevice, Irp);
+			return (STATUS_PENDING); // So we dont IoComplete this Irp
 		}
 		break;
 	case IRP_MJ_QUERY_VOLUME_INFORMATION:
@@ -7366,13 +7400,13 @@ _Function_class_(DRIVER_DISPATCH)
     _Inout_ PIRP Irp)
 {
 	BOOLEAN TopLevel = FALSE;
-	BOOLEAN AtIrqlPassiveLevel;
+	BOOLEAN AtIrqlPassiveLevel = FALSE;
 	PIO_STACK_LOCATION IrpSp;
 	NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
 
 	// Storport can call itself (and hence, ourselves) so this isn't
 	// always true.
-	// PAGED_CODE();
+	PAGED_CODE();
 
 	// dprintf("%s: enter\n", __func__);
 
@@ -7446,6 +7480,7 @@ _Function_class_(DRIVER_DISPATCH)
 	switch (Status) {
 	case STATUS_SUCCESS:
 	case STATUS_BUFFER_OVERFLOW:
+		break;
 	case STATUS_PENDING:
 		break;
 	default:
@@ -7607,6 +7642,7 @@ pnp_query_di(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 			    Parameters.QueryInterface.InterfaceSpecificData;
 			zv = zvol_name2zvolState(&vendorUniqueId[8],
 			    &openCount);
+			dprintf("what is this pnp\n");
 			// check that the minor number is non-zero: that
 			// signifies the zvol has fully completed its
 			// bringup phase.
