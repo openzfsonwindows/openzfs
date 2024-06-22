@@ -1197,6 +1197,9 @@ zfsdev_detach(void)
 {
 	zfsdev_state_t *zs, *zsprev = NULL;
 
+	IoUnregisterFsRegistrationChange(WIN_DriverObject,
+	    DriverNotificationRoutine);
+
 	UnregisterZFSinPerf();
 	UnregisterZFSinPerfVdev();
 	UnregisterZFSinCachePerf();
