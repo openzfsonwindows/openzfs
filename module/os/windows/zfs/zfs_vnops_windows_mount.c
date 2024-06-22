@@ -278,6 +278,7 @@ SendIoctlToMountManager(__in ULONG IoControlCode, __in PVOID InputBuffer,
 
 	if (irp == NULL) {
 		dprintf("  IoBuildDeviceIoControlRequest failed\n");
+		ObDereferenceObject(mountFileObject);
 		return (STATUS_INSUFFICIENT_RESOURCES);
 	}
 
