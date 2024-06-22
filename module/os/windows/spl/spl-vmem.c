@@ -347,7 +347,7 @@ uint32_t vmem_mtbf;	/* mean time between failures [default: off] */
 size_t vmem_seg_size = sizeof (vmem_seg_t);
 
 static struct bsd_timeout_wrapper vmem_update_timer;
-
+static int shutting_down = 0;
 
 // must match with include/sys/vmem_impl.h
 static vmem_kstat_t vmem_kstat_template = {
@@ -2414,7 +2414,8 @@ vmem_update(void *dummy)
 	}
 	mutex_exit(&vmem_list_lock);
 
-	(void) bsd_timeout(vmem_update, dummy, &vmem_update_interval);
+	if (!shutting_down)
+		(void) bsd_timeout(vmem_update, dummy, &vmem_update_interval);
 }
 
 void
@@ -3458,6 +3459,7 @@ vmem_fini(vmem_t *heap)
 	struct free_slab *fs;
 	uint64_t total;
 
+	shutting_down = 1;
 	bsd_untimeout(vmem_update, &vmem_update_timer);
 
 	dprintf("SPL: %s: stopped vmem_update.  Creating list and walking "
@@ -3620,21 +3622,14 @@ vmem_fini(vmem_t *heap)
 	dprintf("SPL: %s: freeing initial_default_block\n", __func__);
 	FREE(initial_default_block, M_TEMP);
 
-	dprintf("SPL: arenas removed, now try destroying mutexes... ");
+	dprintf("SPL: arenas removed, now try destroying mutexes... \n");
 
-	dprintf("vmem_xnu_alloc_lock ");
 	mutex_destroy(&vmem_xnu_alloc_lock);
-	dprintf("vmem_panic_lock ");
 	mutex_destroy(&vmem_panic_lock);
-	dprintf("vmem_pushpage_lock ");
 	mutex_destroy(&vmem_pushpage_lock);
-	dprintf("vmem_nosleep_lock ");
 	mutex_destroy(&vmem_nosleep_lock);
-	dprintf("vmem_sleep_lock ");
 	mutex_destroy(&vmem_sleep_lock);
-	dprintf("vmem_segfree_lock ");
 	mutex_destroy(&vmem_segfree_lock);
-	dprintf("vmem_list_lock ");
 	mutex_destroy(&vmem_list_lock);
 
 	dprintf("SPL: %s: walking list of live slabs at time of call to %s\n",
@@ -3661,7 +3656,7 @@ vmem_fini(vmem_t *heap)
 		    __func__, __LINE__, total, total_count);
 	} else {
 		dprintf("SPL: %s:%d  good,"
-		    " did not have to force release any vmem spans",
+		    " did not have to force release any vmem spans\n",
 		    __func__, __LINE__);
 	}
 	list_destroy(&freelist);
