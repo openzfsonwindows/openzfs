@@ -2874,7 +2874,9 @@ kmem_reap_timeout(void *flag_arg)
 static void
 kmem_reap_done(void *flag)
 {
-	(void) bsd_timeout(kmem_reap_timeout, flag, &kmem_reap_interval);
+	if (!shutting_down)
+		(void) bsd_timeout(kmem_reap_timeout, flag,
+		    &kmem_reap_interval);
 }
 
 static void
@@ -3236,7 +3238,8 @@ static void kmem_update(void *);
 static void
 kmem_update_timeout(void *dummy)
 {
-	(void) bsd_timeout(kmem_update, dummy, &kmem_reap_interval);
+	if (!shutting_down)
+		(void) bsd_timeout(kmem_update, dummy, &kmem_reap_interval);
 }
 
 static void
