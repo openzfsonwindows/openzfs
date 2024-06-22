@@ -6636,12 +6636,6 @@ _Function_class_(DRIVER_DISPATCH)
 			dprintf("Unknown IRP_MJ_PNP(ioctl): 0x%x\n", IrpSp->MinorFunction);
 			break;
 		}
-		if (DeviceObject->NextDevice != NULL) {
-			dprintf("Calling down\n");
-			IoSkipCurrentIrpStackLocation(Irp);
-			Status = IoCallDriver(DeviceObject->NextDevice, Irp);
-			return (STATUS_PENDING); // So we dont IoComplete this Irp
-		}
 		break;
 
 	}
@@ -6891,12 +6885,6 @@ _Function_class_(DRIVER_DISPATCH)
 		default:
 			dprintf("Unknown IRP_MJ_PNP(disk): 0x%x\n", IrpSp->MinorFunction);
 			break;
-		}
-		if (DeviceObject->NextDevice != NULL) {
-			dprintf("Calling down2\n");
-			IoSkipCurrentIrpStackLocation(Irp);
-			Status = IoCallDriver(DeviceObject->NextDevice, Irp);
-			return (STATUS_PENDING); // So we dont IoComplete this Irp
 		}
 		break;
 
@@ -7292,12 +7280,6 @@ _Function_class_(DRIVER_DISPATCH)
 		default:
 			dprintf("Unknown IRP_MJ_PNP(fs): 0x%x\n", IrpSp->MinorFunction);
 			break;
-		}
-		if (DeviceObject->NextDevice != NULL) {
-			dprintf("Calling down3\n");
-			IoSkipCurrentIrpStackLocation(Irp);
-			Status = IoCallDriver(DeviceObject->NextDevice, Irp);
-			return (STATUS_PENDING); // So we dont IoComplete this Irp
 		}
 		break;
 	case IRP_MJ_QUERY_VOLUME_INFORMATION:
@@ -8008,10 +7990,11 @@ fastio_acquire_file_for_ntsection(
 	if (!vp || VN_HOLD(vp) != 0)
 		return;
 
+	FsRtlEnterFileSystem();
 	ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, TRUE);
 	vnode_ref(vp);
 	VN_RELE(vp);
-
+	FsRtlExitFileSystem();
 }
 
 static void
@@ -8030,9 +8013,11 @@ fastio_release_file_for_ntsection(
 	if (!vp || VN_HOLD(vp) != 0)
 		return;
 
+	FsRtlEnterFileSystem();
 	ExReleaseResourceLite(vp->FileHeader.Resource);
 	vnode_rele(vp);
 	VN_RELE(vp);
+	FsRtlExitFileSystem();
 }
 
 static BOOLEAN
@@ -8102,12 +8087,17 @@ fastio_acquire_for_mod_write(PFILE_OBJECT FileObject,
 		return (STATUS_INVALID_PARAMETER);
 	}
 
-	if (vfs_busy(zfsvfs->z_vfs, 0) != 0)
+	FsRtlEnterFileSystem();
+
+	if (vfs_busy(zfsvfs->z_vfs, 0) != 0) {
+		FsRtlExitFileSystem();
 		return (STATUS_INVALID_PARAMETER);
+	}
 
 	if (zfsvfs->z_unmounted ||
 	    zfs_enter(zfsvfs, FTAG) != 0) {
 		vfs_unbusy(zfsvfs->z_vfs);
+		FsRtlExitFileSystem();
 		return (STATUS_INVALID_PARAMETER);
 	}
 
@@ -8119,6 +8109,7 @@ fastio_acquire_for_mod_write(PFILE_OBJECT FileObject,
 	    VTOZ(vp) == NULL ||
 	    VN_HOLD(vp) != 0) {
 		zfs_exit(zfsvfs, FTAG);
+		FsRtlExitFileSystem();
 		return (STATUS_INVALID_PARAMETER);
 	}
 	zfs_exit(zfsvfs, FTAG);
@@ -8141,6 +8132,7 @@ out:
 	// No zfs_exit(zfsvfs, FTAG) until below
 
 	dprintf("%s: returning STATUS_SUCCESS\n", __func__);
+	FsRtlExitFileSystem();
 
 	return (Status);
 }
@@ -8155,6 +8147,8 @@ fastio_release_for_mod_write(PFILE_OBJECT FileObject,
 
 	dprintf("%s:\n", __func__);
 
+	FsRtlEnterFileSystem();
+
 	ExReleaseResourceLite(ResourceToRelease);
 
 	vp = FileObject->FsContext;
@@ -8164,10 +8158,12 @@ fastio_release_for_mod_write(PFILE_OBJECT FileObject,
 		vnode_rele(vp);
 		VN_RELE(vp);
 
+		FsRtlExitFileSystem();
 		return (STATUS_SUCCESS);
 	}
 
 	dprintf("%s WARNING FAILED\n", __func__);
+	FsRtlExitFileSystem();
 	return (STATUS_SUCCESS);
 }
 
@@ -8242,6 +8238,9 @@ fastio_query_open(PIRP Irp,
 	if (IrpSp->FileObject->FsContext == NULL)
 		return (FALSE);
 #endif
+
+	FsRtlEnterFileSystem();
+
 	if (IrpSp->FileObject->FileName.Buffer != NULL &&
 	    IrpSp->FileObject->FileName.Length > 0) {
 
@@ -8258,6 +8257,7 @@ fastio_query_open(PIRP Irp,
 			    "input len %d\n",
 			    error, IrpSp->FileObject->FileName.Length);
 			kmem_free(filename, PATH_MAX);
+			FsRtlExitFileSystem();
 			Irp->IoStatus.Status = STATUS_OBJECT_NAME_INVALID;
 			Irp->IoStatus.Information = 0;
 			return (FALSE);
@@ -8289,6 +8289,7 @@ fastio_query_open(PIRP Irp,
 			if (vp)
 				VN_RELE(vp);
 
+			FsRtlExitFileSystem();
 			return (TRUE);
 		}
 
@@ -8296,6 +8297,8 @@ fastio_query_open(PIRP Irp,
 			VN_RELE(vp);
 
 	}
+
+	FsRtlExitFileSystem();
 
 	/* Probably can skip setting these, we return FALSE */
 	Irp->IoStatus.Status = error;
