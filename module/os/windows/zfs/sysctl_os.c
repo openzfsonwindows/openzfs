@@ -37,8 +37,8 @@
 #include <sys/dsl_pool.h>
 
 /* Wait for Registry changes */
-static WORK_QUEUE_ITEM wqi;
-static HANDLE registry_notify_fd = 0;
+static WORK_QUEUE_ITEM *wqi = NULL;
+static HANDLE registry_notify_fd = NULL;
 static UNICODE_STRING sysctl_os_RegistryPath;
 
 void sysctl_os_init(PUNICODE_STRING RegistryPath);
@@ -70,7 +70,7 @@ sysctl_os_open_registry(PUNICODE_STRING pRegistryPath)
 		KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
 	    "%s: Unable to open Registry %wZ: 0x%x -- skipping tunables\n",
 		    __func__, pRegistryPath, Status));
-		return (0);
+		return ((HANDLE)NULL);
 	}
 	return (h);
 }
@@ -147,7 +147,7 @@ skip:
 void
 sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 {
-	HANDLE regfd;
+	HANDLE regfd = NULL;
 
 	dprintf(
 	    "tunable: '%s/%s' type %d at %p\n",
@@ -197,7 +197,7 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 
 	// Open registry
 	regfd = sysctl_os_open_registry(&entry);
-	if (regfd == 0)
+	if (regfd == NULL)
 		return;
 
 	// create key entry name
@@ -369,52 +369,13 @@ sysctl_os_fix(void)
 
 }
 
-_Function_class_(WORKER_THREAD_ROUTINE) void __stdcall
-sysctl_os_registry_change(PVOID Parameter)
-{
-	PUNICODE_STRING RegistryPath = Parameter;
-
-	IO_STATUS_BLOCK iosb;
-
-	// open if first time here
-	if (registry_notify_fd == 0) {
-
-		registry_notify_fd = sysctl_os_open_registry(RegistryPath);
-
-		if (registry_notify_fd != 0) {
-			RtlDuplicateUnicodeString(
-			    RTL_DUPLICATE_UNICODE_STRING_ALLOCATE_NULL_STRING |
-			    RTL_DUPLICATE_UNICODE_STRING_NULL_TERMINATE,
-			    RegistryPath,
-			    &sysctl_os_RegistryPath);
-			ExInitializeWorkItem(&wqi, sysctl_os_registry_change,
-			    &sysctl_os_RegistryPath);
-		}
-	} else {
-		// Notified, re-scan registry
-		sysctl_os_init(RegistryPath);
-		// Some tunables must not be unset.
-		sysctl_os_fix();
-	}
-
-	if (registry_notify_fd == 0)
-		return;
-
-	// Arm / Re-Arm
-	ZwNotifyChangeKey(registry_notify_fd, NULL,
-	    (PVOID)&wqi, (PVOID)DelayedWorkQueue,
-	    &iosb,
-	    REG_NOTIFY_CHANGE_LAST_SET,
-	    TRUE, NULL, 0, TRUE);
-}
-
 /*
  * ZFS_MODULE_PARAM() will create a ztunable_t struct for
  * each tunable, so at startup, iterate the "zt" linker-set
  * to access all tunables.
  */
 void
-sysctl_os_init(PUNICODE_STRING RegistryPath)
+sysctl_os_all(PUNICODE_STRING RegistryPath)
 {
 	// iterate the linker-set
 	ztunable_t **iter = NULL;
@@ -429,17 +390,68 @@ sysctl_os_init(PUNICODE_STRING RegistryPath)
 
 		}
 	}
+
+	sysctl_os_fix();
+}
+
+_Function_class_(IO_WORKITEM_ROUTINE) void __stdcall
+sysctl_os_registry_change(DEVICE_OBJECT *DeviceObject, PVOID Parameter)
+{
+	PUNICODE_STRING RegistryPath = Parameter;
+
+	IO_STATUS_BLOCK iosb;
+
+	// open if first time here
+	if (registry_notify_fd == NULL)
+		return;
+
+	sysctl_os_all(&sysctl_os_RegistryPath);
+
+	if (wqi != NULL) {
+		IoFreeWorkItem(wqi);
+		wqi = NULL;
+	}
+
+	wqi = IoAllocateWorkItem(DeviceObject);
+	if (wqi != NULL) {
+		ExInitializeWorkItem(wqi, (PVOID)sysctl_os_registry_change,
+		    &sysctl_os_RegistryPath);
+		// Arm / Re-Arm
+		ZwNotifyChangeKey(registry_notify_fd,
+		    NULL,
+		    (PVOID)wqi,
+		    (PVOID)DelayedWorkQueue,
+		    &iosb,
+		    REG_NOTIFY_CHANGE_LAST_SET,
+		    TRUE, NULL, 0, TRUE);
+	}
+}
+
+void
+sysctl_os_init(PUNICODE_STRING RegistryPath)
+{
+
+	RtlDuplicateUnicodeString(
+	    RTL_DUPLICATE_UNICODE_STRING_ALLOCATE_NULL_STRING |
+	    RTL_DUPLICATE_UNICODE_STRING_NULL_TERMINATE,
+	    RegistryPath,
+	    &sysctl_os_RegistryPath);
+	registry_notify_fd = sysctl_os_open_registry(RegistryPath);
 }
 
 void
 sysctl_os_fini(void)
 {
 	HANDLE fd = registry_notify_fd;
-	registry_notify_fd = 0;
-	RtlFreeUnicodeString(&sysctl_os_RegistryPath);
+
+	dprintf("%s: closed. No updates from now.\n", __func__);
+
+	registry_notify_fd = NULL;
 
 	if (fd != 0)
 		ZwClose(fd);
+
+	RtlFreeUnicodeString(&sysctl_os_RegistryPath);
 }
 
 int
