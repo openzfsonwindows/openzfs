@@ -6633,7 +6633,8 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = pnp_query_di(DeviceObject, Irp, IrpSp);
 			break;
 		default:
-			dprintf("Unknown IRP_MJ_PNP(ioctl): 0x%x\n", IrpSp->MinorFunction);
+			dprintf("Unknown IRP_MJ_PNP(ioctl): 0x%x\n",
+			    IrpSp->MinorFunction);
 			break;
 		}
 		break;
@@ -6883,7 +6884,8 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = STATUS_SUCCESS;
 			break;
 		default:
-			dprintf("Unknown IRP_MJ_PNP(disk): 0x%x\n", IrpSp->MinorFunction);
+			dprintf("Unknown IRP_MJ_PNP(disk): 0x%x\n",
+			    IrpSp->MinorFunction);
 			break;
 		}
 		break;
@@ -7233,7 +7235,8 @@ _Function_class_(DRIVER_DISPATCH)
 					break;
 				}
 
-				dprintf("TargetDeviceRelations: returning DO %p\n", DeviceObject);
+				dprintf("TargetDeviceRelations: returning %p\n",
+				    DeviceObject);
 
 /* The PnP manager will remove this when it is done with device */
 				ObReferenceObject(DeviceObject);
@@ -7278,7 +7281,8 @@ _Function_class_(DRIVER_DISPATCH)
 			    Irp, IrpSp);
 			break;
 		default:
-			dprintf("Unknown IRP_MJ_PNP(fs): 0x%x\n", IrpSp->MinorFunction);
+			dprintf("Unknown IRP_MJ_PNP(fs): 0x%x\n",
+			    IrpSp->MinorFunction);
 			break;
 		}
 		break;

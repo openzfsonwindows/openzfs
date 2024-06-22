@@ -38,6 +38,9 @@
 #include "Trace.h"
 
 DRIVER_INITIALIZE DriverEntry;
+DRIVER_UNLOAD OpenZFS_Fini;
+#pragma alloc_text(INIT, DriverEntry)
+#pragma alloc_text(PAGE, OpenZFS_Fini)
 
 extern int initDbgCircularBuffer(void);
 extern int finiDbgCircularBuffer(void);
@@ -65,12 +68,10 @@ PDRIVER_DISPATCH STOR_MajorFunction[IRP_MJ_MAXIMUM_FUNCTION + 1];
 
 wzvolDriverInfo STOR_wzvolDriverInfo;
 
-DRIVER_UNLOAD OpenZFS_Fini;
-
-extern _Function_class_(WORKER_THREAD_ROUTINE)
+extern _Function_class_(IO_WORKITEM_ROUTINE)
 void __stdcall
-sysctl_os_registry_change(PVOID Parameter);
-
+sysctl_os_registry_change(DEVICE_OBJECT *DeviceObject,
+    PVOID Parameter);
 
 void
 OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
@@ -84,11 +85,11 @@ OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
 		STOR_DriverUnload = NULL;
 	}
 
+	sysctl_os_fini();
+
 	zfs_kmod_fini();
 
 	system_taskq_fini();
-
-	sysctl_os_fini();
 
 	spl_stop();
 #ifdef DBG
@@ -99,11 +100,6 @@ OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
 #endif
 	finiDbgCircularBuffer();
 
-	if (STOR_wzvolDriverInfo.zvContextArray) {
-		ExFreePoolWithTag(STOR_wzvolDriverInfo.zvContextArray,
-		    MP_TAG_GENERAL);
-		STOR_wzvolDriverInfo.zvContextArray = NULL;
-	}
 	ZFSWppCleanup(DriverObject);
 
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -172,7 +168,7 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 	zfs_vfsops_init();
 
 	/* Start monitoring Registry for changes */
-	sysctl_os_registry_change(pRegistryPath);
+	sysctl_os_registry_change(DriverObject->DeviceObject, pRegistryPath);
 
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
 	    "OpenZFS: Started\n"));
