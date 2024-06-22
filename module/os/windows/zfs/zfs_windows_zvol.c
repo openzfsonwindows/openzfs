@@ -34,18 +34,90 @@
 extern PDRIVER_OBJECT WIN_DriverObject;
 static pHW_HBA_EXT STOR_HBAExt = NULL;
 
-static uint64_t windows_zvol_enabled = 0;
+static uint64_t windows_zvol_enabled = 1;
 ZFS_MODULE_PARAM(, windows_, zvol_enabled, U64, ZMOD_RW,
         "Windows: enable zvol");
 
-// Verbose
+NTSYSCALLAPI NTSTATUS NTAPI ZwQuerySystemInformation(
+    ULONG SystemInformationClass,
+    PVOID SystemInformation,
+    ULONG SystemInformationLength,
+    PULONG ReturnLength
+);
+
+typedef struct _SYSTEM_MODULE {
+	ULONG	Reserved[2];
+#ifdef _WIN64
+	ULONG Unknown3;
+	ULONG Unknown4;
+#endif
+	PVOID	Base;
+	ULONG	Size;
+	ULONG	Flags;
+	USHORT	Index;
+	USHORT	Unknown;
+	USHORT	LoadCount;
+	USHORT	ModuleNameOffset;
+	CHAR	ImageName[256];
+} SYSTEM_MODULE, *PSYSTEM_MODULE;
+
+typedef struct _SYSTEM_MODULE_INFORMATION {
+	ULONG	ModulesCount;
+	SYSTEM_MODULE	Modules[1];
+} SYSTEM_MODULE_INFORMATION, *PSYSTEM_MODULE_INFORMATION;
+
+#define	SystemModuleInformation 11
+
+VOID ListLoadedDrivers()
+{
+	ULONG bufferLength = 0;
+	boolean_t skipLoad = FALSE;
+
+	ZwQuerySystemInformation(SystemModuleInformation, NULL, 0, &bufferLength);
+
+	PVOID buffer = ExAllocatePoolWithTag(NonPagedPoolNx, bufferLength, 'sysm');
+
+	if (buffer == NULL)
+		return;
+
+	if (NT_SUCCESS(ZwQuerySystemInformation(SystemModuleInformation, buffer, bufferLength, &bufferLength))) {
+		PSYSTEM_MODULE_INFORMATION moduleInformation = (PSYSTEM_MODULE_INFORMATION)buffer;
+		for (ULONG i = 0; i < moduleInformation->ModulesCount; ++i) {
+			dprintf("Driver: %s\n", moduleInformation->Modules[i].ImageName);
+
+			if (strncmp("\\SystemRoot\\system32\\ambakdrv.sys",
+			    moduleInformation->Modules[i].ImageName,
+			    sizeof (moduleInformation->Modules[i].ImageName)) == 0)
+				skipLoad = TRUE;
+		}
+	}
+
+	ExFreePoolWithTag(buffer, 'sysm');
+
+	if (!skipLoad)
+		return;
+
+	if (windows_zvol_enabled == 1) {
+		dprintf("Aomei Backupper (ambakdrv.sys) detected as installed.\n");
+		dprintf("It is known to crash with OpenZFS's zvol. Set Registry entry\n");
+		dprintf("windows_zvol_enabled to 2 to force load OpenZFS with zvol support.\n");
+		xprintf("Skipping ZVOL due to ambakdrv.sys\n");
+		windows_zvol_enabled = 0;
+	} else if (windows_zvol_enabled == 2) {
+		dprintf("Force loading OpenZFS with zvol support, and Aomei ambakdrv.sys installed.\n");
+		xprintf("Forcing ZVOL despite ambakdrv.sys\n");
+	}
+
+}
 
 int
-zvol_start(PDRIVER_OBJECT  DriverObject, PUNICODE_STRING pRegistryPath)
+zvol_start(PDRIVER_OBJECT DriverObject, PUNICODE_STRING pRegistryPath)
 {
+	VIRTUAL_HW_INITIALIZATION_DATA hwInitData;
 	pwzvolDriverInfo pwzvolDrvInfo;
 	NTSTATUS status;
-	VIRTUAL_HW_INITIALIZATION_DATA hwInitData;
+
+	ListLoadedDrivers();
 
 	if (windows_zvol_enabled == 0)
 		return (STATUS_FS_DRIVER_REQUIRED);
@@ -652,7 +724,9 @@ wzvol_HandleQueryCapabilities(
 
 	UNREFERENCED_PARAMETER(pHBAExt);
 
-	dprintf("%s: entry\n", __func__);
+	dprintf("%s: entry: sizeof %d DataTransferLength %d\n",
+	    __func__, sizeof (*pStorageCapabilities),
+	    pSrb->DataTransferLength);
 
 	RtlZeroMemory(pStorageCapabilities, pSrb->DataTransferLength);
 
@@ -1028,6 +1102,17 @@ wzvol_HwFreeAdapterResources(__in pHW_HBA_EXT pHBAExt)
 
 #endif
 
+	VERIFY0(pHBAExt->pwzvolDrvObj->DrvInfoNbrMPHBAObj);
+
+	dprintf("Freeing zcContextArray %p\n",
+	    STOR_wzvolDriverInfo.zvContextArray);
+
+	if (STOR_wzvolDriverInfo.zvContextArray) {
+		ExFreePoolWithTag(STOR_wzvolDriverInfo.zvContextArray,
+		    MP_TAG_GENERAL);
+		STOR_wzvolDriverInfo.zvContextArray = NULL;
+	}
+
 	if (STOR_HBAExt == pHBAExt)
 		STOR_HBAExt = NULL;
 }
@@ -1088,23 +1173,17 @@ wzvol_ProcServReq(
 	__in pHW_HBA_EXT pHBAExt,
 	__in PIRP pIrp)
 {
-
-#if 1
 	dprintf("MpProcServReq entered\n");
 
 	wzvol_QueueServiceIrp(pHBAExt, pIrp);
-#endif
 }
 
 void
 wzvol_CompServReq(__in pHW_HBA_EXT pHBAExt)
 {
-
-#if 1
 	dprintf("MpHwCompServReq entered\n");
 
 	wzvol_QueueServiceIrp(pHBAExt, NULL);
-#endif
 }
 
 void
