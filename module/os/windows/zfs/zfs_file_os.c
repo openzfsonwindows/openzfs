@@ -203,10 +203,28 @@ zfs_file_read(zfs_file_t *fp, void *buf, size_t count, ssize_t *resid)
 {
 	NTSTATUS ntstatus;
 	IO_STATUS_BLOCK ioStatusBlock;
-	ntstatus = ZwReadFile(fp->f_handle, NULL, NULL, NULL,
-	    &ioStatusBlock, buf, count, NULL, NULL);
-	if (STATUS_SUCCESS != ntstatus)
-		return (EIO);
+	size_t bytesRead = 0;
+
+	while (bytesRead < count) {
+		ULONG remainingLength = count - bytesRead;
+
+		/* So we can get short-reads from pipes under MSYS2 */
+		ntstatus = ZwReadFile(fp->f_handle, NULL, NULL, NULL,
+		    &ioStatusBlock, (PUCHAR)buf + bytesRead, remainingLength,
+		    NULL, NULL);
+		if (STATUS_SUCCESS != ntstatus)
+			return (EIO);
+
+		// No more data to read, break the loop
+		if (ioStatusBlock.Information == 0)
+			break;
+
+		bytesRead += (ULONG)ioStatusBlock.Information;
+	}
+
+	// Double check for short reads
+	VERIFY3U(count, ==, bytesRead);
+
 	if (resid)
 		*resid = 0;
 	return (0);
