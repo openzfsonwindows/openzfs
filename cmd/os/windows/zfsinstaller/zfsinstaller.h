@@ -28,6 +28,8 @@
 #include <SetupAPI.h>
 #include <stdio.h>
 #include <winsvc.h>
+#include <tchar.h>
+#include <iostream>
 
 DWORD zfs_install(char *);
 DWORD zfs_uninstall(char *);
@@ -37,3 +39,5 @@ void printUsage();
 DWORD send_zfs_ioc_unregister_fs();
 DWORD installRootDevice(char *inf_path, bool IsServiceRunning);
 DWORD uninstallRootDevice(char *inf_path);
+DWORD DeleteOemInf(const char* inf_name);
+DWORD DeleteSysFile(const TCHAR* sysFile);

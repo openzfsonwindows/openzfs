@@ -59,6 +59,7 @@ const unsigned char OPEN_ZFS_GUID[] = "c20c603c-afd4-467d-bf76-c0a4c10553df";
 const unsigned char LOGGER_SESSION[] = "autosession\\zfsin_trace";
 const std::string ETL_FILE("\\ZFSin.etl");
 const std::string MANIFEST_FILE("\\OpenZFS.man");
+#define DRIVER_SYS_FILE _T("ZFSin.sys")
 
 enum manifest_install_types
 {
@@ -476,6 +477,8 @@ zfs_uninstall(char *inf_path)
 	if (ret == 0) {
 		ret = uninstallRootDevice(inf_path);
 		perf_counters_uninstall(inf_path);
+		DeleteOemInf(inf_path);
+		DeleteSysFile(DRIVER_SYS_FILE);
 	}
 
 	return (ret);
@@ -895,3 +898,102 @@ final:
 	return (failcode);
 }
 #endif
+
+DWORD
+DeleteOemInf(const char* inf_name)
+{
+	TCHAR sysDir[MAX_PATH];
+	DWORD error = ERROR_SUCCESS;
+
+	if (!GetSystemDirectory(sysDir, MAX_PATH))
+		return GetLastError();
+
+	std::wstring infDir = std::wstring(sysDir).substr(0, (int)(_tcslen(sysDir) - _tcslen(_T("system32"))));
+	infDir += _T("inf\\");
+
+	TCHAR inf_nameW[MAX_PATH] = { 0 };
+	swprintf_s(inf_nameW, MAX_PATH, _T("%S"), inf_name);
+
+	std::wstring		mFullFileName;
+	TCHAR full[MAX_PATH];
+	if (_tfullpath(full, inf_nameW, MAX_PATH))
+		mFullFileName = full;
+	else
+		mFullFileName = inf_nameW;
+
+	// Check for existence.
+	if ((_taccess(mFullFileName.c_str(), 0)) == -1)
+		return (errno);
+
+	std::wstring oemName = infDir;
+	oemName += _T("oem*");
+	oemName += _T(".inf");
+
+	HANDLE hFile;
+	WIN32_FIND_DATA findFileData;
+	TCHAR szDriverFileName[MAX_PATH] = DRIVER_SYS_FILE;
+
+	if (INVALID_HANDLE_VALUE == (hFile = FindFirstFile(oemName.c_str(), &findFileData)))
+		return ERROR_SUCCESS;
+
+	do
+	{
+		// open each of inf file and search for the .sys file
+		// under the section [SourceDisksFiles]
+		TCHAR szValue[MAX_PATH];
+		std::wstring oemFile;
+		oemName = infDir + findFileData.cFileName;
+
+		if (0 < GetPrivateProfileString(
+			_T("SourceDisksFiles"),	// section name
+			szDriverFileName,		// lpKeyName
+			NULL,
+			szValue,				// lpReturnedString
+			MAX_PATH,
+			oemName.c_str()))		// lpFileName
+		{
+			BOOL success = SetupUninstallOEMInf(findFileData.cFileName, SUOI_FORCEDELETE, NULL);
+			if (!success)
+			{
+				error = GetLastError();
+				std::wcout << "\nFailed to delete the driver package from Driver Store.oemfile:" << findFileData.cFileName << ",error:" << error << std::endl;
+			}
+			else
+				std::wcout << "\nSuccessfully deleted the driver package from Driver Store.oemfile:" << findFileData.cFileName << std::endl;
+		}
+	} while (FindNextFile(hFile, &findFileData));
+
+	FindClose(hFile);
+	return (error);
+}
+
+DWORD
+DeleteSysFile(const TCHAR* sysFile)
+{
+	DWORD error = ERROR_SUCCESS;
+	TCHAR sysDir[MAX_PATH];
+
+	if (!GetSystemDirectory(sysDir, MAX_PATH))
+		return GetLastError();
+
+	std::wstring fullPathName = sysDir;
+	fullPathName += _T("\\drivers\\");
+	fullPathName += sysFile;
+
+	// Check for existence.
+	if ((_taccess(fullPathName.c_str(), 0)) == -1)
+		return (errno);
+
+	// The delete may be unsuccessful if
+	// 1.File has already been deleted.
+	// 2.File has an open handle
+	if (!DeleteFile(fullPathName.c_str()))
+	{
+		error = GetLastError();
+		std::wcout << "Failed to delete the driver file:" << fullPathName.c_str() << ",error:" << error << std::endl;
+	}
+	else
+		std::wcout << "Successfully deleted the driver file:" << fullPathName.c_str() << std::endl;
+
+	return (error);
+}
