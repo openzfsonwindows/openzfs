@@ -542,8 +542,11 @@ out:
 	if (xzp)
 		zrele(xzp);
 
-	if (dxzp)
-		zrele(dxzp);
+	if (dxzp) {
+		vnode_t *vp = ZTOV(dxzp);
+		if (vp)
+			VN_RELE(vp);
+	}
 
 	return (error);
 }

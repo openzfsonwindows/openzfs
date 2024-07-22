@@ -102,6 +102,9 @@ changelist_prefix(prop_changelist_t *clp)
 	boolean_t commit_smb_shares = B_FALSE;
 
 	if (clp->cl_prop != ZFS_PROP_MOUNTPOINT &&
+#ifdef _WIN32
+	    clp->cl_prop != ZFS_PROP_DRIVELETTER &&
+#endif
 	    clp->cl_prop != ZFS_PROP_SHARESMB)
 		return (0);
 
@@ -144,6 +147,15 @@ changelist_prefix(prop_changelist_t *clp)
 					cn->cn_needpost = B_FALSE;
 				}
 				break;
+#ifdef _WIN32
+			case ZFS_PROP_DRIVELETTER:
+				if (zfs_unmount(cn->cn_handle, NULL,
+				    clp->cl_mflags) != 0) {
+					ret = -1;
+					cn->cn_needpost = B_FALSE;
+				}
+				break;
+#endif
 			case ZFS_PROP_SHARESMB:
 				(void) zfs_unshare(cn->cn_handle, NULL,
 				    smb);
@@ -204,6 +216,12 @@ changelist_postfix(prop_changelist_t *clp)
 	if (clp->cl_prop == ZFS_PROP_MOUNTPOINT &&
 	    !(clp->cl_gflags & CL_GATHER_DONT_UNMOUNT))
 		remove_mountpoint(cn->cn_handle);
+
+#ifdef _WIN32
+	if (clp->cl_prop == ZFS_PROP_DRIVELETTER &&
+	    !(clp->cl_gflags & CL_GATHER_DONT_UNMOUNT))
+		remove_mountpoint(cn->cn_handle);
+#endif
 
 	/*
 	 * We walk the datasets in reverse, because we want to mount any parent
@@ -652,6 +670,9 @@ changelist_gather(zfs_handle_t *zhp, zfs_prop_t prop, int gather_flags,
 	 */
 	if (prop == ZFS_PROP_NAME || prop == ZFS_PROP_ZONED ||
 	    prop == ZFS_PROP_MOUNTPOINT || prop == ZFS_PROP_SHARENFS ||
+#ifdef _WIN32
+	    prop == ZFS_PROP_DRIVELETTER ||
+#endif
 	    prop == ZFS_PROP_SHARESMB) {
 
 		if (zfs_prop_get(zhp, ZFS_PROP_MOUNTPOINT,
@@ -710,6 +731,9 @@ changelist_gather(zfs_handle_t *zhp, zfs_prop_t prop, int gather_flags,
 
 	if (clp->cl_prop != ZFS_PROP_MOUNTPOINT &&
 	    clp->cl_prop != ZFS_PROP_SHARENFS &&
+#ifdef _WIN32
+	    clp->cl_prop != ZFS_PROP_DRIVELETTER &&
+#endif
 	    clp->cl_prop != ZFS_PROP_SHARESMB)
 		return (clp);
 

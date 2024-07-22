@@ -56,7 +56,7 @@ extern "C" {
  * interface calls.
  */
 
-#define	ZFS_DEV_KERNEL		L"\\Device\\ZFSCTL"
+// #define	ZFS_DEV_KERNEL		L"\\Device\\ZFSCTL"
 DEFINE_GUID(ZFSZVOLDI_GUID, 0x904ca0cdl, 0x6ae1, 0x4acb, 0xb8, 0xb9, 0x2a, 0x00,
     0x2e, 0xd1, 0x10, 0xd4);
 

@@ -33,6 +33,7 @@
 
 extern PDRIVER_OBJECT WIN_DriverObject;
 static pHW_HBA_EXT STOR_HBAExt = NULL;
+static wzvolDriverInfo STOR_wzvolDriverInfo;
 
 static uint64_t windows_zvol_enabled = 1;
 ZFS_MODULE_PARAM(, windows_, zvol_enabled, U64, ZMOD_RW,

@@ -32,7 +32,7 @@ extern PDEVICE_OBJECT ioctlDeviceObject;
 extern PDEVICE_OBJECT fsDiskDeviceObject;
 
 #define	ZFS_SERIAL	(ULONG)'wZFS'
-#define	VOLUME_LABEL	L"ZFS"
+#define	VOLUME_LABEL	L"OpenZFSVolume"
 
 #define	ZFS_HAVE_FASTIO
 
@@ -70,6 +70,9 @@ struct zfs_ccb {
 typedef struct zfs_ccb zfs_ccb_t;
 
 extern uint64_t zfs_module_busy;
+
+#define	DIR_LINKS(zp) \
+	(S_ISDIR((zp)->z_mode) ? (zp)->z_links - 1 : (zp)->z_links)
 
 extern CACHE_MANAGER_CALLBACKS CacheManagerCallbacks;
 
@@ -143,8 +146,12 @@ extern size_t get_reparse_point_impl(znode_t *zp, char *buffer, size_t outlen);
 extern void fastio_init(FAST_IO_DISPATCH **fast);
 extern NTSTATUS pnp_query_di(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp);
+extern NTSTATUS pnp_query_bus_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp);
 extern NTSTATUS pnp_device_usage_notification(PDEVICE_OBJECT DeviceObject,
     PIRP Irp, PIO_STACK_LOCATION IrpSp);
+extern int zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp,
+    CC_FILE_SIZES *ccfs);
 
 /* zfs_vnop_windows_lib.h */
 extern int	AsciiStringToUnicodeString(char *in, PUNICODE_STRING out);
@@ -167,6 +174,18 @@ extern void acl_trivial_access_masks(mode_t mode, boolean_t isdir,
 extern void zfs_save_ntsecurity(struct vnode *vp);
 void zfs_load_ntsecurity(struct vnode *vp);
 struct vnode *zfs_parent(struct vnode *);
+extern PVOID MapUserBuffer(IN OUT PIRP Irp);
+extern void mount_add_device(PDEVICE_OBJECT DriverObject,
+    PDEVICE_OBJECT PhysicalDeviceObject, PDEVICE_OBJECT AddDeviceObject);
+extern void zfs_windows_unmount_free(PUNICODE_STRING symlink_name);
+extern void zfs_release_mount(mount_t *zmo);
+extern void zfs_unload_ioctl(PDEVICE_OBJECT, PVOID Context);
+
+
+extern NTSTATUS volume_create(PDEVICE_OBJECT DeviceObject,
+    PFILE_OBJECT FileObject, USHORT ShareAccess, uint64_t AllocationSize,
+    ACCESS_MASK DesiredAccess);
+
 
 /* IRP_MJ_SET_INFORMATION helpers */
 extern NTSTATUS set_file_basic_information(PDEVICE_OBJECT, PIRP,
@@ -234,6 +253,7 @@ extern NTSTATUS file_hard_link_information(PDEVICE_OBJECT, PIRP,
 
 /* IRP_MJ_DEVICE_CONTROL helpers */
 extern NTSTATUS QueryCapabilities(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION);
+extern NTSTATUS QueryDeviceRelations(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION);
 extern NTSTATUS ioctl_query_device_name(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
 extern NTSTATUS ioctl_disk_get_drive_geometry(PDEVICE_OBJECT, PIRP,
@@ -265,6 +285,8 @@ extern NTSTATUS fsctl_zfs_volume_mountpoint(PDEVICE_OBJECT DeviceObject,
 extern NTSTATUS fsctl_set_zero_data(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp);
 extern NTSTATUS ioctl_get_gpt_attributes(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp);
+extern NTSTATUS volume_read(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp);
 
 

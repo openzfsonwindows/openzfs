@@ -22,6 +22,8 @@
 #ifndef _SPL_MOUNT_H
 #define	_SPL_MOUNT_H
 
+#include <sys/list.h>
+
 #define	MNT_WAIT	1	/* synchronized I/O file integrity completion */
 #define	MNT_NOWAIT	2	/* start all I/O, but do not wait for it */
 
@@ -54,6 +56,8 @@
 #define	MNT_FORCE	0x00080000 /* force unmount or readonly change */
 #define	MNT_CMDFLAGS	(MNT_UPDATE|MNT_NOBLOCK|MNT_RELOAD|MNT_FORCE)
 
+#define	MNT_UNMOUNTING	0x80000000 /* process of unmounting */
+
 #define	MNT_UNKNOWNPERMISSIONS MNT_IGNORE_OWNERSHIP
 
 #define	MFSTYPENAMELEN	16
@@ -81,7 +85,8 @@ struct vfsstatfs {
 };
 
 typedef enum _FSD_IDENTIFIER_TYPE {
-	MOUNT_TYPE_DGL = ':DGL', // Dokan Global
+	MOUNT_TYPE_DGL = ':DGL', // Global
+	MOUNT_TYPE_BUS = ':BUS', // Bus Control
 	MOUNT_TYPE_DCB = ':DCB', // Disk Control Block
 	MOUNT_TYPE_VCB = ':VCB', // Volume Control Block
 	MOUNT_TYPE_FCB = ':FCB', // File Control Block
@@ -96,20 +101,36 @@ struct mount
 	ULONG size;
 	void *fsprivate;
 	void *parent_device; // Only set so vcd can find dcb
-	PDEVICE_OBJECT deviceObject;
-	PDEVICE_OBJECT diskDeviceObject;
+	uuid_t rawuuid;
+	PDEVICE_OBJECT PhysicalDeviceObject; // From AddDevices
+	PDEVICE_OBJECT LowerDeviceObject; // Attaching PDO in AddDevices
+	PDEVICE_OBJECT FunctionalDeviceObject; // Created in AddDevices
+	PDEVICE_OBJECT VolumeDeviceObject;
+	PDEVICE_OBJECT AttachedDevice;
 	UNICODE_STRING bus_name;
 	UNICODE_STRING device_name;
 	UNICODE_STRING symlink_name;
+	UNICODE_STRING arc_name;
 	UNICODE_STRING fs_name;
 	UNICODE_STRING name;
 	UNICODE_STRING uuid;
 	UNICODE_STRING mountpoint;
+	UNICODE_STRING deviceInterfaceName;
+	UNICODE_STRING fsInterfaceName;
+	UNICODE_STRING volumeInterfaceName;
+	UNICODE_STRING MountMgr_name;
+	UNICODE_STRING MountMgr_mountpoint;
+	PFILE_OBJECT root_file;
 	boolean_t justDriveLetter;
 	uint64_t volume_opens;
 	PVPB vpb;
 
 	uint64_t mountflags;
+
+	KEVENT volume_removed_event;
+
+	// Linked list of mounts
+	list_node_t mount_node;
 
 	// NotifySync is used by notify directory change
 	PNOTIFY_SYNC NotifySync;
@@ -141,5 +162,11 @@ void  vfs_getnewfsid(struct mount *mp);
 int   vfs_isunmount(mount_t *mp);
 int	  vfs_iswriteupgrade(mount_t *mp);
 void  vfs_setextendedsecurity(mount_t *mp);
+
+void vfs_mount_add(mount_t *mp);
+void vfs_mount_remove(mount_t *mp);
+int vfs_mount_count(void);
+void vfs_mount_setarray(void **array, int max);
+void vfs_mount_iterate(int (*func)(void *, void *), void *);
 
 #endif /* SPL_MOUNT_H */
