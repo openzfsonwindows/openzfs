@@ -2853,6 +2853,11 @@ receive_read_record(dmu_recv_cookie_t *drc)
 	{
 		struct drr_write *drrw = &drc->drc_rrd->header.drr_u.drr_write;
 		int size = DRR_WRITE_PAYLOAD_SIZE(drrw);
+		if (size == 0)
+			return (SET_ERROR(EINVAL));
+		if (size == 0)
+			return (receive_read_payload_and_next_header(drc, 0,
+			    NULL));
 		abd_t *abd = abd_alloc_linear(size, B_FALSE);
 		err = receive_read_payload_and_next_header(drc, size,
 		    abd_to_buf(abd));

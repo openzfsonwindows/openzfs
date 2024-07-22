@@ -149,11 +149,11 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 {
 	HANDLE regfd = NULL;
 
-	dprintf(
-	    "tunable: '%s/%s' type %d at %p\n",
-	    zt->zt_prefix, zt->zt_name,
-	    zt->zt_type,
-	    zt->zt_ptr);
+//	dprintf(
+//	    "tunable: '%s/%s' type %d at %p\n",
+//	    zt->zt_prefix, zt->zt_name,
+//	    zt->zt_type,
+//	    zt->zt_ptr);
 
 	/*
 	 * tunable: 'zfs_prefetch_disable' type 0 at FFFFF80731A1B770

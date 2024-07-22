@@ -81,7 +81,8 @@ struct vfsstatfs {
 };
 
 typedef enum _FSD_IDENTIFIER_TYPE {
-	MOUNT_TYPE_DGL = ':DGL', // Dokan Global
+	MOUNT_TYPE_DGL = ':DGL', // Global
+	MOUNT_TYPE_BUS = ':BUS', // Bus Control
 	MOUNT_TYPE_DCB = ':DCB', // Disk Control Block
 	MOUNT_TYPE_VCB = ':VCB', // Volume Control Block
 	MOUNT_TYPE_FCB = ':FCB', // File Control Block
@@ -96,15 +97,24 @@ struct mount
 	ULONG size;
 	void *fsprivate;
 	void *parent_device; // Only set so vcd can find dcb
-	PDEVICE_OBJECT deviceObject;
-	PDEVICE_OBJECT diskDeviceObject;
+	uuid_t rawuuid;
+	PDEVICE_OBJECT PhysicalDeviceObject; // From AddDevices
+	PDEVICE_OBJECT LowerDeviceObject; // Attaching PDO in AddDevices
+	PDEVICE_OBJECT FunctionalDeviceObject; // Created in AddDevices
+	PDEVICE_OBJECT VolumeDeviceObject;
+	PDEVICE_OBJECT AttachedDevice;
 	UNICODE_STRING bus_name;
 	UNICODE_STRING device_name;
 	UNICODE_STRING symlink_name;
+	UNICODE_STRING arc_name;
 	UNICODE_STRING fs_name;
 	UNICODE_STRING name;
 	UNICODE_STRING uuid;
 	UNICODE_STRING mountpoint;
+	UNICODE_STRING deviceInterfaceName;
+	UNICODE_STRING fsInterfaceName;
+	UNICODE_STRING volumeInterfaceName;
+	PFILE_OBJECT root_file;
 	boolean_t justDriveLetter;
 	uint64_t volume_opens;
 	PVPB vpb;

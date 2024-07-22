@@ -37,15 +37,22 @@ OpenZFS.DllFiles          = 11            ;%windir%\system32
 
 [Standard.NTamd64]
 %VolumeName% = OpenZFS_Install, OpenZFSVolume
+;%DriverName% = OpenZFS_Install, ROOT\OpenZFS
 %ControllerName% = OpenZFS_Install, ROOT\OpenZFS
 
 [Standard.NTx86]
 %VolumeName% = OpenZFS_Install, OpenZFSVolume
+;%DriverName% = OpenZFS_Install, ROOT\OpenZFS
 %ControllerName% = OpenZFS_Install, ROOT\OpenZFS
 
 [OpenZFS_Install]
 OptionDesc   = %ServiceDescription%
 CopyFiles    = OpenZFS.DriverFiles
+AddReg=Device_AddReg
+
+[Device_AddReg]
+HKR,,DeviceType,0x00010001,1
+
 ;;,OpenZFS.DllFiles
 ;;RegisterDlls = shellopenzfs
 
@@ -71,7 +78,7 @@ DelService = %ServiceName%,0x200      ;Ensure service is stopped before deleting
 [OpenZFS.Service]
 DisplayName      = %ServiceName%
 Description      = %ServiceDescription%
-ServiceBinary    = %12%\OpenZFS.sys    ;%windir%\system32\drivers\
+ServiceBinary    = %12%\%DriverName%.sys    ;%windir%\system32\drivers\
 ServiceType      = 1
 StartType        = 1                        ;SERVICE_SYSTEM_START
 ErrorControl     = 1
@@ -85,8 +92,8 @@ LoadOrderGroup   = "File System"
 ;
 
 [OpenZFS.DriverFiles]
-OpenZFS.sys
-OpenZFS.man
+%DriverName%.sys
+%DriverName%.man
 
 [OpenZFS.DllFiles]
 ;;zpool.exe

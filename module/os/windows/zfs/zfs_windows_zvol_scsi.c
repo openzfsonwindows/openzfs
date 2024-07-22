@@ -57,6 +57,7 @@
 #include <sys/zvol.h>
 #include <sys/zvol_impl.h>
 #include <sys/zvol_os.h>
+#include <sys/driver_extension.h>
 
 /*
  * We have a list of ZVOLs, and we receive incoming (Target, Lun)
@@ -1104,10 +1105,11 @@ DiReadWriteSetup(zvol_state_t *zv, MpWkRtnAction action, zfsiodesc_t *pIo)
 	 * we do not want to slow down the caller so perform taskq queuing
 	 * always in the workitem.
 	 */
-	extern PDEVICE_OBJECT ioctlDeviceObject;
+	OpenZFS_Driver_Extension *DriverExtension =
+	    (OpenZFS_Driver_Extension *)IoGetDriverObjectExtension(WIN_DriverObject, WIN_DriverObject);
 	PIO_WORKITEM pWI = (PIO_WORKITEM)ALIGN_UP_POINTER_BY(
 	    pWkRtnParms->pQueueWorkItem, 16);
-	IoInitializeWorkItem(ioctlDeviceObject, pWI);
+	IoInitializeWorkItem(DriverExtension->ioctlDeviceObject, pWI);
 	IoQueueWorkItem(pWI, (PIO_WORKITEM_ROUTINE)bzvol_TaskQueuingWkRtn,
 	    DelayedWorkQueue, pWkRtnParms);
 	return (STATUS_PENDING); // queued up.

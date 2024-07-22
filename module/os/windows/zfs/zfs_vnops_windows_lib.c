@@ -54,7 +54,7 @@
 #include <sys/zfs_mount.h>
 
 #include <sys/zfs_windows.h>
-
+#include <sys/driver_extension.h>
 
 #include <mountmgr.h>
 #include <Mountdev.h>
@@ -322,6 +322,8 @@ major2str(int major, int minor)
 			return ("IRP_MJ_PNP(IRP_MN_DEVICE_USAGE_NOTIFICATION)");
 		case IRP_MN_SURPRISE_REMOVAL: // SUPPLIES!
 			return ("IRP_MJ_PNP(IRP_MN_SURPRISE_REMOVAL)");
+		case 0x18: // No longer used
+			return ("IRP_MJ_PNP(IRP_MN_QUERY_LEGACY_BUS_INFORMATION)");
 		}
 		return ("IRP_MJ_PNP");
 	default:
@@ -380,6 +382,10 @@ common_status_str(NTSTATUS Status)
 		return ("STATUS_DISK_QUOTA_EXCEEDED");
 	case STATUS_UNRECOGNIZED_VOLUME:
 		return ("STATUS_UNRECOGNIZED_VOLUME");
+	case STATUS_VOLUME_MOUNTED:
+		return ("STATUS_VOLUME_MOUNTED");
+	case STATUS_VOLUME_DISMOUNTED:
+		return ("STATUS_VOLUME_DISMOUNTED");
 	default:
 		return ("<*****>");
 	}
@@ -4476,7 +4482,7 @@ file_standard_information_impl(PDEVICE_OBJECT DeviceObject,
 
 		fsi->AllocationSize.QuadPart = allocationsize(zp);
 		fsi->EndOfFile.QuadPart = vnode_isdir(vp) ? 0 : zp->z_size;
-		fsi->NumberOfLinks = zp->z_links;
+		fsi->NumberOfLinks = DIR_LINKS(zp);
 		fsi->DeletePending = zccb &&
 		    zccb->deleteonclose ? TRUE : FALSE;
 
@@ -4694,8 +4700,8 @@ file_standard_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		znode_t *zp = VTOZ(vp);
 
-		fsli->NumberOfAccessibleLinks = zp->z_links;
-		fsli->TotalNumberOfLinks = zp->z_links;
+		fsli->NumberOfAccessibleLinks = DIR_LINKS(zp);
+		fsli->TotalNumberOfLinks = DIR_LINKS(zp);
 		fsli->DeletePending = zccb &&
 		    zccb->deleteonclose ? TRUE : FALSE;
 		fsli->Directory = S_ISDIR(zp->z_mode);
@@ -4811,7 +4817,7 @@ file_stat_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		fsi->FileAttributes =
 		    zfs_getwinflags(zp->z_pflags, vnode_isdir(vp));
 		fsi->ReparseTag = get_reparse_tag(zp);
-		fsi->NumberOfLinks = zp->z_links;
+		fsi->NumberOfLinks = DIR_LINKS(zp);
 		fsi->EffectiveAccess = zccb->access;
 	}
 
@@ -4887,7 +4893,7 @@ file_stat_lx_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		fsli->FileAttributes =
 		    zfs_getwinflags(zp->z_pflags, vnode_isdir(vp));
 		fsli->ReparseTag = get_reparse_tag(zp);
-		fsli->NumberOfLinks = zp->z_links;
+		fsli->NumberOfLinks = DIR_LINKS(zp);
 		fsli->EffectiveAccess = zccb->access;
 
 		fsli->LxFlags = LX_FILE_METADATA_HAS_UID |
@@ -5398,21 +5404,130 @@ NTSTATUS
 QueryCapabilities(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
 {
-	NTSTATUS				Status;
-	PDEVICE_CAPABILITIES	DeviceCapabilities;
+	NTSTATUS Status;
+	PDEVICE_CAPABILITIES DeviceCapabilities;
 	DeviceCapabilities = IrpSp->Parameters.DeviceCapabilities.Capabilities;
+	DeviceCapabilities->Version = 1;
+	DeviceCapabilities->Size = sizeof(DEVICE_CAPABILITIES);
+	DeviceCapabilities->DeviceD1 = FALSE;
+	DeviceCapabilities->DeviceD2 = FALSE;
 	DeviceCapabilities->SurpriseRemovalOK = TRUE;
-	DeviceCapabilities->LockSupported = TRUE;
-	DeviceCapabilities->EjectSupported = TRUE;
-	DeviceCapabilities->Removable = FALSE; // XX
+	DeviceCapabilities->LockSupported = FALSE;
+	DeviceCapabilities->EjectSupported = FALSE;
+	DeviceCapabilities->Removable = TRUE;
 	DeviceCapabilities->DockDevice = FALSE;
+	DeviceCapabilities->UniqueID = FALSE;
+	DeviceCapabilities->SilentInstall = FALSE;
+	DeviceCapabilities->RawDeviceOK = FALSE;
+	DeviceCapabilities->SurpriseRemovalOK = FALSE;
+	DeviceCapabilities->WakeFromD0 = FALSE;
+	DeviceCapabilities->WakeFromD1 = FALSE;
+	DeviceCapabilities->WakeFromD2 = FALSE;
+	DeviceCapabilities->WakeFromD3 = FALSE;
+	DeviceCapabilities->HardwareDisabled = FALSE;
+	DeviceCapabilities->NonDynamic = FALSE;
+	DeviceCapabilities->WarmEjectSupported = FALSE;
+	DeviceCapabilities->NoDisplayInUI = FALSE;
+	DeviceCapabilities->Address = 0xffffffff;
+	DeviceCapabilities->UINumber = 0xffffffff;
+
 	DeviceCapabilities->D1Latency =
 	    DeviceCapabilities->D2Latency =
 	    DeviceCapabilities->D3Latency = 0;
-	DeviceCapabilities->NoDisplayInUI = 0;
-	Irp->IoStatus.Information = sizeof (DEVICE_CAPABILITIES);
+	DeviceCapabilities->DeviceState[PowerSystemWorking] = PowerDeviceD0;
+	DeviceCapabilities->DeviceState[PowerSystemSleeping1] = PowerDeviceD3;
+	DeviceCapabilities->DeviceState[PowerSystemSleeping2] = PowerDeviceD3;
+	DeviceCapabilities->DeviceState[PowerSystemSleeping3] = PowerDeviceD3;
+	DeviceCapabilities->DeviceState[PowerSystemHibernate] = PowerDeviceD3;
+	DeviceCapabilities->DeviceState[PowerSystemShutdown] = PowerDeviceD3;
+
+	// Irp->IoStatus.Information = sizeof (DEVICE_CAPABILITIES);
 
 	return (STATUS_SUCCESS);
+}
+
+
+NTSTATUS
+QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	NTSTATUS Status = STATUS_INVALID_DEVICE_REQUEST;
+	mount_t *zmo;
+	PDEVICE_OBJECT ReturnDevice = NULL;
+	PDEVICE_RELATIONS DeviceRelations;
+	OpenZFS_Driver_Extension *DriverExtension =
+	    (OpenZFS_Driver_Extension *)IoGetDriverObjectExtension(WIN_DriverObject, WIN_DriverObject);
+
+	zmo = (mount_t *)DeviceObject->DeviceExtension;
+
+	dprintf("DeviceRelations.Type 0x%x\n",
+	    IrpSp->Parameters.QueryDeviceRelations.Type);
+
+	switch (IrpSp->Parameters.QueryDeviceRelations.Type) {
+	case TargetDeviceRelation:
+	{
+		DeviceRelations =
+		    (PDEVICE_RELATIONS)ExAllocatePool(PagedPool,
+		    sizeof (DEVICE_RELATIONS));
+		if (!DeviceRelations) {
+			dprintf("enomem DeviceRelations\n");
+			Status = STATUS_INSUFFICIENT_RESOURCES;
+			goto out;
+		}
+
+
+		/* The PnP manager will remove this when it is done with device */
+		mount_t *zmo_dcb = (mount_t *)zmo->parent_device;
+		
+		if (zmo->PhysicalDeviceObject != NULL)
+			ReturnDevice = zmo->PhysicalDeviceObject;
+		else if (zmo_dcb && zmo_dcb->PhysicalDeviceObject != NULL)
+			ReturnDevice = zmo_dcb->PhysicalDeviceObject;
+		else {
+			ReturnDevice = DeviceObject; // wrong
+			DbgBreakPoint();
+		}
+		ObReferenceObject(ReturnDevice);
+
+		DeviceRelations->Count = 1;
+		DeviceRelations->Objects[0] = ReturnDevice;
+		Irp->IoStatus.Information =
+		    (ULONG_PTR)DeviceRelations;
+
+		Status = STATUS_SUCCESS;
+		break;
+	}
+	case BusRelations:
+	{
+		DeviceRelations = (PDEVICE_RELATIONS)ExAllocatePoolWithTag(
+		    PagedPool,
+		    sizeof(DEVICE_RELATIONS) + sizeof(PDEVICE_OBJECT),
+		    'drvg'
+		);
+
+		DeviceRelations->Count = 0;
+
+		ReturnDevice = DriverExtension->ChildDeviceObject;
+		if (ReturnDevice != NULL) {
+			ObReferenceObject(ReturnDevice);
+			DeviceRelations->Count = 1;
+			DeviceRelations->Objects[0] = ReturnDevice;
+			xprintf("Returning ChildDeviceObject %p\n", ReturnDevice);
+		}
+		Irp->IoStatus.Information =
+		    (ULONG_PTR)DeviceRelations;
+
+		Status = STATUS_SUCCESS;
+		break;
+	}
+	default:
+		DbgBreakPoint();
+	}
+
+out:
+	dprintf("TargetDeviceRelations: returning %d: %p\n",
+		    Status, ReturnDevice);
+	return (Status);
 }
 
 NTSTATUS
@@ -5467,16 +5582,16 @@ ioctl_query_device_name(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	// Return name in MOUNTDEV_NAME
 	PMOUNTDEV_NAME name;
 	mount_t *zmo;
-	NTSTATUS Status;
+	ULONG OutputBufferLength;
 
-	if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength <
-	    sizeof (MOUNTDEV_NAME)) {
+	OutputBufferLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+	if (OutputBufferLength < sizeof (MOUNTDEV_NAME)) {
 		Irp->IoStatus.Information = sizeof (MOUNTDEV_NAME);
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
 
 	zmo = (mount_t *)DeviceObject->DeviceExtension;
-
+#if 1
 	/* If given a file, it must be root */
 	if (IrpSp->FileObject != NULL && IrpSp->FileObject->FsContext != NULL) {
 		struct vnode *vp = IrpSp->FileObject->FsContext;
@@ -5491,47 +5606,31 @@ ioctl_query_device_name(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			}
 		}
 	}
-
+#endif
 	name = Irp->AssociatedIrp.SystemBuffer;
+	ULONG requiredSize = sizeof(MOUNTDEV_NAME) + zmo->device_name.Length;
 
-	int space = IrpSp->Parameters.DeviceIoControl.OutputBufferLength -
-	    sizeof (MOUNTDEV_NAME);
-#if 1
-	space = MIN(space, zmo->device_name.Length);
-	name->NameLength = zmo->device_name.Length;
-	RtlCopyMemory(name->Name, zmo->device_name.Buffer,
-	    space + sizeof (name->Name));
-	Irp->IoStatus.Information = sizeof (MOUNTDEV_NAME) + space;
-
-	if (space < zmo->device_name.Length - sizeof (name->Name))
-		Status = STATUS_BUFFER_OVERFLOW;
-	else
-		Status = STATUS_SUCCESS;
-#else
-	if (zmo->parent_device != NULL) {
-		DeviceObject = zmo->parent_device;
-		zmo = (mount_t *)DeviceObject->DeviceExtension;
+	// Check if the output buffer is large enough
+	if (OutputBufferLength < requiredSize) {
+		Irp->IoStatus.Status = STATUS_BUFFER_TOO_SMALL;
+		Irp->IoStatus.Information = requiredSize;
+		return (STATUS_BUFFER_TOO_SMALL);
 	}
 
-	space = MIN(space, zmo->device_name.Length);
+	// Set the length of the device name
 	name->NameLength = zmo->device_name.Length;
-	RtlCopyMemory(name->Name, zmo->device_name.Buffer,
-	    space + sizeof (name->Name));
-	Irp->IoStatus.Information = sizeof (MOUNTDEV_NAME) + space;
 
-	if (space < zmo->device_name.Length - sizeof (name->Name))
-		Status = STATUS_BUFFER_OVERFLOW;
-	else
-		Status = STATUS_SUCCESS;
-#endif
+	// Copy the device name into the buffer
+	RtlCopyMemory(name->Name, zmo->device_name.Buffer, zmo->device_name.Length);
 
-	ASSERT(Irp->IoStatus.Information <=
-	    IrpSp->Parameters.DeviceIoControl.OutputBufferLength);
+	// Set the status and information fields
+	Irp->IoStatus.Status = STATUS_SUCCESS;
+	Irp->IoStatus.Information = requiredSize;
 
 	dprintf("replying with '%.*S'\n",
-	    space + sizeof (name->Name) / sizeof (WCHAR), name->Name);
+	    name->NameLength / sizeof (WCHAR), name->Name);
 
-	return (Status);
+	return (STATUS_SUCCESS);
 }
 
 NTSTATUS
@@ -5591,6 +5690,7 @@ ioctl_disk_get_drive_geometry_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 {
 	int error = 0;
 	dprintf("%s: \n", __func__);
+
 	if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength <
 	    FIELD_OFFSET(DISK_GEOMETRY_EX, Data)) {
 		Irp->IoStatus.Information = sizeof (DISK_GEOMETRY_EX);
@@ -5604,23 +5704,33 @@ ioctl_disk_get_drive_geometry_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_INVALID_PARAMETER);
 	}
 
+	// DISK_GEOMETRY_EX_INTERNAL *geom = Irp->AssociatedIrp.SystemBuffer;
+	DISK_GEOMETRY_EX *geom = Irp->AssociatedIrp.SystemBuffer;
+
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
-	if (zfsvfs == NULL)
-		return (STATUS_INVALID_PARAMETER);
+	if (zfsvfs == NULL) {
+		geom->DiskSize.QuadPart = 1024 * 1024 * 1024;
+		geom->Geometry.BytesPerSector = 512;
+		geom->Geometry.MediaType = FixedMedia;
+	} else {
+		if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+			return (error);  // This returns EIO if fail
 
-	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
-		return (error);  // This returns EIO if fail
+		uint64_t refdbytes, availbytes, usedobjs, availobjs;
+		dmu_objset_space(zfsvfs->z_os,
+		    &refdbytes, &availbytes, &usedobjs, &availobjs);
 
-	uint64_t refdbytes, availbytes, usedobjs, availobjs;
-	dmu_objset_space(zfsvfs->z_os,
-	    &refdbytes, &availbytes, &usedobjs, &availobjs);
+		geom->DiskSize.QuadPart = availbytes + refdbytes;
+		geom->Geometry.BytesPerSector = 512;
+		geom->Geometry.MediaType = FixedMedia; // or RemovableMedia
+		zfs_exit(zfsvfs, FTAG);
+	}
 
-
-	DISK_GEOMETRY_EX_INTERNAL *geom = Irp->AssociatedIrp.SystemBuffer;
-	geom->DiskSize.QuadPart = availbytes + refdbytes;
-	geom->Geometry.BytesPerSector = 512;
-	geom->Geometry.MediaType = FixedMedia;
-
+	geom->Geometry.Cylinders.QuadPart = 1024;
+	geom->Geometry.SectorsPerTrack = 63;
+	geom->Geometry.TracksPerCylinder = 255;
+	geom->Data[0] = 0;
+#if 0
 	if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength >=
 	    FIELD_OFFSET(DISK_GEOMETRY_EX_INTERNAL, Detection)) {
 		geom->Partition.SizeOfPartitionInfo = sizeof (geom->Partition);
@@ -5631,11 +5741,8 @@ ioctl_disk_get_drive_geometry_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    sizeof (DISK_GEOMETRY_EX_INTERNAL)) {
 		geom->Detection.SizeOfDetectInfo = sizeof (geom->Detection);
 	}
-	zfs_exit(zfsvfs, FTAG);
-
-	Irp->IoStatus.Information =
-	    MIN(IrpSp->Parameters.DeviceIoControl.OutputBufferLength,
-	    sizeof (DISK_GEOMETRY_EX_INTERNAL));
+#endif
+	Irp->IoStatus.Information = sizeof (DISK_GEOMETRY_EX);
 	return (STATUS_SUCCESS);
 }
 
@@ -5818,8 +5925,17 @@ ioctl_storage_query_property(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	ULONG outputLength;
 
 	dprintf("%s: \n", __func__);
+	return (STATUS_INVALID_DEVICE_REQUEST);
 
 	outputLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+	if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength == 0) {
+// According to MSDN, an output buffer of size 0 can be used to determine if a property exists
+// so this must be a success case with no data transferred
+		Irp->IoStatus.Information = 0;
+		return (STATUS_SUCCESS);
+	}
+
 	if (outputLength < sizeof (STORAGE_PROPERTY_QUERY)) {
 		Irp->IoStatus.Information = sizeof (STORAGE_PROPERTY_QUERY);
 		return (STATUS_BUFFER_TOO_SMALL);
@@ -5842,7 +5958,7 @@ dprintf("    PropertyExistsQuery StorageDeviceUniqueIdProperty\n");
 		case StorageDeviceWriteCacheProperty:
 		case StorageAdapterProperty:
 dprintf("    PropertyExistsQuery Not implemented 0x%x\n", spq->PropertyId);
-			status = STATUS_NOT_IMPLEMENTED;
+			status = STATUS_INVALID_DEVICE_REQUEST;
 			break;
 		case StorageDeviceAttributesProperty:
 dprintf("    PropertyExistsQuery StorageDeviceAttributesProperty\n");
@@ -5850,7 +5966,7 @@ dprintf("    PropertyExistsQuery StorageDeviceAttributesProperty\n");
 			break;
 		default:
 dprintf("    PropertyExistsQuery unknown 0x%x\n", spq->PropertyId);
-			status = STATUS_NOT_IMPLEMENTED;
+			status = STATUS_INVALID_DEVICE_REQUEST;
 			break;
 		} // switch PropertyId
 		break;
@@ -5861,6 +5977,7 @@ dprintf("    PropertyExistsQuery unknown 0x%x\n", spq->PropertyId);
 		switch (spq->PropertyId) {
 		case StorageDeviceProperty:
 dprintf("    PropertyStandardQuery StorageDeviceProperty\n");
+
 			Irp->IoStatus.Information =
 			    sizeof (STORAGE_DEVICE_DESCRIPTOR);
 			if (outputLength < sizeof (STORAGE_DEVICE_DESCRIPTOR)) {
@@ -5869,11 +5986,26 @@ dprintf("    PropertyStandardQuery StorageDeviceProperty\n");
 			}
 			PSTORAGE_DEVICE_DESCRIPTOR storage;
 			storage = Irp->AssociatedIrp.SystemBuffer;
+			storage->Version = sizeof (STORAGE_DEVICE_DESCRIPTOR);
+			storage->Size = sizeof (STORAGE_DEVICE_DESCRIPTOR) ;
+			storage->BusType = 0;
+			storage->CommandQueueing = 0;
+			storage->DeviceType = 0;
+			storage->DeviceTypeModifier = 0;
+			storage->ProductIdOffset = 0;
+			storage->ProductRevisionOffset = 0;
+			// storage->RawDeviceProperties = 0;
+			storage->RawPropertiesLength = 0;
+			storage->RemovableMedia = 0;
+			storage->SerialNumberOffset = 0;
+			storage->VendorIdOffset = 0;
+			Irp->IoStatus.Information = sizeof (STORAGE_DEVICE_DESCRIPTOR);
+
 			status = STATUS_SUCCESS;
 			break;
 		case StorageAdapterProperty:
 dprintf("    PropertyStandardQuery Not implemented 0x%x\n", spq->PropertyId);
-			status = STATUS_NOT_IMPLEMENTED;
+			status = STATUS_INVALID_DEVICE_REQUEST;
 			break;
 		case StorageDeviceAttributesProperty:
 dprintf("    PropertyStandardQuery StorageDeviceAttributesProperty\n");
@@ -5891,12 +6023,18 @@ dprintf("    PropertyStandardQuery StorageDeviceAttributesProperty\n");
 			    sizeof (STORAGE_DEVICE_ATTRIBUTES_DESCRIPTOR);
 			sdad->Attributes =
 			    STORAGE_ATTRIBUTE_BYTE_ADDRESSABLE_IO;
+			Irp->IoStatus.Information = sizeof (STORAGE_DEVICE_ATTRIBUTES_DESCRIPTOR);
 			status = STATUS_SUCCESS;
 			break;
+		case StorageAccessAlignmentProperty:
+dprintf("    StorageAccessAlignmentProperty Not implemented 0x%x\n", spq->PropertyId);
+			status = STATUS_INVALID_DEVICE_REQUEST;
+			break;
+
 		default:
 			dprintf("    PropertyStandardQuery unknown 0x%x\n",
 			    spq->PropertyId);
-			status = STATUS_NOT_IMPLEMENTED;
+			status = STATUS_INVALID_DEVICE_REQUEST;
 			break;
 		} // switch propertyId
 		break;
@@ -5904,11 +6042,10 @@ dprintf("    PropertyStandardQuery StorageDeviceAttributesProperty\n");
 	default:
 		dprintf("%s: unknown Querytype: 0x%x\n",
 		    __func__, spq->QueryType);
-		status = STATUS_NOT_IMPLEMENTED;
+		status = STATUS_INVALID_DEVICE_REQUEST;
 		break;
 	}
 
-	Irp->IoStatus.Information = sizeof (STORAGE_PROPERTY_QUERY);
 	return (status);
 }
 
@@ -5936,6 +6073,7 @@ ioctl_query_unique_id(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
 
+#if 0
 	RtlUnicodeToUTF8N(osname, MAXPATHLEN - 1, &len, zmo->name.Buffer,
 	    zmo->name.Length);
 	osname[len] = 0;
@@ -5959,6 +6097,34 @@ ioctl_query_unique_id(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		Irp->IoStatus.Information = sizeof (MOUNTDEV_UNIQUE_ID);
 		return (STATUS_BUFFER_OVERFLOW);
 	}
+
+#else
+
+//	RtlUnicodeToUTF8N(osname, MAXPATHLEN - 1, &len, zmo->uuid.Buffer,
+//	    zmo->uuid.Length);
+//	osname[len] = 0;
+
+	// uniqueId appears to be CHARS not WCHARS,
+	// so this might need correcting?
+	uniqueId = (PMOUNTDEV_UNIQUE_ID)Irp->AssociatedIrp.SystemBuffer;
+
+	uniqueId->UniqueIdLength = sizeof (zmo->rawuuid);
+
+	if (sizeof (USHORT) + uniqueId->UniqueIdLength <= bufferLength) {
+		RtlCopyMemory((PCHAR)uniqueId->UniqueId, zmo->rawuuid,
+		    uniqueId->UniqueIdLength);
+		Irp->IoStatus.Information =
+		    FIELD_OFFSET(MOUNTDEV_UNIQUE_ID, UniqueId[0]) +
+		    uniqueId->UniqueIdLength;
+		//dprintf("replying with '%.*s'\n",
+		//    uniqueId->UniqueIdLength, uniqueId->UniqueId);
+		return (STATUS_SUCCESS);
+	} else {
+		Irp->IoStatus.Information = sizeof (MOUNTDEV_UNIQUE_ID);
+		return (STATUS_BUFFER_OVERFLOW);
+	}
+#endif
+
 }
 
 NTSTATUS
@@ -5978,13 +6144,14 @@ ioctl_query_stable_guid(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		Irp->IoStatus.Information = sizeof (MOUNTDEV_STABLE_GUID);
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
+		DbgBreakPoint();
 
 	mountGuid = (PMOUNTDEV_STABLE_GUID)Irp->AssociatedIrp.SystemBuffer;
 	RtlZeroMemory(&mountGuid->StableGuid, sizeof (mountGuid->StableGuid));
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	if (zfsvfs) {
-		uint64_t guid = dmu_objset_fsid_guid(zfsvfs->z_os);
-		RtlCopyMemory(&mountGuid->StableGuid, &guid, sizeof (guid));
+//		uint64_t guid = dmu_objset_fsid_guid(zfsvfs->z_os);
+		RtlCopyMemory(&mountGuid->StableGuid, zmo->rawuuid, sizeof (zmo->rawuuid));
 		Irp->IoStatus.Information = sizeof (MOUNTDEV_STABLE_GUID);
 		return (STATUS_SUCCESS);
 	}
@@ -6010,12 +6177,16 @@ ioctl_mountdev_query_suggested_link_name(PDEVICE_OBJECT DeviceObject,
 	}
 
 	// We only reply to strict driveletter mounts, not paths...
-	if (!zmo->justDriveLetter)
-		return (STATUS_NOT_FOUND);
+//	if (!zmo->justDriveLetter)
+//		return (STATUS_NOT_FOUND);
+	Irp->IoStatus.Information = 0;
+
+	if (zmo->mountpoint.Buffer == NULL)
+		return (STATUS_OBJECT_NAME_NOT_FOUND);
 
 	// If "?:" then just let windows pick drive letter
 	if (zmo->mountpoint.Buffer[4] == L'?')
-		return (STATUS_NOT_FOUND);
+		return (STATUS_OBJECT_NAME_NOT_FOUND);
 
 	// This code works, for driveletters.
 	// The mountpoint string is "\\??\\f:" so change
@@ -6044,7 +6215,7 @@ ioctl_mountdev_query_suggested_link_name(PDEVICE_OBJECT DeviceObject,
 		return (STATUS_SUCCESS);
 	}
 
-	Irp->IoStatus.Information = sizeof (MOUNTDEV_SUGGESTED_LINK_NAME);
+	Irp->IoStatus.Information = sizeof (MOUNTDEV_SUGGESTED_LINK_NAME) + MountPoint.Length;
 	return (STATUS_BUFFER_OVERFLOW);
 
 }
@@ -6064,7 +6235,7 @@ ioctl_mountdev_query_stable_guid(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		Irp->IoStatus.Information = sizeof (MOUNTDEV_STABLE_GUID);
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
-
+#if 0
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
@@ -6074,7 +6245,9 @@ ioctl_mountdev_query_stable_guid(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	// A bit naughty
 	zfs_vfs_uuid_gen(spa_name(dmu_objset_spa(zfsvfs->z_os)),
 	    (char *)&guid->StableGuid);
-
+#else
+	memcpy(&guid->StableGuid, zmo->rawuuid, sizeof (guid->StableGuid));
+#endif
 	Irp->IoStatus.Information = sizeof (MOUNTDEV_STABLE_GUID);
 	return (STATUS_SUCCESS);
 }
@@ -6195,4 +6368,34 @@ end:
 	// ExReleaseResourceLite(&Vcb->tree_lock);
 
 	return (Status);
+}
+
+NTSTATUS
+volume_read(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	dprintf("%s\n", __func__);
+
+	uint64_t bufferLength;
+	void *buffer;
+	bufferLength = IrpSp->Parameters.Read.Length;
+	LARGE_INTEGER offset = IrpSp->Parameters.Read.ByteOffset;
+
+	buffer = Irp->AssociatedIrp.SystemBuffer;
+	if (buffer == NULL)
+		buffer = MapUserBuffer(Irp);
+	if (buffer == NULL) {
+		Irp->IoStatus.Information = 0;
+		return (STATUS_INSUFFICIENT_RESOURCES);
+	}
+
+	if (offset.QuadPart < 0 || bufferLength == 0) {
+		Irp->IoStatus.Information = 0;
+		return (STATUS_INVALID_PARAMETER);
+	}
+
+	memset(buffer, 0, bufferLength);
+
+	Irp->IoStatus.Information = bufferLength;
+	return (STATUS_SUCCESS);
 }

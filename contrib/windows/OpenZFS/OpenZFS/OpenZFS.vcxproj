@@ -130,8 +130,7 @@
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
     <DisableProductionSignDebugWarnings>false</DisableProductionSignDebugWarnings>
-    <TimeStampServer>
-    </TimeStampServer>
+    <TimeStampServer>http://timestamp.digicert.com</TimeStampServer>
     <IncludePath>$(IncludePath);$(KMDF_INC_PATH)$(KMDF_VER_PATH);../../../../include</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
