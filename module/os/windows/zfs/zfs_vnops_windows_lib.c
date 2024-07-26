@@ -5475,7 +5475,6 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			goto out;
 		}
 
-
 		/* The PnP manager will remove this when it is done with device */
 		mount_t *zmo_dcb = (mount_t *)zmo->parent_device;
 		
@@ -5639,6 +5638,7 @@ ioctl_disk_get_drive_geometry(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 {
 	int error = 0;
 	dprintf("%s: \n", __func__);
+
 	if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength <
 	    sizeof (DISK_GEOMETRY)) {
 		Irp->IoStatus.Information = sizeof (DISK_GEOMETRY);
@@ -5663,13 +5663,27 @@ ioctl_disk_get_drive_geometry(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	dmu_objset_space(zfsvfs->z_os,
 	    &refdbytes, &availbytes, &usedobjs, &availobjs);
 
-	DISK_GEOMETRY *geom = Irp->AssociatedIrp.SystemBuffer;
+	DISK_GEOMETRY *diskGeometry = Irp->AssociatedIrp.SystemBuffer;
+	uint64_t TotalSizeBytes = availbytes + refdbytes;
+	unsigned long TracksPerCylinder = 255;
+	unsigned long SectorsPerTrack = 63;
+	unsigned long BytesPerSector = 512;
 
-	geom->BytesPerSector = 512;
-	geom->SectorsPerTrack = 1;
-	geom->TracksPerCylinder = 1;
-	geom->Cylinders.QuadPart = (availbytes + refdbytes) / 512;
-	geom->MediaType = FixedMedia;
+	// Calculate total sectors
+	unsigned long long TotalSectors = TotalSizeBytes / BytesPerSector;
+
+	// Calculate sectors per cylinder
+	unsigned long SectorsPerCylinder = TracksPerCylinder * SectorsPerTrack;
+
+	// Calculate number of cylinders
+	unsigned long long Cylinders = TotalSectors / SectorsPerCylinder;
+
+	// Populate the DISK_GEOMETRY structure
+	diskGeometry->Cylinders.QuadPart = Cylinders;
+	diskGeometry->TracksPerCylinder = TracksPerCylinder;
+	diskGeometry->SectorsPerTrack = SectorsPerTrack;
+	diskGeometry->BytesPerSector = BytesPerSector;
+	diskGeometry->MediaType = FixedMedia;
 	zfs_exit(zfsvfs, FTAG);
 
 	Irp->IoStatus.Information = sizeof (DISK_GEOMETRY);
@@ -5831,12 +5845,12 @@ ioctl_disk_get_partition_info_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	part->PartitionStyle = PARTITION_STYLE_MBR;
 	part->RewritePartition = FALSE;
 	part->Mbr.RecognizedPartition = FALSE;
-	part->Mbr.PartitionType = PARTITION_ENTRY_UNUSED;
+	part->Mbr.PartitionType = PARTITION_HUGE;
 	part->Mbr.BootIndicator = FALSE;
-	part->Mbr.HiddenSectors = 0;
+	part->Mbr.HiddenSectors = 1;
 	part->StartingOffset.QuadPart = 0;
 	part->PartitionLength.QuadPart = availbytes + refdbytes;
-	part->PartitionNumber = 0;
+	part->PartitionNumber = 1;
 
 	zfs_exit(zfsvfs, FTAG);
 
@@ -5925,7 +5939,7 @@ ioctl_storage_query_property(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	ULONG outputLength;
 
 	dprintf("%s: \n", __func__);
-	return (STATUS_INVALID_DEVICE_REQUEST);
+//	return (STATUS_INVALID_DEVICE_REQUEST);
 
 	outputLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
 
@@ -6144,7 +6158,7 @@ ioctl_query_stable_guid(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		Irp->IoStatus.Information = sizeof (MOUNTDEV_STABLE_GUID);
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
-		DbgBreakPoint();
+
 
 	mountGuid = (PMOUNTDEV_STABLE_GUID)Irp->AssociatedIrp.SystemBuffer;
 	RtlZeroMemory(&mountGuid->StableGuid, sizeof (mountGuid->StableGuid));

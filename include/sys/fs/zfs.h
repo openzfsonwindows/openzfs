@@ -1380,7 +1380,7 @@ typedef struct ddt_histogram {
 #define	ZFS_DEV		"\\\\.\\ZFS"
 #define	ZFS_DEV_DOS	L"\\DosDevices\\Global\\ZFS"
 #define	ZFS_DEV_KERNEL	L"\\Device\\ZFSCTL"
-#define	ZFS_GLOBAL_FS_DISK_DEVICE_NAME	L"\\ZFS"
+#define	ZFS_GLOBAL_FS_DISK_DEVICE_NAME	L"\\OpenZFS"
 #else
 #define	ZFS_DEV		"/dev/zfs"
 #endif

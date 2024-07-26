@@ -503,7 +503,7 @@ DWORD
 executeInfSection(const char *cmd, char *inf_path) {
 
 #ifdef _DEBUG
-	system("sc query ZFSin");
+	system("sc query OpenZFS");
 	fprintf(stderr, "\n\n");
 #endif
 
@@ -528,7 +528,7 @@ executeInfSection(const char *cmd, char *inf_path) {
 
 
 #ifdef _DEBUG
-	system("sc query ZFSin");
+	system("sc query OpenZFS");
 #endif
 
 	return (error);
@@ -665,7 +665,7 @@ send_zfs_ioc_unregister_fs(void)
 #include <cfgmgr32.h>
 #include <newdev.h>
 
-#define	ZFS_ROOTDEV "Root\\OpenZFS"
+#define	ZFS_ROOTDEV "ROOT\\OpenZFS"
 // DevCon uses LoadLib() - but lets just static link
 #pragma comment(lib, "Newdev.lib")
 
