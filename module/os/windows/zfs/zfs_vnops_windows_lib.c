@@ -2322,27 +2322,75 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 	UNICODE_STRING ustr;
 	UNICODE_STRING ustream;
 	int wideoffset = nameoffset / sizeof (WCHAR);
+	int allocateBytes = 0;
+	int length;
+	NTSTATUS status;
 
 	if (name == NULL)
 		return;
 
-	if (nameoffset > strlen(name))
+	length = strlen(name);
+
+	if (nameoffset > length)
 		return;
 
-	AsciiStringToUnicodeString(name, &ustr);
-
-	if (wideoffset > ustr.Length)
+	RtlUTF8ToUnicodeN(NULL, 0, &allocateBytes, name, length);
+	if (allocateBytes == 0)
 		return;
 
-	dprintf("%s: '%wZ' part '%S' %lu %u\n", __func__, &ustr,
+	allocateBytes += sizeof(wchar_t); // Add space for the null terminator.
+	wchar_t *widepath = (wchar_t *)ExAllocatePoolWithTag(NonPagedPoolNx, allocateBytes, 'znot');
+	if (widepath == NULL)
+		return;
+
+	// Initialize UNICODE_STRING for conversion.
+	RtlInitEmptyUnicodeString(&ustr, widepath, (USHORT)allocateBytes);
+
+	// Convert UTF-8 to Unicode.
+	status = RtlUTF8ToUnicodeN(ustr.Buffer, ustr.MaximumLength, &ustr.Length, name, length);
+	if (!NT_SUCCESS(status)) {
+		ExFreePoolWithTag(widepath, 'znot');
+		return;
+	}
+
+	widepath[ustr.Length / sizeof(wchar_t)] = 0;
+
+	// Now find last backslash
+	wchar_t *lastBackslash = wcsrchr(widepath, L'\\');
+	if (lastBackslash == NULL)
+		wideoffset = 0;
+	else
+		wideoffset = lastBackslash - widepath;
+
+	// wideoffset is currently in character-offset, for this print
+	dprintf("%s: '%wZ' part '%ws' %lu %u\n", __func__, &ustr,
 	    /* &name[nameoffset], */ &ustr.Buffer[wideoffset],
 	    FilterMatch, Action);
 
-	if (stream != NULL) {
-		AsciiStringToUnicodeString(stream, &ustream);
-		dprintf("%s: with stream '%wZ'\n", __func__, &ustream);
-	}
+	// Now wideoffset will go into byte-offset, for the call
+	wideoffset *= sizeof (wchar_t);
 
+	// We will destroy many local variables now
+	if (stream != NULL) {
+		length = strlen(stream);
+		allocateBytes = 0;
+		RtlUTF8ToUnicodeN(NULL, 0, &allocateBytes, stream, length);
+		if (allocateBytes != 0) {
+			allocateBytes += sizeof(wchar_t); // Add space for the null terminator.
+			wchar_t *widepath = (wchar_t *)ExAllocatePoolWithTag(NonPagedPoolNx, allocateBytes, 'znot');
+			if (widepath != NULL) {
+				RtlInitEmptyUnicodeString(&ustream, widepath, (USHORT)allocateBytes);
+				status = RtlUTF8ToUnicodeN(ustream.Buffer, ustream.MaximumLength, &ustream.Length, stream, length);
+				if (NT_SUCCESS(status)) {
+					dprintf("%s: with stream '%wZ'\n", __func__, &ustream);
+					widepath[ustr.Length / sizeof(wchar_t)] = 0;
+				} else {
+					FreeUnicodeString(&ustream);
+					stream = NULL;
+				}
+			}
+		}
+	}
 	/* Is nameoffset in bytes, or in characters? */
 	FsRtlNotifyFilterReportChange(zmo->NotifySync, &zmo->DirNotifyList,
 	    (PSTRING)&ustr,
@@ -5935,129 +5983,159 @@ NTSTATUS
 ioctl_storage_query_property(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
 {
-	NTSTATUS status;
+	NTSTATUS status = STATUS_NOT_SUPPORTED;
 	ULONG outputLength;
 
 	dprintf("%s: \n", __func__);
-//	return (STATUS_INVALID_DEVICE_REQUEST);
-
-	outputLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
-
-	if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength == 0) {
-// According to MSDN, an output buffer of size 0 can be used to determine if a property exists
-// so this must be a success case with no data transferred
-		Irp->IoStatus.Information = 0;
-		return (STATUS_SUCCESS);
-	}
-
-	if (outputLength < sizeof (STORAGE_PROPERTY_QUERY)) {
-		Irp->IoStatus.Information = sizeof (STORAGE_PROPERTY_QUERY);
-		return (STATUS_BUFFER_TOO_SMALL);
-	}
 
 	STORAGE_PROPERTY_QUERY *spq = Irp->AssociatedIrp.SystemBuffer;
 
-	switch (spq->QueryType) {
+	outputLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
 
-	case PropertyExistsQuery:
+// Check Length if not Query type. If query:
+// According to MSDN, an output buffer of size 0 can be used to determine if a property exists
+// so this must be a success case with no data transferred
+	if (spq->QueryType != PropertyExistsQuery) {
+		if (outputLength < sizeof (STORAGE_DESCRIPTOR_HEADER)) {
+			Irp->IoStatus.Information = sizeof (STORAGE_DESCRIPTOR_HEADER);
+			return (STATUS_BUFFER_TOO_SMALL);
+		}
+	}
 
-		// ExistsQuery: return OK if exists.
-		Irp->IoStatus.Information = 0;
+	/*
+	 * PropertyExistsQuery:
+	 *   Based on whether your driver supports the requested property, return STATUS_SUCCESS
+	 *   if the property exists, or STATUS_NOT_SUPPORTED if it does not.
+	 * PropertyStandardQuery:
+	 *   Return data
+	 */
 
-		switch (spq->PropertyId) {
-		case StorageDeviceUniqueIdProperty:
-dprintf("    PropertyExistsQuery StorageDeviceUniqueIdProperty\n");
-			status = STATUS_SUCCESS;
-			break;
-		case StorageDeviceWriteCacheProperty:
-		case StorageAdapterProperty:
-dprintf("    PropertyExistsQuery Not implemented 0x%x\n", spq->PropertyId);
-			status = STATUS_INVALID_DEVICE_REQUEST;
-			break;
-		case StorageDeviceAttributesProperty:
-dprintf("    PropertyExistsQuery StorageDeviceAttributesProperty\n");
-			status = STATUS_SUCCESS;
-			break;
-		default:
-dprintf("    PropertyExistsQuery unknown 0x%x\n", spq->PropertyId);
-			status = STATUS_INVALID_DEVICE_REQUEST;
-			break;
-		} // switch PropertyId
+	// ExistsQuery: return OK if exists.
+	Irp->IoStatus.Information = 0;
+
+	// Might be NULL
+	PSTORAGE_DESCRIPTOR_HEADER Header = (PSTORAGE_DESCRIPTOR_HEADER) Irp->AssociatedIrp.SystemBuffer;
+	size_t hdrsize = 0;
+
+	switch (spq->PropertyId) {
+	case StorageDeviceUniqueIdProperty:
+		dprintf("    PropertyExistsQuery "
+		    "StorageDeviceUniqueIdProperty\n");
+		DbgBreakPoint();
+		if (spq->QueryType == PropertyExistsQuery)
+			return (STATUS_SUCCESS);
+		dprintf("    PropertyStandardQuery "
+		    "StorageDeviceUniqueIdProperty\n");
 		break;
 
-	// Query property, check input buffer size.
-	case PropertyStandardQuery:
+	case StorageAccessAlignmentProperty:
+		dprintf("    PropertyExistsQuery "
+		    "StorageAccessAlignmentProperty\n");
+		if (spq->QueryType == PropertyExistsQuery)
+			return (STATUS_SUCCESS);
+		dprintf("    PropertyStandardQuery "
+		    "StorageAccessAlignmentProperty\n");
 
-		switch (spq->PropertyId) {
-		case StorageDeviceProperty:
-dprintf("    PropertyStandardQuery StorageDeviceProperty\n");
+		hdrsize = sizeof (STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR);
+		if (outputLength == sizeof (STORAGE_DESCRIPTOR_HEADER) && Header) {
+			Header->Size = hdrsize;
+			Header->Version = hdrsize;
+			Irp->IoStatus.Information = sizeof (STORAGE_DESCRIPTOR_HEADER);
+			return (STATUS_SUCCESS);
+		}
 
-			Irp->IoStatus.Information =
-			    sizeof (STORAGE_DEVICE_DESCRIPTOR);
-			if (outputLength < sizeof (STORAGE_DEVICE_DESCRIPTOR)) {
-				status = STATUS_BUFFER_TOO_SMALL;
-				break;
-			}
-			PSTORAGE_DEVICE_DESCRIPTOR storage;
-			storage = Irp->AssociatedIrp.SystemBuffer;
-			storage->Version = sizeof (STORAGE_DEVICE_DESCRIPTOR);
-			storage->Size = sizeof (STORAGE_DEVICE_DESCRIPTOR) ;
-			storage->BusType = 0;
-			storage->CommandQueueing = 0;
-			storage->DeviceType = 0;
-			storage->DeviceTypeModifier = 0;
-			storage->ProductIdOffset = 0;
-			storage->ProductRevisionOffset = 0;
-			// storage->RawDeviceProperties = 0;
-			storage->RawPropertiesLength = 0;
-			storage->RemovableMedia = 0;
-			storage->SerialNumberOffset = 0;
-			storage->VendorIdOffset = 0;
-			Irp->IoStatus.Information = sizeof (STORAGE_DEVICE_DESCRIPTOR);
+		Irp->IoStatus.Information = hdrsize;
+		if (outputLength < hdrsize)
+			return (STATUS_BUFFER_TOO_SMALL);
 
-			status = STATUS_SUCCESS;
-			break;
-		case StorageAdapterProperty:
-dprintf("    PropertyStandardQuery Not implemented 0x%x\n", spq->PropertyId);
-			status = STATUS_INVALID_DEVICE_REQUEST;
-			break;
-		case StorageDeviceAttributesProperty:
-dprintf("    PropertyStandardQuery StorageDeviceAttributesProperty\n");
-			Irp->IoStatus.Information =
-			    sizeof (STORAGE_DEVICE_ATTRIBUTES_DESCRIPTOR);
-			if (outputLength <
-			    sizeof (STORAGE_DEVICE_ATTRIBUTES_DESCRIPTOR)) {
-				status = STATUS_BUFFER_TOO_SMALL;
-				break;
-			}
-			STORAGE_DEVICE_ATTRIBUTES_DESCRIPTOR *sdad;
-			sdad = Irp->AssociatedIrp.SystemBuffer;
-			sdad->Version = 1;
-			sdad->Size =
-			    sizeof (STORAGE_DEVICE_ATTRIBUTES_DESCRIPTOR);
-			sdad->Attributes =
-			    STORAGE_ATTRIBUTE_BYTE_ADDRESSABLE_IO;
-			Irp->IoStatus.Information = sizeof (STORAGE_DEVICE_ATTRIBUTES_DESCRIPTOR);
-			status = STATUS_SUCCESS;
-			break;
-		case StorageAccessAlignmentProperty:
-dprintf("    StorageAccessAlignmentProperty Not implemented 0x%x\n", spq->PropertyId);
-			status = STATUS_INVALID_DEVICE_REQUEST;
-			break;
-
-		default:
-			dprintf("    PropertyStandardQuery unknown 0x%x\n",
-			    spq->PropertyId);
-			status = STATUS_INVALID_DEVICE_REQUEST;
-			break;
-		} // switch propertyId
+		PSTORAGE_ACCESS_ALIGNMENT_DESCRIPTOR AlignmentDescriptor = (PSTORAGE_ACCESS_ALIGNMENT_DESCRIPTOR)Irp->AssociatedIrp.SystemBuffer;
+		RtlZeroMemory(AlignmentDescriptor, hdrsize);
+		AlignmentDescriptor->Version = hdrsize;
+		AlignmentDescriptor->Size = hdrsize;
+		AlignmentDescriptor->BytesPerCacheLine = 64; // Example value
+		AlignmentDescriptor->BytesOffsetForCacheAlignment = 0;
+		AlignmentDescriptor->BytesPerLogicalSector = 512;
+		AlignmentDescriptor->BytesPerPhysicalSector = 512;
+		AlignmentDescriptor->BytesOffsetForSectorAlignment = 0;
+		status = STATUS_SUCCESS;
 		break;
 
-	default:
-		dprintf("%s: unknown Querytype: 0x%x\n",
-		    __func__, spq->QueryType);
-		status = STATUS_INVALID_DEVICE_REQUEST;
+	case StorageDeviceProperty:
+		dprintf("    PropertyExistsQuery "
+		    "StorageDeviceProperty\n");
+		if (spq->QueryType == PropertyExistsQuery)
+			return (STATUS_SUCCESS);
+		dprintf("    PropertyStandardQuery "
+		    "StorageDeviceProperty\n");
+
+		hdrsize = sizeof (STORAGE_DEVICE_DESCRIPTOR);
+		if (outputLength == sizeof (STORAGE_DESCRIPTOR_HEADER) && Header) {
+			Header->Size = hdrsize;
+			Header->Version = hdrsize;
+			Irp->IoStatus.Information = sizeof (STORAGE_DESCRIPTOR_HEADER);
+			return (STATUS_SUCCESS);
+		}
+
+		Irp->IoStatus.Information = hdrsize;
+		if (outputLength < hdrsize)
+			return (STATUS_BUFFER_TOO_SMALL);
+
+		PSTORAGE_DEVICE_DESCRIPTOR storage;
+		storage = Irp->AssociatedIrp.SystemBuffer;
+		storage->Version = hdrsize;
+		storage->Size = hdrsize;
+		storage->BusType = 0;
+		storage->CommandQueueing = 0;
+		storage->DeviceType = FILE_DEVICE_DISK;
+		storage->DeviceTypeModifier = 0;
+		storage->ProductIdOffset = 0;
+		storage->ProductRevisionOffset = 0;
+		// storage->RawDeviceProperties = 0;
+		storage->RawPropertiesLength = 0;
+		storage->RemovableMedia = 0;
+		storage->SerialNumberOffset = 0;
+		storage->VendorIdOffset = 0;
+		status = STATUS_SUCCESS;
 		break;
+
+	case StorageDeviceAttributesProperty:
+		dprintf("    PropertyExistsQuery "
+		    "StorageDeviceAttributesProperty\n");
+		if (spq->QueryType == PropertyExistsQuery)
+			return (STATUS_SUCCESS);
+		dprintf("    PropertyStandardQuery "
+		    "StorageDeviceAttributesProperty\n");
+
+		hdrsize = sizeof (STORAGE_DEVICE_ATTRIBUTES_DESCRIPTOR);
+		if (outputLength == sizeof (STORAGE_DESCRIPTOR_HEADER) && Header) {
+			Header->Size = hdrsize;
+			Header->Version = hdrsize;
+			Irp->IoStatus.Information = sizeof (STORAGE_DESCRIPTOR_HEADER);
+			return (STATUS_SUCCESS);
+		}
+
+		Irp->IoStatus.Information = hdrsize;
+		if (outputLength < hdrsize)
+			return (STATUS_BUFFER_TOO_SMALL);
+
+		STORAGE_DEVICE_ATTRIBUTES_DESCRIPTOR *sdad;
+		sdad = Irp->AssociatedIrp.SystemBuffer;
+		sdad->Version = hdrsize;
+		sdad->Size = hdrsize;
+		sdad->Attributes =
+		    STORAGE_ATTRIBUTE_BYTE_ADDRESSABLE_IO;
+		status = STATUS_SUCCESS;
+		break;
+
+	default: // StorageDeviceLBProvisioningProperty // StorageDeviceResiliencyProperty 
+		if (spq->QueryType == PropertyExistsQuery) {
+			dprintf("PropertyExistsQuery not supported: %d / 0x%x\n",
+			    spq->PropertyId, spq->PropertyId);
+			return (STATUS_NOT_SUPPORTED);
+		}
+		dprintf("PropertyStandardQuery failing: %d / 0x%x\n",
+		    spq->PropertyId, spq->PropertyId);
+		return (STATUS_INVALID_DEVICE_REQUEST);
 	}
 
 	return (status);
@@ -6411,5 +6489,6 @@ volume_read(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	memset(buffer, 0, bufferLength);
 
 	Irp->IoStatus.Information = bufferLength;
+	dprintf("%s exit (%lld bytes)\n", __func__, bufferLength);
 	return (STATUS_SUCCESS);
 }

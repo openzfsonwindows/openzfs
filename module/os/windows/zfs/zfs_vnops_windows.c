@@ -928,11 +928,10 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	    (CreateDisposition == FILE_OVERWRITE_IF)));
 
 	// If it is a volumeopen, we just grab rootvp so that directory
-	// listings work
+	// listings work - most Options are ignored with VolumeOpens
 	if (FileObject->FileName.Length == 0 &&
 	    FileObject->RelatedFileObject == NULL) {
-		// If DirectoryFile return STATUS_NOT_A_DIRECTORY
-		// If OpenTargetDirectory return STATUS_INVALID_PARAMETER
+
 		dprintf("Started NULL open, returning root of mount\n");
 		error = zfs_zget(zfsvfs, zfsvfs->z_root, &zp);
 		if (error != 0)
@@ -1000,6 +999,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			    strncmp("\\*", filename, PATH_MAX) == 0);
 
 			if (OpenRoot) {
+
+				if (NonDirectoryFile)
+					return (STATUS_FILE_IS_A_DIRECTORY);
 
 				error = zfs_zget(zfsvfs, zfsvfs->z_root, &zp);
 
@@ -2228,12 +2230,12 @@ pnp_query_id(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		idLen = mpt.Length;
 		break;
 	case BusQueryHardwareIDs: // IDs, plural
-	//	if (zmo->type == MOUNT_TYPE_BUS)
+		//if (zmo->type == MOUNT_TYPE_BUS)
 			RtlUnicodeStringPrintf(&mpt,
 			    L"ROOT\\OpenZFS%lc%lc", 0, 0); // double nulls
-	//	else
-	//		RtlUnicodeStringPrintf(&mpt,
-	//		    L"OpenZFSVolume%lcGenDisk%lc%lc", 0, 0, 0);
+		//else
+		//	RtlUnicodeStringPrintf(&mpt,
+		//	    L"OpenZFSVolume%lcGenDisk%lc%lc", 0, 0, 0);
 		idString = mpt.Buffer;
 		idLen = mpt.Length;
 		break;
@@ -2244,6 +2246,7 @@ pnp_query_id(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		idLen = mpt.Length;
 		break;
 #if 0
+	// If these are included, AddDevice() does not get called.
 	case BusQueryCompatibleIDs:
 		RtlUnicodeStringPrintf(&mpt,
 		    L"OpenZFS\\Generic%lc%lc", 0, 0);
@@ -2253,10 +2256,6 @@ pnp_query_id(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	case BusQueryInstanceID: // Needs to be unique.
 		idString = zmo->uuid.Buffer;
 		idLen = zmo->uuid.Length;
-		break;
-	case BusQueryContainerID:
-		idString = zmo->device_name.Buffer;
-		idLen = zmo->device_name.Length;
 		break;
 #endif
 	default:
@@ -2505,17 +2504,10 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		PVPB Vpb = zmo->vpb;
 		WCHAR *wstr;
 
-		if (Vpb) {
-			ffvi->VolumeSerialNumber = Vpb->SerialNumber;
-			ffvi->VolumeLabelLength =
-			    Vpb->VolumeLabelLength;
-			wstr = Vpb->VolumeLabel;
-		} else {
-			ffvi->VolumeSerialNumber = 0x19831116;
-			ffvi->VolumeLabelLength =
-			    zmo->name.Length;
-			wstr = zmo->name.Buffer;
-		}
+		ffvi->VolumeSerialNumber = 0x19831116;
+		ffvi->VolumeLabelLength =
+		    sizeof(VOLUME_LABEL) - sizeof(WCHAR);
+		wstr = VOLUME_LABEL;
 
 		int space =
 		    IrpSp->Parameters.QueryFile.Length -
@@ -6624,6 +6616,7 @@ _Function_class_(DRIVER_DISPATCH)
 		case IRP_MN_START_DEVICE:
 			dprintf("IRP_MN_START_DEVICE\n");
 			Status = STATUS_SUCCESS;
+
 			break;
 		case IRP_MN_CANCEL_REMOVE_DEVICE:
 			dprintf("IRP_MN_CANCEL_REMOVE_DEVICE\n");
@@ -6662,6 +6655,7 @@ _Function_class_(DRIVER_DISPATCH)
 		// these are not handled in btrfs, pass down
 		case IRP_MN_DEVICE_ENUMERATED:
 			dprintf("IRP_MN_DEVICE_ENUMERATED\n");
+			Status = STATUS_SUCCESS;
 			break;
 		case IRP_MN_FILTER_RESOURCE_REQUIREMENTS:
 			dprintf("IRP_MN_FILTER_RESOURCE_REQUIREMENTS\n");
@@ -6944,6 +6938,7 @@ _Function_class_(DRIVER_DISPATCH)
 		case IRP_MN_START_DEVICE:
 			dprintf("IRP_MN_START_DEVICE\n");
 			Status = STATUS_SUCCESS;
+			DbgBreakPoint();
 			break;
 		case IRP_MN_CANCEL_REMOVE_DEVICE:
 			dprintf("IRP_MN_CANCEL_REMOVE_DEVICE\n");
@@ -7275,6 +7270,7 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 		case IRP_MN_DEVICE_ENUMERATED:
 			dprintf("IRP_MN_DEVICE_ENUMERATED\n");
+			Status = STATUS_SUCCESS;
 			break;
 		default:
 			dprintf("Unknown IRP_MJ_PNP(disk): 0x%x\n",
@@ -7484,25 +7480,10 @@ _Function_class_(DRIVER_DISPATCH)
 			dprintf("IOCTL_VOLUME_GET_GPT_ATTRIBUTES\n");
 			Status = 0;
 			break;
-		case IOCTL_MOUNTDEV_QUERY_DEVICE_NAME:
-			dprintf("IOCTL_MOUNTDEV_QUERY_DEVICE_NAME\n");
-			Status = ioctl_query_device_name(DeviceObject, Irp,
-			    IrpSp);
-			break;
 		case IOCTL_MOUNTDEV_QUERY_UNIQUE_ID:
 			dprintf("IOCTL_MOUNTDEV_QUERY_UNIQUE_ID\n");
 			Status = ioctl_query_unique_id(DeviceObject, Irp,
 			    IrpSp);
-			break;
-		case IOCTL_MOUNTDEV_QUERY_STABLE_GUID:
-			dprintf("IOCTL_MOUNTDEV_QUERY_STABLE_GUID\n");
-			Status = ioctl_query_stable_guid(DeviceObject, Irp,
-			    IrpSp);
-			break;
-		case IOCTL_MOUNTDEV_QUERY_SUGGESTED_LINK_NAME:
-			dprintf("IOCTL_MOUNTDEV_QUERY_SUGGESTED_LINK_NAME\n");
-			Status = ioctl_mountdev_query_suggested_link_name(
-			    DeviceObject, Irp, IrpSp);
 			break;
 		case IOCTL_VOLUME_ONLINE:
 			dprintf("IOCTL_VOLUME_ONLINE\n");
@@ -7511,10 +7492,6 @@ _Function_class_(DRIVER_DISPATCH)
 		case IOCTL_VOLUME_OFFLINE:
 		case IOCTL_VOLUME_IS_OFFLINE:
 			dprintf("IOCTL_VOLUME_OFFLINE\n");
-			Status = STATUS_SUCCESS;
-			break;
-		case IOCTL_DISK_IS_WRITABLE:
-			dprintf("IOCTL_DISK_IS_WRITABLE\n");
 			Status = STATUS_SUCCESS;
 			break;
 		case IOCTL_DISK_MEDIA_REMOVAL:
@@ -7665,11 +7642,9 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 		case IRP_MN_DEVICE_ENUMERATED:
 			dprintf("IRP_MN_DEVICE_ENUMERATED\n");
+			Status = STATUS_SUCCESS;
 			break;
 #if 0
-		case IRP_MN_QUERY_CAPABILITIES: // x INTERFACE TEXT IRP_MN_QUERY_BUS_INFORMATION IRP_MN_QUERY_RESOURCE_REQUIREMENTS IRP_MN_QUERY_RESOURCES
-			Status = QueryCapabilities(DeviceObject, Irp, IrpSp);
-			break;
 		case IRP_MN_QUERY_PNP_DEVICE_STATE:
 			Status = pnp_device_state(DeviceObject, Irp, IrpSp);
 			break;
@@ -7679,10 +7654,6 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 		case IRP_MN_SURPRISE_REMOVAL:
 			dprintf("IRP_MN_SURPRISE_REMOVAL\n");
-			Status = STATUS_SUCCESS;
-			break;
-		case IRP_MN_REMOVE_DEVICE:
-			dprintf("IRP_MN_REMOVE_DEVICE\n");
 			Status = STATUS_SUCCESS;
 			break;
 		case IRP_MN_CANCEL_REMOVE_DEVICE:
@@ -7702,7 +7673,7 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 		}
 		break;
-#if 0
+#if 1
 	case IRP_MJ_QUERY_VOLUME_INFORMATION:
 		Status = query_volume_information(DeviceObject, Irp, IrpSp);
 		break;

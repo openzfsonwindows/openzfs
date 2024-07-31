@@ -1127,28 +1127,14 @@ OpenZFS_AddDevice(
 		RtlInitUnicodeString(&zmo_bus->device_name, L"\\Device\\OpenZFS");
 		zmo_bus->FunctionalDeviceObject = DriverExtension->FunctionalDeviceObject;
 		zmo_bus->PhysicalDeviceObject = PhysicalDeviceObject;
+
+
 		// status = IoReportDetectedDevice(WIN_DriverObject, InterfaceTypeUndefined, 0xFFFFFFFF, 0xFFFFFFFF,
-		//    NULL, NULL, 0, &zmo_bus->PhysicalDeviceObject);
+		//    NULL, NULL, 0, &zmo_bus->PNPDeviceObject);
+
 		// xprintf("%s called: PhysicalDeviceObject %p\n", __func__, zmo_bus->PhysicalDeviceObject);
 		// status = IoRegisterDeviceInterface(zmo_bus->PhysicalDeviceObject, &BtrfsBusInterface, NULL,
 		//    &zmo_bus->deviceInterfaceName);
-		DECLARE_UNICODE_STRING_SIZE(hardwareId, 100);
-
-		// RtlInitUnicodeString(&hardwareId, L"ROOT\\OPENZFS");
-		RtlUnicodeStringPrintf(&hardwareId,
-			    L"ROOT\\OpenZFS%lc%lc", 0, 0);
-
-
-		status = IoSetDevicePropertyData(
-		    PhysicalDeviceObject,
-		    &DEVPKEY_Device_HardwareIds,
-		    0,
-		    0,
-		    DEVPROP_TYPE_STRING_LIST,
-		    (ULONG)(hardwareId.Length),
-		    hardwareId.Buffer
-		);
-
 
 		zmo_bus->AttachedDevice = IoAttachDeviceToDeviceStack(DriverExtension->FunctionalDeviceObject,
 		    zmo_bus->PhysicalDeviceObject);
@@ -1161,66 +1147,65 @@ OpenZFS_AddDevice(
 		// IoInvalidateDeviceRelations(zmo_bus->PhysicalDeviceObject, BusRelations);
 
 #if 1
-			NTSTATUS ntStatus;
-	UNICODE_STRING  ntUnicodeString;    // NT Device Name
-	UNICODE_STRING ntWin32NameString; // Win32 Name
-	int err;
+		NTSTATUS ntStatus;
+		UNICODE_STRING  ntUnicodeString;    // NT Device Name
+		UNICODE_STRING ntWin32NameString; // Win32 Name
+		int err;
 
-	static UNICODE_STRING sddl = RTL_CONSTANT_STRING(
-	    L"D:P(A;;GA;;;SY)(A;;GRGWGX;;;BA)"
-	    "(A;;GRGWGX;;;WD)(A;;GRGX;;;RC)");
-	// Or use &SDDL_DEVOBJ_SYS_ALL_ADM_RWX_WORLD_RW_RES_R
+		static UNICODE_STRING sddl = RTL_CONSTANT_STRING(
+		    L"D:P(A;;GA;;;SY)(A;;GRGWGX;;;BA)"
+		    "(A;;GRGWGX;;;WD)(A;;GRGX;;;RC)");
+		// Or use &SDDL_DEVOBJ_SYS_ALL_ADM_RWX_WORLD_RW_RES_R
 
-	RtlInitUnicodeString(&ntUnicodeString, ZFS_DEV_KERNEL);
-	ntStatus = IoCreateDeviceSecure(
-	    WIN_DriverObject,
-	    sizeof (mount_t),
-	    &ntUnicodeString, // Device name "\Device\SIOCTL"
-	    FILE_DEVICE_UNKNOWN, // Device type
-	    FILE_DEVICE_SECURE_OPEN, // Device characteristics
-	    FALSE, // Not an exclusive device
-	    &sddl,
-	    NULL,
-	    &DriverExtension->ioctlDeviceObject); // Returned ptr to Device Object
+		RtlInitUnicodeString(&ntUnicodeString, ZFS_DEV_KERNEL);
+		ntStatus = IoCreateDeviceSecure(
+		    WIN_DriverObject,
+		    sizeof (mount_t),
+		    &ntUnicodeString, // Device name "\Device\SIOCTL"
+		    FILE_DEVICE_UNKNOWN, // Device type
+		    FILE_DEVICE_SECURE_OPEN, // Device characteristics
+		    FALSE, // Not an exclusive device
+		    &sddl,
+		    NULL,
+		    &DriverExtension->ioctlDeviceObject); // Returned ptr to Device Object
 
-	if (!NT_SUCCESS(ntStatus)) {
-		dprintf("ZFS: Couldn't create the device object "
-		    "/dev/zfs (%S)\n", ZFS_DEV_KERNEL);
-		return (ntStatus);
-	}
-//	dprintf("ZFS: created kernel device node: %p: name %S\n",
-//	    DriverExtension->ioctlDeviceObject, ZFS_DEV_KERNEL);
+		if (!NT_SUCCESS(ntStatus)) {
+			dprintf("ZFS: Couldn't create the device object "
+			    "/dev/zfs (%S)\n", ZFS_DEV_KERNEL);
+			return (ntStatus);
+		}
+	//	dprintf("ZFS: created kernel device node: %p: name %S\n",
+	//	    DriverExtension->ioctlDeviceObject, ZFS_DEV_KERNEL);
 
-	// ObReferenceObject(ioctlDeviceObject);
+		// ObReferenceObject(ioctlDeviceObject);
 
-	mount_t *dgl;
-	dgl = DriverExtension->ioctlDeviceObject->DeviceExtension;
-	dgl->type = MOUNT_TYPE_DGL;
-	dgl->size = sizeof (mount_t);
+		mount_t *dgl;
+		dgl = DriverExtension->ioctlDeviceObject->DeviceExtension;
+		dgl->type = MOUNT_TYPE_DGL;
+		dgl->size = sizeof (mount_t);
 
-	// Initialize a Unicode String containing the Win32 name
-	// for our device.
+		// Initialize a Unicode String containing the Win32 name
+		// for our device.
 #if 1
-	RtlInitUnicodeString(&ntWin32NameString, ZFS_DEV_DOS);
-	// RtlInitUnicodeString(&ntWin32NameString, L"\\DosDevices\\Global\\OpenZFS");
+		RtlInitUnicodeString(&ntWin32NameString, ZFS_DEV_DOS);
+		// RtlInitUnicodeString(&ntWin32NameString, L"\\DosDevices\\Global\\OpenZFS");
 
-	// Create a symbolic link between our device name  and the Win32 name
-	ntStatus = IoCreateSymbolicLink(
-	    &ntWin32NameString, &ntUnicodeString);
+		// Create a symbolic link between our device name  and the Win32 name
+		ntStatus = IoCreateSymbolicLink(
+		    &ntWin32NameString, &ntUnicodeString);
 
-	if (!NT_SUCCESS(ntStatus)) {
-		dprintf("ZFS: Couldn't create userland symbolic link to "
-		    "/dev/zfs (%wZ)\n", ZFS_DEV);
-		// ObDereferenceObject(ioctlDeviceObject);
-		IoDeleteDevice(DriverExtension->ioctlDeviceObject);
-		return (-1);
-	}
+		if (!NT_SUCCESS(ntStatus)) {
+			dprintf("ZFS: Couldn't create userland symbolic link to "
+			    "/dev/zfs (%wZ)\n", ZFS_DEV);
+			// ObDereferenceObject(ioctlDeviceObject);
+			IoDeleteDevice(DriverExtension->ioctlDeviceObject);
+			return (-1);
+		}
 #endif
-//	dprintf("ZFS: created userland device symlink\n");
+	//	dprintf("ZFS: created userland device symlink\n");
 
-	DriverExtension->ioctlDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
+		DriverExtension->ioctlDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 #endif
-
 
 
 		xprintf("bus is up and running\n");
