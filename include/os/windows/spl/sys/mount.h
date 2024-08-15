@@ -22,6 +22,8 @@
 #ifndef _SPL_MOUNT_H
 #define	_SPL_MOUNT_H
 
+#include <sys/list.h>
+
 #define	MNT_WAIT	1	/* synchronized I/O file integrity completion */
 #define	MNT_NOWAIT	2	/* start all I/O, but do not wait for it */
 
@@ -114,12 +116,17 @@ struct mount
 	UNICODE_STRING deviceInterfaceName;
 	UNICODE_STRING fsInterfaceName;
 	UNICODE_STRING volumeInterfaceName;
+	UNICODE_STRING MountMgr_name;
+	UNICODE_STRING MountMgr_mountpoint;
 	PFILE_OBJECT root_file;
 	boolean_t justDriveLetter;
 	uint64_t volume_opens;
 	PVPB vpb;
 
 	uint64_t mountflags;
+
+	// Linked list of mounts
+	list_node_t mount_node;
 
 	// NotifySync is used by notify directory change
 	PNOTIFY_SYNC NotifySync;
@@ -151,5 +158,10 @@ void  vfs_getnewfsid(struct mount *mp);
 int   vfs_isunmount(mount_t *mp);
 int	  vfs_iswriteupgrade(mount_t *mp);
 void  vfs_setextendedsecurity(mount_t *mp);
+
+void vfs_mount_add(mount_t *mp);
+void vfs_mount_remove(mount_t *mp);
+int vfs_mount_count(void);
+void vfs_mount_setarray(void **array, int max);
 
 #endif /* SPL_MOUNT_H */

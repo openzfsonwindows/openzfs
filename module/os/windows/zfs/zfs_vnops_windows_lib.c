@@ -517,6 +517,7 @@ FreeUnicodeString(PUNICODE_STRING s)
 {
 	if (s->Buffer) ExFreePool(s->Buffer);
 	s->Buffer = NULL;
+	s->Length = 0;
 }
 
 int
@@ -2363,9 +2364,11 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 		wideoffset = lastBackslash - widepath;
 
 	// wideoffset is currently in character-offset, for this print
-	dprintf("%s: '%wZ' part '%ws' %lu %u\n", __func__, &ustr,
-	    /* &name[nameoffset], */ &ustr.Buffer[wideoffset],
+	dprintf("zfs_send_notify_stream: '%S' %lu %u\n", ustr.Buffer,
 	    FilterMatch, Action);
+
+	dprintf("%s: offset %d part '%S'\n", __func__,
+	    wideoffset, &(ustr.Buffer[wideoffset]));
 
 	// Now wideoffset will go into byte-offset, for the call
 	wideoffset *= sizeof (wchar_t);
@@ -2383,7 +2386,7 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 				status = RtlUTF8ToUnicodeN(ustream.Buffer, ustream.MaximumLength, &ustream.Length, stream, length);
 				if (NT_SUCCESS(status)) {
 					dprintf("%s: with stream '%wZ'\n", __func__, &ustream);
-					widepath[ustr.Length / sizeof(wchar_t)] = 0;
+					widepath[ustream.Length / sizeof(wchar_t)] = 0;
 				} else {
 					FreeUnicodeString(&ustream);
 					stream = NULL;
@@ -5546,23 +5549,44 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 	case BusRelations:
 	{
+		int count;
+
+		// Grab count here, and use only it, since list can
+		// change as we process this function.
+		count = vfs_mount_count();
+
 		DeviceRelations = (PDEVICE_RELATIONS)ExAllocatePoolWithTag(
 		    PagedPool,
-		    sizeof(DEVICE_RELATIONS) + sizeof(PDEVICE_OBJECT),
+		    sizeof(DEVICE_RELATIONS) - sizeof(PDEVICE_OBJECT) +
+		    (sizeof(PDEVICE_OBJECT) * count),
 		    'drvg'
 		);
+		if (DeviceRelations == NULL)
+			return (STATUS_INSUFFICIENT_RESOURCES);
 
 		DeviceRelations->Count = 0;
 
-		ReturnDevice = DriverExtension->ChildDeviceObject;
-		if (ReturnDevice != NULL) {
-			ObReferenceObject(ReturnDevice);
-			DeviceRelations->Count = 1;
-			DeviceRelations->Objects[0] = ReturnDevice;
-			xprintf("Returning ChildDeviceObject %p\n", ReturnDevice);
+		vfs_mount_setarray(DeviceRelations->Objects, count);
+
+		// Loop array, and grab reference and increment if valid.
+		// linked list will only leave NULL at end, not start/middle.
+		// list is of mounts, so fetch DeviceObjects.
+		for (int i = 0; i < count; i++) {
+			mount_t *mount;
+			mount = DeviceRelations->Objects[i];
+			DeviceRelations->Objects[i] = NULL;
+			if (mount != NULL && mount->FunctionalDeviceObject) {
+				DeviceRelations->Objects[DeviceRelations->Count] = mount->FunctionalDeviceObject;				
+				ObReferenceObject(DeviceRelations->Objects[DeviceRelations->Count]);
+				DeviceRelations->Count++;
+			}
 		}
+
 		Irp->IoStatus.Information =
 		    (ULONG_PTR)DeviceRelations;
+
+		dprintf("BusRelations returning %d children\n",
+		    DeviceRelations->Count);
 
 		Status = STATUS_SUCCESS;
 		break;

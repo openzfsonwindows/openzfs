@@ -30,7 +30,7 @@
 #include <sys/mount.h>
 #include <sys/rwlock.h>
 
-/*
+ /*
  * In Unix, this lock is to protect the list of
  * mounted file-systems, to add and remove mounts.
  * XNU uses mount_lock() to hold all, then calls
@@ -39,11 +39,17 @@
  */
 static krwlock_t vfs_main_lock;
 
+// Linked list of all mount
+static list_t mount_list;
+static kmutex_t mount_list_lock;
 
 int
 spl_vfs_init(void)
 {
 	rw_init(&vfs_main_lock, NULL, RW_DEFAULT, NULL);
+
+	mutex_init(&mount_list_lock, NULL, MUTEX_DEFAULT, NULL);
+	list_create(&mount_list, sizeof (mount_t), offsetof(mount_t, mount_node));
 
 	return (0);
 }
@@ -51,7 +57,63 @@ spl_vfs_init(void)
 void
 spl_vfs_fini(void)
 {
+	mutex_enter(&mount_list_lock);
+	ASSERT(list_empty(&mount_list));
+	list_destroy(&mount_list);
+	mutex_exit(&mount_list_lock);
+
+	mutex_destroy(&mount_list_lock);
+
 	rw_destroy(&vfs_main_lock);
+}
+
+void
+vfs_mount_add(mount_t *mp)
+{
+	mutex_enter(&mount_list_lock);
+	list_insert_head(&mount_list, mp);
+	mutex_exit(&mount_list_lock);
+}
+
+void
+vfs_mount_remove(mount_t *mp)
+{
+	mutex_enter(&mount_list_lock);
+	list_remove(&mount_list, mp);
+	mutex_exit(&mount_list_lock);
+}
+
+int
+vfs_mount_count()
+{
+	int count = 0;
+	mount_t *node;
+
+	mutex_enter(&mount_list_lock);
+	for (node = list_head(&mount_list);
+	    node;
+	    node = list_next(&mount_list, node))
+		count++;
+	mutex_exit(&mount_list_lock);
+	return (count);
+}
+
+void
+vfs_mount_setarray(void **array, int max)
+{
+	int count = 0;
+	mount_t *node;
+
+	mutex_enter(&mount_list_lock);
+	for (node = list_head(&mount_list);
+	    node;
+	    node = list_next(&mount_list, node)) {
+		array[count] = node;
+		count++;
+		if (count >= max)
+			break;
+	}
+	mutex_exit(&mount_list_lock);
 }
 
 int

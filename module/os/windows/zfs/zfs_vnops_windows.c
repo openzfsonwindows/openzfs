@@ -455,12 +455,14 @@ allocate_reparse(struct vnode *vp, char *finalname, PIRP Irp)
 	Irp->IoStatus.Information = rpb->ReparseTag;
 	Irp->Tail.Overlay.AuxiliaryBuffer = (void *)rpb;
 
+#if 0
 	/* Unknown why, but btrfs does this */
 	if (FileObject) {
 		UNICODE_STRING *fn = &FileObject->FileName;
 		if (fn->Buffer[(fn->Length / sizeof (WCHAR)) - 1] == '\\')
 			rpb->Reserved = sizeof (WCHAR);
 	}
+#endif
 }
 
 void
@@ -2433,8 +2435,8 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		FILE_FS_DEVICE_INFORMATION *ffdi;
 		ffdi = Irp->AssociatedIrp.SystemBuffer;
 		ffdi->DeviceType = FILE_DEVICE_DISK;
-		ffdi->Characteristics = FILE_REMOVABLE_MEDIA |
-		    FILE_DEVICE_IS_MOUNTED /* | FILE_READ_ONLY_DEVICE */;
+		ffdi->Characteristics = 0; // FILE_REMOVABLE_MEDIA |
+		    // FILE_DEVICE_IS_MOUNTED /* | FILE_READ_ONLY_DEVICE */;
 		Irp->IoStatus.Information = sizeof (FILE_FS_DEVICE_INFORMATION);
 		Status = STATUS_SUCCESS;
 		break;
@@ -7275,7 +7277,7 @@ _Function_class_(DRIVER_DISPATCH)
 		default:
 			dprintf("Unknown IRP_MJ_PNP(disk): 0x%x\n",
 			    IrpSp->MinorFunction); // 0x18 0x0d
-			DbgBreakPoint();
+
 			break;
 		}
 		break;
