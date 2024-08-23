@@ -116,6 +116,23 @@ vfs_mount_setarray(void **array, int max)
 	mutex_exit(&mount_list_lock);
 }
 
+void
+vfs_mount_iterate(int (*func)(void *, void *), void *priv)
+{
+	mount_t *node;
+
+	mutex_enter(&mount_list_lock);
+	for (node = list_head(&mount_list);
+	    node;
+	    node = list_next(&mount_list, node)) {
+
+		// call func, stop if not zero
+		if (func(node, priv) != 0)
+			break;
+	}
+	mutex_exit(&mount_list_lock);
+}
+
 int
 vfs_busy(mount_t *mp, int flags)
 {
@@ -221,7 +238,7 @@ vfs_getnewfsid(struct mount *mp)
 int
 vfs_isunmount(mount_t *mp)
 {
-	return (0);
+	return (vfs_flags(mp) & MNT_UNMOUNTING);
 }
 
 int

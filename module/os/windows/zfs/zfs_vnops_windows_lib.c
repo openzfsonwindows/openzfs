@@ -386,6 +386,8 @@ common_status_str(NTSTATUS Status)
 		return ("STATUS_VOLUME_MOUNTED");
 	case STATUS_VOLUME_DISMOUNTED:
 		return ("STATUS_VOLUME_DISMOUNTED");
+	case STATUS_DEVICE_NOT_READY:
+		return ("STATUS_DEVICE_NOT_READY");
 	default:
 		return ("<*****>");
 	}
@@ -5535,7 +5537,6 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			ReturnDevice = zmo_dcb->PhysicalDeviceObject;
 		else {
 			ReturnDevice = DeviceObject; // wrong
-			DbgBreakPoint();
 		}
 		ObReferenceObject(ReturnDevice);
 
@@ -5592,7 +5593,6 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 	}
 	default:
-		DbgBreakPoint();
 	}
 
 out:
@@ -6045,7 +6045,7 @@ ioctl_storage_query_property(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	case StorageDeviceUniqueIdProperty:
 		dprintf("    PropertyExistsQuery "
 		    "StorageDeviceUniqueIdProperty\n");
-		DbgBreakPoint();
+
 		if (spq->QueryType == PropertyExistsQuery)
 			return (STATUS_SUCCESS);
 		dprintf("    PropertyStandardQuery "
@@ -6189,7 +6189,7 @@ ioctl_query_unique_id(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
 
-#if 0
+#if 1
 	RtlUnicodeToUTF8N(osname, MAXPATHLEN - 1, &len, zmo->name.Buffer,
 	    zmo->name.Length);
 	osname[len] = 0;

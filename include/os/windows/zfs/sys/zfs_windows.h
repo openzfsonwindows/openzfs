@@ -172,6 +172,8 @@ extern void zfs_save_ntsecurity(struct vnode *vp);
 void zfs_load_ntsecurity(struct vnode *vp);
 struct vnode *zfs_parent(struct vnode *);
 extern PVOID MapUserBuffer(IN OUT PIRP Irp);
+extern NTSTATUS volume_create(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject,
+    USHORT ShareAccess, uint64_t AllocationSize, ACCESS_MASK DesiredAccess);
 
 
 /* IRP_MJ_SET_INFORMATION helpers */

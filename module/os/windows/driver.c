@@ -79,7 +79,7 @@ void
 OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
 {
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "OpenZFS_Fini\n"));
-	DbgBreakPoint();
+
 	zfs_vfsops_fini();
 
 	if (STOR_DriverUnload != NULL) {

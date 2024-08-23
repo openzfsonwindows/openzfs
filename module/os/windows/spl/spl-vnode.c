@@ -450,6 +450,27 @@ dnlc_lookup(struct vnode *dvp, char *name)
 int
 dnlc_purge_vfsp(struct mount *mp, int flags)
 {
+	struct vnode *rvp;
+	IO_STATUS_BLOCK ioStatus;
+
+	mutex_enter(&vnode_all_list_lock);
+	for (rvp = list_head(&vnode_all_list);
+	    rvp;
+	    rvp = list_next(&vnode_all_list, rvp)) {
+
+		if (rvp->v_mount != mp)
+			continue;
+
+		if (vnode_isdir(rvp))
+			continue;
+		/*
+		if (vnode_isunlink(rvp))
+			continue;
+		*/
+		CcFlushCache(&rvp->SectionObjectPointers, NULL, NULL, &ioStatus);
+	}
+	mutex_exit(&vnode_all_list_lock);
+
 	return (0);
 }
 
@@ -465,6 +486,7 @@ dnlc_remove(struct vnode *vp, char *name)
 void
 dnlc_update(struct vnode *vp, char *name, struct vnode *tp)
 {
+
 }
 
 static int
@@ -1700,7 +1722,8 @@ filesanddirs:
 
 		mutex_enter(&rvp->v_mutex);
 
-		flush_file_objects(rvp);
+		// this hack is no longer needed 
+		//		flush_file_objects(rvp);
 
 		// vnode_recycle_int() will exit v_mutex
 		// re-check flags, due to releasing locks
@@ -1761,7 +1784,7 @@ filesanddirs:
 
 	dprintf("vflush end: deadlisted %d nodes\n", deadlist);
 
-	return (0);
+	return (reclaims > 0 ? EBUSY : 0);
 }
 
 int
@@ -1995,6 +2018,8 @@ vnode_decouplefileobject(vnode_t *vp, FILE_OBJECT *fileobject)
 	if (fileobject && fileobject->FsContext) {
 		dprintf("%s: fo %p -X-> %p\n", __func__, fileobject, vp);
 
+		vnode_fileobject_remove(vp, fileobject);
+
 		// If we are flushing, we do nothing here.
 		if (vp->v_flags & VNODE_FLUSHING) {
 			dprintf("Already flushing; FS re-entry\n");
@@ -2002,7 +2027,6 @@ vnode_decouplefileobject(vnode_t *vp, FILE_OBJECT *fileobject)
 		}
 
 		// if (vnode_flushcache(vp, fileobject, FALSE))
-		vnode_fileobject_remove(vp, fileobject);
 
 		//	fileobject->FsContext = NULL;
 	}

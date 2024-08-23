@@ -56,6 +56,8 @@
 #define	MNT_FORCE	0x00080000 /* force unmount or readonly change */
 #define	MNT_CMDFLAGS	(MNT_UPDATE|MNT_NOBLOCK|MNT_RELOAD|MNT_FORCE)
 
+#define	MNT_UNMOUNTING	0x80000000 /* process of unmounting */
+
 #define	MNT_UNKNOWNPERMISSIONS MNT_IGNORE_OWNERSHIP
 
 #define	MFSTYPENAMELEN	16
@@ -125,6 +127,8 @@ struct mount
 
 	uint64_t mountflags;
 
+	KEVENT volume_removed_event;
+
 	// Linked list of mounts
 	list_node_t mount_node;
 
@@ -163,5 +167,6 @@ void vfs_mount_add(mount_t *mp);
 void vfs_mount_remove(mount_t *mp);
 int vfs_mount_count(void);
 void vfs_mount_setarray(void **array, int max);
+void vfs_mount_iterate(int (*func)(void *, void *), void *);
 
 #endif /* SPL_MOUNT_H */
