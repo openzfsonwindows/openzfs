@@ -6193,6 +6193,11 @@ volume_close(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	FileObject = IrpSp->FileObject;
 
 	zfsvfs = (zfsvfs_t *) vfs_fsprivate(zmo);
+
+	// This shouldnt happen, but it does sometimes
+	if (zfsvfs == NULL)
+		return (STATUS_DEVICE_NOT_READY);
+		
 	error = zfs_zget(zfsvfs, zfsvfs->z_root, &zp);
 
 	Irp->IoStatus.Information = 0;

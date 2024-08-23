@@ -392,8 +392,12 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 		// "'\\.\Volume{0b1bb601-af0b-32e8-a1d2-54c167af6277}'" and
 		// query its Unique ID, where we return the dataset name. "BOOM"
 
+		if (name[trail] == '\\')
+			name[trail] = 0;
 		h = CreateFile(name, 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
 		    NULL, OPEN_EXISTING, 0, NULL);
+		if (name[trail] == 0)
+			name[trail] = '\\';
 
 		if (h != INVALID_HANDLE_VALUE) {
 			char *dataset;
@@ -440,6 +444,9 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 							fzvm = NULL;
 						}
 					}
+				} else {
+					// Not ZFS - cant use UniqueID
+					UID = NULL;
 				}
 			}
 			CloseHandle(h);
