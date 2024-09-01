@@ -5530,7 +5530,7 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		/* The PnP manager will remove this when it is done with device */
 		mount_t *zmo_dcb = (mount_t *)zmo->parent_device;
-		
+
 		if (zmo->PhysicalDeviceObject != NULL)
 			ReturnDevice = zmo->PhysicalDeviceObject;
 		else if (zmo_dcb && zmo_dcb->PhysicalDeviceObject != NULL)
@@ -5544,22 +5544,32 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		DeviceRelations->Objects[0] = ReturnDevice;
 		Irp->IoStatus.Information =
 		    (ULONG_PTR)DeviceRelations;
-
+		dprintf("ZFS TargetDeviceRelation is %p\n",
+		    ReturnDevice);
 		Status = STATUS_SUCCESS;
 		break;
 	}
 	case BusRelations:
 	{
-		int count;
+		int count, extra = 0;
+		PDEVICE_RELATIONS StorportRelations;
 
 		// Grab count here, and use only it, since list can
 		// change as we process this function.
 		count = vfs_mount_count();
 
+		// If we call Storport first, they might already have a list from them
+		// so sadly we need to merge.
+		StorportRelations = (ULONG_PTR)Irp->IoStatus.Information;
+		if (StorportRelations && StorportRelations->Count > 0) {
+			extra = StorportRelations->Count;
+			dprintf("We have extra from storport %d\n", extra);
+		}
+
 		DeviceRelations = (PDEVICE_RELATIONS)ExAllocatePoolWithTag(
 		    PagedPool,
 		    sizeof(DEVICE_RELATIONS) - sizeof(PDEVICE_OBJECT) +
-		    (sizeof(PDEVICE_OBJECT) * count),
+		    (sizeof(PDEVICE_OBJECT) * (count + extra)),
 		    'drvg'
 		);
 		if (DeviceRelations == NULL)
@@ -5581,6 +5591,16 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 				ObReferenceObject(DeviceRelations->Objects[DeviceRelations->Count]);
 				DeviceRelations->Count++;
 			}
+		}
+
+		// Add Storport to this baby, they already got references
+		if (extra) {
+			for (int i = 0; i < StorportRelations->Count; i++) {
+			    DeviceRelations->Objects[DeviceRelations->Count] =
+				StorportRelations->Objects[i];
+				DeviceRelations->Count++;
+			}
+			ExFreePool(StorportRelations);
 		}
 
 		Irp->IoStatus.Information =

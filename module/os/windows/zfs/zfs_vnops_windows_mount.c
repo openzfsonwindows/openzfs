@@ -908,7 +908,6 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	    &diskDeviceName, FILE_DEVICE_DISK,
 	    deviceCharacteristics | FILE_DEVICE_SECURE_OPEN, FALSE,
 	    &diskDeviceObject);
-	xprintf("Created ChildDeviceObject %p\n", diskDeviceObject);
 
 	if (status != STATUS_SUCCESS) {
 		dprintf("IoCreateDeviceSecure returned %08lx\n", status);
@@ -1053,13 +1052,6 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	 * so any cal to kmem_alloc() which might trigger a
 	 * magazine alloc would tip us over.
 	 */
-	dprintf("Verify Volume\n");
-//	if (taskq_dispatch(system_taskq, io_verify_volume_impl,
-//	    diskDeviceObject, TQ_SLEEP) == 0)
-//		IoVerifyVolume(diskDeviceObject, FALSE);
-
-	xprintf("Bumping bus after creating disk\n");
-	dprintf("Bumping bus after creating disk\n");
 
 	// Add to list for BusRelations
 	vfs_mount_add(zmo_dcb);
@@ -1837,15 +1829,9 @@ matched_mount(PDEVICE_OBJECT DeviceObject, PDEVICE_OBJECT DeviceToMount, mount_t
 	volDeviceObject->Vpb = vpb;
 	vcb->vpb = vpb;
 	vpb->ReferenceCount++;
-//	vpb->ReferenceCount++;
-//	vpb->ReferenceCount++;
-//	vpb->ReferenceCount+=50;
-	xprintf("%p ReferenceCount is %d\n", vpb, vpb->ReferenceCount);
 
 	// So we can reply to FileFsVolumeInformation
 	dcb->vpb = vpb;
-
-//	vpb->ReferenceCount++;
 
 	IoReleaseVpbSpinLock(OldIrql);
 

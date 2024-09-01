@@ -66,9 +66,6 @@ extern void sysctl_os_fini(void);
 #endif
 
 PDRIVER_OBJECT WIN_DriverObject = NULL;
-PDRIVER_UNLOAD STOR_DriverUnload = NULL;
-PDRIVER_DISPATCH STOR_MajorFunction[IRP_MJ_MAXIMUM_FUNCTION + 1];
-wzvolDriverInfo STOR_wzvolDriverInfo;
 
 extern _Function_class_(IO_WORKITEM_ROUTINE)
 void __stdcall
@@ -78,16 +75,16 @@ sysctl_os_registry_change(DEVICE_OBJECT *DeviceObject,
 void
 OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
 {
+    	ZFS_DRIVER_EXTENSION(DriverObject, DriverExtension);
+
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "OpenZFS_Fini\n"));
 
 	zfs_vfsops_fini();
 
-	if (STOR_DriverUnload != NULL) {
-		STOR_DriverUnload(DriverObject);
-		STOR_DriverUnload = NULL;
+	if (DriverExtension->STOR_DriverUnload != NULL) {
+		DriverExtension->STOR_DriverUnload(DriverObject);
+		DriverExtension->STOR_DriverUnload = NULL;
 	}
-
-	sysctl_os_fini();
 
 	zfs_kmod_fini();
 
@@ -115,19 +112,15 @@ NTSTATUS
 DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
     _In_ PUNICODE_STRING pRegistryPath)
 {
-	NTSTATUS status;
-	OpenZFS_Driver_Extension *DriverExtension;
+	NTSTATUS status = -1;
 
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
 	    "OpenZFS: DriverEntry\n"));
 
-	LARGE_INTEGER start, end, frequency;
-	LONGLONG elapsedTime;
-	frequency = KeQueryPerformanceCounter(NULL);
-	start = KeQueryPerformanceCounter(NULL);
-
 	if (zfs_init_driver_extension(DriverObject))
 		return (STATUS_INSUFFICIENT_RESOURCES);
+
+	ZFS_DRIVER_EXTENSION(DriverObject, DriverExtension);
 
 	ZFSWppInit(DriverObject, pRegistryPath);
 
@@ -154,6 +147,10 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 	 * sets the Driver Callbacks, so we make a copy of them, so
 	 * that Dispatcher can use them.
 	 */
+
+	// Set to IopInvalidDeviceRequest() which is annoying.
+	memset(WIN_DriverObject->MajorFunction, 0,
+	    sizeof (DriverExtension->STOR_MajorFunction));
 	status = zvol_start(DriverObject, pRegistryPath);
 
 	if (STATUS_SUCCESS != status) {
@@ -161,13 +158,17 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 		KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
 		    "OpenZFS: StorPortInitialize() failed, no ZVOL. %d/0x%x\n",
 		    status, status));
-		memset(STOR_MajorFunction, 0, sizeof (STOR_MajorFunction));
-		STOR_DriverUnload = NULL;
+		memset(DriverExtension->STOR_MajorFunction, 0,
+		    sizeof (DriverExtension->STOR_MajorFunction));
+		DriverExtension->STOR_DriverUnload = NULL;
+		DriverExtension->STOR_AddDevice = NULL;
 	} else {
 		/* Make a copy of the Driver Callbacks for miniport */
-		memcpy(STOR_MajorFunction, WIN_DriverObject->MajorFunction,
-		    sizeof (STOR_MajorFunction));
-		STOR_DriverUnload = WIN_DriverObject->DriverUnload;
+	    memcpy(DriverExtension->STOR_MajorFunction,
+		    WIN_DriverObject->MajorFunction,
+		    sizeof (DriverExtension->STOR_MajorFunction));
+		DriverExtension->STOR_DriverUnload = WIN_DriverObject->DriverUnload;
+		DriverExtension->STOR_AddDevice = WIN_DriverObject->DriverExtension->AddDevice;
 	}
 
 	/* Now set the Driver Callbacks to dispatcher and start ZFS */
@@ -180,14 +181,11 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 	zfs_vfsops_init();
 
 	/* Start monitoring Registry for changes */
-	sysctl_os_registry_change(DriverObject->DeviceObject, pRegistryPath);
+	if (DriverExtension->fsDiskDeviceObject)
+		sysctl_os_registry_change(DriverExtension->fsDiskDeviceObject, pRegistryPath);
 
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
 	    "OpenZFS: Started\n"));
-
-	end = KeQueryPerformanceCounter(NULL);
-	elapsedTime = ((end.QuadPart - start.QuadPart) * 1000000) / frequency.QuadPart;
-	xprintf("DriverEntry execution time: %lld microseconds\n", elapsedTime);
 
 	return (STATUS_SUCCESS);
 }

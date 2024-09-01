@@ -6615,6 +6615,7 @@ _Function_class_(DRIVER_DISPATCH)
 	    major2str(IrpSp->MajorFunction, IrpSp->MinorFunction));
 
 	Status = STATUS_INVALID_DEVICE_REQUEST;
+	int DoForward = 1;
 
 	switch (IrpSp->MajorFunction) {
 
@@ -6623,7 +6624,6 @@ _Function_class_(DRIVER_DISPATCH)
 		case IRP_MN_START_DEVICE:
 			dprintf("IRP_MN_START_DEVICE\n");
 			Status = STATUS_SUCCESS;
-
 			break;
 		case IRP_MN_CANCEL_REMOVE_DEVICE:
 			dprintf("IRP_MN_CANCEL_REMOVE_DEVICE\n");
@@ -6638,7 +6638,13 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = STATUS_SUCCESS;
 			break;
 		case IRP_MN_QUERY_DEVICE_RELATIONS:
+			// Call Storport first, so we can merge
+			IoCopyCurrentIrpStackLocationToNext(Irp);
+			Status = IoCallDriver(DriverExtension->StorportDeviceObject, Irp);
 			Status = QueryDeviceRelations(DeviceObject, Irp, IrpSp);
+			// No need to call Storport after this, and they completed Irp.
+			*PIrp = NULL;
+			DoForward = 0;
 			break;
 		case IRP_MN_QUERY_CAPABILITIES:
 			Status = QueryCapabilities(DeviceObject, Irp, IrpSp);
@@ -6676,7 +6682,34 @@ _Function_class_(DRIVER_DISPATCH)
 		default:
 			dprintf("**** unknown pnp IRP_MJ_PNP: 0x%lx\n",
 			    IrpSp->MinorFunction); //0x0b
+			DoForward = 0;
 			break;
+		}
+
+		/* All IRP_MJ_PNP are expected to be sent to lower devices */
+		if (DriverExtension->StorportDeviceObject &&
+		    DriverExtension->STOR_MajorFunction[IrpSp->MajorFunction] != NULL &&
+		    DoForward) {
+			NTSTATUS Status2;
+
+			dprintf("BUS sending down: STORport : %s\n",
+			    major2str(IrpSp->MajorFunction, IrpSp->MinorFunction));
+
+			IoCopyCurrentIrpStackLocationToNext(Irp);
+			Status2 = IoCallDriver(DriverExtension->StorportDeviceObject, Irp);
+
+			dprintf("dispatcher: STORport exit: 0x%lx %s Information 0x%llx : %s\n",
+			    Status2,
+			    common_status_str(Status2),
+			    Irp ? Irp->IoStatus.Information : 0,
+			    major2str(IrpSp->MajorFunction, IrpSp->MinorFunction));
+
+
+			// Since we forwarded the Irp, we do not call IrpCompleteRequest
+			*PIrp = NULL;
+
+			if (Status == STATUS_INVALID_DEVICE_REQUEST)
+				Status = Status2;
 		}
 		break;
 
@@ -6746,18 +6779,6 @@ _Function_class_(DRIVER_DISPATCH)
 		break;
 	case IRP_MJ_CLOSE:
 		Status = zfsdev_release((dev_t)IrpSp->FileObject, Irp);
-
-		// uninstall
-		extern kmutex_t zfsdev_state_lock;
-		if (DriverExtension->fsDiskDeviceObject == NULL) {
-			mutex_enter(&zfsdev_state_lock);
-			if (DriverExtension->ioctlDeviceObject != NULL) {
-//				ObDereferenceObject(ioctlDeviceObject);
-				IoDeleteDevice(DriverExtension->ioctlDeviceObject);
-				DriverExtension->ioctlDeviceObject = NULL;
-			}
-			mutex_exit(&zfsdev_state_lock);
-		}
 		break;
 	case IRP_MJ_DEVICE_CONTROL:
 		{
@@ -7828,10 +7849,7 @@ _Function_class_(DRIVER_DISPATCH)
 	KIRQL saveIRQL;
 	saveIRQL = KeGetCurrentIrql();
 
-	OpenZFS_Driver_Extension *DriverExtension =
-	    (OpenZFS_Driver_Extension *)IoGetDriverObjectExtension(WIN_DriverObject, WIN_DriverObject);
-	if (DriverExtension == NULL) // Should never happen, but
-		return (STATUS_INVALID_DEVICE_REQUEST);
+	ZFS_DRIVER_EXTENSION(WIN_DriverObject, DriverExtension);
 
 	AtIrqlPassiveLevel = (KeGetCurrentIrql() == PASSIVE_LEVEL);
 	if (AtIrqlPassiveLevel) {
@@ -7855,20 +7873,47 @@ _Function_class_(DRIVER_DISPATCH)
 		else if (zmo && zmo->type == MOUNT_TYPE_VCB)
 			Status = fsDispatcher(DeviceObject, &Irp, IrpSp);
 		else {
-			extern PDRIVER_DISPATCH
-			    STOR_MajorFunction[IRP_MJ_MAXIMUM_FUNCTION + 1];
-			if (STOR_MajorFunction[IrpSp->MajorFunction] != NULL) {
+
+			if (DriverExtension->STOR_MajorFunction[IrpSp->MajorFunction] != NULL) {
 				if (TopLevel) {
 					IoSetTopLevelIrp(NULL);
 				}
 				if (AtIrqlPassiveLevel) {
 					FsRtlExitFileSystem();
 				}
-				// dprintf("Relaying IRP to STORport\n");
-				return (STOR_MajorFunction[IrpSp->MajorFunction]
-				    (DeviceObject, Irp));
+
+				dprintf("dispatcher: Relaying IRP to STORport\n");
+//if (IrpSp->MajorFunction == IRP_MJ_INTERNAL_DEVICE_CONTROL) {
+//    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+//    Status = STATUS_SUCCESS;
+//} else
+
+				// This is what IoCallDriver() does, we do not advance
+				// IrpSp here, since we are on same level, and storport's
+				// MajorFunctions are to handle it.
+				Status = DriverExtension->STOR_MajorFunction[IrpSp->MajorFunction]
+					    (DeviceObject, Irp);
+
+				if (IrpSp->MajorFunction == IRP_MJ_PNP &&
+				    IrpSp->MinorFunction == IRP_MN_QUERY_DEVICE_RELATIONS) {
+					PDEVICE_RELATIONS DeviceRelations;
+					DeviceRelations = (ULONG_PTR)Irp->IoStatus.Information;
+					if (IrpSp->Parameters.QueryDeviceRelations.Type == TargetDeviceRelation) {
+						dprintf("Storport TargetDeviceRelation is %p : total %d\n",
+						    DeviceRelations->Objects[0],
+						    DeviceRelations->Count);
+					}
+				}
+
+				dprintf("dispatcher: STORport exit: 0x%lx %s Information 0x%llx : %s\n",
+				    Status,
+				    common_status_str(Status),
+				    Irp ? Irp->IoStatus.Information : 0,
+				    major2str(IrpSp->MajorFunction, IrpSp->MinorFunction));
+				return (Status);
 			}
 
+			dprintf("This is weird, nobody to handle IRP\n");
 			// Got a request we don't care about?
 			Status = STATUS_INVALID_DEVICE_REQUEST;
 			Irp->IoStatus.Information = 0;
@@ -7901,7 +7946,7 @@ _Function_class_(DRIVER_DISPATCH)
 
 	// Complete the request if it isn't pending (ie, we
 	// called zfsdev_async())
-	if ((Status == STATUS_INVALID_DEVICE_REQUEST) &&
+	if ((Status == STATUS_INVALID_DEVICE_REQUEST) && Irp &&
 	    zmo != NULL &&
 	    zmo->AttachedDevice != NULL) {
 		dprintf("Passing request %s down\n",
@@ -7912,18 +7957,24 @@ _Function_class_(DRIVER_DISPATCH)
 		dprintf("Lower Device said 0x%0x %s\n", Status,
 		    common_status_str(Status));
 
-	} else if ((Status == STATUS_INVALID_DEVICE_REQUEST) &&
+	} else if ((Status == STATUS_INVALID_DEVICE_REQUEST) && Irp &&
 	    zmo != NULL &&
 	    DriverExtension->LowerDeviceObject != NULL) {
+#if 1
 		dprintf("Passing request %s down bus\n",
 		    major2str(IrpSp->MajorFunction, IrpSp->MinorFunction));
-
-		IoSkipCurrentIrpStackLocation(Irp);
-		Status = IoCallDriver(DriverExtension->LowerDeviceObject, Irp);
-		dprintf("Lower Bus Device said 0x%0x %s\n", Status,
-		    common_status_str(Status));
-
-	} else if ((Status == STATUS_INVALID_DEVICE_REQUEST) &&
+		PDEVICE_OBJECT Attached;
+		Attached = DriverExtension->LowerDeviceObject;
+		while (Attached->DriverObject == WIN_DriverObject)
+			Attached = Attached->AttachedDevice;
+		if (Attached) {
+			IoSkipCurrentIrpStackLocation(Irp);
+			Status = IoCallDriver(DriverExtension->LowerDeviceObject, Irp);
+			dprintf("Lower Bus Device said 0x%0x %s\n", Status,
+			    common_status_str(Status));
+		}
+#endif
+	} else if ((Status == STATUS_INVALID_DEVICE_REQUEST) && Irp &&
 	    zmo != NULL && // vcb->parent_device = dcb
 	    zmo->parent_device != NULL) {
 		dprintf("Passing request %s down bus\n",

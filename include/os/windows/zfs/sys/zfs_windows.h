@@ -172,6 +172,13 @@ extern void zfs_save_ntsecurity(struct vnode *vp);
 void zfs_load_ntsecurity(struct vnode *vp);
 struct vnode *zfs_parent(struct vnode *);
 extern PVOID MapUserBuffer(IN OUT PIRP Irp);
+extern void mount_add_device(PDEVICE_OBJECT DriverObject,
+    PDEVICE_OBJECT PhysicalDeviceObject, PDEVICE_OBJECT AddDeviceObject);
+extern void zfs_windows_unmount_free(PUNICODE_STRING symlink_name);
+extern void zfs_release_mount(mount_t* zmo);
+extern void zfs_unload_ioctl(PDEVICE_OBJECT, PVOID Context);
+
+
 extern NTSTATUS volume_create(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject,
     USHORT ShareAccess, uint64_t AllocationSize, ACCESS_MASK DesiredAccess);
 

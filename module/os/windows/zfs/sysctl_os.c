@@ -72,6 +72,7 @@ sysctl_os_open_registry(PUNICODE_STRING pRegistryPath)
 		    __func__, pRegistryPath, Status));
 		return ((HANDLE)NULL);
 	}
+
 	return (h);
 }
 
@@ -401,16 +402,17 @@ sysctl_os_registry_change(DEVICE_OBJECT *DeviceObject, PVOID Parameter)
 
 	IO_STATUS_BLOCK iosb;
 
+	if (wqi != NULL) {
+		IoFreeWorkItem(wqi);
+		wqi = NULL;
+	}
+
 	// open if first time here
 	if (registry_notify_fd == NULL)
 		return;
 
 	sysctl_os_all(&sysctl_os_RegistryPath);
 
-	if (wqi != NULL) {
-		IoFreeWorkItem(wqi);
-		wqi = NULL;
-	}
 
 	wqi = IoAllocateWorkItem(DeviceObject);
 	if (wqi != NULL) {
@@ -448,10 +450,12 @@ sysctl_os_fini(void)
 
 	registry_notify_fd = NULL;
 
-	if (fd != 0)
-		ZwClose(fd);
+	if (fd != 0) {
+	    	sysctl_os_close_registry(fd);
+	}
 
 	RtlFreeUnicodeString(&sysctl_os_RegistryPath);
+
 }
 
 int
