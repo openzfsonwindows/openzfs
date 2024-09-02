@@ -66,7 +66,7 @@ cmn_err(int ce, const char *fmt, ...)
 	va_end(ap);
 } /* cmn_err() */
 
-int
+void
 spl_panic(const char *file, const char *func, int line, const char *fmt, ...)
 {
 	va_list ap;
