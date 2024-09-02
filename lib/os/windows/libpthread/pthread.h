@@ -557,6 +557,17 @@ static int pthread_set_concurrency(int val)
 	return (0);
 }
 
+static int pthread_getname_np(pthread_t tid, char *name, size_t size)
+{
+	*name = 0;
+	return (0);
+}
+
+static int pthread_setname_np(pthread_t tid, const char *name)
+{
+	return (0);
+}
+
 #define	pthread_getschedparam(T, P, S) ENOTSUP
 #define	pthread_setschedparam(T, P, S) ENOTSUP
 #define	pthread_getcpuclockid(T, C) ENOTSUP

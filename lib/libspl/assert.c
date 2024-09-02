@@ -46,6 +46,11 @@
 #define	libspl_getprogname()	getprogname()
 #define	libspl_getthreadname(buf, len)	\
 	pthread_getname_np(pthread_self(), buf, len);
+#elif defined(_WIN32)
+#define	libspl_gettid()		GetCurrentThreadId()
+#define	libspl_getprogname()	""
+#define	libspl_getthreadname(buf, len) \
+	pthread_getname_np(pthread_self(), buf, len)
 #endif
 
 static boolean_t libspl_assert_ok = B_FALSE;
