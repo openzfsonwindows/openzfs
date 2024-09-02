@@ -11,10 +11,7 @@ wdk_add_library(icpkern
   algs/blake3/blake3_generic.c 
   algs/blake3/blake3_impl.c 
   algs/edonr/edonr.c
-  algs/modes/cbc.c
   algs/modes/ccm.c
-  algs/modes/ctr.c
-  algs/modes/ecb.c
   algs/modes/gcm.c
   algs/modes/gcm_generic.c
   algs/modes/gcm_pclmulqdq.c
