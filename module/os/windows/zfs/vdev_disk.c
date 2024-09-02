@@ -32,6 +32,7 @@
 #include <sys/abd_impl.h>
 #include <sys/fs/zfs.h>
 #include <sys/zio.h>
+#include <sys/dkio.h>
 
 #include <ntdddisk.h>
 #include <Ntddstor.h>
@@ -664,46 +665,35 @@ vdev_disk_io_start(zio_t *zio)
 			return;
 		}
 
-		switch (zio->io_cmd) {
-		case DKIOCFLUSHWRITECACHE:
-
-			if (zfs_nocacheflush)
-				break;
-
-			if (vd->vdev_nowritecache) {
-				zio->io_error = SET_ERROR(ENOTSUP);
-				break;
-			}
-
-			zio->io_vsd = dkc = kmem_alloc(sizeof (*dkc), KM_SLEEP);
-			zio->io_vsd_ops = &vdev_disk_vsd_ops;
-
-			dkc->dkc_callback = vdev_disk_ioctl_done;
-//			dkc->dkc_flag = FLUSH_VOLATILE;
-			dkc->dkc_cookie = zio;
-
-			// Windows: find me
-//			error = ldi_ioctl(dvd->vd_lh, zio->io_cmd,
-//			    (uintptr_t)dkc, FKIOCTL, kcred, NULL);
-
-			if (error == 0) {
-				/*
-				 * The ioctl will be done asychronously,
-				 * and will call vdev_disk_ioctl_done()
-				 * upon completion.
-				 */
-				zio_execute(zio);  // until we have ioctl
-				return;
-			}
-
-			zio->io_error = error;
-
+		if (zfs_nocacheflush)
 			break;
 
-		default:
+		if (vd->vdev_nowritecache) {
 			zio->io_error = SET_ERROR(ENOTSUP);
-		} /* io_cmd */
+			break;
+		}
 
+		zio->io_vsd = dkc = kmem_alloc(sizeof (*dkc), KM_SLEEP);
+		zio->io_vsd_ops = &vdev_disk_vsd_ops;
+
+		dkc->dkc_callback = vdev_disk_ioctl_done;
+		dkc->dkc_cookie = zio;
+
+		// Windows: find me
+		// error = ldi_ioctl(dvd->vd_lh, zio->io_cmd,
+		// (uintptr_t)dkc, FKIOCTL, kcred, NULL);
+
+		if (error == 0) {
+			/*
+			 * The ioctl will be done asychronously,
+			 * and will call vdev_disk_ioctl_done()
+			 * upon completion.
+			 */
+			zio_execute(zio);  // until we have ioctl
+			return;
+		}
+
+		zio->io_error = error;
 		zio_execute(zio);
 		return;
 

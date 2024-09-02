@@ -384,23 +384,28 @@ vdev_file_io_start(zio_t *zio)
 	ssize_t resid = 0;
 	vdev_file_t *vf = vd->vdev_tsd;
 	zfs_file_t *fp = vf->vf_file;
+	int error = 0;
 
 	if (zio->io_type == ZIO_TYPE_IOCTL) {
 
 		if (!vdev_readable(vd)) {
-			zio->io_error = SET_ERROR(ENXIO);
-			zio_interrupt(zio);
-			return;
+			/* Drive not there, can't flush */
+			error = SET_ERROR(ENXIO);
+		} else if (zfs_nocacheflush) {
+			/* Flushing disabled by operator, declare success */
+			error = 0;
+		} else if (vd->vdev_nowritecache) {
+			/* This vdev not capable of flushing */
+			error = SET_ERROR(ENOTSUP);
+		} else {
+			/*
+			 * Issue the flush. If successful, the response will
+			 * be handled in the completion callback, so we're done.
+			 */
+			zio->io_error = zfs_file_fsync(fp, 0);
 		}
 
-		switch (zio->io_cmd) {
-			case DKIOCFLUSHWRITECACHE:
-				zio->io_error = zfs_file_fsync(fp, 0);
-				break;
-			default:
-				zio->io_error = SET_ERROR(ENOTSUP);
-		}
-
+		zio->io_error = error;
 		zio_execute(zio);
 		return;
 
