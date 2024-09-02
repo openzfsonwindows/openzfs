@@ -283,8 +283,9 @@ __dprintf(boolean_t dprint, const char *file, const char *func,
 #endif
 
 void
-zfs_dbgmsg_print(const char *tag)
+zfs_dbgmsg_print(int id, const char *tag)
 {
+	(void) id;
 	zfs_dbgmsg_t *zdm;
 
 	(void) printBuffer("ZFS_DBGMSG(%s):\n", tag);
