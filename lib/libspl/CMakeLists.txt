@@ -9,6 +9,7 @@ add_library(libspl
 	strlcpy.c
     timestamp.c
 	assert.c
+	backtrace.c
     os/windows/posix.c
     #fdatasync.c
     #gethrestime.c
