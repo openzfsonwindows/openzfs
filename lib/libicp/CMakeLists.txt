@@ -35,7 +35,6 @@ add_library(libicp
     "${ICP_MODULE_DIR}/illumos-crypto.c"
     "${ICP_MODULE_DIR}/io/aes.c"
     "${ICP_MODULE_DIR}/io/sha2_mod.c"
-    "${ICP_MODULE_DIR}/io/skein_mod.c"
     "${ICP_MODULE_DIR}/spi/kcf_spi.c"
 
     "${ICP_MODULE_DIR}/asm-x86_64/aes/aeskey.c"

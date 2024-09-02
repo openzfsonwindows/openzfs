@@ -48,7 +48,6 @@ wdk_add_library(icpkern
   illumos-crypto.c
   io/aes.c
   io/sha2_mod.c
-  io/skein_mod.c
   spi/kcf_spi.c
 )
 
