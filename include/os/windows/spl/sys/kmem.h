@@ -104,6 +104,7 @@ uint64_t spl_free_last_pressure_wrapper(void);
 #define	KMC_IDENTIFIER	0x00400000	/* internal use only */
 #define	KMC_PREFILL	0x00800000
 #define	KMC_ARENA_SLAB	0x01000000	/* use a bigger kmem cache */
+#define	KMC_RECLAIMABLE	0x0
 
 struct kmem_cache;
 
