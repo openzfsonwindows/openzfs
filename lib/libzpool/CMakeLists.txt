@@ -172,9 +172,9 @@ add_library(libzpool
     "${MODULE_DIR}/os/windows/zfs/zfs_debug.c"
     "${MODULE_DIR}/os/windows/zfs/zfs_racct.c"
     "${MODULE_DIR}/os/windows/zfs/zfs_znode.c"
-    "${MODULE_DIR}/os/linux/zfs/abd_os.c"  # Seems undesirable - one day fix.
     "${MODULE_DIR}/os/linux/zfs/arc_os.c"
     "${MODULE_DIR}/os/linux/zfs/vdev_label_os.c"
+    "abd_os.c"
     "kernel.c"
     "taskq.c"
     "util.c"
