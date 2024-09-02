@@ -330,7 +330,7 @@ abd_alloc_zero_scatter(void)
 	memset(abd_zero_buf, 0, zfs_abd_chunk_size);
 	abd_zero_scatter = abd_alloc_struct(SPA_MAXBLOCKSIZE);
 
-	abd_zero_scatter->abd_flags |= ABD_FLAG_OWNER | ABD_FLAG_ZEROS;
+	abd_zero_scatter->abd_flags |= ABD_FLAG_OWNER;
 	abd_zero_scatter->abd_size = SPA_MAXBLOCKSIZE;
 
 	ABD_SCATTER(abd_zero_scatter).abd_offset = 0;
