@@ -1063,11 +1063,19 @@ InitVpb(__in PVPB Vpb, __in PDEVICE_OBJECT VolumeDevice, mount_t *zmo)
 {
 	if (Vpb != NULL) {
 		Vpb->DeviceObject = VolumeDevice;
+#if 0
 		Vpb->VolumeLabelLength =
 		    MIN(sizeof (VOLUME_LABEL) - sizeof (WCHAR),
 		    sizeof (Vpb->VolumeLabel));
 		RtlCopyMemory(Vpb->VolumeLabel, VOLUME_LABEL,
 		    Vpb->VolumeLabelLength);
+#else
+		Vpb->VolumeLabelLength =
+		    MIN(zmo->name.Length,
+		    sizeof (Vpb->VolumeLabel));
+		RtlCopyMemory(Vpb->VolumeLabel, zmo->name.Buffer,
+		    Vpb->VolumeLabelLength);
+#endif
 		Vpb->SerialNumber = 0x19831116;
 		Vpb->Flags |= VPB_MOUNTED;
 	}
@@ -1824,7 +1832,7 @@ matched_mount(PDEVICE_OBJECT DeviceObject, PDEVICE_OBJECT DeviceToMount,
 		    0ULL,
 		    FILE_READ_ATTRIBUTES);
 		vp = vcb->root_file->FsContext;
-		if (VN_HOLD(vp) == 0) {
+		if (vp && VN_HOLD(vp) == 0) {
 			vnode_ref(vp);
 			VN_RELE(vp);
 		}

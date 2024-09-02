@@ -2515,10 +2515,15 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		WCHAR *wstr;
 
 		ffvi->VolumeSerialNumber = 0x19831116;
+#if 0
 		ffvi->VolumeLabelLength =
 		    sizeof (VOLUME_LABEL) - sizeof (WCHAR);
 		wstr = VOLUME_LABEL;
-
+#else
+		ffvi->VolumeLabelLength =
+		    zmo->name.Length;
+		wstr = zmo->name.Buffer;
+#endif
 		int space =
 		    IrpSp->Parameters.QueryFile.Length -
 		    FIELD_OFFSET(FILE_FS_VOLUME_INFORMATION, VolumeLabel);
@@ -6128,6 +6133,10 @@ volume_create(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject,
     USHORT ShareAccess, uint64_t AllocationSize, ACCESS_MASK DesiredAccess)
 {
 	mount_t *zmo = DeviceObject->DeviceExtension;
+
+	if ((zmo->type != MOUNT_TYPE_VCB) &&
+	    (zmo->type != MOUNT_TYPE_DCB))
+		return (STATUS_INVALID_PARAMETER);
 
 #if 1
 	if (zmo->vpb != NULL)

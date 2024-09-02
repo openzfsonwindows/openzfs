@@ -1003,8 +1003,8 @@ zfs_unload_ioctl(
 
 	IoDetachDevice(DriverExtension->LowerDeviceObject);
 
-	if (DriverExtension->FunctionalDeviceObject->AttachedDevice)
-		IoDetachDevice(DriverExtension->FunctionalDeviceObject);
+	if (DriverExtension->StorportDeviceObject)
+		IoDetachDevice(DriverExtension->StorportDeviceObject);
 	IoDeleteDevice(DriverExtension->FunctionalDeviceObject);
 
 	IoDetachDevice(DriverExtension->PhysicalDeviceObject);
