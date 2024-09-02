@@ -2411,9 +2411,9 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    FIELD_OFFSET(FILE_FS_ATTRIBUTE_INFORMATION, FileSystemName);
 
 		UNICODE_STRING name;
-	//	if (zfsvfs->z_mimic == ZFS_MIMIC_OFF)
-	//		RtlInitUnicodeString(&name, L"ZFS");
-	//	else
+		if (zfsvfs->z_mimic == ZFS_MIMIC_OFF)
+			RtlInitUnicodeString(&name, L"ZFS");
+		else
 			RtlInitUnicodeString(&name, L"NTFS");
 
 		space = MIN(space, name.Length);
