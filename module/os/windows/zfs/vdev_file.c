@@ -386,7 +386,7 @@ vdev_file_io_start(zio_t *zio)
 	zfs_file_t *fp = vf->vf_file;
 	int error = 0;
 
-	if (zio->io_type == ZIO_TYPE_IOCTL) {
+	if (zio->io_type == ZIO_TYPE_FLUSH) {
 
 		if (!vdev_readable(vd)) {
 			/* Drive not there, can't flush */

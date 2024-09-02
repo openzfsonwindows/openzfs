@@ -657,7 +657,7 @@ vdev_disk_io_start(zio_t *zio)
 	}
 
 	switch (zio->io_type) {
-	case ZIO_TYPE_IOCTL:
+	case ZIO_TYPE_FLUSH:
 
 		if (!vdev_readable(vd)) {
 			zio->io_error = SET_ERROR(ENXIO);
