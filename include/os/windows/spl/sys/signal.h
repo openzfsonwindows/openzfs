@@ -73,7 +73,7 @@ typedef struct __siginfo {
 		sigmask(SIGTERM)|sigmask(SIGINT))
 
 static inline int
-issig(int why)
+issig()
 {
 	return (0);
 }
