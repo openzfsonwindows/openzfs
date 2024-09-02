@@ -75,7 +75,7 @@ sysctl_os_registry_change(DEVICE_OBJECT *DeviceObject,
 void
 OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
 {
-    	ZFS_DRIVER_EXTENSION(DriverObject, DriverExtension);
+	ZFS_DRIVER_EXTENSION(DriverObject, DriverExtension);
 
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "OpenZFS_Fini\n"));
 
@@ -164,11 +164,13 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 		DriverExtension->STOR_AddDevice = NULL;
 	} else {
 		/* Make a copy of the Driver Callbacks for miniport */
-	    memcpy(DriverExtension->STOR_MajorFunction,
+		memcpy(DriverExtension->STOR_MajorFunction,
 		    WIN_DriverObject->MajorFunction,
 		    sizeof (DriverExtension->STOR_MajorFunction));
-		DriverExtension->STOR_DriverUnload = WIN_DriverObject->DriverUnload;
-		DriverExtension->STOR_AddDevice = WIN_DriverObject->DriverExtension->AddDevice;
+		DriverExtension->STOR_DriverUnload =
+		    WIN_DriverObject->DriverUnload;
+		DriverExtension->STOR_AddDevice =
+		    WIN_DriverObject->DriverExtension->AddDevice;
 	}
 
 	/* Now set the Driver Callbacks to dispatcher and start ZFS */
@@ -182,11 +184,11 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 
 	/* Start monitoring Registry for changes */
 	if (DriverExtension->fsDiskDeviceObject)
-		sysctl_os_registry_change(DriverExtension->fsDiskDeviceObject, pRegistryPath);
+		sysctl_os_registry_change(DriverExtension->fsDiskDeviceObject,
+		    pRegistryPath);
 
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
 	    "OpenZFS: Started\n"));
 
 	return (STATUS_SUCCESS);
 }
-

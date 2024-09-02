@@ -235,23 +235,23 @@ mountmgr_get_mountpoint(PDEVICE_OBJECT mountmgr,
 	return (STATUS_SUCCESS);
 }
 
-#define MOUNTMGR_IS_DOSDEVICES(s, l) (   \
-    (l) >= 26 &&                \
-    (s)[0] == '\\' &&           \
-    (s)[1] == 'D' &&            \
-    (s)[2] == 'o' &&            \
-    (s)[3] == 's' &&            \
-    (s)[4] == 'D' &&            \
-    (s)[5] == 'e' &&            \
-    (s)[6] == 'v' &&            \
-    (s)[7] == 'i' &&            \
-    (s)[8] == 'c' &&            \
-    (s)[9] == 'e' &&            \
-    (s)[10] == 's' &&           \
-    (s)[11] == '\\' &&          \
-    (s)[12] >= 'A' &&           \
-    (s)[12] <= 'Z' &&           \
-    (s)[13] == ':')
+#define	MOUNTMGR_IS_DOSDEVICES(s, l) ( \
+	(l) >= 26 && \
+	(s)[0] == '\\' && \
+	(s)[1] == 'D' && \
+	(s)[2] == 'o' && \
+	(s)[3] == 's' && \
+	(s)[4] == 'D' && \
+	(s)[5] == 'e' && \
+	(s)[6] == 'v' && \
+	(s)[7] == 'i' && \
+	(s)[8] == 'c' && \
+	(s)[9] == 'e' && \
+	(s)[10] == 's' && \
+	(s)[11] == '\\' && \
+	(s)[12] >= 'A' && \
+	(s)[12] <= 'Z' && \
+	(s)[13] == ':')
 
 NTSTATUS
 mountmgr_get_mountpoint2(PDEVICE_OBJECT mountmgr,
@@ -309,9 +309,11 @@ mountmgr_get_mountpoint2(PDEVICE_OBJECT mountmgr,
 			    ipoint->DeviceNameLength / sizeof (WCHAR)) == 0) {
 
 				if (mountpoint != NULL &&
-				    MOUNTMGR_IS_DOSDEVICES(SymbolicLinkName, ipoint->SymbolicLinkNameLength)) {
+				    MOUNTMGR_IS_DOSDEVICES(SymbolicLinkName,
+				    ipoint->SymbolicLinkNameLength)) {
 					// Mountpoint
-					RtlUnicodeStringCbCopyStringN(mountpoint,
+					RtlUnicodeStringCbCopyStringN(
+					    mountpoint,
 					    SymbolicLinkName,
 					    ipoint->SymbolicLinkNameLength);
 					// Might as well null terminate.
@@ -321,7 +323,8 @@ mountmgr_get_mountpoint2(PDEVICE_OBJECT mountmgr,
 					found++;
 				} else if (symbolicname != NULL) {
 					// SymbolicLinkName
-					RtlUnicodeStringCbCopyStringN(symbolicname,
+					RtlUnicodeStringCbCopyStringN(
+					    symbolicname,
 					    SymbolicLinkName,
 					    ipoint->SymbolicLinkNameLength);
 					// Might as well null terminate.
@@ -453,10 +456,11 @@ SendVolumeArrivalNotification(PUNICODE_STRING DeviceName)
 	PMOUNTMGR_TARGET_NAME targetName;
 	ULONG length;
 
-	dprintf("=> SendVolumeArrivalNotification: '%wZ'\n", DeviceName);
+	dprintf("=> SendVolumeArrivalNotification: '%wZ'\n",
+	    DeviceName);
 
 	length = sizeof (MOUNTMGR_TARGET_NAME) + DeviceName->Length -
-	    sizeof(WCHAR);
+	    sizeof (WCHAR);
 	targetName = ExAllocatePoolWithTag(PagedPool, length, 'ZFSV');
 
 	if (targetName == NULL) {
@@ -553,13 +557,15 @@ RegisterDeviceInterface(__in PDRIVER_OBJECT DriverObject,
 	if (NT_SUCCESS(status)) {
 		dprintf("  IoReportDetectedDevice success\n");
 	} else {
-		dprintf("  IoReportDetectedDevice failed: 0x%lx\n", status);
+		dprintf("  IoReportDetectedDevice failed: 0x%lx\n",
+		    status);
 		return (status);
 	}
 
 	Dcb->PhysicalDeviceObject = pnpDeviceObject;
 
-	Dcb->AttachedDevice = IoAttachDeviceToDeviceStack(DeviceObject, 
+	Dcb->AttachedDevice =
+	    IoAttachDeviceToDeviceStack(DeviceObject,
 	    pnpDeviceObject);
 
 	if (Dcb->AttachedDevice != NULL) {
@@ -671,25 +677,19 @@ SendVolumeCreatePoint(__in PUNICODE_STRING DeviceName,
 
 NTSTATUS
 NotifyMountMgr(
-    PUNICODE_STRING unicodeSourceVolumeName, // "\??\E:\ntfs"
-    PUNICODE_STRING unicodeTargetVolumeName, // "\??\Volume{xxxxxx-xxxx-xxxx-xxxx-xxxxxxx}"
-    boolean_t IsPointCreated
-    )
+    PUNICODE_STRING unicodeSourceVolumeName,
+    PUNICODE_STRING unicodeTargetVolumeName,
+    boolean_t IsPointCreated)
 {
+	// unicodeSourceVolumeName "\??\E:\ntfs"
+	// unicodeTargetVolumeName "\??\Volume{xxxxxx-xxxx-xxxx-xxxx-xxxxxxx}"
 	NTSTATUS status;
 	PMOUNTMGR_VOLUME_MOUNT_POINT input;
 	ULONG inputSize;
 
 	dprintf("=> NotifyMountMgr\n");
 
-
-#if 0
-	// We no longer expect trailing backslash.
-	unicodeSourceVolumeName->Length -= sizeof(WCHAR);
-	unicodeTargetVolumeName->Length -= sizeof(WCHAR);
-#endif
-
-	inputSize = sizeof(MOUNTMGR_VOLUME_MOUNT_POINT) +
+	inputSize = sizeof (MOUNTMGR_VOLUME_MOUNT_POINT) +
 	    unicodeSourceVolumeName->Length +
 	    unicodeTargetVolumeName->Length;
 
@@ -942,7 +942,6 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	    diskDeviceObject, zmo_dcb);
 
 	snprintf(buf, sizeof (buf), "\\DosDevices\\Global\\Volume{%s}", uuid_a);
-	//snprintf(buf, sizeof (buf), "\\DosDevices\\Global\\E:", uuid_a);
 	pants.Buffer = buf;
 	pants.Length = strlen(buf);
 	pants.MaximumLength = PATH_MAX;
@@ -952,7 +951,6 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	AsciiStringToUnicodeString(buf, &zmo_dcb->symlink_name);
 
 	snprintf(buf, sizeof (buf), "\\ArcName\\OpenZFS(%s)", uuid_a);
-	//snprintf(buf, sizeof (buf), "\\DosDevices\\Global\\E:", uuid_a);
 	pants.Buffer = buf;
 	pants.Length = strlen(buf);
 	pants.MaximumLength = PATH_MAX;
@@ -962,7 +960,6 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	AsciiStringToUnicodeString(buf, &zmo_dcb->arc_name);
 
 	snprintf(buf, sizeof (buf), "\\Device\\ZFS{%s}", uuid_a);
-	//snprintf(buf, sizeof (buf), "\\??\\{%s}", uuid_a);
 	pants.Buffer = buf;
 	pants.Length = strlen(buf);
 	pants.MaximumLength = PATH_MAX;
@@ -976,8 +973,10 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	// diskDeviceObject->Flags |= DO_POWER_PAGABLE;
 	diskDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 
-	status = IoCreateSymbolicLink(&zmo_dcb->symlink_name, &zmo_dcb->device_name);
-	status = IoCreateSymbolicLink(&zmo_dcb->arc_name, &zmo_dcb->device_name);
+	status = IoCreateSymbolicLink(&zmo_dcb->symlink_name,
+	    &zmo_dcb->device_name);
+	status = IoCreateSymbolicLink(&zmo_dcb->arc_name,
+	    &zmo_dcb->device_name);
 
 	// zmo->VolumeDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 
@@ -994,13 +993,6 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	if (zc->zc_cleanup_fd & MNT_RDONLY)
 		vfs_setrdonly(zmo_dcb);
 
-#if 0
-	if (zc->zc_value[0] != 0) {
-		PUNICODE_STRING tmp;
-		tmp = &(zmo_dcb->mountpoint.Length);
-		AsciiStringToUnicodeString(zc->zc_value, tmp);
-	}
-#endif
 	// Mount will temporarily be pointing to "dcb" until the
 	// zfs_vnop_mount() below corrects it to "vcb".
 	status = zfs_vfs_mount(zmo_dcb, NULL, (user_addr_t)&mnt_args, NULL);
@@ -1056,9 +1048,8 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	// Add to list for BusRelations
 	vfs_mount_add(zmo_dcb);
 
-	IoInvalidateDeviceRelations(DriverExtension->PhysicalDeviceObject, BusRelations);
-//	zmo_dcb->AttachedDevice = IoAttachDeviceToDeviceStack(diskDeviceObject,
-//	    DriverExtension->PhysicalDeviceObject);
+	IoInvalidateDeviceRelations(DriverExtension->PhysicalDeviceObject,
+	    BusRelations);
 
 	// Free diskDeviceName
 	FreeUnicodeString(&diskDeviceName);
@@ -1073,8 +1064,10 @@ InitVpb(__in PVPB Vpb, __in PDEVICE_OBJECT VolumeDevice, mount_t *zmo)
 	if (Vpb != NULL) {
 		Vpb->DeviceObject = VolumeDevice;
 		Vpb->VolumeLabelLength =
-		    MIN(sizeof(VOLUME_LABEL) - sizeof(WCHAR), sizeof (Vpb->VolumeLabel));
-		RtlCopyMemory(Vpb->VolumeLabel, VOLUME_LABEL, Vpb->VolumeLabelLength);
+		    MIN(sizeof (VOLUME_LABEL) - sizeof (WCHAR),
+		    sizeof (Vpb->VolumeLabel));
+		RtlCopyMemory(Vpb->VolumeLabel, VOLUME_LABEL,
+		    Vpb->VolumeLabelLength);
 		Vpb->SerialNumber = 0x19831116;
 		Vpb->Flags |= VPB_MOUNTED;
 	}
@@ -1359,18 +1352,21 @@ generateVolumeNameMountpoint(wchar_t *vol_mpt)
 	_snwprintf(vol_mpt, 50, L"\\??\\Volume{%s}\\", wc_guid);
 }
 NTSTATUS
-CreateMountPoint(PUNICODE_STRING sourceVolumeName, PUNICODE_STRING targetVolumeName)
+CreateMountPoint(PUNICODE_STRING sourceVolumeName,
+    PUNICODE_STRING targetVolumeName)
 {
 	NTSTATUS status;
 
 	// Calculate lengths including null terminators
-	ULONG sourceNameLength = sourceVolumeName->Length + sizeof(WCHAR);
-	ULONG targetNameLength = targetVolumeName->Length + sizeof(WCHAR);
-	ULONG totalLength = sizeof (MOUNTMGR_VOLUME_MOUNT_POINT) + sourceNameLength + targetNameLength;
+	ULONG sourceNameLength = sourceVolumeName->Length + sizeof (WCHAR);
+	ULONG targetNameLength = targetVolumeName->Length + sizeof (WCHAR);
+	ULONG totalLength = sizeof (MOUNTMGR_VOLUME_MOUNT_POINT) +
+	    sourceNameLength + targetNameLength;
 
 	// Allocate memory for the MOUNTMGR_VOLUME_MOUNT_POINT structure
 	PMOUNTMGR_VOLUME_MOUNT_POINT mountPoint =
-	    (PMOUNTMGR_VOLUME_MOUNT_POINT)ExAllocatePoolWithTag(NonPagedPoolNx, totalLength, 'mntp');
+	    (PMOUNTMGR_VOLUME_MOUNT_POINT)ExAllocatePoolWithTag(NonPagedPoolNx,
+	    totalLength, 'mntp');
 
 	if (!mountPoint)
 		return (STATUS_INSUFFICIENT_RESOURCES);
@@ -1378,20 +1374,24 @@ CreateMountPoint(PUNICODE_STRING sourceVolumeName, PUNICODE_STRING targetVolumeN
 	RtlZeroMemory(mountPoint, totalLength);
 
 	// Set the offsets and lengths
-	mountPoint->SourceVolumeNameOffset = sizeof(MOUNTMGR_VOLUME_MOUNT_POINT);
+	mountPoint->SourceVolumeNameOffset =
+	    sizeof (MOUNTMGR_VOLUME_MOUNT_POINT);
 	mountPoint->SourceVolumeNameLength = sourceNameLength;
-	mountPoint->TargetVolumeNameOffset = mountPoint->SourceVolumeNameOffset + sourceNameLength;
+	mountPoint->TargetVolumeNameOffset =
+	    mountPoint->SourceVolumeNameOffset + sourceNameLength;
 	mountPoint->TargetVolumeNameLength = targetNameLength;
 
 	// Copy the source volume name and add a null terminator
 	RtlCopyMemory(((PUCHAR)mountPoint) + mountPoint->SourceVolumeNameOffset,
 	    sourceVolumeName->Buffer, sourceVolumeName->Length);
-	*((WCHAR*)(((PUCHAR)mountPoint) + mountPoint->SourceVolumeNameOffset + sourceVolumeName->Length)) = L'\0';
+	*((WCHAR*)(((PUCHAR)mountPoint) + mountPoint->SourceVolumeNameOffset +
+	    sourceVolumeName->Length)) = L'\0';
 
 	// Copy the target volume name and add a null terminator
 	RtlCopyMemory(((PUCHAR)mountPoint) + mountPoint->TargetVolumeNameOffset,
 	    targetVolumeName->Buffer, targetVolumeName->Length);
-	*((WCHAR*)(((PUCHAR)mountPoint) + mountPoint->TargetVolumeNameOffset + targetVolumeName->Length)) = L'\0';
+	*((WCHAR*)(((PUCHAR)mountPoint) + mountPoint->TargetVolumeNameOffset +
+	    targetVolumeName->Length)) = L'\0';
 
 	status = SendIoctlToMountManager(
 	    IOCTL_MOUNTMGR_VOLUME_MOUNT_POINT_CREATED,
@@ -1402,8 +1402,8 @@ CreateMountPoint(PUNICODE_STRING sourceVolumeName, PUNICODE_STRING targetVolumeN
 	} else {
 		dprintf("  IoCallDriver failed: 0x%lx\n", status);
 	}
-	 ExFreePoolWithTag(mountPoint, 'mntp');
-	 return (status);
+	ExFreePoolWithTag(mountPoint, 'mntp');
+	return (status);
 }
 
 typedef struct _MOUNTMGR_CREATE_POINT {
@@ -1414,32 +1414,39 @@ typedef struct _MOUNTMGR_CREATE_POINT {
 } MOUNTMGR_CREATE_POINT, *PMOUNTMGR_CREATE_POINT;
 
 NTSTATUS
-GPTCreateMountPoint(PUNICODE_STRING SymbolicLinkName, PUNICODE_STRING DeviceName)
+GPTCreateMountPoint(PUNICODE_STRING SymbolicLinkName,
+    PUNICODE_STRING DeviceName)
 {
 	NTSTATUS status;
 	PMOUNTMGR_CREATE_POINT inputBuffer;
 	ULONG inputSize;
 
 	// Calculate the size of the input buffer
-	inputSize = sizeof(MOUNTMGR_CREATE_POINT) +
-	    SymbolicLinkName->Length + sizeof(WCHAR) +  // +sizeof(WCHAR) for NULL terminator
-	    DeviceName->Length + sizeof(WCHAR);         // +sizeof(WCHAR) for NULL terminator
+	inputSize = sizeof (MOUNTMGR_CREATE_POINT) +
+	    SymbolicLinkName->Length + sizeof (WCHAR) +
+	    DeviceName->Length + sizeof (WCHAR);
 
 	// Allocate the input buffer
-	inputBuffer = (PMOUNTMGR_CREATE_POINT)ExAllocatePoolWithTag(NonPagedPoolNx, inputSize, 'mntp');
+	inputBuffer =
+	    (PMOUNTMGR_CREATE_POINT)ExAllocatePoolWithTag(NonPagedPoolNx,
+	    inputSize, 'mntp');
 	if (!inputBuffer)
 		return (STATUS_INSUFFICIENT_RESOURCES);
 
 	// Fill in the input buffer
-	inputBuffer->SymbolicLinkNameOffset = sizeof(MOUNTMGR_CREATE_POINT);
+	inputBuffer->SymbolicLinkNameOffset = sizeof (MOUNTMGR_CREATE_POINT);
 	inputBuffer->SymbolicLinkNameLength = SymbolicLinkName->Length;
 
-	inputBuffer->DeviceNameOffset = inputBuffer->SymbolicLinkNameOffset + SymbolicLinkName->Length + sizeof(WCHAR);
+	inputBuffer->DeviceNameOffset = inputBuffer->SymbolicLinkNameOffset +
+	    SymbolicLinkName->Length + sizeof (WCHAR);
 	inputBuffer->DeviceNameLength = DeviceName->Length;
 
 	// Copy the symbolic link name and device name into the buffer
-	RtlCopyMemory(((UCHAR*)inputBuffer) + inputBuffer->SymbolicLinkNameOffset, SymbolicLinkName->Buffer, SymbolicLinkName->Length);
-	*((WCHAR*)(((UCHAR*)inputBuffer) + inputBuffer->SymbolicLinkNameOffset + SymbolicLinkName->Length)) = L'\0';
+	RtlCopyMemory(((UCHAR*)inputBuffer) +
+	    inputBuffer->SymbolicLinkNameOffset,
+	    SymbolicLinkName->Buffer, SymbolicLinkName->Length);
+	*((WCHAR*)(((UCHAR*)inputBuffer) + inputBuffer->SymbolicLinkNameOffset +
+	    SymbolicLinkName->Length)) = L'\0';
 
 	RtlCopyMemory(((UCHAR*)inputBuffer) + inputBuffer->DeviceNameOffset,
 	    DeviceName->Buffer, DeviceName->Length);
@@ -1455,8 +1462,8 @@ GPTCreateMountPoint(PUNICODE_STRING SymbolicLinkName, PUNICODE_STRING DeviceName
 	} else {
 		dprintf("  IoCallDriver failed: 0x%lx\n", status);
 	}
-	 ExFreePoolWithTag(inputBuffer, 'mntp');
-	 return (status);
+	ExFreePoolWithTag(inputBuffer, 'mntp');
+	return (status);
 
 }
 
@@ -1470,7 +1477,8 @@ typedef struct _MOUNTMGR_VOLUME_MOUNT_POINT_INPUT {
 } MOUNTMGR_VOLUME_MOUNT_POINT_INPUT, *PMOUNTMGR_VOLUME_MOUNT_POINT_INPUT;
 
 NTSTATUS
-MountVolumeMountPoint(PUNICODE_STRING sourceVolumeName, PUNICODE_STRING volumeMountPoint)
+MountVolumeMountPoint(PUNICODE_STRING sourceVolumeName,
+    PUNICODE_STRING volumeMountPoint)
 {
 	NTSTATUS status;
 
@@ -1478,25 +1486,29 @@ MountVolumeMountPoint(PUNICODE_STRING sourceVolumeName, PUNICODE_STRING volumeMo
 	ULONG inputBufferLength = 0;
 
 	// Calculate required buffer length
-	inputBufferLength = sizeof(MOUNTMGR_VOLUME_MOUNT_POINT_INPUT) +
+	inputBufferLength = sizeof (MOUNTMGR_VOLUME_MOUNT_POINT_INPUT) +
 	    sourceVolumeName->Length +
 	    volumeMountPoint->Length;
 
 	// Allocate memory for input buffer
-	inputBuffer = ExAllocatePoolWithTag(NonPagedPoolNx, inputBufferLength, 'volz');
+	inputBuffer = ExAllocatePoolWithTag(NonPagedPoolNx, inputBufferLength,
+	    'volz');
 	if (!inputBuffer)
 		return (STATUS_INSUFFICIENT_RESOURCES);
 
 	// Initialize input structure
-	PMOUNTMGR_VOLUME_MOUNT_POINT_INPUT input = (PMOUNTMGR_VOLUME_MOUNT_POINT_INPUT)inputBuffer;
-	RtlZeroMemory(input, sizeof(MOUNTMGR_VOLUME_MOUNT_POINT_INPUT));
+	PMOUNTMGR_VOLUME_MOUNT_POINT_INPUT input =
+	    (PMOUNTMGR_VOLUME_MOUNT_POINT_INPUT)inputBuffer;
+	RtlZeroMemory(input, sizeof (MOUNTMGR_VOLUME_MOUNT_POINT_INPUT));
 
 	// Setup input structure fields
 	input->SymbolicLinkNameLength = volumeMountPoint->Length;
-	input->SymbolicLinkNameOffset = sizeof(MOUNTMGR_VOLUME_MOUNT_POINT_INPUT);
+	input->SymbolicLinkNameOffset =
+	    sizeof (MOUNTMGR_VOLUME_MOUNT_POINT_INPUT);
 
 	input->DeviceNameLength = sourceVolumeName->Length;
-	input->DeviceNameOffset = input->SymbolicLinkNameOffset + input->SymbolicLinkNameLength;
+	input->DeviceNameOffset = input->SymbolicLinkNameOffset +
+	    input->SymbolicLinkNameLength;
 
 	// Copy the strings into the buffer
 	RtlCopyMemory((PCHAR)input + input->SymbolicLinkNameOffset,
@@ -1525,32 +1537,32 @@ MountVolumeMountPoint(PUNICODE_STRING sourceVolumeName, PUNICODE_STRING volumeMo
 // Function to extract device name from symbolic link name
 NTSTATUS
 ExtractDeviceName(
-    PUNICODE_STRING SymbolicLinkName, 
-    PUNICODE_STRING DeviceName
-)
+    PUNICODE_STRING SymbolicLinkName,
+    PUNICODE_STRING DeviceName)
 {
 	USHORT length = 0;
 	USHORT i = 0;
 
 	// Find the last backslash in the SymbolicLinkName
-	for (i = (SymbolicLinkName->Length / sizeof(WCHAR))-1; i >= 0; i--) {
+	for (i = (SymbolicLinkName->Length / sizeof (WCHAR))-1; i >= 0; i--) {
 		if (SymbolicLinkName->Buffer[i] == L'\\') {
 			break;
 		}
 	}
 
 	// Calculate the length of the DeviceName
-	length = (SymbolicLinkName->Length / sizeof(WCHAR)) - i;
+	length = (SymbolicLinkName->Length / sizeof (WCHAR)) - i;
 
 	// Ensure the DeviceName buffer is large enough
-	if (length * sizeof(WCHAR) > DeviceName->MaximumLength)
+	if (length * sizeof (WCHAR) > DeviceName->MaximumLength)
 		return (STATUS_BUFFER_TOO_SMALL);
 
 	// Copy the DeviceName from the SymbolicLinkName
-	RtlCopyMemory(DeviceName->Buffer, &SymbolicLinkName->Buffer[i], length * sizeof(WCHAR));
+	RtlCopyMemory(DeviceName->Buffer, &SymbolicLinkName->Buffer[i],
+	    length * sizeof (WCHAR));
 
 	// Set the length and maximum length
-	DeviceName->Length = length * sizeof(WCHAR);
+	DeviceName->Length = length * sizeof (WCHAR);
 	DeviceName->Buffer[length] = UNICODE_NULL; // Null-terminate the string
 
 	return (STATUS_SUCCESS);
@@ -1611,12 +1623,12 @@ mount_volume_impl(mount_t *dcb, mount_t *vcb)
 
 		if (!MOUNTMGR_IS_DRIVE_LETTER(&mountpath)) {
 			DECLARE_UNICODE_STRING_SIZE(mountpoint, PATH_MAX);
-	status = IoGetDeviceObjectPointer(&name, FILE_READ_ATTRIBUTES,
-	    &fileObject, &mountmgr);
+			status = IoGetDeviceObjectPointer(&name,
+			    FILE_READ_ATTRIBUTES, &fileObject, &mountmgr);
 
 			status = mountmgr_get_volume_name_mountpoint(mountmgr,
 			    &dcb->device_name, &mountpoint);
-	ObDereferenceObject(fileObject);
+			ObDereferenceObject(fileObject);
 
 			if (!MOUNTMGR_IS_VOLUME_NAME(&mountpoint)) {
 				// We have no volume name mountpoint for our
@@ -1637,23 +1649,25 @@ mount_volume_impl(mount_t *dcb, mount_t *vcb)
 			    dcb->mountpoint.Buffer[4] != '?') {
 				// check if driveletter is unassigned
 				BOOLEAN ret;
-	status = IoGetDeviceObjectPointer(&name, FILE_READ_ATTRIBUTES,
-	    &fileObject, &mountmgr);
+				status = IoGetDeviceObjectPointer(&name,
+				    FILE_READ_ATTRIBUTES, &fileObject,
+				    &mountmgr);
 
 				status = mountmgr_is_driveletter_assigned(
 				    mountmgr,
 				    dcb->mountpoint.Buffer[4], &ret);
-	ObDereferenceObject(fileObject);
+				ObDereferenceObject(fileObject);
 
 				if (status == STATUS_SUCCESS && ret == 0) {
 					// driveletter is unassigned, try to
 					// add mountpoint
-	status = IoGetDeviceObjectPointer(&name, FILE_READ_ATTRIBUTES,
-	    &fileObject, &mountmgr);
+					status = IoGetDeviceObjectPointer(&name,
+					    FILE_READ_ATTRIBUTES, &fileObject,
+					    &mountmgr);
 					status = mountmgr_assign_driveletter(
 					    &dcb->device_name,
 					    dcb->mountpoint.Buffer[4]);
-	ObDereferenceObject(fileObject);
+					ObDereferenceObject(fileObject);
 				} else {
 					// driveletter already assigned,
 					// find another one
@@ -1687,14 +1701,11 @@ mount_volume_impl(mount_t *dcb, mount_t *vcb)
 		status = STATUS_SUCCESS;
 	}
 
-	// Handled in vnode
-//	FsRtlSetupAdvancedHeader(&vcb->VolumeFileHeader,
-//	    &vcb->AdvancedFCBHeaderMutex);
-
 	RtlDuplicateUnicodeString(0, &dcb->mountpoint, &vcb->mountpoint);
 
 	if (dcb->root_file)
-		status = FsRtlNotifyVolumeEvent(dcb->root_file, FSRTL_VOLUME_MOUNT);
+		status = FsRtlNotifyVolumeEvent(dcb->root_file,
+		    FSRTL_VOLUME_MOUNT);
 
 	status = STATUS_SUCCESS;
 
@@ -1709,10 +1720,9 @@ mount_volume_impl(mount_t *dcb, mount_t *vcb)
 
 }
 
-extern int zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp, CC_FILE_SIZES *ccfs);
-
 NTSTATUS
-matched_mount(PDEVICE_OBJECT DeviceObject, PDEVICE_OBJECT DeviceToMount, mount_t *dcb, PVPB vpb)
+matched_mount(PDEVICE_OBJECT DeviceObject, PDEVICE_OBJECT DeviceToMount,
+    mount_t *dcb, PVPB vpb)
 {
 	zfsvfs_t *xzfsvfs = vfs_fsprivate(dcb);
 	NTSTATUS status;
@@ -1742,7 +1752,7 @@ matched_mount(PDEVICE_OBJECT DeviceObject, PDEVICE_OBJECT DeviceToMount, mount_t
 	    sizeof (mount_t),
 	    &dcb->fs_name,
 	    FILE_DEVICE_DISK_FILE_SYSTEM,
-	    deviceCharacteristics/*|FILE_DEVICE_IS_MOUNTED*/,
+	    deviceCharacteristics /* |FILE_DEVICE_IS_MOUNTED */,
 	    FALSE,
 	    &volDeviceObject);
 
@@ -1755,7 +1765,7 @@ matched_mount(PDEVICE_OBJECT DeviceObject, PDEVICE_OBJECT DeviceToMount, mount_t
 	vcb->type = MOUNT_TYPE_VCB;
 	vcb->size = sizeof (mount_t);
 
-	//volDeviceObject->Flags |= DO_BUS_ENUMERATED_DEVICE;
+	// volDeviceObject->Flags |= DO_BUS_ENUMERATED_DEVICE;
 	volDeviceObject->SectorSize = 512;
 
 	zfsvfs_t *zfsvfs = vfs_fsprivate(dcb);
@@ -1792,7 +1802,6 @@ matched_mount(PDEVICE_OBJECT DeviceObject, PDEVICE_OBJECT DeviceToMount, mount_t
 	RtlDuplicateUnicodeString(0, &dcb->arc_name, &vcb->arc_name);
 	RtlDuplicateUnicodeString(0, &dcb->uuid, &vcb->uuid);
 	memcpy(vcb->rawuuid, dcb->rawuuid, sizeof (vcb->rawuuid));
-//	RtlDuplicateUnicodeString(0, &dcb->mountpoint, &vcb->mountpoint);
 
 	vcb->mountflags = dcb->mountflags;
 	if (vfs_isrdonly(dcb))
@@ -1809,7 +1818,8 @@ matched_mount(PDEVICE_OBJECT DeviceObject, PDEVICE_OBJECT DeviceToMount, mount_t
 		zfs_ccb_t *zccb;
 		dprintf("root_file is %p\n", vcb->root_file);
 		// Attach vp/zp to it. They call volume_close() when released.
-		status = volume_create(dcb->PhysicalDeviceObject, vcb->root_file,
+		status = volume_create(dcb->PhysicalDeviceObject,
+		    vcb->root_file,
 		    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 		    0ULL,
 		    FILE_READ_ATTRIBUTES);
@@ -1948,19 +1958,23 @@ mount_add_device(PDEVICE_OBJECT DriverObject,
 
 	dprintf("register GUID_DEVINTERFACE_VOLUME\n");
 
-	status = IoRegisterDeviceInterface(PhysicalDeviceObject, &GUID_DEVINTERFACE_VOLUME, NULL,
-	   &zmo->deviceInterfaceName);
+	status = IoRegisterDeviceInterface(PhysicalDeviceObject,
+	    &GUID_DEVINTERFACE_VOLUME, NULL,
+	    &zmo->deviceInterfaceName);
 
-	// We can attach to DriverExtension->PhysicalDeviceObject here, but then most IRP go to
-	// busDispatcher() first, then we pass down to diskDispatcher().
-	// zmo->AttachedDevice = IoAttachDeviceToDeviceStack(AddDeviceObject, DriverExtension->PhysicalDeviceObject);
+	// We can attach to DriverExtension->PhysicalDeviceObject here,
+	// but then most IRP go to busDispatcher() first, then we pass
+	// down to diskDispatcher().
+	// zmo->AttachedDevice = IoAttachDeviceToDeviceStack(AddDeviceObject,
+	// DriverExtension->PhysicalDeviceObject);
 
 	status = IoSetDeviceInterfaceState(&zmo->deviceInterfaceName, TRUE);
 
 	dprintf("register MOUNTDEV_MOUNTED_DEVICE_GUID\n");
 
-	status = IoRegisterDeviceInterface(PhysicalDeviceObject, &MOUNTDEV_MOUNTED_DEVICE_GUID, NULL,
-	   &zmo->fsInterfaceName);
+	status = IoRegisterDeviceInterface(PhysicalDeviceObject,
+	    &MOUNTDEV_MOUNTED_DEVICE_GUID, NULL,
+	    &zmo->fsInterfaceName);
 	status = IoSetDeviceInterfaceState(&zmo->fsInterfaceName, TRUE);
 }
 
@@ -2009,9 +2023,6 @@ zfs_remove_driveletter(mount_t *zmo)
 	Status = dev_ioctl(mountmgr, IOCTL_MOUNTMGR_DELETE_POINTS,
 	    mmp, mmpsize, mmps2, mmps1.Size, FALSE, NULL);
 
-	// if (!NT_SUCCESS(Status))
-	//	ERR("IOCTL_MOUNTMGR_DELETE_POINTS 2 returned %08x\n", Status);
-
 out:
 	dprintf("%s: removing driveletter returns 0x%lx\n", __func__, Status);
 
@@ -2031,10 +2042,13 @@ unmount_find_volume(void *arg, void *priv)
 	UNICODE_STRING *symlink_name = (UNICODE_STRING *)priv;
 
 	if ((zmo_dcb->deviceInterfaceName.Length == symlink_name->Length) &&
-	    RtlCompareMemory(zmo_dcb->deviceInterfaceName.Buffer, symlink_name->Buffer, symlink_name->Length) == symlink_name->Length) {
+	    RtlCompareMemory(zmo_dcb->deviceInterfaceName.Buffer,
+	    symlink_name->Buffer, symlink_name->Length) ==
+	    symlink_name->Length) {
 
 		// Let unmount continue below...
-		KeSetEvent((PRKEVENT)&zmo_dcb->volume_removed_event, SEMAPHORE_INCREMENT, FALSE);
+		KeSetEvent((PRKEVENT)&zmo_dcb->volume_removed_event,
+		    SEMAPHORE_INCREMENT, FALSE);
 		return (1);
 	}
 	return (0);
@@ -2097,7 +2111,8 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 		zmo_dcb = zmo->parent_device;
 
 		// Get ready to wait for the volume removed notification
-		KeInitializeEvent((PRKEVENT)&zmo_dcb->volume_removed_event, SynchronizationEvent, TRUE);
+		KeInitializeEvent((PRKEVENT)&zmo_dcb->volume_removed_event,
+		    SynchronizationEvent, TRUE);
 
 		dprintf("Set UNMOUNTING\n");
 		vfs_setflags(zmo, MNT_UNMOUNTING);
@@ -2151,32 +2166,20 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 		IoReleaseVpbSpinLock(irql);
 
 		// Release any notifications
-//#if (NTDDI_VERSION >= NTDDI_VISTA)
 		FsRtlNotifyCleanupAll(zmo->NotifySync, &zmo->DirNotifyList);
-//#endif
 
 		// This will make it try to mount again, so make sure we dont
-
-		// status = SendVolumeRemovalNotification(&zmo_dcb->device_name);
 		status = SendVolumeRemovalNotification(&zmo_dcb->MountMgr_name);
 
 		if (zmo->root_file) {
 			struct vnode *vp = zmo->root_file->FsContext;
-#if 0
-			if (vp && VN_HOLD(vp) == 0) {
-				znode_t *zp = VTOZ(vp);
-				vnode_fileobject_remove(vp, zmo->root_file);
-				dprintf("%s decreasing %p\n", __func__, vp);
-				VN_RELE(vp);
-			}
-#endif
 			// this calls volumeclose, but stop any new volumeopen
 			ObDereferenceObject(zmo->root_file);
-
 			zmo->root_file = NULL;
 		}
 
-		IoInvalidateDeviceRelations(zmo_dcb->PhysicalDeviceObject, RemovalRelations);
+		IoInvalidateDeviceRelations(zmo_dcb->PhysicalDeviceObject,
+		    RemovalRelations);
 
 		dnlc_purge_vfsp(zmo, 0);
 
@@ -2189,17 +2192,11 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 		IoDeleteSymbolicLink(&zmo->symlink_name);
 
 		// zmo has Volume, and Attached
-		// IoSetDeviceInterfaceState(&zmo_dcb->volumeInterfaceName, FALSE);
 		IoSetDeviceInterfaceState(&zmo_dcb->fsInterfaceName, FALSE);
 		IoSetDeviceInterfaceState(&zmo_dcb->deviceInterfaceName, FALSE);
 		if (zmo->AttachedDevice)
 			IoDetachDevice(zmo->AttachedDevice);
 		zmo->AttachedDevice = NULL;
-
-		// Deleting DeviceObject will free ->DeviceExtension, ie zmo, so last.
-
-		delay(hz);
-
 
 		IoInvalidateDeviceState(zmo_dcb->FunctionalDeviceObject);
 
@@ -2223,15 +2220,11 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 		// wait for volume removal notification
 		LARGE_INTEGER timeout;
 		timeout.QuadPart = -100000 * 10;
-		status = KeWaitForSingleObject(&zmo_dcb->volume_removed_event, Executive,
-		    KernelMode, TRUE, &timeout);
-		// If we timeout, lets just continue unmount and hope for the best?
-
-#if 1
-
+		status = KeWaitForSingleObject(&zmo_dcb->volume_removed_event,
+		    Executive, KernelMode, TRUE, &timeout);
+		// If we timeout, lets just continue and hope for the best?
 
 		zmo->fsprivate = NULL;
-
 
 		// dcb has physical and functional
 		// There should also be a diskDevice above us to release.
@@ -2244,18 +2237,19 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 				zmo_dcb->AttachedDevice = NULL;
 			}
 
-			// Release strings in zmo, then zmo by calling IoDeleteDevice()
+			// Release strings in zmo, then zmo w/ IoDeleteDevice()
 			zfs_release_mount(zmo_dcb);
 
 			// Physical and Functional are same for DCB
-			if (zmo_dcb->PhysicalDeviceObject != zmo_dcb->FunctionalDeviceObject)
+			if (zmo_dcb->PhysicalDeviceObject !=
+			    zmo_dcb->FunctionalDeviceObject)
 				IoDeleteDevice(zmo_dcb->FunctionalDeviceObject);
 
 			if (zmo_dcb->PhysicalDeviceObject) {
 				zmo_dcb->PhysicalDeviceObject->Vpb = NULL;
 				IoDeleteDevice(zmo_dcb->PhysicalDeviceObject);
 			}
-			
+
 			zmo_dcb = NULL;
 		}
 
@@ -2273,8 +2267,8 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 		}
 
 		ZFS_DRIVER_EXTENSION(WIN_DriverObject, DriverExtension);
-		IoInvalidateDeviceRelations(DriverExtension->PhysicalDeviceObject, RemovalRelations);
-#endif
+		IoInvalidateDeviceRelations(
+		    DriverExtension->PhysicalDeviceObject, RemovalRelations);
 
 		error = 0;
 

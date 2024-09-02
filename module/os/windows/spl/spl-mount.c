@@ -30,7 +30,7 @@
 #include <sys/mount.h>
 #include <sys/rwlock.h>
 
- /*
+/*
  * In Unix, this lock is to protect the list of
  * mounted file-systems, to add and remove mounts.
  * XNU uses mount_lock() to hold all, then calls
@@ -49,7 +49,8 @@ spl_vfs_init(void)
 	rw_init(&vfs_main_lock, NULL, RW_DEFAULT, NULL);
 
 	mutex_init(&mount_list_lock, NULL, MUTEX_DEFAULT, NULL);
-	list_create(&mount_list, sizeof (mount_t), offsetof(mount_t, mount_node));
+	list_create(&mount_list, sizeof (mount_t), offsetof(mount_t,
+	    mount_node));
 
 	return (0);
 }

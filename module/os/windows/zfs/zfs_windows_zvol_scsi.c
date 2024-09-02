@@ -1105,8 +1105,7 @@ DiReadWriteSetup(zvol_state_t *zv, MpWkRtnAction action, zfsiodesc_t *pIo)
 	 * we do not want to slow down the caller so perform taskq queuing
 	 * always in the workitem.
 	 */
-	OpenZFS_Driver_Extension *DriverExtension =
-	    (OpenZFS_Driver_Extension *)IoGetDriverObjectExtension(WIN_DriverObject, WIN_DriverObject);
+	ZFS_DRIVER_EXTENSION(WIN_DriverObject, DriverExtension);
 	PIO_WORKITEM pWI = (PIO_WORKITEM)ALIGN_UP_POINTER_BY(
 	    pWkRtnParms->pQueueWorkItem, 16);
 	IoInitializeWorkItem(DriverExtension->ioctlDeviceObject, pWI);

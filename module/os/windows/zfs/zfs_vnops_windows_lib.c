@@ -323,7 +323,8 @@ major2str(int major, int minor)
 		case IRP_MN_SURPRISE_REMOVAL: // SUPPLIES!
 			return ("IRP_MJ_PNP(IRP_MN_SURPRISE_REMOVAL)");
 		case 0x18: // No longer used
-			return ("IRP_MJ_PNP(IRP_MN_QUERY_LEGACY_BUS_INFORMATION)");
+			return (
+			    "IRP_MJ_PNP(IRP_MN_QUERY_LEGACY_BUS_INFORMATION)");
 		}
 		return ("IRP_MJ_PNP");
 	default:
@@ -2341,8 +2342,9 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 	if (allocateBytes == 0)
 		return;
 
-	allocateBytes += sizeof(wchar_t); // Add space for the null terminator.
-	wchar_t *widepath = (wchar_t *)ExAllocatePoolWithTag(NonPagedPoolNx, allocateBytes, 'znot');
+	allocateBytes += sizeof (wchar_t); // Add space for the null terminator.
+	wchar_t *widepath = (wchar_t *)ExAllocatePoolWithTag(NonPagedPoolNx,
+	    allocateBytes, 'znot');
 	if (widepath == NULL)
 		return;
 
@@ -2350,13 +2352,14 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 	RtlInitEmptyUnicodeString(&ustr, widepath, (USHORT)allocateBytes);
 
 	// Convert UTF-8 to Unicode.
-	status = RtlUTF8ToUnicodeN(ustr.Buffer, ustr.MaximumLength, &ustr.Length, name, length);
+	status = RtlUTF8ToUnicodeN(ustr.Buffer, ustr.MaximumLength,
+	    &ustr.Length, name, length);
 	if (!NT_SUCCESS(status)) {
 		ExFreePoolWithTag(widepath, 'znot');
 		return;
 	}
 
-	widepath[ustr.Length / sizeof(wchar_t)] = 0;
+	widepath[ustr.Length / sizeof (wchar_t)] = 0;
 
 	// Now find last backslash
 	wchar_t *lastBackslash = wcsrchr(widepath, L'\\');
@@ -2381,14 +2384,22 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 		allocateBytes = 0;
 		RtlUTF8ToUnicodeN(NULL, 0, &allocateBytes, stream, length);
 		if (allocateBytes != 0) {
-			allocateBytes += sizeof(wchar_t); // Add space for the null terminator.
-			wchar_t *widepath = (wchar_t *)ExAllocatePoolWithTag(NonPagedPoolNx, allocateBytes, 'znot');
+			// Add space for the null terminator.
+			allocateBytes += sizeof (wchar_t);
+			wchar_t *widepath =
+			    (wchar_t *)ExAllocatePoolWithTag(NonPagedPoolNx,
+			    allocateBytes, 'znot');
 			if (widepath != NULL) {
-				RtlInitEmptyUnicodeString(&ustream, widepath, (USHORT)allocateBytes);
-				status = RtlUTF8ToUnicodeN(ustream.Buffer, ustream.MaximumLength, &ustream.Length, stream, length);
+				RtlInitEmptyUnicodeString(&ustream, widepath,
+				    (USHORT)allocateBytes);
+				status = RtlUTF8ToUnicodeN(ustream.Buffer,
+				    ustream.MaximumLength, &ustream.Length,
+				    stream, length);
 				if (NT_SUCCESS(status)) {
-					dprintf("%s: with stream '%wZ'\n", __func__, &ustream);
-					widepath[ustream.Length / sizeof(wchar_t)] = 0;
+					dprintf("%s: with stream '%wZ'\n",
+					    __func__, &ustream);
+					widepath[ustream.Length /
+					    sizeof (wchar_t)] = 0;
 				} else {
 					FreeUnicodeString(&ustream);
 					stream = NULL;
@@ -5459,9 +5470,10 @@ QueryCapabilities(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 {
 	NTSTATUS Status;
 	PDEVICE_CAPABILITIES DeviceCapabilities;
-	DeviceCapabilities = IrpSp->Parameters.DeviceCapabilities.Capabilities;
+	DeviceCapabilities =
+	    IrpSp->Parameters.DeviceCapabilities.Capabilities;
 	DeviceCapabilities->Version = 1;
-	DeviceCapabilities->Size = sizeof(DEVICE_CAPABILITIES);
+	DeviceCapabilities->Size = sizeof (DEVICE_CAPABILITIES);
 	DeviceCapabilities->DeviceD1 = FALSE;
 	DeviceCapabilities->DeviceD2 = FALSE;
 	DeviceCapabilities->SurpriseRemovalOK = TRUE;
@@ -5487,12 +5499,18 @@ QueryCapabilities(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	DeviceCapabilities->D1Latency =
 	    DeviceCapabilities->D2Latency =
 	    DeviceCapabilities->D3Latency = 0;
-	DeviceCapabilities->DeviceState[PowerSystemWorking] = PowerDeviceD0;
-	DeviceCapabilities->DeviceState[PowerSystemSleeping1] = PowerDeviceD3;
-	DeviceCapabilities->DeviceState[PowerSystemSleeping2] = PowerDeviceD3;
-	DeviceCapabilities->DeviceState[PowerSystemSleeping3] = PowerDeviceD3;
-	DeviceCapabilities->DeviceState[PowerSystemHibernate] = PowerDeviceD3;
-	DeviceCapabilities->DeviceState[PowerSystemShutdown] = PowerDeviceD3;
+	DeviceCapabilities->DeviceState[PowerSystemWorking] =
+	    PowerDeviceD0;
+	DeviceCapabilities->DeviceState[PowerSystemSleeping1] =
+	    PowerDeviceD3;
+	DeviceCapabilities->DeviceState[PowerSystemSleeping2] =
+	    PowerDeviceD3;
+	DeviceCapabilities->DeviceState[PowerSystemSleeping3] =
+	    PowerDeviceD3;
+	DeviceCapabilities->DeviceState[PowerSystemHibernate] =
+	    PowerDeviceD3;
+	DeviceCapabilities->DeviceState[PowerSystemShutdown] =
+	    PowerDeviceD3;
 
 	// Irp->IoStatus.Information = sizeof (DEVICE_CAPABILITIES);
 
@@ -5508,8 +5526,7 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	mount_t *zmo;
 	PDEVICE_OBJECT ReturnDevice = NULL;
 	PDEVICE_RELATIONS DeviceRelations;
-	OpenZFS_Driver_Extension *DriverExtension =
-	    (OpenZFS_Driver_Extension *)IoGetDriverObjectExtension(WIN_DriverObject, WIN_DriverObject);
+	ZFS_DRIVER_EXTENSION(WIN_DriverObject, DriverExtension);
 
 	zmo = (mount_t *)DeviceObject->DeviceExtension;
 
@@ -5528,7 +5545,6 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			goto out;
 		}
 
-		/* The PnP manager will remove this when it is done with device */
 		mount_t *zmo_dcb = (mount_t *)zmo->parent_device;
 
 		if (zmo->PhysicalDeviceObject != NULL)
@@ -5558,8 +5574,8 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		// change as we process this function.
 		count = vfs_mount_count();
 
-		// If we call Storport first, they might already have a list from them
-		// so sadly we need to merge.
+		// If we call Storport first, they might already have a
+		// list from them so sadly we need to merge.
 		StorportRelations = (ULONG_PTR)Irp->IoStatus.Information;
 		if (StorportRelations && StorportRelations->Count > 0) {
 			extra = StorportRelations->Count;
@@ -5568,10 +5584,9 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		DeviceRelations = (PDEVICE_RELATIONS)ExAllocatePoolWithTag(
 		    PagedPool,
-		    sizeof(DEVICE_RELATIONS) - sizeof(PDEVICE_OBJECT) +
-		    (sizeof(PDEVICE_OBJECT) * (count + extra)),
-		    'drvg'
-		);
+		    sizeof (DEVICE_RELATIONS) - sizeof (PDEVICE_OBJECT) +
+		    (sizeof (PDEVICE_OBJECT) * (count + extra)),
+		    'drvg');
 		if (DeviceRelations == NULL)
 			return (STATUS_INSUFFICIENT_RESOURCES);
 
@@ -5587,8 +5602,12 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			mount = DeviceRelations->Objects[i];
 			DeviceRelations->Objects[i] = NULL;
 			if (mount != NULL && mount->FunctionalDeviceObject) {
-				DeviceRelations->Objects[DeviceRelations->Count] = mount->FunctionalDeviceObject;				
-				ObReferenceObject(DeviceRelations->Objects[DeviceRelations->Count]);
+				DeviceRelations->Objects[
+				    DeviceRelations->Count] =
+				    mount->FunctionalDeviceObject;
+				ObReferenceObject(
+				    DeviceRelations->Objects[
+				    DeviceRelations->Count]);
 				DeviceRelations->Count++;
 			}
 		}
@@ -5596,8 +5615,9 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		// Add Storport to this baby, they already got references
 		if (extra) {
 			for (int i = 0; i < StorportRelations->Count; i++) {
-			    DeviceRelations->Objects[DeviceRelations->Count] =
-				StorportRelations->Objects[i];
+				DeviceRelations->Objects[
+				    DeviceRelations->Count] =
+				    StorportRelations->Objects[i];
 				DeviceRelations->Count++;
 			}
 			ExFreePool(StorportRelations);
@@ -5617,7 +5637,7 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 out:
 	dprintf("TargetDeviceRelations: returning %d: %p\n",
-		    Status, ReturnDevice);
+	    Status, ReturnDevice);
 	return (Status);
 }
 
@@ -5675,7 +5695,8 @@ ioctl_query_device_name(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	mount_t *zmo;
 	ULONG OutputBufferLength;
 
-	OutputBufferLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+	OutputBufferLength =
+	    IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
 	if (OutputBufferLength < sizeof (MOUNTDEV_NAME)) {
 		Irp->IoStatus.Information = sizeof (MOUNTDEV_NAME);
 		return (STATUS_BUFFER_TOO_SMALL);
@@ -5699,7 +5720,7 @@ ioctl_query_device_name(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 #endif
 	name = Irp->AssociatedIrp.SystemBuffer;
-	ULONG requiredSize = sizeof(MOUNTDEV_NAME) + zmo->device_name.Length;
+	ULONG requiredSize = sizeof (MOUNTDEV_NAME) + zmo->device_name.Length;
 
 	// Check if the output buffer is large enough
 	if (OutputBufferLength < requiredSize) {
@@ -5712,7 +5733,8 @@ ioctl_query_device_name(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	name->NameLength = zmo->device_name.Length;
 
 	// Copy the device name into the buffer
-	RtlCopyMemory(name->Name, zmo->device_name.Buffer, zmo->device_name.Length);
+	RtlCopyMemory(name->Name, zmo->device_name.Buffer,
+	    zmo->device_name.Length);
 
 	// Set the status and information fields
 	Irp->IoStatus.Status = STATUS_SUCCESS;
@@ -6037,28 +6059,31 @@ ioctl_storage_query_property(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	outputLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
 
 // Check Length if not Query type. If query:
-// According to MSDN, an output buffer of size 0 can be used to determine if a property exists
-// so this must be a success case with no data transferred
+// According to MSDN, an output buffer of size 0 can be used to determine
+// if a property exists so this must be a success case with no data transferred
 	if (spq->QueryType != PropertyExistsQuery) {
 		if (outputLength < sizeof (STORAGE_DESCRIPTOR_HEADER)) {
-			Irp->IoStatus.Information = sizeof (STORAGE_DESCRIPTOR_HEADER);
+			Irp->IoStatus.Information =
+			    sizeof (STORAGE_DESCRIPTOR_HEADER);
 			return (STATUS_BUFFER_TOO_SMALL);
 		}
 	}
 
 	/*
 	 * PropertyExistsQuery:
-	 *   Based on whether your driver supports the requested property, return STATUS_SUCCESS
-	 *   if the property exists, or STATUS_NOT_SUPPORTED if it does not.
+	 * Based on whether your driver supports the requested property,
+	 * return STATUS_SUCCESS
+	 * if the property exists, or STATUS_NOT_SUPPORTED if it does not.
 	 * PropertyStandardQuery:
-	 *   Return data
+	 * Return data
 	 */
 
 	// ExistsQuery: return OK if exists.
 	Irp->IoStatus.Information = 0;
 
 	// Might be NULL
-	PSTORAGE_DESCRIPTOR_HEADER Header = (PSTORAGE_DESCRIPTOR_HEADER) Irp->AssociatedIrp.SystemBuffer;
+	PSTORAGE_DESCRIPTOR_HEADER Header =
+	    (PSTORAGE_DESCRIPTOR_HEADER) Irp->AssociatedIrp.SystemBuffer;
 	size_t hdrsize = 0;
 
 	switch (spq->PropertyId) {
@@ -6081,10 +6106,12 @@ ioctl_storage_query_property(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    "StorageAccessAlignmentProperty\n");
 
 		hdrsize = sizeof (STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR);
-		if (outputLength == sizeof (STORAGE_DESCRIPTOR_HEADER) && Header) {
+		if (outputLength == sizeof (STORAGE_DESCRIPTOR_HEADER) &&
+		    Header) {
 			Header->Size = hdrsize;
 			Header->Version = hdrsize;
-			Irp->IoStatus.Information = sizeof (STORAGE_DESCRIPTOR_HEADER);
+			Irp->IoStatus.Information =
+			    sizeof (STORAGE_DESCRIPTOR_HEADER);
 			return (STATUS_SUCCESS);
 		}
 
@@ -6092,7 +6119,9 @@ ioctl_storage_query_property(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		if (outputLength < hdrsize)
 			return (STATUS_BUFFER_TOO_SMALL);
 
-		PSTORAGE_ACCESS_ALIGNMENT_DESCRIPTOR AlignmentDescriptor = (PSTORAGE_ACCESS_ALIGNMENT_DESCRIPTOR)Irp->AssociatedIrp.SystemBuffer;
+		PSTORAGE_ACCESS_ALIGNMENT_DESCRIPTOR AlignmentDescriptor =
+		    (PSTORAGE_ACCESS_ALIGNMENT_DESCRIPTOR)
+		    Irp->AssociatedIrp.SystemBuffer;
 		RtlZeroMemory(AlignmentDescriptor, hdrsize);
 		AlignmentDescriptor->Version = hdrsize;
 		AlignmentDescriptor->Size = hdrsize;
@@ -6113,10 +6142,12 @@ ioctl_storage_query_property(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    "StorageDeviceProperty\n");
 
 		hdrsize = sizeof (STORAGE_DEVICE_DESCRIPTOR);
-		if (outputLength == sizeof (STORAGE_DESCRIPTOR_HEADER) && Header) {
+		if (outputLength == sizeof (STORAGE_DESCRIPTOR_HEADER) &&
+		    Header) {
 			Header->Size = hdrsize;
 			Header->Version = hdrsize;
-			Irp->IoStatus.Information = sizeof (STORAGE_DESCRIPTOR_HEADER);
+			Irp->IoStatus.Information =
+			    sizeof (STORAGE_DESCRIPTOR_HEADER);
 			return (STATUS_SUCCESS);
 		}
 
@@ -6151,10 +6182,12 @@ ioctl_storage_query_property(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    "StorageDeviceAttributesProperty\n");
 
 		hdrsize = sizeof (STORAGE_DEVICE_ATTRIBUTES_DESCRIPTOR);
-		if (outputLength == sizeof (STORAGE_DESCRIPTOR_HEADER) && Header) {
+		if (outputLength == sizeof (STORAGE_DESCRIPTOR_HEADER) &&
+		    Header) {
 			Header->Size = hdrsize;
 			Header->Version = hdrsize;
-			Irp->IoStatus.Information = sizeof (STORAGE_DESCRIPTOR_HEADER);
+			Irp->IoStatus.Information =
+			    sizeof (STORAGE_DESCRIPTOR_HEADER);
 			return (STATUS_SUCCESS);
 		}
 
@@ -6171,9 +6204,12 @@ ioctl_storage_query_property(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		status = STATUS_SUCCESS;
 		break;
 
-	default: // StorageDeviceLBProvisioningProperty // StorageDeviceResiliencyProperty 
+	default:
+		// StorageDeviceLBProvisioningProperty
+		// StorageDeviceResiliencyProperty
 		if (spq->QueryType == PropertyExistsQuery) {
-			dprintf("PropertyExistsQuery not supported: %d / 0x%x\n",
+			dprintf("PropertyExistsQuery not "
+			    "supported: %d / 0x%x\n",
 			    spq->PropertyId, spq->PropertyId);
 			return (STATUS_NOT_SUPPORTED);
 		}
@@ -6252,8 +6288,8 @@ ioctl_query_unique_id(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		Irp->IoStatus.Information =
 		    FIELD_OFFSET(MOUNTDEV_UNIQUE_ID, UniqueId[0]) +
 		    uniqueId->UniqueIdLength;
-		//dprintf("replying with '%.*s'\n",
-		//    uniqueId->UniqueIdLength, uniqueId->UniqueId);
+		// dprintf("replying with '%.*s'\n",
+		// uniqueId->UniqueIdLength, uniqueId->UniqueId);
 		return (STATUS_SUCCESS);
 	} else {
 		Irp->IoStatus.Information = sizeof (MOUNTDEV_UNIQUE_ID);
@@ -6286,8 +6322,8 @@ ioctl_query_stable_guid(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	RtlZeroMemory(&mountGuid->StableGuid, sizeof (mountGuid->StableGuid));
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	if (zfsvfs) {
-//		uint64_t guid = dmu_objset_fsid_guid(zfsvfs->z_os);
-		RtlCopyMemory(&mountGuid->StableGuid, zmo->rawuuid, sizeof (zmo->rawuuid));
+		RtlCopyMemory(&mountGuid->StableGuid, zmo->rawuuid,
+		    sizeof (zmo->rawuuid));
 		Irp->IoStatus.Information = sizeof (MOUNTDEV_STABLE_GUID);
 		return (STATUS_SUCCESS);
 	}
@@ -6351,7 +6387,8 @@ ioctl_mountdev_query_suggested_link_name(PDEVICE_OBJECT DeviceObject,
 		return (STATUS_SUCCESS);
 	}
 
-	Irp->IoStatus.Information = sizeof (MOUNTDEV_SUGGESTED_LINK_NAME) + MountPoint.Length;
+	Irp->IoStatus.Information = sizeof (MOUNTDEV_SUGGESTED_LINK_NAME) +
+	    MountPoint.Length;
 	return (STATUS_BUFFER_OVERFLOW);
 
 }

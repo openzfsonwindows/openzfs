@@ -451,7 +451,7 @@ sysctl_os_fini(void)
 	registry_notify_fd = NULL;
 
 	if (fd != 0) {
-	    	sysctl_os_close_registry(fd);
+		sysctl_os_close_registry(fd);
 	}
 
 	RtlFreeUnicodeString(&sysctl_os_RegistryPath);

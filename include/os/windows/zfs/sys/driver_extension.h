@@ -45,13 +45,9 @@ typedef struct OpenZFS_Driver_Extension_s OpenZFS_Driver_Extension;
 
 #define	ZFS_DRIVER_EXTENSION(DO, V) \
     OpenZFS_Driver_Extension *(V) = \
-    (OpenZFS_Driver_Extension *)IoGetDriverObjectExtension((DO), (DO));
+	(OpenZFS_Driver_Extension *) IoGetDriverObjectExtension((DO), (DO));
 
 extern int
 zfs_init_driver_extension(PDRIVER_OBJECT);
-
-#define INITGUID
-#include <guiddef.h>
-DEFINE_GUID(BtrfsBusInterface, 0x4d414874, 0x6865, 0x6761, 0x6d, 0x65, 0x83, 0x69, 0x17, 0x9a, 0x7d, 0x1d);
 
 #endif

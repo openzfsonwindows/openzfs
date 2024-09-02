@@ -463,11 +463,9 @@ dnlc_purge_vfsp(struct mount *mp, int flags)
 
 		if (vnode_isdir(rvp))
 			continue;
-		/*
-		if (vnode_isunlink(rvp))
-			continue;
-		*/
-		CcFlushCache(&rvp->SectionObjectPointers, NULL, NULL, &ioStatus);
+
+		CcFlushCache(&rvp->SectionObjectPointers, NULL, NULL,
+		    &ioStatus);
 	}
 	mutex_exit(&vnode_all_list_lock);
 
@@ -1722,8 +1720,8 @@ filesanddirs:
 
 		mutex_enter(&rvp->v_mutex);
 
-		// this hack is no longer needed 
-		//		flush_file_objects(rvp);
+		// this hack is no longer needed
+		// flush_file_objects(rvp);
 
 		// vnode_recycle_int() will exit v_mutex
 		// re-check flags, due to releasing locks
