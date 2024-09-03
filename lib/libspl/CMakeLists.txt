@@ -33,4 +33,5 @@ add_library(libspl
     os/windows/zone.c
 )
 
+target_include_directories(libspl PUBLIC "${CMAKE_SOURCE_DIR}/include/os/windows/zfs")
 target_link_libraries(libspl PUBLIC libpthread libregex PRIVATE advapi32 shell32)

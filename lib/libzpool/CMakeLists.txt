@@ -2,9 +2,6 @@
 use_clang()
 
 add_definitions(-DLIB_ZPOOL_BUILD -DDEBUG -UNDEBUG -DZFS_DEBUG)
-# Unfortunately, libbootenv uses kernel headers as well.
-include_directories(PRIVATE "${CMAKE_SOURCE_DIR}/include/os/windows/zfs")
-
 
 set(MODULE_DIR "../../module")
 
@@ -179,6 +176,9 @@ add_library(libzpool
     "taskq.c"
     "util.c"
 )
+
+# Unfortunately, libbootenv uses kernel headers as well.
+target_include_directories(libzpool PUBLIC "${CMAKE_SOURCE_DIR}/lib/libzpool/include")
 
 target_link_libraries(libzpool PUBLIC
 	libicp
