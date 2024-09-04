@@ -928,7 +928,7 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	// Should we keep the name with slashes like "BOOM/lower" or
 	// just "lower". Turns out the name in Explorer only
 	// works for 4 chars or lower. Why?
-	AsciiStringToUnicodeString(zc->zc_name, &zmo_dcb->name);
+	AsciiStringToUnicodeStringNP(zc->zc_name, &zmo_dcb->name);
 	RtlDuplicateUnicodeString(0, &diskDeviceName, &zmo_dcb->device_name);
 
 	// strlcpy(zc->zc_value, buf, sizeof (zc->zc_value));

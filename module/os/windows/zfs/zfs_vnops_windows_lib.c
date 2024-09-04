@@ -515,6 +515,45 @@ AsciiStringToUnicodeString(char *in, PUNICODE_STRING out)
 	return (RtlAnsiStringToUnicodeString(out, &conv, TRUE));
 }
 
+/*
+ * Same again, but use NonPaged memory.
+ * IRP_MN_MOUNT_VOLUME is called with irql==2, and
+ * we try to copy zmo->name.Buffer to VolumeLabel, which
+ * is not allowed.
+ */
+int
+AsciiStringToUnicodeStringNP(char *in, PUNICODE_STRING out)
+{
+	NTSTATUS status;
+	ULONG len;
+
+	memset(out, 0, sizeof (UNICODE_STRING));
+	if (in == NULL)
+		return (0);
+
+	status = RtlUTF8ToUnicodeN(NULL, 0, &len,
+	    in, strlen(in));
+	if (!NT_SUCCESS(status))
+		return (0);
+
+	out->Buffer = (PWSTR)ExAllocatePoolWithTag(NonPagedPoolNx,
+	    len + sizeof (WCHAR), 'tag1');
+
+	if (out->Buffer == NULL)
+		return (0);
+
+	out->Length = len;
+	out->MaximumLength = len + sizeof (WCHAR);
+
+	status = RtlUTF8ToUnicodeN(out->Buffer, out->MaximumLength,
+	    NULL,
+	    in, strlen(in));
+
+	out->Buffer[out->Length / sizeof (WCHAR)] =
+	    UNICODE_NULL;
+	return (0);
+}
+
 void
 FreeUnicodeString(PUNICODE_STRING s)
 {
