@@ -155,6 +155,7 @@ extern int zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp,
 
 /* zfs_vnop_windows_lib.h */
 extern int	AsciiStringToUnicodeString(char *in, PUNICODE_STRING out);
+extern int	AsciiStringToUnicodeStringNP(char *in, PUNICODE_STRING out);
 extern void	FreeUnicodeString(PUNICODE_STRING s);
 extern int	zfs_vfs_uuid_gen(const char *osname, uuid_t uuid);
 extern int	zfs_vfs_uuid_unparse(uuid_t uuid, char *dst);
