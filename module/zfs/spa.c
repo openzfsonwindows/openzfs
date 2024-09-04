@@ -550,7 +550,7 @@ spa_prop_get(spa_t *spa, nvlist_t **nvp)
 	zap_cursor_t zc;
 	zap_attribute_t za;
 	dsl_pool_t *dp;
-	int err;
+	int err = 0;
 
 	if (*nvp == NULL) {
 		err = nvlist_alloc(nvp, NV_UNIQUE_NAME, KM_SLEEP);
