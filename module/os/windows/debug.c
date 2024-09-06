@@ -31,6 +31,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <Trace.h>
+#include <sys/mod_os.h>
 
 #define	max_line_length 1024
 
@@ -48,11 +49,90 @@ char *cbuf = NULL;
 static unsigned long long cbuf_size = 0x100000; // 1MB
 static unsigned long long startOff = 0;
 
+
+#define	CBUF_SAVE_LEN 100
+#define	CBUF_FILENAME L"\\??\\C:\\Program Files\\OpenZFS On Windows\\cbuf.txt"
+uchar_t zfs_cbuf_save[CBUF_SAVE_LEN] = "Set this to 1 to save cbuf";
+
+int
+param_cbuf_save(ZFS_MODULE_PARAM_ARGS)
+{
+	static uchar_t buf[CBUF_SAVE_LEN];
+
+	*type = ZT_TYPE_STRING;
+
+	if (set == B_FALSE) {
+		*ptr = (void *)zfs_cbuf_save;
+		*len = strlen(zfs_cbuf_save);
+		return (0);
+	}
+
+	// Skip any string not starting with "1"
+	if (!ptr ||
+	    !*ptr ||
+	    ((char *)*ptr)[0] != '1') {
+		// Keep the text if starts with *
+		if (((char *)*ptr)[0] != '*')
+			snprintf(zfs_cbuf_save, sizeof (zfs_cbuf_save),
+			    "Set this to 1 to save cbuf");
+		return (0);
+	}
+
+	// strlcpy(buf, *ptr, sizeof (buf));
+	dprintf("Saving cbuf to %S\n", CBUF_FILENAME);
+	((char *)*ptr)[0] = '*'; // Take out the '1'
+
+	UNICODE_STRING fileNameUnicode;
+	OBJECT_ATTRIBUTES objectAttributes;
+	HANDLE fileHandle;
+	IO_STATUS_BLOCK ioStatusBlock;
+	NTSTATUS status;
+
+	RtlInitUnicodeString(&fileNameUnicode, CBUF_FILENAME);
+
+	InitializeObjectAttributes(&objectAttributes, &fileNameUnicode,
+	    OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+	status = ZwCreateFile(&fileHandle, GENERIC_WRITE, &objectAttributes,
+	    &ioStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL,
+	    0, FILE_OVERWRITE_IF, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
+
+	if (NT_SUCCESS(status))	{
+		// To be nice, let's start at the offset, and do two saves.
+		// first, startOffset to end of buffer. Special case, if
+		// buffer has never wrapped, skip all initial "\n"
+		unsigned long long pos;
+		pos = startOff + sizeof (endBuf);
+		while (cbuf[pos] == '\n' && pos < cbuf_size)
+			pos++;
+
+		len = cbuf_size - pos;
+		if (len > 0)
+			status = ZwWriteFile(fileHandle, NULL, NULL, NULL,
+			    &ioStatusBlock, cbuf + pos, (ULONG)len, NULL, NULL);
+		// then, start of file, to startOff
+		len = startOff;
+		if (len > 0)
+			status = ZwWriteFile(fileHandle, NULL, NULL, NULL,
+			    &ioStatusBlock, cbuf, (ULONG)len, NULL, NULL);
+
+		ZwClose(fileHandle);
+		snprintf(zfs_cbuf_save, sizeof (zfs_cbuf_save),
+		    "* Saved %S", CBUF_FILENAME);
+	} else {
+		snprintf(zfs_cbuf_save, sizeof (zfs_cbuf_save),
+		    "* Unable to open %S", CBUF_FILENAME);
+	}
+
+	return (0);
+}
+
 int
 initDbgCircularBuffer(void)
 {
 	cbuf = ExAllocatePoolWithTag(NonPagedPoolNx, cbuf_size, '!GBD');
 	ASSERT(cbuf);
+	memset(cbuf, '\n', cbuf_size);
 	KeInitializeSpinLock(&cbuf_spin);
 	return (0);
 }
