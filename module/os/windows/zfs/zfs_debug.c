@@ -295,3 +295,12 @@ zfs_dbgmsg_print(int id, const char *tag)
 		(void) printBuffer("%s\n", zdm->zdm_msg);
 	mutex_exit(&zfs_dbgmsgs_lock);
 }
+
+// Sadly, the linker_set.h and mod_os.h work for
+// clang, but not MSVC, so can not be defined in
+// debug.c for now. One day we'll figure out the
+// use of __pragma(data_seg(push, ".")) to make it work.
+extern uchar_t *zfs_cbuf_save;
+extern int param_cbuf_save(ZFS_MODULE_PARAM_ARGS);
+ZFS_MODULE_PARAM_CALL(, zfs_, cbuf_save, param_cbuf_save,
+    param_get_charp, ZMOD_RW, "OpenZFS debug buffer");
