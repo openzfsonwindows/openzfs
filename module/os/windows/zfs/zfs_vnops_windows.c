@@ -6653,6 +6653,11 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = IoCallDriver(
 			    DriverExtension->StorportDeviceObject,
 			    Irp);
+			if (!NT_SUCCESS(Status)) {
+				// If stor port failed, dont try to
+				// use Information as a pointer.
+				Irp->IoStatus.Information = 0;
+			}
 			Status = QueryDeviceRelations(DeviceObject, Irp,
 			    IrpSp);
 			// No need to call Storport, and they completed Irp.
