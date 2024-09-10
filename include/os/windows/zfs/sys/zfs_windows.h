@@ -177,7 +177,7 @@ void zfs_load_ntsecurity(struct vnode *vp);
 struct vnode *zfs_parent(struct vnode *);
 extern PVOID MapUserBuffer(IN OUT PIRP Irp);
 extern void mount_add_device(PDEVICE_OBJECT DriverObject,
-    PDEVICE_OBJECT PhysicalDeviceObject, PDEVICE_OBJECT AddDeviceObject);
+    PDEVICE_OBJECT PhysicalDeviceObject);
 extern void zfs_windows_unmount_free(PUNICODE_STRING symlink_name);
 extern void zfs_release_mount(mount_t *zmo);
 extern void zfs_unload_ioctl(PDEVICE_OBJECT, PVOID Context);
@@ -254,7 +254,8 @@ extern NTSTATUS file_hard_link_information(PDEVICE_OBJECT, PIRP,
 
 /* IRP_MJ_DEVICE_CONTROL helpers */
 extern NTSTATUS QueryCapabilities(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION);
-extern NTSTATUS QueryDeviceRelations(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION);
+extern NTSTATUS QueryDeviceRelations(PDEVICE_OBJECT, PIRP *,
+    PIO_STACK_LOCATION);
 extern NTSTATUS ioctl_query_device_name(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
 extern NTSTATUS ioctl_disk_get_drive_geometry(PDEVICE_OBJECT, PIRP,

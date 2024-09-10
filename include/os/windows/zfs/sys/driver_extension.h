@@ -30,8 +30,6 @@ struct OpenZFS_Driver_Extension_s {
 	PDEVICE_OBJECT PhysicalDeviceObject;
 	PDEVICE_OBJECT LowerDeviceObject;
 	PDEVICE_OBJECT FunctionalDeviceObject; // AddDevice unknown
-	PDEVICE_OBJECT AddDeviceObject;    // Passed along when mounting
-	PDEVICE_OBJECT ChildDeviceObject;  // Passed along when creating
 	PDEVICE_OBJECT ioctlDeviceObject;  // /dev/zfs pdo
 	PDEVICE_OBJECT fsDiskDeviceObject; // /dev/zfs vdo
 	PDEVICE_OBJECT StorportDeviceObject;

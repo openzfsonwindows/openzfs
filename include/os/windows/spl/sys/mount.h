@@ -168,5 +168,7 @@ void vfs_mount_remove(mount_t *mp);
 int vfs_mount_count(void);
 void vfs_mount_setarray(void **array, int max);
 void vfs_mount_iterate(int (*func)(void *, void *), void *);
+boolean_t vfs_mount_member(void *member);
+
 
 #endif /* SPL_MOUNT_H */

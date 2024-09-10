@@ -81,11 +81,6 @@ OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
 
 	zfs_vfsops_fini();
 
-	if (DriverExtension->STOR_DriverUnload != NULL) {
-		DriverExtension->STOR_DriverUnload(DriverObject);
-		DriverExtension->STOR_DriverUnload = NULL;
-	}
-
 	zfs_kmod_fini();
 
 	system_taskq_fini();
