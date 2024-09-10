@@ -5558,10 +5558,11 @@ QueryCapabilities(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 
 NTSTATUS
-QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
     PIO_STACK_LOCATION IrpSp)
 {
 	NTSTATUS Status = STATUS_INVALID_DEVICE_REQUEST;
+	PIRP Irp = *PIrp;
 	mount_t *zmo;
 	PDEVICE_OBJECT ReturnDevice = NULL;
 	PDEVICE_RELATIONS DeviceRelations;
@@ -5607,7 +5608,7 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	case BusRelations:
 	{
 		int count, extra = 0;
-		PDEVICE_RELATIONS StorportRelations;
+		PDEVICE_RELATIONS StorportRelations = NULL;
 
 		// Grab count here, and use only it, since list can
 		// change as we process this function.
@@ -5615,10 +5616,20 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		// If we call Storport first, they might already have a
 		// list from them so sadly we need to merge.
-		StorportRelations = (ULONG_PTR)Irp->IoStatus.Information;
-		if (StorportRelations && StorportRelations->Count > 0) {
-			extra = StorportRelations->Count;
-			dprintf("We have extra from storport %d\n", extra);
+		dprintf("Calling Storport first\n");
+		IoCopyCurrentIrpStackLocationToNext(Irp);
+		Status = IoCallDriver(
+		    DriverExtension->StorportDeviceObject,
+		    Irp);
+		if (Status == STATUS_SUCCESS) {
+			*PIrp = NULL; // Do not forward IRP
+			StorportRelations =
+			    (ULONG_PTR)Irp->IoStatus.Information;
+			if (StorportRelations && StorportRelations->Count > 0) {
+				extra = StorportRelations->Count;
+				dprintf("We have extra from storport %d\n",
+				    extra);
+			}
 		}
 
 		DeviceRelations = (PDEVICE_RELATIONS)ExAllocatePoolWithTag(
@@ -5659,8 +5670,9 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 				    StorportRelations->Objects[i];
 				DeviceRelations->Count++;
 			}
-			ExFreePool(StorportRelations);
 		}
+		if (StorportRelations) // Count can be 0.
+			ExFreePool(StorportRelations);
 
 		Irp->IoStatus.Information =
 		    (ULONG_PTR)DeviceRelations;

@@ -983,13 +983,21 @@ zfs_unload_ioctl(
 
 	IoFreeWorkItem((PIO_WORKITEM)Context);
 
+	dprintf("Starting Driver Unload process...\n");
+
 	sysctl_os_fini();
+
+	if (DriverExtension->STOR_DriverUnload != NULL) {
+		DriverExtension->STOR_DriverUnload(WIN_DriverObject);
+		DriverExtension->STOR_DriverUnload = NULL;
+	}
 
 	mutex_enter(&zfsdev_state_lock);
 	mount_t *dgl = DriverExtension->ioctlDeviceObject->DeviceExtension;
 	Status = IoDeleteSymbolicLink(&dgl->symlink_name);
 	ObDereferenceObject(DriverExtension->ioctlDeviceObject);
 	IoDeleteDevice(DriverExtension->ioctlDeviceObject);
+	DriverExtension->ioctlDeviceObject = NULL; // Use to signal we unloaded
 	mutex_exit(&zfsdev_state_lock);
 
 	IoUnregisterFsRegistrationChange(WIN_DriverObject,
@@ -1243,18 +1251,20 @@ OpenZFS_AddDevice(
 		return (STATUS_SUCCESS);
 	}
 
-	// OK, we created a new mount
-	if (DriverExtension->AddDeviceObject) {
-		PDEVICE_OBJECT AddDeviceObject =
-		    DriverExtension->AddDeviceObject;
-		// Yeah, we need better sync here
-		DriverExtension->AddDeviceObject = NULL;
+	dprintf("%s(PhysicalDeviceObject %p)\n",
+	    __func__, PhysicalDeviceObject);
 
-		mount_add_device(DriverObject, PhysicalDeviceObject,
-		    AddDeviceObject);
+	// If we have created a new mount, that DeviceObject should
+	// be PhysicalDeviceObject here, and should exist in the list
+	// child objects (that we maintain for DeviceRelations)
+	if (vfs_mount_member(PhysicalDeviceObject->DeviceExtension)) {
+
+		mount_add_device(DriverObject, PhysicalDeviceObject);
 
 		return (STATUS_SUCCESS);
 	}
+
+	dprintf("Weird, AddDevice calling StorPort\n");
 
 	// Let StorPort have a go
 	if (DriverExtension->STOR_AddDevice)

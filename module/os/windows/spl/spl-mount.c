@@ -99,6 +99,24 @@ vfs_mount_count()
 	return (count);
 }
 
+boolean_t
+vfs_mount_member(void *member)
+{
+	int count = 0;
+	mount_t *node;
+
+	mutex_enter(&mount_list_lock);
+	for (node = list_head(&mount_list);
+	    node;
+	    node = list_next(&mount_list, node)) {
+		if (node == member)
+			break;
+	}
+	mutex_exit(&mount_list_lock);
+
+	return (node == NULL ? B_FALSE : B_TRUE);
+}
+
 void
 vfs_mount_setarray(void **array, int max)
 {

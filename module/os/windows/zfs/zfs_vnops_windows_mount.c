@@ -935,9 +935,6 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	zmo_dcb->FunctionalDeviceObject = diskDeviceObject;
 	zmo_dcb->PhysicalDeviceObject = DriverExtension->PhysicalDeviceObject;
 
-	// So AddDevice can match us
-	DriverExtension->AddDeviceObject = diskDeviceObject;
-
 	dprintf("New device %p has extension %p\n",
 	    diskDeviceObject, zmo_dcb);
 
@@ -999,6 +996,8 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	dprintf("%s: zfs_vfs_mount() returns %ld\n", __func__, status);
 
 	if (status) {
+		IoDeleteSymbolicLink(&zmo_dcb->symlink_name);
+		IoDeleteSymbolicLink(&zmo_dcb->arc_name);
 		IoDeleteDevice(diskDeviceObject);
 		return (status);
 	}
@@ -1711,8 +1710,8 @@ mount_volume_impl(mount_t *dcb, mount_t *vcb)
 
 	RtlDuplicateUnicodeString(0, &dcb->mountpoint, &vcb->mountpoint);
 
-	if (dcb->root_file)
-		status = FsRtlNotifyVolumeEvent(dcb->root_file,
+	if (vcb->root_file)
+		status = FsRtlNotifyVolumeEvent(vcb->root_file,
 		    FSRTL_VOLUME_MOUNT);
 
 	status = STATUS_SUCCESS;
@@ -1916,11 +1915,12 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	ZFS_DRIVER_EXTENSION(WIN_DriverObject, DriverExtension);
 
 	// The "/OpenZFS" FILE_DEVICE_DISK_FILE_SYSTEM "masterobj"
-	if (DiskDevice != DriverExtension->fsDiskDeviceObject)
+	if (DiskDevice != DriverExtension->fsDiskDeviceObject) {
+		dprintf("No fsDiskDeviceObject object, unloading?\n");
 		return (STATUS_INVALID_DEVICE_REQUEST);
+	}
 
 	DeviceToMount = IrpSp->Parameters.MountVolume.DeviceObject;
-
 
 	// ObDereferenceObject(DeviceToMount) from here on.
 	DeviceToMount = IoGetDeviceAttachmentBaseRef(IrpSp->
@@ -1928,6 +1928,7 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	if (DeviceToMount->DeviceType != FILE_DEVICE_DISK) {
 		ObDereferenceObject(DeviceToMount);
+		dprintf("Not FILE_DEVICE_DISK object -- ignoring\n");
 		// Not a disk device, pass it down
 		return (STATUS_INVALID_DEVICE_REQUEST);
 	}
@@ -1939,6 +1940,7 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	if (dcb == NULL || dcb->type != MOUNT_TYPE_DCB ||
 	    vfs_isunmount(dcb)) {
+		dprintf("Not our object or unmounting -- ignoring\n");
 		status = STATUS_UNRECOGNIZED_VOLUME;
 		goto out;
 	}
@@ -1956,19 +1958,18 @@ out:
 
 void
 mount_add_device(PDEVICE_OBJECT DriverObject,
-    PDEVICE_OBJECT PhysicalDeviceObject, PDEVICE_OBJECT AddDeviceObject)
+    PDEVICE_OBJECT PhysicalDeviceObject)
 {
 	NTSTATUS status;
-	mount_t *zmo = (mount_t *)AddDeviceObject->DeviceExtension;
+	mount_t *zmo = (mount_t *)PhysicalDeviceObject->DeviceExtension;
 	ZFS_DRIVER_EXTENSION(DriverObject, DriverExtension);
 
 	zmo->PhysicalDeviceObject = PhysicalDeviceObject;
 
-	dprintf("register GUID_DEVINTERFACE_VOLUME\n");
-
 	status = IoRegisterDeviceInterface(PhysicalDeviceObject,
 	    &GUID_DEVINTERFACE_VOLUME, NULL,
 	    &zmo->deviceInterfaceName);
+	dprintf("register GUID_DEVINTERFACE_VOLUME: 0x%x\n", status);
 
 	// We can attach to DriverExtension->PhysicalDeviceObject here,
 	// but then most IRP go to busDispatcher() first, then we pass
@@ -1977,13 +1978,15 @@ mount_add_device(PDEVICE_OBJECT DriverObject,
 	// DriverExtension->PhysicalDeviceObject);
 
 	status = IoSetDeviceInterfaceState(&zmo->deviceInterfaceName, TRUE);
-
-	dprintf("register MOUNTDEV_MOUNTED_DEVICE_GUID\n");
+	dprintf("Enable GUID_DEVINTERFACE_VOLUME: 0x%x\n", status);
 
 	status = IoRegisterDeviceInterface(PhysicalDeviceObject,
 	    &MOUNTDEV_MOUNTED_DEVICE_GUID, NULL,
 	    &zmo->fsInterfaceName);
+	dprintf("register MOUNTDEV_MOUNTED_DEVICE_GUID: 0x%x\n", status);
+
 	status = IoSetDeviceInterfaceState(&zmo->fsInterfaceName, TRUE);
+	dprintf("Enable MOUNTDEV_MOUNTED_DEVICE_GUID: 0x%x\n", status);
 }
 
 int
