@@ -128,6 +128,7 @@ struct mount
 	uint64_t mountflags;
 
 	KEVENT volume_removed_event;
+	KEVENT volume_mounted_event;
 
 	// Linked list of mounts
 	list_node_t mount_node;
