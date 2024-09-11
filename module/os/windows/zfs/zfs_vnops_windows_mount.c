@@ -919,6 +919,10 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	zmo_dcb->type = MOUNT_TYPE_DCB;
 	zmo_dcb->size = sizeof (mount_t);
 
+	// Get ready to wait for the volume mounted notification
+	KeInitializeEvent((PRKEVENT)&zmo_dcb->volume_mounted_event,
+	    SynchronizationEvent, TRUE);
+
 	zfs_vfs_uuid_gen(zc->zc_name, zmo_dcb->rawuuid);
 
 	vfs_setfsprivate(zmo_dcb, NULL);
@@ -1052,6 +1056,21 @@ zfs_windows_mount(zfs_cmd_t *zc)
 
 	// Free diskDeviceName
 	FreeUnicodeString(&diskDeviceName);
+
+	/*
+	 * Here the rest of the mount will happen async, but
+	 * if we return now, userland will carry on and mount the
+	 * next thing, which might live in this mount, so we
+	 * wait for the event to signal completion, before returning.
+	 * Unix call mount() will only return once it is fully mounted.
+	 */
+	dprintf("Waiting mount to finish\n");
+	LARGE_INTEGER timeout;
+	timeout.QuadPart = -100000 * 10;
+	status = KeWaitForSingleObject(&zmo_dcb->volume_mounted_event,
+	    Executive, KernelMode, TRUE, &timeout);
+
+	dprintf("Wait said %d.\n", status);
 
 	status = STATUS_SUCCESS;
 	return (status);
@@ -1723,7 +1742,11 @@ mount_volume_impl(mount_t *dcb, mount_t *vcb)
 	    NULL, NULL, TRUE);
 	ObDereferenceObject(fileObject);
 
-	status = SendVolumeArrivalNotification(&dcb->device_name);
+//	status = SendVolumeArrivalNotification(&dcb->device_name);
+	dprintf("Releasing mount wait\n");
+	KeSetEvent((PRKEVENT)&dcb->volume_mounted_event,
+	    SEMAPHORE_INCREMENT, FALSE);
+
 
 }
 
@@ -1765,6 +1788,8 @@ matched_mount(PDEVICE_OBJECT DeviceObject, PDEVICE_OBJECT DeviceToMount,
 
 	if (!NT_SUCCESS(status)) {
 		dprintf("%s: IoCreateDevice failed: 0x%lx\n", __func__, status);
+		KeSetEvent((PRKEVENT)&dcb->volume_mounted_event,
+		    SEMAPHORE_INCREMENT, FALSE);
 		return (STATUS_UNRECOGNIZED_VOLUME);
 	}
 
