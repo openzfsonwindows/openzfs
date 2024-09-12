@@ -1144,7 +1144,8 @@ OpenZFS_AddDevice(
 	}
 
 	// From DriverLoad
-	if (PhysicalDeviceObject->DeviceType == FILE_DEVICE_CONTROLLER) {
+	if (PhysicalDeviceObject->DeviceType == FILE_DEVICE_CONTROLLER &&
+	    DriverExtension->PhysicalDeviceObject == NULL) {
 
 		DriverExtension->PhysicalDeviceObject = PhysicalDeviceObject;
 
@@ -1263,13 +1264,6 @@ OpenZFS_AddDevice(
 
 		return (STATUS_SUCCESS);
 	}
-
-	dprintf("Weird, AddDevice calling StorPort\n");
-
-	// Let StorPort have a go
-	if (DriverExtension->STOR_AddDevice)
-		status = DriverExtension->STOR_AddDevice(DriverObject,
-		    PhysicalDeviceObject);
 
 	return (STATUS_SUCCESS);
 }
