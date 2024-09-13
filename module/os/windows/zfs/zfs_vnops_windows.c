@@ -7906,12 +7906,14 @@ _Function_class_(DRIVER_DISPATCH)
 				}
 
 				// If unload, refuse everything.
-				if (DriverExtension->ioctlDeviceObject == NULL) {
+				if (DriverExtension->ioctlDeviceObject ==
+				    NULL) {
 					Status = STATUS_DEVICE_NOT_READY;
 					Irp->IoStatus.Status = Status;
 
 					IoCompleteRequest(Irp,
-					    Status == STATUS_SUCCESS ? IO_DISK_INCREMENT :
+					    Status == STATUS_SUCCESS ?
+					    IO_DISK_INCREMENT :
 					    IO_NO_INCREMENT);
 					return (Status);
 				}
@@ -7965,6 +7967,7 @@ _Function_class_(DRIVER_DISPATCH)
 
 	// Complete the request if it isn't pending (ie, we
 	// called zfsdev_async())
+#if 0
 	if ((Status == STATUS_INVALID_DEVICE_REQUEST) && Irp &&
 	    zmo != NULL &&
 	    zmo->AttachedDevice != NULL &&
@@ -7977,7 +7980,9 @@ _Function_class_(DRIVER_DISPATCH)
 		dprintf("Lower Device said 0x%0x %s\n", Status,
 		    common_status_str(Status));
 
-	} else if ((Status == STATUS_INVALID_DEVICE_REQUEST) && Irp &&
+	} else
+#endif
+	if ((Status == STATUS_INVALID_DEVICE_REQUEST) && Irp &&
 	    zmo != NULL &&
 	    DriverExtension->LowerDeviceObject != NULL &&
 	    DriverExtension->ioctlDeviceObject) {
