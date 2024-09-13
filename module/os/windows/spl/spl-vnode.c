@@ -938,7 +938,7 @@ vnode_ischr(vnode_t *vp)
 int
 vnode_isswap(vnode_t *vp)
 {
-	return (0);
+	return (vp->v_type == VFIFO);
 }
 
 int
@@ -950,7 +950,7 @@ vnode_isfifo(vnode_t *vp)
 int
 vnode_islnk(vnode_t *vp)
 {
-	return (0);
+	return (vp->v_type == VLNK);
 }
 
 mount_t *
