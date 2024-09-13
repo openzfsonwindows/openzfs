@@ -1400,6 +1400,15 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    FileObject,
 				    &vp->share_access);
 
+#define	SC IrpSp->Parameters.Create.SecurityContext
+				if (SC != NULL &&
+				    SC->AccessState &&
+				    SC->AccessState->
+				    SecurityDescriptor != NULL) {
+					merge_security(vp,
+					    SC->AccessState);
+				}
+
 				zfs_send_notify(zfsvfs, zccb->z_name_cache,
 				    zccb->z_name_offset,
 				    FILE_NOTIFY_CHANGE_DIR_NAME,
@@ -1679,18 +1688,13 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 				// Did we create file, or stream?
 				if (!(zp->z_pflags & ZFS_XATTR)) {
-#define	SC IrpSp->Parameters.Create.SecurityContext
+
 					if (SC != NULL &&
 					    SC->AccessState &&
 					    SC->AccessState->
 					    SecurityDescriptor != NULL) {
-						PSECURITY_DESCRIPTOR oldsd;
-						oldsd = vnode_security(vp);
-						if (oldsd) ExFreePool(oldsd);
-						vnode_setsecurity(vp,
-						    SC->AccessState->
-						    SecurityDescriptor);
-						zfs_save_ntsecurity(vp);
+						merge_security(vp,
+						    SC->AccessState);
 					}
 
 					zfs_send_notify(zfsvfs,
@@ -5948,11 +5952,6 @@ query_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	void *buf = MapUserBuffer(Irp);
 
-	if (!buf) {
-		Irp->IoStatus.Information = 0;
-		return (STATUS_SUCCESS);
-	}
-
 	struct vnode *vp = FileObject->FsContext;
 	VN_HOLD(vp);
 	PSECURITY_DESCRIPTOR sd;
@@ -5966,11 +5965,10 @@ query_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	VN_RELE(vp);
 
 	if (Status == STATUS_BUFFER_TOO_SMALL) {
-		Status = STATUS_BUFFER_OVERFLOW;
+		Status = STATUS_BUFFER_OVERFLOW; // Needed, checked.
 		Irp->IoStatus.Information = buflen;
 	} else if (NT_SUCCESS(Status)) {
-		Irp->IoStatus.Information =
-		    IrpSp->Parameters.QuerySecurity.Length; // why?
+		Irp->IoStatus.Information = buflen;
 	} else {
 		dprintf("%s: failed 0x%lx\n", __func__, Status);
 		Irp->IoStatus.Information = 0;
@@ -5979,6 +5977,7 @@ query_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	return (Status);
 }
 
+// Set Security should save the blob and do nothing else.
 NTSTATUS
 set_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 {
@@ -6059,6 +6058,47 @@ set_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 err:
 	VN_RELE(vp);
+	return (Status);
+}
+
+// When passed SD, it should be merged with parent.
+NTSTATUS
+merge_security(vnode_t *vp, PACCESS_STATE as)
+{
+	NTSTATUS Status = STATUS_SUCCESS;
+	vnode_t *dvp;
+	PSECURITY_DESCRIPTOR parent_sd;
+	PSECURITY_DESCRIPTOR new_sd = NULL;
+
+	dvp = zfs_parent(vp);
+	parent_sd = vnode_security(dvp);
+
+	Status = SeAssignSecurityEx(parent_sd, as->SecurityDescriptor,
+	    (void **) &new_sd, NULL,
+	    vnode_isdir(vp), SEF_SACL_AUTO_INHERIT,
+	    &as->SubjectSecurityContext,
+	    IoGetFileObjectGenericMapping(), PagedPool);
+#if 0
+	Status = RtlGetOwnerSecurityDescriptor(fcb->sd, &owner, &defaulted);
+	if (!NT_SUCCESS(Status)) {
+		zp->z_uid = UID_NOBODY;
+	} else {
+		zp->z_uid = sid_to_uid(owner);
+	}
+
+	find_gid(vp, dvp, &as->SubjectSecurityContext);
+#endif
+
+	// We probably do not have an old sd, but just in case.
+	PSECURITY_DESCRIPTOR oldsd;
+	oldsd = vnode_security(vp);
+
+	vnode_setsecurity(vp, new_sd);
+	zfs_save_ntsecurity(vp);
+
+	if (oldsd)
+		ExFreePool(oldsd);
+
 	return (Status);
 }
 

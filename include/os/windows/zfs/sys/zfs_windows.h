@@ -174,6 +174,7 @@ extern void acl_trivial_access_masks(mode_t mode, boolean_t isdir,
     trivial_acl_t *masks);
 extern void zfs_save_ntsecurity(struct vnode *vp);
 void zfs_load_ntsecurity(struct vnode *vp);
+NTSTATUS merge_security(vnode_t *vp, PACCESS_STATE as);
 struct vnode *zfs_parent(struct vnode *);
 extern PVOID MapUserBuffer(IN OUT PIRP Irp);
 extern void mount_add_device(PDEVICE_OBJECT DriverObject,
