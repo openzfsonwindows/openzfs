@@ -3227,7 +3227,7 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 	// are not empty.
 	if (S_ISDIR(zp->z_mode)) {
 
-		if (zp->z_size > 2) {
+		if (!zfs_dirempty(zp)) {
 			Status = STATUS_DIRECTORY_NOT_EMPTY;
 			goto out_unlock;
 		}
