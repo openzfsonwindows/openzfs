@@ -395,6 +395,13 @@ zfs_prop_init(void)
 		{ NULL }
 	};
 
+	static const zprop_index_t direct_table[] = {
+		{ "disabled",	ZFS_DIRECT_DISABLED },
+		{ "standard",	ZFS_DIRECT_STANDARD },
+		{ "always",	ZFS_DIRECT_ALWAYS },
+		{ NULL }
+	};
+
 	static zprop_index_t mimic_table[] = {
 		{ "off",		ZFS_MIMIC_OFF },
 		{ "hfs",		ZFS_MIMIC_HFS },
@@ -486,6 +493,10 @@ zfs_prop_init(void)
 	    ZFS_VOLMODE_DEFAULT, PROP_INHERIT,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
 	    "default | full | geom | dev | none", "VOLMODE", volmode_table,
+	    sfeatures);
+	zprop_register_index(ZFS_PROP_DIRECT, "direct",
+	    ZFS_DIRECT_STANDARD, PROP_INHERIT, ZFS_TYPE_FILESYSTEM,
+	    "disabled | standard | always", "DIRECT", direct_table,
 	    sfeatures);
 
 	/* inherit index (boolean) properties */
