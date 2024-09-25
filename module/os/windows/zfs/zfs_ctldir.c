@@ -201,7 +201,7 @@ zfsctl_vnode_alloc(zfsvfs_t *zfsvfs, uint64_t id,
 	zp->z_zn_prefetch = B_FALSE;
 	zp->z_is_sa = B_FALSE;
 	zp->z_is_mapped = B_FALSE;
-	zp->z_is_ctldir = B_TRUE;
+	zp->z_is_ctldir = B_TRUE; // xxx
 	zp->z_sa_hdl = NULL;
 	zp->z_blksz = 0;
 	zp->z_seq = 0;
@@ -269,12 +269,16 @@ zfsctl_vnode_alloc(zfsvfs_t *zfsvfs, uint64_t id,
 	if (id < zfsvfs->z_ctldir_startid)
 		zfsvfs->z_ctldir_startid = id;
 
-	zfs_attach_security(vp, NULL);
+	zfs_attach_security(vp, parentvp);
 
 	mutex_enter(&zfsvfs->z_znodes_lock);
 	list_insert_tail(&zfsvfs->z_all_znodes, zp);
 	membar_producer();
 	mutex_exit(&zfsvfs->z_znodes_lock);
+
+	// We can't have the fake ctldir vnodes being reclaimed,
+	// so we hold them until ctldir_destroy() is called
+	vnode_ref(vp);
 
 	return (vp);
 }
@@ -300,7 +304,6 @@ zfsctl_vnode_lookup(zfsvfs_t *zfsvfs, uint64_t id,
 		/* May fail due to concurrent zfsctl_vnode_alloc() */
 		ip = zfsctl_vnode_alloc(zfsvfs, id, name);
 	}
-
 	return (ip);
 }
 
@@ -358,10 +361,11 @@ zfsctl_destroy(zfsvfs_t *zfsvfs)
  * Add a hold to the vnode and return it.
  */
 struct vnode *
-zfsctl_root(znode_t *zp)
+zfsctl_root(znode_t *rzp)
 {
-	VN_HOLD(ZTOZSB(zp)->z_ctldir);
-	return (ZTOZSB(zp)->z_ctldir);
+	vnode_t *vp = ZTOZSB(rzp)->z_ctldir;
+	VN_HOLD(vp);
+	return (vp);
 }
 
 /* Given a entry in .zfs, find its parent */
@@ -441,6 +445,7 @@ zfsctl_vnop_readdir_root(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 	int error = 0;
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	int flag_return_single_entry = flags & SL_RETURN_SINGLE_ENTRY ? 1 : 0;
 
 	dprintf("%s\n", __func__);
 
@@ -478,6 +483,7 @@ zfsctl_vnop_readdir_root(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 		}
 
 		ctx->offset++;
+		if (flag_return_single_entry) break;
 	}
 
 	if (error == ENOENT) {
@@ -508,9 +514,11 @@ zfsctl_vnop_readdir_snapdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 	int error = 0;
 	boolean_t case_conflict;
 	uint64_t id;
+	uint64_t pos = 0;
 	char snapname[MAXNAMELEN];
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	int flag_return_single_entry = flags & SL_RETURN_SINGLE_ENTRY ? 1 : 0;
 
 	dprintf("%s\n", __func__);
 
@@ -523,18 +531,20 @@ zfsctl_vnop_readdir_snapdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 		case 0: /* "." */
 			error = zfs_readdir_emitdir(zfsvfs, ".",
 			    ctx, zccb, ZFSCTL_INO_SNAPDIR);
+			ctx->offset++;
 			break;
 
 		case 1: /* ".." */
 			error = zfs_readdir_emitdir(zfsvfs, "..",
 			    ctx, zccb, ZFSCTL_INO_ROOT);
+			ctx->offset++;
 			break;
 
 		default:
 			dsl_pool_config_enter(dmu_objset_pool(zfsvfs->z_os),
 			    FTAG);
 			error = dmu_snapshot_list_next(zfsvfs->z_os,
-			    MAXNAMELEN, snapname, &id, &ctx->offset,
+			    MAXNAMELEN, snapname, &id, &pos,
 			    &case_conflict);
 			dsl_pool_config_exit(dmu_objset_pool(zfsvfs->z_os),
 			    FTAG);
@@ -543,6 +553,8 @@ zfsctl_vnop_readdir_snapdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 
 			error = zfs_readdir_emitdir(zfsvfs, snapname,
 			    ctx, zccb, ZFSCTL_INO_SNAPDIRS - id);
+			ctx->offset++;
+
 			break;
 		}
 
@@ -550,9 +562,11 @@ zfsctl_vnop_readdir_snapdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 			dprintf("emit error\n");
 			break;
 		}
-
-		ctx->offset++;
+		if (flag_return_single_entry) break;
 	}
+
+	if (pos != 0)
+		ctx->offset = pos;
 
 	zfs_readdir_complete(ctx);
 
@@ -570,6 +584,7 @@ zfsctl_vnop_readdir_snapdirs(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 	int error = 0;
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	int flag_return_single_entry = flags & SL_RETURN_SINGLE_ENTRY ? 1 : 0;
 
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
 		return (error);
@@ -598,6 +613,8 @@ zfsctl_vnop_readdir_snapdirs(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 		}
 
 		ctx->offset++;
+
+		if (flag_return_single_entry) break;
 	}
 
 	zfs_exit(zfsvfs, FTAG);
@@ -626,7 +643,6 @@ zfsctl_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 	default:
 		return (zfsctl_vnop_readdir_snapdirs(vp, ctx, cr,
 		    zccb, flags));
-	break;
 	}
 	panic("%s: weird snapshot state\n", __func__);
 	return (EINVAL);
@@ -1185,8 +1201,13 @@ zfsctl_set_reparse_point(znode_t *zp, REPARSE_DATA_BUFFER *rdb, size_t size)
 	if (!zfsctl_is_leafnode(zp))
 		return (STATUS_INVALID_PARAMETER);
 
+	vnode_t *vp = ZTOV(zp);
+	vnode_t *dvp = NULL;
+	dvp = zfsctl_vnode_lookup(zp->z_zfsvfs, ZFSCTL_INO_SNAPDIR,
+	    ZFS_SNAPDIR_NAME);
 	zp->z_pflags |= ZFS_REPARSE;
-	vnode_set_reparse(ZTOV(zp), rdb, size);
+	vnode_set_reparse(vp, rdb, size);
+	VN_RELE(dvp);
 	return (STATUS_SUCCESS);
 }
 

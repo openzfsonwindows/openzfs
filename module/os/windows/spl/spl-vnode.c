@@ -2194,8 +2194,9 @@ vnode_clear_easize(struct vnode *vp)
 void
 vnode_set_reparse(struct vnode *vp, REPARSE_DATA_BUFFER *rpp, size_t size)
 {
-	if (vp->v_reparse != NULL && size > 0)
+	if (vp->v_reparse != NULL && size > 0) {
 		kmem_free(vp->v_reparse, vp->v_reparse_size);
+	}
 	vp->v_reparse = NULL;
 	vp->v_reparse_size = 0;
 

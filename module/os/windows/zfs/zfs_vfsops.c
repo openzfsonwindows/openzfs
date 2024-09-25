@@ -1798,7 +1798,7 @@ zfs_vfs_vget(struct mount *mp, ino64_t ino, vnode_t **vpp,
 			mutex_exit(&zfsvfs->z_znodes_lock);
 
 			error = ENOENT;
-			if (zp != NULL) {
+			if (zp != NULL && ZTOV(zp) != NULL) {
 				if (VN_HOLD(ZTOV(zp)) == 0) {
 					*vpp = ZTOV(zp);
 					error = 0;

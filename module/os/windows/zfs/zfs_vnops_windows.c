@@ -431,7 +431,7 @@ allocate_reparse(struct vnode *vp, char *finalname, PIRP Irp)
 	    zp->z_size;
 	rpb = ExAllocatePoolWithTag(PagedPool,
 	    size, '!FSZ');
-	get_reparse_point_impl(zp, (char *)rpb, size);
+	get_reparse_point_impl(zp, (char *)rpb, size, NULL);
 
 	/*
 	 * Length, in bytes, of the unparsed portion of the
@@ -1375,7 +1375,6 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			xoap->xoa_case_sensitive_dir = 1;
 			XVA_SET_REQ(xvap, XAT_CASESENSITIVEDIR);
 		}
-
 		ASSERT(strchr(finalname, '\\') == NULL);
 		error = zfs_mkdir(VTOZ(dvp), finalname, vap, &zp, NULL,
 		    flags, NULL, NULL);
@@ -1496,6 +1495,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	if (DeleteOnClose &&
 	    vp && zp &&
 	    dvp && VTOZ(dvp) &&
+	    !zfsctl_is_node(VTOZ(dvp)) &&
 	    zfs_zaccess_delete(VTOZ(dvp), zp, 0, NULL) > 0) {
 			VN_RELE(vp);
 			if (dvp)
@@ -3147,34 +3147,41 @@ set_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	return (Status);
 }
 
-size_t
-get_reparse_point_impl(znode_t *zp, char *buffer, size_t outlen)
+int
+get_reparse_point_impl(znode_t *zp, char *buffer, size_t bufferlen,
+    size_t *returnlen)
 {
-	size_t size = 0;
+	int err = 0;
 	if (zp->z_pflags & ZFS_REPARSE) {
-		int err;
 
+		// Return the needed total size, but only copy as
+		// much as we can fit.
+		// WEIRDLY, Explorer will crash if we return
+		// neededbytes in Information. It should be 0.
 		if (zfsctl_is_node(zp)) {
 			REPARSE_DATA_BUFFER *rdb = NULL;
 			NTSTATUS Status;
+			size_t size = 0;
+
 			Status = zfsctl_get_reparse_point(zp, &rdb, &size);
-			if (Status == 0)
+			if (Status == 0 && bufferlen >= size)
 				memcpy(buffer, rdb, size);
+			if (returnlen)
+				*returnlen = 0; // size
 		} else {
-			size = MIN(zp->z_size, outlen);
 			struct iovec iov;
 			iov.iov_base = (void *)buffer;
-			iov.iov_len = size;
+			iov.iov_len = MIN(zp->z_size, bufferlen);
 
 			zfs_uio_t uio;
 			zfs_uio_iovec_init(&uio, &iov, 1, 0, UIO_SYSSPACE,
-			    size, 0);
+			    iov.iov_len, 0);
 			err = zfs_readlink(ZTOV(zp), &uio, NULL);
-			if (err)
-				size = 0;
+			if (!err && returnlen)
+				*returnlen = zp->z_size - zfs_uio_resid(&uio);
 		}
 	}
-	return (size);
+	return (err);
 }
 
 NTSTATUS
@@ -3196,7 +3203,6 @@ get_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (vp == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
-	VN_HOLD(vp);
 	znode_t *zp = VTOZ(vp);
 
 	if (vnode_islnk(vp)) {
@@ -3223,17 +3229,21 @@ get_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		int err;
 		size_t size = 0;
 
-		size = get_reparse_point_impl(zp, buffer, outlen);
+		err = get_reparse_point_impl(zp, buffer, outlen, &size);
 		Irp->IoStatus.Information = size;
+
+		if (err)
+			Status = STATUS_UNEXPECTED_IO_ERROR;
 
 		if (outlen < size)
 			Status = STATUS_BUFFER_OVERFLOW;
 		else
 			Status = STATUS_SUCCESS;
-	}
+
+		}
 
 end:
-	VN_RELE(vp);
+
 	dprintf("%s: returning 0x%lx\n", __func__, Status);
 	return (Status);
 }
@@ -3282,19 +3292,12 @@ set_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zfsvfs->z_rdonly)
 		return (STATUS_MEDIA_WRITE_PROTECTED);
 
-	VN_HOLD(vp);
 	znode_t *dzp = NULL;
-	uint64_t parent;
 	int error;
 
-	// Fetch parent
-	VERIFY(sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
-	    &parent, sizeof (parent)) == 0);
-	error = zfs_zget(zfsvfs, parent, &dzp);
-	if (error) {
-		Status = STATUS_INVALID_PARAMETER;
-		goto out;
-	}
+	vnode_t *dvp = NULL;
+	dvp = zfs_parent(vp);
+	dzp = VTOZ(dvp);
 
 	// winbtrfs' test/exe will trigger this, add code here.
 	// (asked to create reparse point on already reparse point)
@@ -3355,7 +3358,7 @@ top:
 out:
 	if (dzp)
 		zrele(dzp);
-	VN_RELE(vp);
+	VN_RELE(dvp);
 
 	dprintf("%s: returning 0x%lx\n", __func__, Status);
 
