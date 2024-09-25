@@ -142,7 +142,8 @@ extern char *create_options(ULONG options);
 extern char *create_reply(NTSTATUS, ULONG reply);
 extern void latency_stats(uint64_t *histo, unsigned int buckets,
     stat_pair *lat);
-extern size_t get_reparse_point_impl(znode_t *zp, char *buffer, size_t outlen);
+extern int get_reparse_point_impl(znode_t *zp, char *buffer, size_t bufferlen,
+    size_t *retlen);
 extern void fastio_init(FAST_IO_DISPATCH **fast);
 extern NTSTATUS pnp_query_di(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp);

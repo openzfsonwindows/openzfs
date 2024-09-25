@@ -1121,6 +1121,9 @@ CreateReparsePoint(POBJECT_ATTRIBUTES poa, PCUNICODE_STRING SubstituteName,
 		return (status);
 	dprintf("%s: create ok\n", __func__);
 
+	// SubstituteName must be first, offset = 0
+	// Both names must be NULL terminated
+	// length must be offset/length fields + buffer + 2 null chars
 	USHORT cb = 2 * sizeof (WCHAR) +
 	    FIELD_OFFSET(REPARSE_DATA_BUFFER,
 	    MountPointReparseBuffer.PathBuffer) +
@@ -1140,6 +1143,7 @@ CreateReparsePoint(POBJECT_ATTRIBUTES poa, PCUNICODE_STRING SubstituteName,
 	memcpy(RtlOffsetToPointer(prdb->MountPointReparseBuffer.PathBuffer,
 	    SubstituteName->Length + sizeof (WCHAR)),
 	    PrintName->Buffer, PrintName->Length);
+
 	status = ZwFsControlFile(hFile, 0, 0, 0, &iosb,
 	    FSCTL_SET_REPARSE_POINT, prdb, cb, 0, 0);
 	dprintf("%s: ControlFile %ld / 0x%lx\n", __func__, status, status);
