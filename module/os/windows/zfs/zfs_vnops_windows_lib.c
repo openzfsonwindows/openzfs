@@ -2286,9 +2286,9 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 	return (0);
 
 failed:
-	if (zp != NULL)
+	if (zp != NULL && ZTOV(zp) != NULL)
 		VN_RELE(ZTOV(zp));
-	if (dzp != NULL)
+	if (dzp != NULL && ZTOV(dzp) != NULL)
 		VN_RELE(ZTOV(dzp));
 	kmem_free(work, MAXPATHLEN * 2);
 	return (SET_ERROR(-1));
@@ -3092,8 +3092,10 @@ zfs_parent(struct vnode *vp)
 	/* easy, do we have it? */
 	dvp = vnode_parent(vp);
 	if (dvp != NULL) {
-		VN_HOLD(dvp);
-		return (dvp);
+		if (VN_HOLD(dvp) == 0)
+			return (dvp);
+		else
+			return (SET_ERROR(NULL));
 	}
 	/* .. then look it up */
 	znode_t *zp = VTOZ(vp);
@@ -4055,11 +4057,12 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		error = STATUS_OBJECT_NAME_COLLISION;
 		goto out;
 	}
+#if defined(FILE_RENAME_REPLACE_IF_EXISTS)
 	if (tvp && ExVariant && !(ren->Flags&FILE_RENAME_REPLACE_IF_EXISTS)) {
 		error = STATUS_OBJECT_NAME_COLLISION;
 		goto out;
 	}
-
+#endif
 	// Fetch parent, and hold
 	fdvp = zfs_parent(fvp);
 
@@ -5546,6 +5549,57 @@ QueryCapabilities(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (STATUS_SUCCESS);
 }
 
+NTSTATUS
+SendBusRelationsRequest(PDEVICE_OBJECT STOR_DeviceObject,
+    PDEVICE_RELATIONS *StorportRelations)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	PIRP irp;
+	PIO_STACK_LOCATION irpSp;
+	KEVENT event;
+	IO_STATUS_BLOCK ioStatus;
+
+	// Initialize event for IRP completion
+	KeInitializeEvent(&event, NotificationEvent, FALSE);
+
+	// Allocate an IRP for the BusRelations request
+	irp = IoBuildSynchronousFsdRequest(IRP_MJ_PNP,
+	    STOR_DeviceObject,
+	    NULL,
+	    0,
+	    NULL,
+	    &event,
+	    &ioStatus);
+
+	if (irp == NULL)
+		return (STATUS_INSUFFICIENT_RESOURCES);
+
+	// Set up the IRP stack location for the BusRelations query
+	irpSp = IoGetNextIrpStackLocation(irp);
+	irpSp->MajorFunction = IRP_MJ_PNP;
+	irpSp->MinorFunction = IRP_MN_QUERY_DEVICE_RELATIONS;
+	irpSp->Parameters.QueryDeviceRelations.Type = BusRelations;
+
+	// Call the target driver
+	status = IoCallDriver(STOR_DeviceObject, irp);
+
+	// If the IRP is pending, wait for it to complete
+	if (status == STATUS_PENDING) {
+		KeWaitForSingleObject(&event,
+		    Executive,
+		    KernelMode,
+		    FALSE,
+		    NULL);
+
+		// Update status with the final IRP status
+		status = ioStatus.Status;
+	}
+
+	if (NT_SUCCESS(status) && StorportRelations)
+		*StorportRelations = (ULONG_PTR) ioStatus.Information;
+
+	return (status);
+}
 
 NTSTATUS
 QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
@@ -5606,15 +5660,15 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 
 		// If we call Storport first, they might already have a
 		// list from them so sadly we need to merge.
+		// We used to just IoCopyCurrentIrpStackLocationToNext()
+		// and call onwards, but it can run out of stack space,
+		// so now we do a whole new request.
 		dprintf("Calling Storport first\n");
-		IoCopyCurrentIrpStackLocationToNext(Irp);
-		Status = IoCallDriver(
+		Status = SendBusRelationsRequest(
 		    DriverExtension->StorportDeviceObject,
-		    Irp);
-		if (Status == STATUS_SUCCESS) {
-			*PIrp = NULL; // Do not forward IRP
-			StorportRelations =
-			    (ULONG_PTR)Irp->IoStatus.Information;
+		    &StorportRelations);
+		if (NT_SUCCESS(Status)) {
+
 			if (StorportRelations && StorportRelations->Count > 0) {
 				extra = StorportRelations->Count;
 				dprintf("We have extra from storport %d\n",
@@ -5744,6 +5798,11 @@ ioctl_query_device_name(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	zmo = (mount_t *)DeviceObject->DeviceExtension;
+
+	if (vfs_flags(zmo) & MNT_UNMOUNTING)
+		return (STATUS_VOLUME_DISMOUNTED);
+
+
 #if 1
 	/* If given a file, it must be root */
 	if (IrpSp->FileObject != NULL && IrpSp->FileObject->FsContext != NULL) {
