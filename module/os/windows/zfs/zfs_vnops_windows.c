@@ -3225,22 +3225,24 @@ get_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		goto end;
 	}
 
+	Irp->IoStatus.Information = 0;
 	if (zp->z_pflags & ZFS_REPARSE) {
 		int err;
 		size_t size = 0;
 
 		err = get_reparse_point_impl(zp, buffer, outlen, &size);
-		Irp->IoStatus.Information = size;
 
 		if (err)
 			Status = STATUS_UNEXPECTED_IO_ERROR;
 
-		if (outlen < size)
+		if (outlen < size) {
 			Status = STATUS_BUFFER_OVERFLOW;
-		else
+		} else {
 			Status = STATUS_SUCCESS;
+			Irp->IoStatus.Information = size;
 
 		}
+	}
 
 end:
 
