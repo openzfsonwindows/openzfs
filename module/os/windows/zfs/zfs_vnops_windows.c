@@ -6188,6 +6188,9 @@ volume_create(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject,
 		FileObject->Vpb = DeviceObject->Vpb;
 #endif
 
+	if (vfs_flags(zmo) & MNT_UNMOUNTING)
+		return (STATUS_VOLUME_DISMOUNTED);
+
 	if ((ShareAccess == 0) &&
 	    zmo->volume_opens != 0) {
 		dprintf("%s: sharing violation\n", __func__);
@@ -6386,7 +6389,8 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			Irp->IoStatus.Information =
 			    FILE_CLEANUP_FILE_DELETED |
 			    FILE_CLEANUP_POSIX_STYLE_DELETE;
-#elif defined(ZFS_FS_ATTRIBUTE_CLEANUP_INFO)
+#elif defined(ZFS_FS_ATTRIBUTE_CLEANUP_INFO) && \
+	defined(FILE_CLEANUP_FILE_DELETED)
 			Irp->IoStatus.Information =
 			    FILE_CLEANUP_FILE_DELETED;
 #endif
