@@ -1532,8 +1532,12 @@ vnode_drain_delayclose(int force)
 			vnode_unlock(vp);
 			dprintf("%s: freeing DEAD vp %p\n", __func__, vp);
 
+			void *sd = vnode_security(vp);
+			if (sd != NULL)
+				ExFreePool(sd);
+			vnode_setsecurity(vp, NULL);
 			vnode_set_reparse(vp, NULL, 0);
-			ASSERT0(vnode_security(vp));
+
 			kmem_cache_free(vnode_cache, vp);
 			atomic_dec_64(&vnode_active);
 
@@ -1745,7 +1749,7 @@ filesanddirs:
 
 
 	kpreempt(KPREEMPT_SYNC);
-
+#if 0
 	/*
 	 * Process all remaining nodes, release znode, and set vnode to NULL
 	 * move to dead list.
@@ -1777,10 +1781,10 @@ filesanddirs:
 	}
 	mutex_exit(&vnode_all_list_lock);
 
+	dprintf("vflush end: deadlisted %d nodes\n", deadlist);
+#endif
 	if (FORCECLOSE)
 		vnode_drain_delayclose(1);
-
-	dprintf("vflush end: deadlisted %d nodes\n", deadlist);
 
 	return (reclaims > 0 ? EBUSY : 0);
 }
