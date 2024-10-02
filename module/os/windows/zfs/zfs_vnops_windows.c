@@ -3358,8 +3358,6 @@ top:
 		zil_commit(zfsvfs->z_log, 0);
 
 out:
-	if (dzp)
-		zrele(dzp);
 	VN_RELE(dvp);
 
 	dprintf("%s: returning 0x%lx\n", __func__, Status);
@@ -3501,7 +3499,6 @@ create_or_get_object_id(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	struct vnode *vp = IrpSp->FileObject->FsContext;
-	VN_HOLD(vp);
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
@@ -3512,8 +3509,6 @@ create_or_get_object_id(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	uint64_t guid = dmu_objset_fsid_guid(zfsvfs->z_os);
 	RtlCopyMemory(&fob->ObjectId[sizeof (UINT64)], &guid, sizeof (UINT64));
 	RtlZeroMemory(fob->ExtendedInfo, sizeof (fob->ExtendedInfo));
-
-	VN_RELE(vp);
 
 	Irp->IoStatus.Information = sizeof (FILE_OBJECTID_BUFFER);
 	Status = STATUS_SUCCESS;
@@ -6083,6 +6078,9 @@ merge_security(vnode_t *vp, PACCESS_STATE as)
 	    vnode_isdir(vp), SEF_SACL_AUTO_INHERIT,
 	    &as->SubjectSecurityContext,
 	    IoGetFileObjectGenericMapping(), PagedPool);
+
+	VN_RELE(dvp);
+
 #if 0
 	Status = RtlGetOwnerSecurityDescriptor(fcb->sd, &owner, &defaulted);
 	if (!NT_SUCCESS(Status)) {
