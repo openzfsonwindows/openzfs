@@ -6213,13 +6213,14 @@ volume_create(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject,
 
 		if (vp == NULL)
 			goto out;
-
+		ASSERT0(FileObject->FsContext);
 		dprintf("%s increasing %p\n", __func__, vp);
 		zfs_couplefileobject(vp, NULL,
 		    FileObject, zp->z_size, &zccb,
 		    AllocationSize,
 		    DesiredAccess,
 		    NULL);
+		atomic_inc_64(&zmo->volume_opens);
 		VN_RELE(vp);
 
 		status = STATUS_SUCCESS;
@@ -6232,7 +6233,7 @@ out:
 }
 
 NTSTATUS
-volume_close(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
+volume_close(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject)
 {
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	VERIFY(zmo->type == MOUNT_TYPE_DCB);
@@ -6241,10 +6242,7 @@ volume_close(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	zfsvfs_t *zfsvfs;
 	znode_t *zp;
 	struct vnode *vp;
-	PFILE_OBJECT FileObject;
 	zfs_ccb_t *zccb = NULL;
-
-	FileObject = IrpSp->FileObject;
 
 	zfsvfs = (zfsvfs_t *)vfs_fsprivate(zmo);
 
@@ -6254,13 +6252,13 @@ volume_close(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	error = zfs_zget(zfsvfs, zfsvfs->z_root, &zp);
 
-	Irp->IoStatus.Information = 0;
-
 	if (error == 0) {
 		vp = ZTOV(zp);
 		zfs_decouplefileobject(vp, FileObject, B_TRUE);
 		dprintf("%s decreasing %p\n", __func__, vp);
 		vnode_rele(vp);
+		atomic_dec_64(&zmo->volume_opens);
+
 		VN_RELE(vp);
 		return (STATUS_SUCCESS);
 	}
@@ -7084,7 +7082,7 @@ _Function_class_(DRIVER_DISPATCH)
 			Irp->IoStatus.Information = FILE_OPENED;
 		break;
 	case IRP_MJ_CLOSE:
-		Status = volume_close(DeviceObject, Irp, IrpSp);
+		Status = volume_close(DeviceObject, IrpSp->FileObject);
 		break;
 	case IRP_MJ_DEVICE_CONTROL:
 	{

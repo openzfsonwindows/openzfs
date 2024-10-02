@@ -188,6 +188,8 @@ extern void zfs_unload_ioctl(PDEVICE_OBJECT, PVOID Context);
 extern NTSTATUS volume_create(PDEVICE_OBJECT DeviceObject,
     PFILE_OBJECT FileObject, USHORT ShareAccess, uint64_t AllocationSize,
     ACCESS_MASK DesiredAccess);
+extern NTSTATUS volume_close(PDEVICE_OBJECT DeviceObject,
+    PFILE_OBJECT FileObject);
 
 
 /* IRP_MJ_SET_INFORMATION helpers */
