@@ -1571,9 +1571,6 @@ wosix_fdopen(int fd, const char *mode)
 		return (NULL);
 	}
 
-	// Why is this print required?
-	fprintf(stderr, "\r\n");
-
 	// fclose(f) will also call _close() on temp.
 	return (f);
 }
