@@ -12,6 +12,7 @@ ClassGuid   = {71a27cdd-812a-11d0-bec7-08002be2092f}
 Provider    = %Me%
 DriverVer   = 05/19/2018,1.0.2.0
 CatalogFile = OpenZFS.cat
+PnpLockdown = 1
 
 [DestinationDirs]
 DefaultDestDir          = 12
