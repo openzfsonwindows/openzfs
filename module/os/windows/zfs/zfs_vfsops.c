@@ -1655,6 +1655,15 @@ zfs_vfs_unmount(struct mount *mp, int mntflags, vfs_context_t context)
 		}
 	}
 
+	// Until we can fix it for real, if z_all_znodes has entries, we panic
+	// in zfs_freevfs(), so let's leak instead of crash.
+	// This has no leaks since 2024/10/02 but leaving it until we trust it.
+	znode_t *zz;
+	while (zz = list_head(&zfsvfs->z_all_znodes)) {
+		list_remove(&zfsvfs->z_all_znodes, zz);
+		dprintf("Leaked znode %p :( \n", zz);
+	}
+
 	zfs_freevfs(zfsvfs->z_vfs);
 
 	return (0);
