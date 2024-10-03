@@ -2419,6 +2419,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			RtlInitUnicodeString(&name, L"ZFS");
 		else
 			RtlInitUnicodeString(&name, L"NTFS");
+		dprintf("Replying as %wZ\n", &name);
 
 		space = MIN(space, name.Length);
 		ffai->FileSystemNameLength = name.Length;
@@ -4151,6 +4152,9 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		    Irp->AssociatedIrp.SystemBuffer;
 		STORAGE_QUERY_DEPENDENT_VOLUME_LEV2_ENTRY *lvl2 =
 		    Irp->AssociatedIrp.SystemBuffer;
+
+		Status = STATUS_NOT_SUPPORTED;
+		return (Status);
 
 		switch (req->RequestLevel) {
 		case 1:
@@ -6983,7 +6987,7 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = zfs_vnop_mount(DeviceObject, Irp, IrpSp);
 			break;
 		default:
-			dprintf("IRP_MJ_FILE_SYSTEM_CONTROL default case!\n");
+			dprintf("IRP_MJ_FILE_SYSTEM_CONTROL unknown case!\n");
 			break;
 		}
 		break;
@@ -7246,7 +7250,14 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = ioctl_disk_get_length_info(DeviceObject, Irp,
 			    IrpSp);
 			break;
-
+		case FSCTL_GET_VOLUME_BITMAP: // VSS
+			Status = STATUS_INVALID_DEVICE_REQUEST;
+			break;
+		case FSCTL_GET_RETRIEVAL_POINTERS: // VSS
+			dprintf("FSCTL_GET_RETRIEVAL_POINTERS\n");
+			Status = fsctl_get_retrieval_pointers(DeviceObject, Irp,
+			    IrpSp);
+			break;
 		default:
 			dprintf("**** unknown disk Windows IOCTL: 0x%lx\n",
 			    cmd);
@@ -7637,11 +7648,6 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = ioctl_storage_get_hotplug_info(DeviceObject,
 			    Irp, IrpSp);
 			break;
-		case IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS:
-			dprintf("IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS\n");
-			Status = ioctl_volume_get_volume_disk_extents(
-			    DeviceObject, Irp, IrpSp);
-			break;
 		case IOCTL_DISK_GET_LENGTH_INFO:
 			dprintf("IOCTL_DISK_GET_LENGTH_INFO\n");
 			Status = ioctl_disk_get_length_info(DeviceObject, Irp,
@@ -7658,6 +7664,11 @@ _Function_class_(DRIVER_DISPATCH)
 			    IrpSp);
 			break;
 #endif
+		case IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS: // VSS
+			dprintf("IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS\n");
+			Status = ioctl_volume_get_volume_disk_extents(
+			    DeviceObject, Irp, IrpSp);
+			break;
 		case FSCTL_DISMOUNT_VOLUME:
 			dprintf("FSCTL_DISMOUNT_VOLUME\n");
 			Status = STATUS_SUCCESS;
@@ -7674,6 +7685,13 @@ _Function_class_(DRIVER_DISPATCH)
 // Same as IOCTL_MOUNTDEV_LINK_DELETED but bit 14,15 are 0 (access permissions)
 			dprintf("IOCTL_MOUNTDEV_LINK_DELETED v2\n");
 			Status = STATUS_SUCCESS;
+			break;
+
+		case IOCTL_VOLSNAP_FLUSH_AND_HOLD_WRITES:
+		case 0x530018:
+		case 0x534058:
+			dprintf("IOCTL_VOLSNAP_FLUSH_AND_HOLD_WRITES\n");
+			Status = STATUS_NOT_SUPPORTED;
 			break;
 
 		default:

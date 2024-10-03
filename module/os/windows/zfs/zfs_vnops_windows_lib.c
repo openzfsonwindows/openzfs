@@ -6644,6 +6644,42 @@ end:
 }
 
 NTSTATUS
+fsctl_get_retrieval_pointers(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	STARTING_VCN_INPUT_BUFFER *in =
+	    IrpSp->Parameters.FileSystemControl.Type3InputBuffer;
+	ULONG inlen = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+
+	RETRIEVAL_POINTERS_BUFFER *out = Irp->UserBuffer;
+	ULONG outlen = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+
+	PFILE_OBJECT FileObject = IrpSp->FileObject;
+	NTSTATUS Status;
+
+	if (!FileObject)
+		return (STATUS_INVALID_PARAMETER);
+
+	struct vnode *vp = FileObject->FsContext;
+
+	if (!vp)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (inlen < sizeof (STARTING_VCN_INPUT_BUFFER) ||
+	    in->StartingVcn.QuadPart < 0)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (!out)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (outlen < offsetof(RETRIEVAL_POINTERS_BUFFER, Extents[0]))
+		return (STATUS_BUFFER_TOO_SMALL);
+
+	// Can we get away with this?
+	return (STATUS_NO_MORE_ENTRIES);
+}
+
+NTSTATUS
 volume_read(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
 {
