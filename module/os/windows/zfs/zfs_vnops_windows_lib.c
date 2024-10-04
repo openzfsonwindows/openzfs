@@ -63,6 +63,10 @@
 
 #undef _NTDDK_
 
+uint64_t windows_load_security = 1;
+ZFS_MODULE_PARAM(, windows_, load_security, U64, ZMOD_RW,
+	"Windows: load Security Descriptors from storage");
+
 typedef struct {
 	UCHAR revision;
 	UCHAR elements;
@@ -2737,6 +2741,9 @@ zfs_load_ntsecurity(struct vnode *vp)
 	zfs_uio_t uio;
 	struct iovec iov;
 	ssize_t retsize;
+
+	if (!windows_load_security)
+		return;
 
 	error = zpl_xattr_get(vp, EA_NTACL, NULL,
 	    &retsize, NULL);
