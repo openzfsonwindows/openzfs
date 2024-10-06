@@ -5486,6 +5486,11 @@ fs_write_impl(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp,
 	dprintf("offset = %I64x\n", offset.QuadPart);
 	dprintf("length = %lx\n", IrpSp->Parameters.Write.Length);
 
+	if (IrpSp->Parameters.Write.Length == 0) {
+		Status = STATUS_SUCCESS;
+		goto exit;
+	}
+
 	if (!Irp->AssociatedIrp.SystemBuffer) {
 		buf = MapUserBuffer(Irp);
 		// , vp && vp->FileHeader.Flags2 & FSRTL_FLAG2_IS_PAGING_FILE
@@ -5735,6 +5740,7 @@ do_write_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 
 struct do_job_s {
 	PIRP Irp;
+	ULONG len;
 	uint8_t work_item[0];
 };
 
@@ -5743,14 +5749,15 @@ do_job(PDEVICE_OBJECT DeviceObject, struct do_job_s *job)
 {
 	NTSTATUS Status;
 	PIO_STACK_LOCATION IrpSp;
-	IrpSp = IoGetCurrentIrpStackLocation(job->Irp);
+	PIRP Irp = job->Irp;
+	IrpSp = IoGetCurrentIrpStackLocation(Irp);
 
 	switch (IrpSp->MajorFunction) {
 	case IRP_MJ_READ:
-		Status = do_read_job(DeviceObject, job->Irp);
+		Status = do_read_job(DeviceObject, Irp);
 		break;
 	case IRP_MJ_WRITE:
-		Status = do_write_job(DeviceObject, job->Irp);
+		Status = do_write_job(DeviceObject, Irp);
 		break;
 	default:
 		panic("Unknown do_job(IRP_MJ_ %d (0x%x)",
@@ -5762,7 +5769,8 @@ do_job(PDEVICE_OBJECT DeviceObject, struct do_job_s *job)
 }
 
 boolean_t
-add_thread_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+add_thread_job(PDEVICE_OBJECT DeviceObject, PIRP Irp, int len,
+    LOCK_OPERATION IoStyle)
 {
 	struct do_job_s *job;
 
@@ -5773,8 +5781,37 @@ add_thread_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	if (job == NULL)
 		return (FALSE);
 
+	if (Irp->MdlAddress == NULL &&
+	    Irp->UserBuffer != NULL) {
+
+		PMDL mdl = IoAllocateMdl(Irp->UserBuffer,
+		    len, FALSE, FALSE, Irp);
+
+		if (!mdl) {
+			// Handle memory allocation failure
+			// Irp->IoStatus.Status = STATUS_INSUFFICIENT_RESOURCES;
+			// IoCompleteRequest(Irp, IO_NO_INCREMENT);
+			ExFreePoolWithTag(job, 'ZJOB');
+			return (FALSE);
+		}
+		try {
+			// Lock the pages in memory
+			MmProbeAndLockPages(mdl, Irp->RequestorMode,
+			    IoStyle);
+		} except(EXCEPTION_EXECUTE_HANDLER) {
+			// Handle probe and lock failure
+			IoFreeMdl(mdl);
+			Irp->MdlAddress = NULL;
+			ExFreePoolWithTag(job, 'ZJOB');
+			// job->Irp->IoStatus.Status = GetExceptionCode();
+			// IoCompleteRequest(job->Irp, IO_NO_INCREMENT);
+			return (FALSE);
+		}
+	}
+
 	IoInitializeWorkItem(DeviceObject, (PIO_WORKITEM)&job->work_item);
 	job->Irp = Irp;
+	job->len = len;
 
 	IoQueueWorkItem((PIO_WORKITEM)&job->work_item,
 	    (PIO_WORKITEM_ROUTINE)do_job,
@@ -7406,7 +7443,7 @@ _Function_class_(DRIVER_DISPATCH)
 	NTSTATUS Status = STATUS_INVALID_DEVICE_REQUEST;
 	struct vnode *hold_vp = NULL;
 	PIRP Irp = *PIrp;
-
+	ULONG len = 0;
 	PAGED_CODE();
 
 	dprintf("  %s: enter: major %d: minor %d: %s fsDeviceObject\n",
@@ -7817,18 +7854,26 @@ _Function_class_(DRIVER_DISPATCH)
 		Status = set_information(DeviceObject, Irp, IrpSp);
 		break;
 	case IRP_MJ_READ:
+		len = IrpSp->Parameters.Read.Length;
 		Status = fs_read(DeviceObject, Irp, IrpSp);
 		if (Status == STATUS_PENDING) {
 			IoMarkIrpPending(Irp);
-			if (!add_thread_job(DeviceObject, Irp))
+			if (add_thread_job(DeviceObject, Irp,
+			    len, IoWriteAccess))
+				*PIrp = NULL;
+			else
 				Status = do_read_job(DeviceObject, Irp);
 		}
 		break;
 	case IRP_MJ_WRITE:
+		len = IrpSp->Parameters.Write.Length;
 		Status = fs_write(DeviceObject, Irp, IrpSp);
 		if (Status == STATUS_PENDING) {
 			IoMarkIrpPending(Irp);
-			if (!add_thread_job(DeviceObject, Irp))
+			if (add_thread_job(DeviceObject, Irp,
+			    len, IoReadAccess))
+				*PIrp = NULL;
+			else
 				Status = do_write_job(DeviceObject, Irp);
 		}
 		break;
