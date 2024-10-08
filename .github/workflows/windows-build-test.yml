@@ -2575,7 +2575,7 @@ jobs:
 
   test8_pyifstest:
     needs: [build_windows] #, build_wsl]
-    timeout-minutes: 30
+    timeout-minutes: 60
     runs-on: windows-latest
 #    if:  ${{ inputs.run-failing }}
     steps:
