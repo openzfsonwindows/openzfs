@@ -598,6 +598,7 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 	int fullstrlen;
 	char namebuffer[MAXNAMELEN];
 	BOOLEAN FileOpenReparsePoint;
+	BOOLEAN has_trailing_separator = FALSE;
 
 	FileOpenReparsePoint =
 	    BooleanFlagOn(options, FILE_OPEN_REPARSE_POINT);
@@ -624,8 +625,10 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 	// Sometimes we are given a path like "\Directory\directory\"
 	// with the final separator, we want to eat that final character.
 	if ((fullstrlen > 2) &&
-	    (filename[fullstrlen - 1] == '\\'))
+	    (filename[fullstrlen - 1] == '\\')) {
 		filename[--fullstrlen] = 0;
+		has_trailing_separator = TRUE;
+	}
 
 	for (word = strtok_r(filename, "/\\", &brkt);
 	    word;
@@ -754,6 +757,14 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 		    brkt);
 		VN_RELE(dvp);
 		return (ESRCH);
+	}
+
+	// Check if we got a file, but request had trailing slash
+	if (vp != NULL && !vnode_isdir(vp) && has_trailing_separator) {
+		VN_RELE(vp);
+		VN_RELE(dvp);
+		// NTFS returns STATUS_OBJECT_NAME_INVALID
+		return (STATUS_OBJECT_NAME_INVALID); // ENOTDIR
 	}
 
 	if (lastname) {
@@ -1773,6 +1784,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		}
 		VN_RELE(dvp);
 	} else {
+
 		// Technically, this should call zfs_open() -
 		// but zfs_open is mostly empty
 
