@@ -130,9 +130,13 @@ extern void printBuffer(const char *fmt, ...);
 
 #endif // LUDICROUS_SPEED
 
+/* Naughty to call from spl to zfs. */
+void printBuffer(const char *fmt, ...);
+
 #define	PANIC(fmt, ...)				\
 	do {					\
 		xprintf(fmt, __VA_ARGS__);	\
+		printBuffer(fmt, __VA_ARGS__);	\
 		DbgBreakPoint();		\
 	} while (0)
 
