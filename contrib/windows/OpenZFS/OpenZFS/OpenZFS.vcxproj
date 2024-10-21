@@ -132,6 +132,7 @@
     <DisableProductionSignDebugWarnings>false</DisableProductionSignDebugWarnings>
     <TimeStampServer>http://timestamp.digicert.com</TimeStampServer>
     <IncludePath>$(IncludePath);$(KMDF_INC_PATH)$(KMDF_VER_PATH);../../../../include</IncludePath>
+    <PreLinkEventUseInBuild>true</PreLinkEventUseInBuild>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
@@ -203,9 +204,15 @@
       </Command>
     </PostBuildEvent>
     <PreLinkEvent>
-      <Command>copy /Y "$(SolutionDir)..\..\..\out\build\x64-Debug\module\os\windows\driver\OpenZFS.man" "$(TargetDir)\OpenZFS"</Command>
+      <Command>copy /Y "$(SolutionDir)..\..\..\out\build\x64-Debug\module\os\windows\driver\OpenZFS.man" "$(TargetDir)\OpenZFS\OpenZFS.man"</Command>
       <Message>Copy OpenZFS.man to deploy dir - no better way?</Message>
     </PreLinkEvent>
+    <PreBuildEvent>
+      <Command>IF NOT EXIST "$(TargetDir)OpenZFS" MKDIR "$(TargetDir)OpenZFS"</Command>
+    </PreBuildEvent>
+    <PreBuildEvent>
+      <Message>Make sure output exists</Message>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
