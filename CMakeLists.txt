@@ -10,6 +10,9 @@ find_package(WDK REQUIRED)
 
 option(BUILD_SHARED_LIBS "Build Shared Libraries" OFF)
 
+set(OPENSSL_CRYPTO_LIBRARY "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MTd/libcrypto_static.lib")
+set(OPENSSL_SSL_LIBRARY "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MTd/libssl_static.lib")
+
 set(OPENSSL_USE_STATIC_LIBS TRUE)
 set(OPENSSL_MSVC_STATIC_RT TRUE)
 find_package(OpenSSL REQUIRED)

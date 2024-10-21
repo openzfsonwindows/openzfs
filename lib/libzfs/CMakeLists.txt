@@ -21,13 +21,14 @@ add_library(libzfs
 
 #variable_watch(CRYPTO_STATIC)
 # set(CRYPTO_STATIC "notset")
+# '/c/Program Files/OpenSSL-Win64/lib/VC/x64/MTd/libssl_static.lib'
 set(CMAKE_FIND_DEBUG_MODE TRUE)
 find_library(CRYPTO_STATIC_TEST
     NAMES
-      libcrypto64MTd
+      libcrypto_static
     NAMES_PER_DIR
 	HINTS
-	  "C:/Program Files/OpenSSL-Win64/lib/VC/static"
+	  "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MTd"
     PATH_SUFFIXES
       lib
 	REQUIRED
