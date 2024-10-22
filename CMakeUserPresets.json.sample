@@ -1,0 +1,17 @@
+{
+  "version": 8,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 23,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "default",
+      "cacheVariables": {
+        "OPENZFS_SIGNTOOL_SHA1": "<-Your-certificate-sha1-here->",
+        "OPENZFS_SIGNTOOL_TSA": "http://your-timeserver-url-here"
+      }
+    }
+  ]
+}
