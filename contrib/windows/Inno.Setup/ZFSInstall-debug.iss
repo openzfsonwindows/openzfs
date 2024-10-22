@@ -58,8 +58,8 @@ WizardImageFile="{#SourcePath}\openzfs-large.bmp"
 ; SignTool=signtoola
 ; SignTool=signtoolb
 SignTool=signtoolc
-ArchitecturesInstallIn64BitMode=x64
-ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed=x64compatible
 
 
 [Languages]
