@@ -58,6 +58,7 @@ extern int zfs_kmod_init(void);
 extern void zfs_kmod_fini(void);
 
 extern void sysctl_os_init(PUNICODE_STRING RegistryPath);
+extern void sysctl_os_all(PUNICODE_STRING RegistryPath);
 extern void sysctl_os_fini(void);
 
 
@@ -131,9 +132,11 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 	zfs_flags |= 1;
 #endif
 
-	spl_start(pRegistryPath);
-
 	sysctl_os_init(pRegistryPath);
+	// Process Registry once before init.
+	sysctl_os_all(pRegistryPath);
+
+	spl_start(pRegistryPath);
 
 	system_taskq_init();
 
