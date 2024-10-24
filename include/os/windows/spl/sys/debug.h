@@ -96,9 +96,10 @@
 #define	__DECONST(type, var) ((type)(uintptr_t)(const void *)(var))
 #endif
 
-extern void _Noreturn panic(const char *fmt, ...);
-
-
+// All panics lead to spl_panic()
+// but "panic" is also a struct member in lua
+// #define	PANIC spl_panic
+#define	PANIC(...) spl_panic(__FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
 
 extern void printBuffer(const char *fmt, ...);
 
@@ -133,13 +134,6 @@ extern void printBuffer(const char *fmt, ...);
 /* Naughty to call from spl to zfs. */
 void printBuffer(const char *fmt, ...);
 
-#define	PANIC(fmt, ...)				\
-	do {					\
-		xprintf(fmt, __VA_ARGS__);	\
-		printBuffer(fmt, __VA_ARGS__);	\
-		DbgBreakPoint();		\
-	} while (0)
-
 #define	SPL_DEBUG_STR	" (DEBUG mode)"
 
 #else // DBG
@@ -151,10 +145,6 @@ void printBuffer(const char *fmt, ...);
     __VA_ARGS__)
 #define	dprintf(...)
 #define	IOLog(...)
-#define	PANIC(fmt, ...)				\
-	do {					\
-		xprintf(fmt, __VA_ARGS__);	\
-	} while (0)
 #endif
 
 #define	zfs_fallthrough __attribute__((__fallthrough__))
@@ -176,6 +166,11 @@ __attribute__((__noreturn__))
 #endif
 extern void spl_panic(const char *file, const char *func, int line,
     const char *fmt, ...);
+#if defined(__COVERITY__) || defined(__clang_analyzer__)
+__attribute__((__noreturn__))
+#endif
+extern void panic(const char *fmt, ...);
+
 extern void spl_dumpstack(void);
 
 static inline int

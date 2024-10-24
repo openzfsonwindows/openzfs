@@ -72,6 +72,29 @@ spl_panic(const char *file, const char *func, int line, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	PANIC(fmt, ap);
+	do {
+
+		// console
+		KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, fmt, ap));
+
+		// cbuf
+		printBuffer(fmt, ap);
+		printBuffer("OpenZFS version %s\n", ZFS_META_GITREV);	\
+
+		DbgBreakPoint();
+		windows_delay(hz * 100);
+	} while (1);
+	va_end(ap);
+}
+
+// Backward compatible, loses FILE/FUNCTION/LINE
+// but no longer used much in ZFS.
+void
+panic(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	spl_panic(__FILE__, __FUNCTION__, __LINE__, fmt, ap);
 	va_end(ap);
 }
