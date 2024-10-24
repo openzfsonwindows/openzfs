@@ -107,7 +107,7 @@ struct {
 #define	ABD_PGSIZE	PAGE_SIZE
 #endif
 
-#define	PAGE_MASK (ABD_PGSIZE - 1)
+#define	PAGE_MASK (ABD_PGSIZE - 1ULL)
 
 const static size_t zfs_abd_chunk_size = ABD_PGSIZE;
 
@@ -221,6 +221,7 @@ abd_verify_scatter(abd_t *abd)
 	ASSERT(!abd_is_linear_page(abd));
 	ASSERT3U(ABD_SCATTER(abd).abd_offset, <, ABD_PGSIZE);
 	n = abd_scatter_chunkcnt(abd);
+
 	for (i = 0; i < n; i++) {
 		ASSERT3P(ABD_SCATTER(abd).abd_chunks[i], !=, NULL);
 	}
@@ -234,7 +235,7 @@ abd_alloc_chunks(abd_t *abd, size_t size)
 	n = abd_chunkcnt_for_bytes(size);
 	for (i = 0; i < n; i++) {
 		ABD_SCATTER(abd).abd_chunks[i] =
-		    kmem_cache_alloc(abd_chunk_cache, KM_PUSHPAGE);
+		    kmem_cache_alloc(abd_chunk_cache, KM_SLEEP);
 	}
 }
 
@@ -263,7 +264,8 @@ abd_alloc_struct_impl(size_t size)
 	 */
 	size_t abd_size = MAX(sizeof (abd_t),
 	    offsetof(abd_t, abd_u.abd_scatter.abd_chunks[chunkcnt]));
-	abd_t *abd = kmem_alloc(abd_size, KM_PUSHPAGE);
+	abd_t *abd = kmem_alloc(abd_size, KM_SLEEP);
+
 	ASSERT3P(abd, !=, NULL);
 	ABDSTAT_INCR(abdstat_struct_size, abd_size);
 
@@ -290,6 +292,9 @@ abd_alloc_zero_scatter(void)
 {
 	uint_t i, n;
 
+	abd_zero_buf = kmem_alloc(ABD_PGSIZE, KM_SLEEP);
+	memset(abd_zero_buf, 0, ABD_PGSIZE);
+
 	n = abd_chunkcnt_for_bytes(SPA_MAXBLOCKSIZE);
 	abd_zero_scatter = abd_alloc_struct(SPA_MAXBLOCKSIZE);
 	abd_zero_scatter->abd_flags |= ABD_FLAG_OWNER;
@@ -314,6 +319,9 @@ abd_free_zero_scatter(void)
 
 	abd_free_struct(abd_zero_scatter);
 	abd_zero_scatter = NULL;
+
+	kmem_free(abd_zero_buf, ABD_PGSIZE);
+	abd_zero_buf = NULL;
 }
 
 static int
