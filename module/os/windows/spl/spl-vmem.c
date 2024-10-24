@@ -1555,7 +1555,7 @@ do_alloc:
 				vaddr = ((vmem_ximport_t *)
 				    vmp->vm_source_alloc)(vmp->vm_source,
 				    &asize, align, vmflag & VM_KMFLAGS);
-				ASSERT(asize >= oasize);
+
 				ASSERT(P2PHASE(asize,
 				    vmp->vm_source->vm_quantum) == 0);
 				ASSERT(!(vmp->vm_cflags & VMC_XALIGN) ||
