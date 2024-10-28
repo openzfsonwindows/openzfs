@@ -162,6 +162,8 @@ extern int wosix_access(const char *name, int mode);
 #define	ftruncate	wosix_ftruncate
 #undef  socketpair
 #define	socketpair	wosix_socketpair
+#undef  dup2
+#define	dup2	wosix_dup2
 #undef  fdopen
 #define	fdopen	wosix_fdopen
 #undef  freopen

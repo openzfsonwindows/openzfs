@@ -1011,6 +1011,12 @@ wosix_open(const char *inpath, int oflag, ...)
 		path = otherpath;
 	}
 
+	if (strncmp(path, "\\dev\\null", 9) == 0) {
+		snprintf(otherpath, MAXPATHLEN, "NUL:");
+		path = otherpath;
+	}
+
+
 	// Try to open verbatim, but if that fail, check if it is the
 	// "#offset#length#name" style, and try again. We let it fail first
 	// just in case someone names their file with a starting '#'.
@@ -1210,6 +1216,35 @@ writev(int fd, struct iovec *iov, unsigned iov_cnt)
 	ssize_t ret = 0;
 	while (i < iov_cnt) {
 		ssize_t r = wosix_write(fd, iov[i].iov_base, iov[i].iov_len);
+
+		if (r > 0) {
+			ret += r;
+		} else if (!r) {
+			break;
+		} else if (errno == EINTR) {
+			continue;
+		} else {
+			/*
+			 * else it is some "other" error,
+			 * only return if there was no data processed.
+			 */
+			if (ret == 0) {
+				ret = -1;
+			}
+			break;
+		}
+		+i++;
+	}
+	return (ret);
+}
+
+ssize_t
+readv(int fd, const struct iovec *iov, int iov_cnt)
+{
+	unsigned int i = 0;
+	ssize_t ret = 0;
+	while (i < iov_cnt) {
+		ssize_t r = wosix_read(fd, iov[i].iov_base, iov[i].iov_len);
 
 		if (r > 0) {
 			ret += r;
@@ -1663,7 +1698,7 @@ wosix_socketpair(int domain, int type, int protocol, int sv[2])
 int
 wosix_dup2(int fildes, int fildes2)
 {
-	return (-1);
+	return (0);
 }
 
 void *
@@ -2039,5 +2074,10 @@ getgrnam_r(const char *name, struct group *grp,
     char *buf, size_t buflen, struct group **result)
 {
 	*result = NULL;
+	return (0);
+}
+
+extern pid_t setsid(void)
+{
 	return (0);
 }
