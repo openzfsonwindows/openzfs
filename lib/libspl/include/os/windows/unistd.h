@@ -48,6 +48,7 @@ extern char	*optarg;
 #include <io.h>
 #include <direct.h>
 
+#define	_SC_OPEN_MAX		5
 #define	_SC_PAGESIZE		11
 #define	_SC_PAGE_SIZE		_SC_PAGESIZE
 #define	_SC_NPROCESSORS_ONLN	15
@@ -99,9 +100,11 @@ extern void closelog(void);
 
 extern int unmount(const char *dir, int flags);
 
+extern pid_t setsid(void);
+
 static inline pid_t fork(void)
 {
-	return (0);
+	return (1);
 }
 
 extern int mkostemps(char *templ, int suffixlen, DWORD flags);

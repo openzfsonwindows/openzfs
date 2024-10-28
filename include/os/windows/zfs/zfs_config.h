@@ -54,7 +54,7 @@
 #define	HAVE_MEMORY_H 1
 
 /* Define to 1 if you have the `mlockall' function. */
-#define	HAVE_MLOCKALL 1
+/* #undef	HAVE_MLOCKALL 1 */
 
 /* Define to 1 if you have the <stdint.h> header file. */
 #define	HAVE_STDINT_H 1
@@ -153,3 +153,8 @@
 #define	ZFS_META_ALIAS ZFS_META_GITREV
 
 #define	ZFSEXECDIR "C:/Program Files/OpenZFS on Windows"
+
+#define	RUNSTATEDIR ZFSEXECDIR "/zed"
+#define	_PATH_STDPATH ""
+#define	SBINDIR ZFSEXECDIR
+

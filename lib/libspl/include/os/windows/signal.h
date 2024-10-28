@@ -35,7 +35,9 @@
 #define	SIGEV_SIGNAL	1	/* Generate a queued signal. */
 #define	SIGEV_THREAD	2	/* Call back from another pthread. */
 
+#define	SIGHUP		1
 #define	SIGPIPE		13
+#define	SIGCHLD		18
 #define	SIGUSR1		30	/* user defined signal 1 */
 #define	SIGUSR2		31	/* user defined signal 2 */
 
@@ -45,7 +47,10 @@ struct proc;
 
 // extern int
 // thread_issignal(struct proc *, thread_t, sigset_t);
+#define	SA_RESTART	0x00000004
 #define	SA_SIGINFO	0x00000008
+
+#define	SIG_SETMASK	3
 
 typedef struct __siginfo {
 	/* Windows version goes here */

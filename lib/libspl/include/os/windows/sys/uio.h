@@ -49,4 +49,7 @@ typedef struct iovec iovec_t;
 
 #include_next <sys/uio.h>
 
+extern ssize_t readv(int, const struct iovec *, int);
+extern ssize_t writev(int fd, struct iovec *iov, unsigned iov_cnt);
+
 #endif	/* _WINDOWS_SYS_UIO_H */

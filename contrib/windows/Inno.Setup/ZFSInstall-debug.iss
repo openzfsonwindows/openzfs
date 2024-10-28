@@ -89,6 +89,7 @@ Source: "{#Root}\out\build\x64-Debug\cmd\os\windows/zfsinstaller/zfsinstaller.ex
 Source: "{#Root}\out\build\x64-Debug\cmd\zpool\zpool.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zfs\zfs.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zdb\zdb.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\x64-Debug\cmd\zed\zed.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zstream\zstreamdump.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\raidz_test\raidz_test.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.sys"; DestDir: "{app}"; Flags: ignoreversion
@@ -102,6 +103,7 @@ Source: "{#Root}\out\build\x64-Debug\cmd\zstream\*.pdb"; DestDir: "{app}\symbols
 Source: "{#Root}\out\build\x64-Debug\cmd\zpool\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zfs\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zdb\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\x64-Debug\cmd\zed\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\raidz_test\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zfsinstaller\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\kstat\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
@@ -110,6 +112,7 @@ Source: "{#Root}\contrib\windows\parsedump\*.*"; DestDir: "{app}"; Flags: ignore
 Source: "{#Root}\scripts\zfs_prepare_disk"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\cmd\zpool\compatibility.d\*"; DestDir: "{app}\compatibility.d"; Flags: ignoreversion
 Source: "{#Root}\cmd\zpool\zpool.d\*"; DestDir: "{app}\zpool.d"; Flags: ignoreversion
+Source: "{#Root}\cmd\zed\os\windows\zed.d\*"; DestDir: "{app}\zed.d"; Flags: ignoreversion
 
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
