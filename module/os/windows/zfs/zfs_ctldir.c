@@ -520,6 +520,9 @@ zfsctl_vnop_readdir_snapdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	int flag_return_single_entry = flags & SL_RETURN_SINGLE_ENTRY ? 1 : 0;
 
+	// Caller sets 0 or index based on flags.
+	pos = ctx->offset;
+
 	dprintf("%s\n", __func__);
 
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
