@@ -107,14 +107,15 @@ extern void printBuffer(const char *fmt, ...);
 // xprintf is always printed
 // dprintf is printed in DEBUG builds
 // IOLog is printed in DEBUG builds (legacy from osx)
-//
-#ifdef DBG /* Debugging Disabled */
+
 #ifdef LUDICROUS_SPEED
+
 #define	dprintf(...) printBuffer(__VA_ARGS__)
 #define	IOLog(...) printBuffer(__VA_ARGS__)
 #define	xprintf(...) KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, \
     __VA_ARGS__))
-#define	TraceEvent(x, ...)
+#define	TraceEvent(level, ...) KdPrintEx((DPFLTR_IHVDRIVER_ID, level, \
+    __VA_ARGS__))
 
 #else // LUDICROUS_SPEED
 
@@ -131,20 +132,11 @@ extern void printBuffer(const char *fmt, ...);
 
 #endif // LUDICROUS_SPEED
 
-/* Naughty to call from spl to zfs. */
-void printBuffer(const char *fmt, ...);
 
+#ifdef DBG /* Debugging Disabled */
 #define	SPL_DEBUG_STR	" (DEBUG mode)"
-
 #else // DBG
-
 #define	SPL_DEBUG_STR	""
-
-#define	TraceEvent(x, ...)
-#define	xprintf(...) DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, \
-    __VA_ARGS__)
-#define	dprintf(...)
-#define	IOLog(...)
 #endif
 
 #define	zfs_fallthrough __attribute__((__fallthrough__))
