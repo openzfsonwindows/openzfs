@@ -2198,8 +2198,8 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 		else if (zp->z_id == ZFSCTL_INO_SNAPDIR)
 			strlcpy(name, ZFS_SNAPDIR_NAME, MAXPATHLEN);
 		else if (zfsctl_is_leafnode(zp)) {
+			uint64_t id, pos = 0;
 			while (error == 0) {
-				uint64_t id, pos = 0;
 				boolean_t case_conflict;
 				dsl_pool_config_enter(
 				    dmu_objset_pool(zfsvfs->z_os), FTAG);
