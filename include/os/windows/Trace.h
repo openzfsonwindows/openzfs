@@ -61,7 +61,6 @@ static const int TRACE_NOISY = 8;
 
 
 // begin_wpp config
-// FUNC dprintf{FLAGS=MYDRIVER_ALL_INFO, LEVEL=TRACE_INFO}(MSG, ...);
 // FUNC TraceEvent{FLAGS=MYDRIVER_ALL_INFO}(LEVEL, MSG, ...);
 // end_wpp
 

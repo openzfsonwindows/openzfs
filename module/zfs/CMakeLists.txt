@@ -169,7 +169,6 @@ function(tracewpp OUTPUT_DIR SOURCE)
         # no effect.
 
         set(TRACE "TraceEvent{FLAGS=MYDRIVER_ALL_INFO}(LEVEL, MSG, ...)")
-        set(DPRINT "dprintf{FLAGS=MYDRIVER_ALL_INFO, LEVEL=TRACE_INFO}(MSG, ...)")
         set(CFGDIR "${WPP_DIR}/wppconfig/rev1")
         set(SCAN "${WDK_ROOT}/Include/wdf/kmdf/1.9/WdfTraceEnums.h")
         set(WPP_MACRO "WPP_INLINE __inline")
@@ -177,7 +176,7 @@ function(tracewpp OUTPUT_DIR SOURCE)
         execute_process(COMMAND "${NATIVE_WPP_DIR}/${WDK_PLATFORM}/tracewpp.exe"
  -scan:${SCAN} /D${WPP_MACRO}
  -cfgdir:${CFGDIR} -I${CMAKE_CURRENT_BINARY_DIR} -odir:${NATIVE_OUTPUT_DIR} -km -func:${TRACE}
- -func:${DPRINT} -gen:{km-default.tpl}*.tmh ${NATIVE_SOURCE})
+ -gen:{km-default.tpl}*.tmh ${NATIVE_SOURCE})
 
 endfunction()
 
