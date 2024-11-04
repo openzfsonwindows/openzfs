@@ -640,8 +640,8 @@ zap_deref_leaf(zap_t *zap, uint64_t h, dmu_tx_t *tx, krw_t lt, zap_leaf_t **lp)
 	    ZAP_HASH_IDX(h, zap_leaf_phys(*lp)->l_hdr.lh_prefix_len) ==
 	    zap_leaf_phys(*lp)->l_hdr.lh_prefix);
 
-	TraceEvent(err > 0 ? 2 : 8, "%s:%d: Returning %d\n",
-	    __func__, __LINE__, err);
+//	TraceEvent(err > 0 ? 2 : 8, "%s:%d: Returning %d\n",
+//	    __func__, __LINE__, err);
 	return (err);
 }
 

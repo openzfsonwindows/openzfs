@@ -45,7 +45,7 @@ static uint32_t zvol_major = ZVOL_MAJOR;
 unsigned int zvol_request_sync = 0;
 unsigned int zvol_prefetch_bytes = (128 * 1024);
 unsigned long zvol_max_discard_blocks = 16384;
-unsigned int zvol_threads = 32;
+int zvol_threads = 0;
 
 taskq_t *zvol_taskq;
 
@@ -1028,13 +1028,20 @@ const static zvol_platform_ops_t zvol_windows_ops = {
 int
 zvol_init(void)
 {
-	int threads = MIN(MAX(zvol_threads, 1), 1024);
+	int logical_ncpu_to_use = boot_ncpus / 2; // boot_ncpus is derived from KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS)
 
+	int threads = MIN(MAX((zvol_threads ? zvol_threads: logical_ncpu_to_use), 1), 1024);
+
+	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+		"%s: number of zvol taskq threads to be created: %d, registry value: %d ncpus: %d\n",
+		__func__, threads, zvol_threads, boot_ncpus));
 	zvol_taskq = taskq_create(ZVOL_DRIVER, threads, maxclsyspri,
 	    threads * 2, INT_MAX, TASKQ_PREPOPULATE | TASKQ_DYNAMIC);
 	if (zvol_taskq == NULL) {
 		return (-ENOMEM);
 	}
+
+	zvol_threads = threads; // Update it so that kstat gets the current value
 
 	zvol_init_impl();
 	zvol_register_ops(&zvol_windows_ops);

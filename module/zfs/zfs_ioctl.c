@@ -7494,8 +7494,8 @@ pool_status_check(const char *name, zfs_ioc_namecheck_t type,
 		spa_close(spa, FTAG);
 	}
 
-	TraceEvent(error > 0 ? 2 : 8, "%s:%d: Returning with error %d\n",
-	    __func__, __LINE__, error);
+	//TraceEvent(error > 0 ? 2 : 8, "%s:%d: Returning with error %d\n",
+	//    __func__, __LINE__, error);
 	return (error);
 }
 

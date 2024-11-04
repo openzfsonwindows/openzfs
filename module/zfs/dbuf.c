@@ -1461,8 +1461,8 @@ dbuf_read_verify_dnode_crypt(dmu_buf_impl_t *db, uint32_t flags)
 
 	DB_DNODE_EXIT(db);
 
-	TraceEvent(err > 0 ? 2:8, "%s:%d: Returning %d\n",
-	    __func__, __LINE__, err);
+//	TraceEvent(err > 0 ? 2:8, "%s:%d: Returning %d\n",
+//	    __func__, __LINE__, err);
 
 	return (err);
 }
@@ -1565,8 +1565,8 @@ early_unlock:
 	mutex_exit(&db->db_mtx);
 	dmu_buf_unlock_parent(db, dblt, tag);
 
-	TraceEvent(err > 0 ? 2 : 8, "%s:%d: Returning %d\n",
-	    __func__, __LINE__, err);
+	//TraceEvent(err > 0 ? 2 : 8, "%s:%d: Returning %d\n",
+	 //   __func__, __LINE__, err);
 
 	return (err);
 }

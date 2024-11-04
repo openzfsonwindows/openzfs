@@ -437,8 +437,8 @@ error:
 		rw_exit(&spa->spa_keystore.sk_wkeys_lock);
 
 	*wkey_out = NULL;
-	TraceEvent(ret > 0 ? 2 : 8, "%s:%d: Returning %d\n",
-	    __func__, __LINE__, ret);
+	//TraceEvent(ret > 0 ? 2 : 8, "%s:%d: Returning %d\n",
+	//    __func__, __LINE__, ret);
 
 	return (ret);
 }

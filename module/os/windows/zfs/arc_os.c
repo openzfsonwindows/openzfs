@@ -695,6 +695,7 @@ arc_kstat_update_windows(kstat_t *ksp, int rw)
 		zfs_arc_p_min_shift = ks->arc_zfs_arc_p_min_shift.value.ui64;
 		zfs_arc_average_blocksize =
 		    ks->arc_zfs_arc_average_blocksize.value.ui64;
+		zvol_threads = ks->zvol_io_threads.value.ui32;
 
 #ifdef _KERNEL
 		if (ks->zfs_total_memory_limit.value.ui64 > total_memory &&
@@ -729,6 +730,7 @@ arc_kstat_update_windows(kstat_t *ksp, int rw)
 		ks->arc_zfs_arc_p_min_shift.value.ui64 = zfs_arc_p_min_shift;
 		ks->arc_zfs_arc_average_blocksize.value.ui64 =
 		    zfs_arc_average_blocksize;
+		ks->zvol_io_threads.value.ui32 = zvol_threads;
 
 #ifdef _KERNEL
 		ks->zfs_total_memory_limit.value.ui64 = total_memory;

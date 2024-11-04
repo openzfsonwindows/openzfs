@@ -611,8 +611,8 @@ zap_lockdir_by_dnode(dnode_t *dn, dmu_tx_t *tx,
 		dmu_buf_rele(db, tag);
 	}
 
-	TraceEvent(err > 0 ? 2 : 8, "%s:%d: Returning %d\n",
-	    __func__, __LINE__, err);
+	//TraceEvent(err > 0 ? 2 : 8, "%s:%d: Returning %d\n",
+	//    __func__, __LINE__, err);
 	return (err);
 }
 

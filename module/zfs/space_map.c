@@ -191,8 +191,8 @@ space_map_iterate(space_map_t *sm, uint64_t end, sm_cb_t callback, void *arg)
 		dmu_buf_rele(db, FTAG);
 	}
 
-	TraceEvent(error > 0 ? 2 : 8, "%s:%d: Returning %d\n",
-	    __func__, __LINE__, error);
+	//TraceEvent(error > 0 ? 2 : 8, "%s:%d: Returning %d\n",
+	//    __func__, __LINE__, error);
 	return (error);
 }
 
