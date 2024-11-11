@@ -4250,7 +4250,7 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		Status = query_file_regions(DeviceObject, Irp, IrpSp);
 		break;
 
-	case FSCTL_ZFS_VOLUME_MOUNTPOINT:
+	case FSCTL_ZFS_VOLUME_MOUNTPOINT: // backward compatible
 		dprintf("    FSCTL_ZFS_VOLUME_MOUNTPOINT\n");
 		Status = fsctl_zfs_volume_mountpoint(DeviceObject, Irp, IrpSp);
 		break;
@@ -7305,6 +7305,11 @@ _Function_class_(DRIVER_DISPATCH)
 		case FSCTL_GET_RETRIEVAL_POINTERS: // VSS
 			dprintf("FSCTL_GET_RETRIEVAL_POINTERS\n");
 			Status = fsctl_get_retrieval_pointers(DeviceObject, Irp,
+			    IrpSp);
+			break;
+		case ZFS_IOC_GET_MOUNT: // fsctl was too unreliable
+			dprintf("ZFS_IOC_GET_MOUNT\n");
+			Status = fsctl_zfs_volume_mountpoint(DeviceObject, Irp,
 			    IrpSp);
 			break;
 		default:

@@ -1564,6 +1564,7 @@ typedef enum zfs_ioc {
 	ZFS_IOC_UNREGISTER_FS,			/* 0x89 (Windows) */
 	ZFS_IOC_MOUNT,				/* 0x8a (Windows) */
 	ZFS_IOC_UNMOUNT,			/* 0x8b (Windows) */
+	ZFS_IOC_GET_MOUNT,			/* 0x8c (Windows) */
 	ZFS_IOC_LAST
 } zfs_ioc_t;
 

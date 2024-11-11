@@ -120,6 +120,7 @@ struct mount
 	UNICODE_STRING volumeInterfaceName;
 	UNICODE_STRING MountMgr_name;
 	UNICODE_STRING MountMgr_mountpoint;
+	const char *mounted_on;
 	PFILE_OBJECT root_file;
 	boolean_t justDriveLetter;
 	uint64_t volume_opens;
@@ -170,6 +171,8 @@ int vfs_mount_count(void);
 void vfs_mount_setarray(void **array, int max);
 void vfs_mount_iterate(int (*func)(void *, void *), void *);
 boolean_t vfs_mount_member(void *member);
+void vfs_set_mountedon(mount_t *mp, char *rootpath);
+const char *vfs_mountedon(mount_t *mp);
 
 
 #endif /* SPL_MOUNT_H */

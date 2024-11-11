@@ -642,7 +642,7 @@ zfs_release_mount(mount_t *zmo)
 	FreeUnicodeString(&zmo->volumeInterfaceName);
 	FreeUnicodeString(&zmo->MountMgr_name);
 	FreeUnicodeString(&zmo->MountMgr_mountpoint);
-
+	vfs_set_mountedon(zmo, NULL);
 	if (zmo->vpb) {
 		zmo->vpb->DeviceObject = NULL;
 		zmo->vpb->RealDevice = NULL;
@@ -753,8 +753,6 @@ NotifyMountMgr_impl(void *arg1)
 	dprintf("Creating reparse mountpoint on '%wZ' for "
 	    "volume '%wZ'\n",
 	    &dcb->mountpoint, &volStr);
-
-	delay(hz);
 
 	status = CreateReparsePoint(&poa, &volStr,
 	    &volStr);
@@ -1135,10 +1133,6 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	dprintf("%s: driveletter %d '%wZ'\n",
 	    __func__, zmo_dcb->justDriveLetter, &zmo_dcb->mountpoint);
 
-	// Return volume name to userland
-	snprintf(zc->zc_value, sizeof (zc->zc_value),
-	    "\\DosDevices\\Global\\Volume{%s}", uuid_a);
-
 	// Mark devices as initialized
 	// diskDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 	// ObReferenceObject(diskDeviceObject);
@@ -1162,6 +1156,18 @@ zfs_windows_mount(zfs_cmd_t *zc)
 
 	// Add to list for BusRelations
 	vfs_mount_add(zmo_dcb);
+
+	// Set the mountpoint, might be "/" for driveletters or
+	// a subdirectory for lower mounts.
+	char *rootpath = &zc->zc_value[6]; // Above checks for \\??\\x:
+	while (rootpath[0] == '\\' &&
+	    rootpath[1] == '\\')
+		rootpath++;
+	vfs_set_mountedon(zmo_dcb, rootpath);
+
+	// Return volume name to userland
+	snprintf(zc->zc_value, sizeof (zc->zc_value),
+	    "\\DosDevices\\Global\\Volume{%s}", uuid_a);
 
 	IoInvalidateDeviceRelations(DriverExtension->PhysicalDeviceObject,
 	    BusRelations);
@@ -1451,6 +1457,7 @@ matched_mount(PDEVICE_OBJECT DeviceObject, PDEVICE_OBJECT DeviceToMount,
 	RtlDuplicateUnicodeString(0, &dcb->arc_name, &vcb->arc_name);
 	RtlDuplicateUnicodeString(0, &dcb->uuid, &vcb->uuid);
 	memcpy(vcb->rawuuid, dcb->rawuuid, sizeof (vcb->rawuuid));
+	vfs_set_mountedon(vcb, vfs_mountedon(dcb));
 
 	vcb->mountflags = dcb->mountflags;
 	if (vfs_isrdonly(dcb))
