@@ -2128,6 +2128,8 @@ zfs_vfs_uuid_gen(const char *osname, uuid_t uuid)
  * If supplied, start_zp_offset, is the index into fullpath where the
  * start_zp component name starts. (Point between start_parent/start_zp).
  * returnsize includes the final NULL, so it is strlen(fullpath)+1
+ * Note this is a dataset path, starting from its "/", does not
+ * include the mountpoint, nor should it.
  */
 int
 zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
@@ -2140,6 +2142,7 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 	uint64_t parent;
 	zfsvfs_t *zfsvfs;
 	char name[MAXPATHLEN];
+
 	// No output? nothing to do
 	if (!fullpath || !returnsize)
 		return (EINVAL);
@@ -2160,6 +2163,7 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 
 	while (1) {
 
+		// rewrite this using vnode_parent
 		// Fetch parent
 		if (start_parent) {
 			dzp = start_parent;
@@ -2228,8 +2232,10 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 				}
 			} while (error == EBUSY);
 		}
+
 		// Copy in name.
 		part = strlen(name);
+
 		// Check there is room
 		if (part + 1 > index) {
 			dprintf("%s: out of space\n", __func__);
@@ -2252,7 +2258,7 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 		zp = dzp; // Now focus on parent
 		dzp = NULL;
 
-		if (zp == NULL)	// No parent
+		if (zp == NULL) // No parent
 			break;
 
 		// If parent, stop, "/" is already copied in.
@@ -2286,7 +2292,9 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 	    start_zp_offset)
 		*start_zp_offset = 0;
 
-	dprintf("%s: set '%s' as name\n", __func__, *fullpath);
+	dprintf("%s: set '%s' as name, with offset %d for '%s'\n",
+	    __func__, *fullpath, *start_zp_offset,
+	    &(*fullpath)[*start_zp_offset]);
 	return (0);
 
 failed:
@@ -5069,24 +5077,9 @@ file_name_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		// Safety
 		if (zccb->z_name_cache != NULL) {
-#if 0
-			// Just name
-			strlcpy(strname, &zccb->z_name_cache[zp->z_name_offset],
-			    MAXPATHLEN);
-#else
 			// Full path name
 			strlcpy(strname, zccb->z_name_cache,
 			    MAXPATHLEN);
-#endif
-			// If it is a DIR, make sure it ends with "\",
-			// except for root, that is just "\"
-			// When running ifstext.exe HardLinkInformationTest
-			// it will fail if we return "\" at the end of dirs.
-#if 0
-			if (S_ISDIR(zp->z_mode))
-				strlcat(strname, "\\",
-				    MAXPATHLEN);
-#endif
 		}
 	}
 	VN_RELE(vp);
@@ -6557,6 +6550,7 @@ fsctl_zfs_volume_mountpoint(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	Irp->IoStatus.Information =
 	    sizeof (fsctl_zfs_volume_mountpoint_t) +
 	    zmo->mountpoint.Length;
+	dprintf("%s: returning %.*S\n", __func__, fzvm->len, fzvm->buffer);
 	return (STATUS_SUCCESS);
 }
 

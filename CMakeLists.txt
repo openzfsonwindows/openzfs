@@ -80,7 +80,7 @@ endif()
 add_compile_options(/Zi)
 add_link_options(/DEBUG)
 
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "x64-Debug")
     add_definitions(-DDBG -DZFS_DEBUG)
 endif()
 

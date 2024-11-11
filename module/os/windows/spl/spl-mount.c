@@ -29,6 +29,7 @@
 #include <sys/types.h>
 #include <sys/mount.h>
 #include <sys/rwlock.h>
+#include <sys/kmem.h>
 
 /*
  * In Unix, this lock is to protect the list of
@@ -269,4 +270,28 @@ vfs_iswriteupgrade(mount_t *mp) /* ronly &&  MNTK_WANTRDWR */
 void
 vfs_setextendedsecurity(mount_t *mp)
 {
+}
+
+/*
+ * Turns out we don't appear to need this, but since
+ * we have it, it could be useful in future.
+ */
+void
+vfs_set_mountedon(mount_t *mp, char *rootpath)
+{
+	VERIFY3P(mp, !=, NULL);
+
+	if (rootpath == NULL || *rootpath == 0) {
+		if (mp->mounted_on != NULL)
+			kmem_strfree(mp->mounted_on);
+		mp->mounted_on = NULL;
+	} else {
+		mp->mounted_on = kmem_strdup(rootpath);
+	}
+}
+
+const char *
+vfs_mountedon(mount_t *mp)
+{
+	return (mp->mounted_on ? mp->mounted_on : "\\");
 }

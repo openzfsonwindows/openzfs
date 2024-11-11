@@ -46,6 +46,7 @@
 #endif
 
 #include <sys/zfs_context.h>
+#include <sys/fs/zfs.h>
 
 #include <windows.h>
 #include <winternl.h>
@@ -56,21 +57,6 @@
 
 static struct statfs *gsfs = NULL;
 static int allfs = 0;
-static int dllinit = 1;
-
-NTSTATUS(__stdcall *NtFsControlFile)(
-    HANDLE fileHandle,
-    HANDLE event,
-    PIO_APC_ROUTINE apcRoutine,
-    PVOID apcContext,
-    PIO_STATUS_BLOCK ioStatusBlock,
-    ULONG fsControlCode,
-    PVOID inputBuffer,
-    ULONG inputBufferLength,
-    PVOID outputBuffer,
-    ULONG outputBufferLength
-);
-
 
 typedef struct _MOUNTDEV_NAME
 {
@@ -391,7 +377,7 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 		// We open the devices returned; like
 		// "'\\.\Volume{0b1bb601-af0b-32e8-a1d2-54c167af6277}'" and
 		// query its Unique ID, where we return the dataset name. "BOOM"
-
+		// fprintf(stderr, "Opening %s to see if it is ZFS:\r\n", name);
 		if (name[trail] == '\\')
 			name[trail] = 0;
 		h = CreateFile(name, 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
@@ -411,43 +397,39 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 			    NULL, 0, UID, sizeof (uidbuffer) - 1, &Size, NULL);
 			// printf("deviocon %d: namelen %d\n", status,
 			//  UID->UniqueIdLength);
-			if (gotname) {
+			if (gotname)
 				// Kernel doesn't null terminate
 				UID->UniqueId[UID->UniqueIdLength] = 0;
-			} else
+			else
 				UID = NULL;
+//			fprintf(stderr, "deviocon %d: namelen %d\r\n", gotname,
+//			    UID->UniqueIdLength);
+//			fflush(stderr);
 
-			if (NtFsControlFile != NULL) {
-				IO_STATUS_BLOCK iosb;
-				long Status;
+			IO_STATUS_BLOCK iosb;
+			long Status;
 
-				Status = NtFsControlFile(h, NULL, NULL, NULL,
-				    &iosb, FSCTL_ZFS_VOLUME_MOUNTPOINT, NULL,
-				    0, fzvm, 0);
-				if (Status == STATUS_BUFFER_TOO_SMALL) {
-					// we are not given size back here,
-					// because of METHOD BUFFERED?
-					iosb.Information = 1024;
-					fzvm = malloc(iosb.Information);
-					if (fzvm) {
-						Status = NtFsControlFile(h,
-						    NULL, NULL, NULL, &iosb,
-						    FSCTL_ZFS_VOLUME_MOUNTPOINT,
-						    NULL, 0,
-						    fzvm, iosb.Information);
-						if (Status == 0) {
-							// Always "\??\E:\..."
-							fzvm->buffer[fzvm->len /
-							    sizeof (WCHAR)] = 0;
-						} else {
-							free(fzvm);
-							fzvm = NULL;
-						}
-					}
+			// we are not given size back here,
+			// because of METHOD BUFFERED?
+			iosb.Information = 1024;
+			fzvm = malloc(iosb.Information);
+			if (fzvm) {
+				Status = DeviceIoControl(h,
+				    ZFS_IOC_GET_MOUNT, NULL, 0, fzvm,
+				    iosb.Information, &Size, NULL);
+
+				if (Status) {
+					// Always "\??\E:\..."
+					fzvm->buffer[fzvm->len /
+					    sizeof (WCHAR)] = 0;
 				} else {
-					// Not ZFS - cant use UniqueID
+					free(fzvm);
+					fzvm = NULL;
 					UID = NULL;
 				}
+			} else {
+				// Not ZFS - cant use UniqueID
+				UID = NULL;
 			}
 			CloseHandle(h);
 		}
@@ -517,12 +499,6 @@ statfs_init(void)
 {
 	struct statfs *sfs;
 	int error;
-
-	if (dllinit) {
-		dllinit = 0;
-		NtFsControlFile = (void *)GetProcAddress(
-		    GetModuleHandle("ntdll.dll"), "NtFsControlFile");
-	}
 
 	if (gsfs != NULL) {
 		free(gsfs);

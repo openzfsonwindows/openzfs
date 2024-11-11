@@ -640,7 +640,7 @@ zvol_os_free(zvol_state_t *zv)
 }
 
 void
-zvol_os_attach(char *name)
+zvol_os_attach(const char *name)
 {
 	zvol_state_t *zv;
 	uint64_t hash = zvol_name_hash(name);

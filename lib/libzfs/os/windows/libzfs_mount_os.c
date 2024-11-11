@@ -106,6 +106,8 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 	(void) strlcpy(zc.zc_name, zhp->zfs_name, sizeof (zc.zc_name));
 	(void) strlcpy(zc.zc_value, dir, sizeof (zc.zc_value));
 
+	// Make sure we get a fresh view
+	libzfs_mnttab_cache(zhp->zfs_hdl, B_FALSE);
 
 	if (zhp->zfs_type != ZFS_TYPE_SNAPSHOT) {
 		/*
@@ -129,39 +131,102 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 				struct mnttab entry = { 0 };
 
 				zfs_parent_name(zhp, parent, sizeof (parent));
-
-				while (strlen(parent) >= 1) {
-					if ((libzfs_mnttab_find(zhp->zfs_hdl,
-					    parent,
-					    &entry) == 0) &&
-					    (entry.mnt_mountp[1] == ':')) {
-						driveletter[0] =
-						    entry.mnt_mountp[0];
 #ifdef DEBUG
-	fprintf(stderr,
-	    "we think '%s' parent is '%s' and its mounts are: '%s'\r\n",
-	    zfs_get_name(zhp), parent, entry.mnt_mountp);
+				fprintf(stderr,
+				    "we think '%s' parent is '%s' \r\n",
+				    zfs_get_name(zhp), parent);
+				fflush(stderr);
+#endif
+				int tries = 0;
+				int missing;
+
+		do {
+			missing = 1;
+
+			// Not a driveletter, we need to find
+			// the mount to use
+			while (strlen(parent) >= 1) {
+				memset(&entry, 0,
+				    sizeof (entry));
+				missing = libzfs_mnttab_find(
+				    zhp->zfs_hdl,
+				    parent,
+				    &entry);
+				if (!missing &&
+				    (entry.mnt_mountp[1] == ':')) {
+					driveletter[0] =
+					    entry.mnt_mountp[0];
+#ifdef DEBUG
+	fprintf(stderr, "Direct match\r\n"); fflush(stderr);
+#endif
+					break;
+				}
+				if ((slashp = strrchr(parent, '/')) ==
+				    NULL)
+					break;
+				*slashp = '\0';
+#ifdef DEBUG
+	fprintf(stderr, "stepping up to %s\r\n", parent); fflush(stderr);
+#endif
+			}
+#ifdef DEBUG
+	fprintf(stderr, "%d mount %s\r\n", tries,
+	    !missing ? "found" : "NOT FOUND");
 	fflush(stderr);
 #endif
-						break;
-					}
-					if ((slashp = strrchr(parent, '/')) ==
-					    NULL)
-						break;
-					*slashp = '\0';
-				}
+			if (missing)
+				delay(hz >> 1);
+		} while (missing && tries++ < 10); // up to 5s
+
+#ifdef DEBUG
+				fprintf(stderr,
+				    "and its mounts are: '%s'\r\n",
+				    entry.mnt_mountp);
+				fflush(stderr);
+#endif
 
 	/*
 	 * We need to skip the parent name part, in mountpoint "dir" here,ie
 	 * if parent is "BOOM/lower" we need to skip to the 3nd slash
 	 * in "/BOOM/lower/newfs"
 	 * So, check if the mounted name is in the string
+	 * BUT, we are given the dataset name in entry.mnt_special,
+	 * which is not always the same as mountpoint.
 	 */
-				// "BOOM" -> "/BOOM/"
-				snprintf(parent, sizeof (parent), "/%s/",
-				    entry.mnt_special);
+				char mtpt_prop[ZFS_MAXPROPLEN];
+				zfs_handle_t *pzhp = NULL;
+
+				pzhp = make_dataset_handle(zhp->zfs_hdl,
+				    parent);
+				if (pzhp && zfs_prop_get(pzhp,
+				    ZFS_PROP_MOUNTPOINT, mtpt_prop,
+				    sizeof (mtpt_prop), NULL, NULL, 0,
+				    B_FALSE) == 0) {
+					snprintf(parent, sizeof (parent),
+					    "%s/", mtpt_prop);
+#ifdef DEBUG
+	fprintf(stderr,
+	    "looking up parent mountpoint: '%s'\r\n",
+	    mtpt_prop);
+	fflush(stderr);
+#endif
+				} else {
+					// "BOOM" -> "/BOOM/"
+					snprintf(parent, sizeof (parent),
+					    "/%s/", entry.mnt_special);
+				}
+				if (pzhp)
+					zfs_close(pzhp);
+
 				char *part = strstr(dir, parent);
 				if (part) dir = &part[strlen(parent) - 1];
+
+				// Lets avoid double slash
+				if (*dir == '/' &&
+				    entry.mnt_mountp[
+				    strlen(entry.mnt_mountp)-1])
+					dir++;
+
 				snprintf(zc.zc_value, sizeof (zc.zc_value),
 				    "\\??\\%s%s", entry.mnt_mountp, dir);
 			} else {
@@ -176,6 +241,12 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 		    dir);
 		zc.zc_cleanup_fd = MNT_RDONLY;
 	}
+#ifdef DEBUG
+	fprintf(stderr,
+	    "sending mountpoint: '%s'\r\n",
+	    zc.zc_value);
+	fflush(stderr);
+#endif
 
 	/* Convert Unix slash to Win32 backslash */
 	for (int i = 0; zc.zc_value[i]; i++)
