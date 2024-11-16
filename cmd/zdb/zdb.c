@@ -3501,6 +3501,9 @@ dump_znode_symlink(sa_handle_t *hdl)
 		(void) printf("\ttarget	%s\n", linktarget);
 }
 
+#define	ZFS_LINKDIR_REFCNT(lde)		BF64_GET((lde), 48, 8)
+#define	ZFS_LINKDIR_OBJ(lde)		BF64_GET((lde), 0, 48)
+
 static void
 dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
 {
@@ -3512,7 +3515,8 @@ dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
 	uint64_t pflags;
 	uint64_t acctm[2], modtm[2], chgtm[2], crtm[2];
 	time_t z_crtime, z_atime, z_mtime, z_ctime;
-	sa_bulk_attr_t bulk[12];
+	uint64_t *ld = NULL; int ldsize = 0;
+	sa_bulk_attr_t bulk[13];
 	int idx = 0;
 	int error;
 
@@ -3521,6 +3525,10 @@ dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
 		(void) printf("Failed to get handle for SA znode\n");
 		return;
 	}
+
+	(void) sa_size(hdl, sa_attr_table[ZPL_LINKDIRS], &ldsize);
+	if (ldsize > 0)
+		ld = umem_alloc(ldsize, UMEM_NOFAIL);
 
 	SA_ADD_BULK_ATTR(bulk, idx, sa_attr_table[ZPL_UID], NULL, &uid, 8);
 	SA_ADD_BULK_ATTR(bulk, idx, sa_attr_table[ZPL_GID], NULL, &gid, 8);
@@ -3544,8 +3552,14 @@ dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
 	SA_ADD_BULK_ATTR(bulk, idx, sa_attr_table[ZPL_FLAGS], NULL,
 	    &pflags, 8);
 
+	if (ldsize > 0)
+		SA_ADD_BULK_ATTR(bulk, idx, sa_attr_table[ZPL_LINKDIRS], NULL,
+		    ld, ldsize);
+
 	if (sa_bulk_lookup(hdl, bulk, idx)) {
 		(void) sa_handle_destroy(hdl);
+		if (!ld)
+			umem_free(ld, ldsize);
 		return;
 	}
 
@@ -3578,6 +3592,21 @@ dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
 	(void) printf("\tsize	%llu\n", (u_longlong_t)fsize);
 	(void) printf("\tparent	%llu\n", (u_longlong_t)parent);
 	(void) printf("\tlinks	%llu\n", (u_longlong_t)links);
+	if (ldsize > 0) {
+		uint_t nld = ldsize / sizeof (uint64_t);
+		for (uint_t idx = 0; idx < nld; idx++) {
+			if ((idx % 8) == 0) {
+				if (idx > 0)
+					fputs("\t		", stdout);
+				else
+					fputs("\tlinkdirs	", stdout);
+			}
+			printf("%llu:%llu%s",
+			    ZFS_LINKDIR_REFCNT(ld[idx]),
+			    ZFS_LINKDIR_OBJ(ld[idx]),
+			    (idx % 8 == 7) || (idx == nld-1) ? "\n" : " ");
+		}
+	}
 	(void) printf("\tpflags	%llx\n", (u_longlong_t)pflags);
 	if (dmu_objset_projectquota_enabled(os) && (pflags & ZFS_PROJID)) {
 		uint64_t projid;
@@ -3594,6 +3623,8 @@ dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
 		(void) printf("\trdev	0x%016llx\n", (u_longlong_t)rdev);
 	dump_znode_sa_xattr(hdl);
 	sa_handle_destroy(hdl);
+	if (!ld)
+		umem_free(ld, ldsize);
 }
 
 static void
