@@ -2870,6 +2870,44 @@ query_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (Status);
 }
 
+boolean_t
+LockUserBuffer(
+    IN OUT PIRP Irp,
+    IN LOCK_OPERATION Operation,
+    IN ULONG BufferLength)
+{
+	PMDL Mdl = NULL;
+
+	PAGED_CODE();
+
+	if (Irp->MdlAddress == NULL) {
+
+		Mdl = IoAllocateMdl(Irp->UserBuffer, BufferLength, FALSE, FALSE,
+		    Irp);
+
+		if (Mdl == NULL)
+			return (B_FALSE);
+
+		try {
+
+			MmProbeAndLockPages(Mdl,
+			    Irp->RequestorMode,
+			    Operation);
+
+		} except(EXCEPTION_EXECUTE_HANDLER) {
+			NTSTATUS Status;
+
+			Status = GetExceptionCode();
+
+			IoFreeMdl(Mdl);
+			Irp->MdlAddress = NULL;
+		}
+	}
+
+	return (B_TRUE);
+}
+
+
 PVOID
 MapUserBuffer(IN OUT PIRP Irp)
 {
@@ -4712,7 +4750,19 @@ zfs_read_wrap(vnode_t *vp, uint8_t *data, uint64_t start,
 	dprintf("%s: offset %llx size %llx\n", __func__,
 	    start, length);
 
-	Status = zfs_read(zp, &uio, 0, NULL);
+	if (Irp->MdlAddress == NULL &&
+	    Irp->UserBuffer != NULL) {
+		if (!LockUserBuffer(Irp, IoWriteAccess, length)) {
+			dprintf("Locking UserBuffer failed.");
+			return (STATUS_INVALID_USER_BUFFER);
+		}
+	}
+
+	try {
+		Status = zfs_read(zp, &uio, 0, NULL);
+	} except(EXCEPTION_EXECUTE_HANDLER) {
+		Status = GetExceptionCode();
+	}
 
 	// Update bytes read
 	if (pbr)
@@ -5380,6 +5430,14 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 	}
 
+	if (Irp->MdlAddress == NULL &&
+	    Irp->UserBuffer != NULL) {
+		if (!LockUserBuffer(Irp, IoReadAccess, *length)) {
+			dprintf("Locking UserBuffer failed.");
+			goto end;
+		}
+	}
+
 	if (paging_io) {
 		uio.uio_extflg |= SKIP_CHANGE_TIME;
 		uio.uio_extflg |= SKIP_WRITE_TIME;
@@ -5390,7 +5448,11 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			uio.uio_extflg |= SKIP_WRITE_TIME;
 	}
 
-	Status = zfs_write(zp, &uio, 0, NULL);
+	try {
+		Status = zfs_write(zp, &uio, 0, NULL);
+	} except(EXCEPTION_EXECUTE_HANDLER) {
+		Status = GetExceptionCode();
+	}
 
 	if (!locked)
 		MmUnlockPages(Irp->MdlAddress);
@@ -5796,27 +5858,8 @@ add_thread_job(PDEVICE_OBJECT DeviceObject, PIRP Irp, int len,
 	if (Irp->MdlAddress == NULL &&
 	    Irp->UserBuffer != NULL) {
 
-		PMDL mdl = IoAllocateMdl(Irp->UserBuffer,
-		    len, FALSE, FALSE, Irp);
-
-		if (!mdl) {
-			// Handle memory allocation failure
-			// Irp->IoStatus.Status = STATUS_INSUFFICIENT_RESOURCES;
-			// IoCompleteRequest(Irp, IO_NO_INCREMENT);
+		if (!LockUserBuffer(Irp, IoStyle, len)) {
 			ExFreePoolWithTag(job, 'ZJOB');
-			return (FALSE);
-		}
-		try {
-			// Lock the pages in memory
-			MmProbeAndLockPages(mdl, Irp->RequestorMode,
-			    IoStyle);
-		} except(EXCEPTION_EXECUTE_HANDLER) {
-			// Handle probe and lock failure
-			IoFreeMdl(mdl);
-			Irp->MdlAddress = NULL;
-			ExFreePoolWithTag(job, 'ZJOB');
-			// job->Irp->IoStatus.Status = GetExceptionCode();
-			// IoCompleteRequest(job->Irp, IO_NO_INCREMENT);
 			return (FALSE);
 		}
 	}
