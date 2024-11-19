@@ -5485,6 +5485,66 @@ file_hard_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	Status = STATUS_SUCCESS;
 	Irp->IoStatus.Information = bytes_needed;
 
+	/* Lets test iterating ZPL_LINKDIRS */
+
+#define	ZFS_LINKDIR_OBJ(lde)	BF64_GET((lde), 0, 48)
+
+	/*
+	 * We build paths leading up to root of this dataset, it is
+	 * Up to the caller to handle mountpoint location, ie for
+	 * "/pool/dataset/directory/file.txt" it could be
+	 * "/directory/file.txt" if dataset is mounted at "/pool/dataset"
+	 */
+	int ldsize = 0;
+
+	(void) sa_size(zp->z_sa_hdl, SA_ZPL_LINKDIRS(zfsvfs), &ldsize);
+	if (ldsize > 0) {
+		znode_t *dzp;
+		zap_cursor_t	zc;
+		zap_attribute_t	zap;
+		ino64_t objnum;
+		objset_t *os;
+
+		os = zfsvfs->z_os;
+		uint64_t *ld = kmem_alloc(ldsize, KM_SLEEP);
+
+		VERIFY(sa_lookup(zp->z_sa_hdl, SA_ZPL_LINKDIRS(zfsvfs),
+		    ld, ldsize) == 0);
+		for (int i = 0; i < ldsize / sizeof (uint64_t); i++) {
+			dprintf("Linkdir %d: %llu\n", i,
+			    ZFS_LINKDIR_OBJ(ld[i]));
+
+			// The same Directory can be listed multiple times, so
+			// do a quick scan of previous directories.
+			for (int j = 0; j < i; j++)
+				if (ZFS_LINKDIR_OBJ(ld[i]) ==
+				    ZFS_LINKDIR_OBJ(ld[j]))
+					continue;
+
+			// List directory, looking for matches with zp->z_id
+			if (zfs_zget(zfsvfs, ZFS_LINKDIR_OBJ(ld[i]), &dzp) != 0)
+				continue;
+
+			zap_cursor_init(&zc, os, dzp->z_id);
+
+			while (zap_cursor_retrieve(&zc, &zap) == 0) {
+				objnum = ZFS_DIRENT_OBJ(zap.za_first_integer);
+				if (objnum == zp->z_id) {
+					dprintf("Linkdir %llu has entry %s\n",
+					    ZFS_LINKDIR_OBJ(ld[i]),
+					    zap.za_name);
+				}
+				zap_cursor_advance(&zc);
+			}
+
+			zap_cursor_fini(&zc);
+			zrele(dzp);
+		}
+		kmem_free(ld, ldsize);
+	}
+	/* Lets test iterating ZPL_LINKDIRS */
+
+
 out:
 	if (dvp != NULL)
 		VN_RELE(dvp);
