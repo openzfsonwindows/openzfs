@@ -801,6 +801,196 @@ zfs_dirent(znode_t *zp, uint64_t mode)
 }
 
 /*
+ * A linkdir entry has the dir object in the bottom 48 bits, and the refcount
+ * in the next 8. The top 8 bits are unused.
+ */
+#define	ZFS_LINKDIR_REFCNT(lde)		BF64_GET((lde), 48, 8)
+#define	ZFS_LINKDIR_OBJ(lde)		BF64_GET((lde), 0, 48)
+#define	ZFS_LINKDIR_SET_REFCNT(lde, v)	BF64_SET((lde), 48, 8, (v))
+#define	ZFS_LINKDIR_SET_OBJ(lde, v)	BF64_SET((lde), 0, 48, (v))
+
+/*
+ * Recalculate the PARENT+LINKDIRS SAs after adding or removing the given dir.
+ * Updates the LINKDIRS SA directly on the tx, and returns the new value for
+ * PARENT for the caller to add to it's bulk SA update.
+ */
+static uint64_t
+zfs_recalc_links(znode_t *zp, uint64_t dobj, boolean_t add, dmu_tx_t *tx)
+{
+	zfsvfs_t *zfsvfs = ZTOZSB(zp);
+
+	uint64_t parent = 0;
+	int ldsize = 0;
+
+	(void) sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
+	    &parent, sizeof (parent));
+
+	(void) sa_size(zp->z_sa_hdl, SA_ZPL_LINKDIRS(zfsvfs), &ldsize);
+	if (ldsize == 0 && !add) {
+		/*
+		 * When removing, we're only called if there were at least two
+		 * links before the unlink op started. Therefore, there must be
+		 * at least one entry in the link array. If it's empty or
+		 * nonexistent, then this must have been an old znode creating
+		 * before LINKDIRS existed.
+		 *
+		 * To preserve the previous behaviour, we return the existing
+		 * parent unchanged.
+		 */
+		return (parent);
+	}
+
+	ASSERT(IS_P2ALIGNED(ldsize, sizeof (uint64_t)));
+	uint_t nld = ldsize / sizeof (uint64_t);
+
+	/*
+	 * Allocate an array with room for one more element than it currently
+	 * has. We may not need to grow it, but if we do, it won't be by more
+	 * than this.
+	 */
+	size_t ldalloc = ldsize + sizeof (uint64_t);
+	uint64_t *ld = kmem_alloc(ldalloc, KM_SLEEP);
+
+	uint_t idx = 0;
+	if (ldsize > 0) {
+		/* Load existing entry */
+		VERIFY0(sa_lookup(zp->z_sa_hdl, SA_ZPL_LINKDIRS(zfsvfs),
+		    ld, ldsize));
+
+		/*
+		 * Search through the array, looking for an existing reference
+		 * to the dir object of interest. We stop at the first we find,
+		 * or if not found, where that object should be, so we can make
+		 * space for it.
+		 */
+		for (; idx < nld; idx++)
+			if (ZFS_LINKDIR_OBJ(ld[idx]) >= dobj)
+				break;
+	}
+
+	/*
+	 * The entry at idx is one of:
+	 *   1. the first entry for the wanted object
+	 *   2. the position where the wanted object should be if it was there
+	 *   3. one past the end of the array (actually a variant of #2)
+	 *
+	 * What we do next depends on whether we're adding or removing.
+	 */
+
+	if (add) {
+		/*
+		 * Adding. We need to either bump an existing refcount, or
+		 * insert the first reference for this object.
+		 *
+		 * There may be an existing "full" entry at the current
+		 * position (refcount at max); if so, we need to walk forward
+		 * until we find one for this object that isn't full, or we
+		 * find the object just past it. Walk forward until we find
+		 * one.
+		 */
+		while (idx < nld && ZFS_LINKDIR_OBJ(ld[idx]) == dobj &&
+		    ZFS_LINKDIR_REFCNT(ld[idx]) == 0xff)
+			idx++;
+
+		/* If the current position is our object, bump its refcount */
+		if (ZFS_LINKDIR_OBJ(ld[idx]) == dobj) {
+			ASSERT3U(ZFS_LINKDIR_REFCNT(ld[idx]), <, 0xff);
+			ZFS_LINKDIR_SET_REFCNT(ld[idx],
+			    ZFS_LINKDIR_REFCNT(ld[idx])+1);
+		} else {
+			/* Shift everything up so we can put a new entry in */
+			if (nld > 0)
+				memmove(&ld[idx+1], &ld[idx], ldsize);
+			nld++;
+			ldsize += sizeof (uint64_t);
+
+			/*
+			 * New entry. Note the refcount starts at 0; this entry
+			 * existing at all is the "first" reference.
+			 */
+			ZFS_LINKDIR_SET_OBJ(ld[idx], dobj);
+			ZFS_LINKDIR_SET_REFCNT(ld[idx], 0);
+		}
+	} else {
+		/*
+		 * Removing. We need to reduce an existing refcount. If we
+		 * don't have one in the list, then we might be removing the
+		 * last link in the ZPL_PARENT dir, and if so, we need to take
+		 * a reference from something else, and change the parent to
+		 * match.
+		 *
+		 * If the current position is "full", then there might be
+		 * another entry for this object that isn't full, because we
+		 * want to reduce the refcount on the last instance. If there
+		 * isn't one, then this full one is the right one.
+		 *
+		 * There will always be at least one entry in the array,
+		 * because we exit early above if there isn't.
+		 */
+		ASSERT3U(nld, >, 0);
+		while (idx < nld-1 && ZFS_LINKDIR_OBJ(ld[idx]) == dobj &&
+		    ZFS_LINKDIR_REFCNT(ld[idx]) == 0xff &&
+		    ZFS_LINKDIR_OBJ(ld[idx+1]) == dobj)
+			idx++;
+
+		if (ZFS_LINKDIR_OBJ(ld[idx]) == dobj) {
+			/*
+			 * Current position has our object. Drop a ref, and
+			 * if this was the last one, remove the entry.
+			 */
+			if (ZFS_LINKDIR_REFCNT(ld[idx]) > 0)
+				ZFS_LINKDIR_SET_REFCNT(ld[idx],
+				    ZFS_LINKDIR_REFCNT(ld[idx])-1);
+			else {
+				nld--;
+				ldsize -= sizeof (uint64_t);
+				if (nld > 0)
+					memmove(&ld[idx], &ld[idx+1], ldsize);
+			}
+		} else {
+			/*
+			 * Didn't find our entry at all. This has to mean we're
+			 * removing the additional reference in ZPL_PARENT.
+			 */
+			ASSERT3U(parent, ==, dobj);
+
+			/*
+			 * Now update the parent with a reference from the
+			 * linkdir array. Again, we know there's at least one
+			 * entry. We search for something with more than one
+			 * reference so we can just decrement and not have to
+			 * close a gap. If we don't find one, then we'll be on
+			 * the last entry, and we can just truncate the array.
+			 */
+			for (idx = 0; idx < nld-1; idx++)
+				if (ZFS_LINKDIR_REFCNT(ld[idx]) > 0)
+					break;
+
+			parent = ZFS_LINKDIR_OBJ(ld[idx]);
+			if (ZFS_LINKDIR_REFCNT(ld[idx]) > 0)
+				ZFS_LINKDIR_SET_REFCNT(ld[idx],
+				    ZFS_LINKDIR_REFCNT(ld[idx])-1);
+			else {
+				ASSERT3U(idx, ==, nld-1);
+				nld--;
+				ldsize -= sizeof (uint64_t);
+			}
+		}
+	}
+
+	/* Write or delete the list */
+	if (ldsize == 0)
+		sa_remove(zp->z_sa_hdl, SA_ZPL_LINKDIRS(zfsvfs), tx);
+	else
+		VERIFY0(sa_update(zp->z_sa_hdl, SA_ZPL_LINKDIRS(zfsvfs),
+		    ld, ldsize, tx));
+
+	kmem_free(ld, ldalloc);
+
+	return (parent);
+}
+
+/*
  * Link zp into dl.  Can fail in the following cases :
  * - if zp has been unlinked.
  * - if the number of entries with the same hash (aka. colliding entries)
@@ -816,6 +1006,7 @@ zfs_link_create(zfs_dirlock_t *dl, znode_t *zp, dmu_tx_t *tx, int flag)
 	int zp_is_dir = S_ISDIR(zp->z_mode);
 	sa_bulk_attr_t bulk[5];
 	uint64_t mtime[2], ctime[2];
+	uint64_t parent;
 	int count = 0;
 	int error;
 
@@ -828,8 +1019,6 @@ zfs_link_create(zfs_dirlock_t *dl, znode_t *zp, dmu_tx_t *tx, int flag)
 			return (SET_ERROR(ENOENT));
 		}
 		zp->z_links++;
-		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_LINKS(zfsvfs),
-		    NULL, &zp->z_links, sizeof (zp->z_links));
 	}
 
 	value = zfs_dirent(zp, zp->z_mode);
@@ -847,8 +1036,17 @@ zfs_link_create(zfs_dirlock_t *dl, znode_t *zp, dmu_tx_t *tx, int flag)
 		return (error);
 	}
 
-	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_PARENT(zfsvfs), NULL,
-	    &dzp->z_id, sizeof (dzp->z_id));
+	if (!(flag & ZRENAMING) && !(flag & ZNEW)) {
+		ASSERT3U(zp->z_links, >, 1);
+		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_LINKS(zfsvfs),
+		    NULL, &zp->z_links, sizeof (zp->z_links));
+		parent = zfs_recalc_links(zp, dzp->z_id, B_TRUE, tx);
+		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_PARENT(zfsvfs), NULL,
+		    &parent, sizeof (parent));
+	} else
+		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_PARENT(zfsvfs), NULL,
+		    &dzp->z_id, sizeof (dzp->z_id));
+
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_FLAGS(zfsvfs), NULL,
 	    &zp->z_pflags, sizeof (zp->z_pflags));
 
@@ -949,7 +1147,7 @@ zfs_link_destroy(zfs_dirlock_t *dl, znode_t *zp, dmu_tx_t *tx, int flag,
 	zfsvfs_t *zfsvfs = ZTOZSB(dzp);
 	int zp_is_dir = S_ISDIR(zp->z_mode);
 	boolean_t unlinked = B_FALSE;
-	sa_bulk_attr_t bulk[5];
+	sa_bulk_attr_t bulk[6];
 	uint64_t mtime[2], ctime[2];
 	int count = 0;
 	int error;
@@ -991,11 +1189,21 @@ zfs_link_destroy(zfs_dirlock_t *dl, znode_t *zp, dmu_tx_t *tx, int flag,
 			zfs_tstamp_update_setup(zp, STATE_CHANGED, mtime,
 			    ctime);
 		}
+
 		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_LINKS(zfsvfs),
 		    NULL, &zp->z_links, sizeof (zp->z_links));
+
+		if (zp->z_links > 0) {
+			uint64_t parent = zfs_recalc_links(zp, dzp->z_id,
+			    B_FALSE, tx);
+			SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_PARENT(zfsvfs),
+			    NULL, &parent, sizeof (parent));
+		}
+
 		error = sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
 		count = 0;
 		ASSERT(error == 0);
+
 		mutex_exit(&zp->z_lock);
 	} else {
 		error = zfs_dropname(dl, zp, dzp, tx, flag);
