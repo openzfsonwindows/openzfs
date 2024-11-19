@@ -5246,7 +5246,13 @@ static int
 dump_label(const char *dev)
 {
 	char path[MAXPATHLEN];
-	zdb_label_t labels[VDEV_LABELS] = {{{{0}}}};
+#ifdef _WIN32 // Too big for stack
+	zdb_label_t *labels = NULL;
+	labels = malloc(VDEV_LABELS * sizeof (zdb_label_t));
+	memset(labels, 0, VDEV_LABELS * sizeof (zdb_label_t));
+#else
+	zdb_label_t labels[VDEV_LABELS] = { {{{0}}} };
+#endif
 	uint64_t psize, ashift, l2cache;
 	struct stat64 statbuf;
 	boolean_t config_found = B_FALSE;
@@ -5424,7 +5430,9 @@ dump_label(const char *dev)
 	avl_destroy(&uberblock_tree);
 
 	(void) close(fd);
-
+#ifdef _WIN32 // Too big for stack
+	free(labels);
+#endif
 	return (config_found == B_FALSE ? 2 :
 	    (error == B_TRUE ? 1 : 0));
 }
