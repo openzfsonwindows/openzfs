@@ -252,7 +252,7 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 			ULONG len = 0;
 			ULONG type = 0;
 
-			// _CALL style has to 'type', so look it up first.
+			// _CALL style has to set 'type', so look it up first.
 			if (zt->zt_perm == ZT_ZMOD_RW) {
 				char *maybestr = NULL;
 				ZT_GET_VALUE(zt, (void **)&maybestr, &len,
@@ -475,15 +475,17 @@ param_set_arc_max(ZFS_MODULE_PARAM_ARGS)
 
 	val = *(uint64_t *)(*ptr);
 
+	// This can come in so early we have not yet set
+	// total_memory size. Trust boot Registry value then?
 	if (val != 0 && (val < MIN_ARC_MAX || val <= arc_c_min ||
-	    val >= arc_all_memory()))
+	    (arc_all_memory() > 0 && val >= arc_all_memory())))
 		return (SET_ERROR(EINVAL));
 
 	zfs_arc_max = val;
 	arc_tuning_update(B_TRUE);
 
 	/* Update the sysctl to the tuned value */
-	if (val != 0)
+	if (val != 0 && arc_c_max != 0)
 		zfs_arc_max = arc_c_max;
 
 	return (0);
