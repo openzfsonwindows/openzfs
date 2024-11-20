@@ -203,7 +203,7 @@ launch_process(const char *path, const char *prog, char *env[])
 	fflush(stderr);
 
 	snprintf(cmd, sizeof (cmd),
-	    "powershell.exe -ExecutionPolicy Bypass -File %s", path);
+	    "powershell.exe -ExecutionPolicy Bypass -File \"%s\"", path);
 	/*
 	 * ENV:
 	 * Unix is an array of strings, will last pointer NULL.
