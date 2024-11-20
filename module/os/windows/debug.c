@@ -124,6 +124,11 @@ param_cbuf_save(ZFS_MODULE_PARAM_ARGS)
 		    "* Unable to open %S", CBUF_FILENAME);
 	}
 
+	void
+	    zfs_send_system_boot(void);
+
+	zfs_send_system_boot();
+
 	return (0);
 }
 

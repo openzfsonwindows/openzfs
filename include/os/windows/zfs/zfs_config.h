@@ -28,7 +28,7 @@
 /* Define to 1 to enabled dmu tx validation */
 /* #undef DEBUG_DMU_TX */
 
-#define	SYSCONFDIR "\\SystemRoot\\System32\\drivers"  // Windwosify me
+#define	SYSCONFDIR ZFSEXECDIR  // Windwosify me
 #define	PKGDATADIR "\\SystemRoot\\System32\\drivers"  // Windwosify me
 
 #define	TEXT_DOMAIN "zfs-windows-user"
@@ -154,7 +154,7 @@
 
 #define	ZFSEXECDIR "C:/Program Files/OpenZFS on Windows"
 
-#define	RUNSTATEDIR ZFSEXECDIR "/zed"
+#define	RUNSTATEDIR ZFSEXECDIR
 #define	_PATH_STDPATH ""
 #define	SBINDIR ZFSEXECDIR
 

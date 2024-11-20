@@ -38,6 +38,7 @@
 #include <sys/spa.h>
 #include <sys/nvpair.h>
 #include <sys/fs/zfs.h>
+#include <sys/fm/fs/zfs.h>
 #include <sys/zfs_ctldir.h>
 #include <sys/zfs_dir.h>
 #include <sys/zfs_onexit.h>
@@ -1066,6 +1067,28 @@ openzfs_fini_os(void)
 {
 }
 
+#include <sys/fm/protocol.h>
+void
+zfs_send_system_boot(void)
+{
+	nvlist_t *ereport, *detector;
+	// char class[64];
+	uint64_t ena;
+	int rc;
+	ereport = fm_nvlist_create(NULL);
+	detector = fm_nvlist_create(NULL);
+	// (void)snprintf(class, sizeof(class), "%s.%s",
+	//    ZFS_ERROR_CLASS, subclass);
+
+	fm_fmri_zfs_set(detector, FM_ZFS_SCHEME_VERSION, 0,
+	    0);
+
+	fm_ereport_set(ereport, FM_EREPORT_VERSION,
+	    ZFS_ERROR_CLASS "." FM_RESOURCE_SYSTEM_BOOT, ena, detector, NULL);
+
+	rc = zfs_zevent_post(ereport, detector, zfs_zevent_post_cb);
+}
+
 _Function_class_(DRIVER_NOTIFICATION_CALLBACK_ROUTINE) NTSTATUS __stdcall
 volume_notification(PVOID NotificationStructure, PVOID Context)
 {
@@ -1409,6 +1432,9 @@ zfsdev_attach(void)
 	ObReferenceObject(DriverExtension->fsDiskDeviceObject);
 
 	// This should then call AddDevice() next.
+
+	/* Let zed know driver is ready */
+	zfs_send_system_boot();
 
 	return (0);
 

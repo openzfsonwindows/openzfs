@@ -197,3 +197,16 @@ $env:ZED_SYSLOG_SUBCLASS_EXCLUDE="history_event"
 # Gotify application associated with ZED_GOTIFY_APPTOKEN.
 # Value is an integer 0 and up.
 #$env:ZED_GOTIFY_PRIORITY=""
+
+##
+# Use Toast notification (optional)
+# If defined, use system Toast notifications
+# Value is an integer 0 and up.
+# $env:ZED_TOAST_NOTIFICATIONS=1
+
+##
+# Use BurntToast notification(optional)
+# If defined, use Burnt Toast notifications
+# Installed with "Install-Module -Name BurntToast -Force -AllowClobber"
+# Value is an integer 0 and up.
+# $env:ZED_BURNTTOAST_NOTIFICATIONS=1

@@ -1,0 +1,77 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=Application
+ClassGuid={5c4c3332-344d-4f20-89c9-6800dd8809ff}
+Provider=%ManufacturerName%
+DriverVer = 11/21/2024,10.34.39.932
+CatalogFile=zed.cat
+PnpLockdown=1
+
+[SourceDisksNames]
+1="OpenZFS zed media",,0
+
+[SourceDisksFiles]
+zed.exe=1
+
+[DefaultInstall.NTx86]
+CustomDestination=ProgramFilesDir
+CopyFiles=CopyZedFiles
+
+[DefaultInstall.NTamd64]
+CustomDestination=ProgramFilesDirNT
+CopyFiles=CopyZedFiles
+
+[DefaultInstall.NTx86.Services]
+AddService=OpenZFS_zed,0x00000002,ServiceInstallSection
+
+[DefaultInstall.NTamd64.Services]
+AddService=OpenZFS_zed,0x00000002,ServiceInstallSection
+
+[DefaultUninstall.NTx86]
+LegacyUninstall=1
+DelFiles=CopyZedFiles
+UninstallServices=ServiceUninstallSection
+
+[DefaultUninstall.NTamd64]
+LegacyUninstall=1
+DelFiles=CopyZedFiles
+UninstallServices=ServiceUninstallSection
+
+; Change 5 to 1 below to prompt user for path.
+[ProgramFilesDir]
+16422=DestA,5
+
+[ProgramFilesDirNT]
+16422=DestB,5
+
+[DestA]
+HKLM,"Software\Microsoft\Windows\CurrentVersion","ProgramFilesDir",,"C:\Program Files"
+
+[DestB]
+HKLM,"Software\Microsoft\Windows\CurrentVersion", "ProgramFilesDir",,"C:\Program Files"
+
+[ServiceInstallSection]
+DisplayName = "OpenZFS zed"
+Description = "zed monitors ZFS events."
+ServiceType = 0x10  ; Own Process
+StartType   = 2     ; Automatic
+ErrorControl= 1     ; Normal error handling
+ServiceBinary = %16422%\%OpenZFSDirName%\zed.exe
+LoadOrderGroup = Base
+
+[ServiceUninstallSection]
+DelService=OpenZFS_zed,0x200   ; Removes service but not instance configuration
+
+[Strings]
+ManufacturerName="OpenZFS on Windows"
+OpenZFSDirName="OpenZFS on Windows"
+
+;here we tell setup where to dump our Files, dont change anything from here unless you know
+;
+[DestinationDirs]
+CopyZedFiles=16422,%OpenZFSDirName%
+
+[CopyZedFiles]
+zed.exe
+
+; ***** END OF FILE *****

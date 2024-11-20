@@ -204,7 +204,8 @@
       </Command>
     </PostBuildEvent>
     <PreLinkEvent>
-      <Command>copy /Y "$(SolutionDir)..\..\..\out\build\x64-Debug\module\os\windows\driver\OpenZFS.man" "$(TargetDir)\OpenZFS\OpenZFS.man"</Command>
+      <Command>copy /Y "$(SolutionDir)..\..\..\out\build\x64-Debug\module\os\windows\driver\OpenZFS.man" "$(TargetDir)\OpenZFS\OpenZFS.man"
+copy /Y "$(SolutionDir)..\..\..\out\build\x64-Debug\cmd\zed\zed.exe" "$(TargetDir)\OpenZFS\zed.exe"</Command>
       <Message>Copy OpenZFS.man to deploy dir - no better way?</Message>
     </PreLinkEvent>
     <PreBuildEvent>
@@ -231,7 +232,18 @@
     </DriverSign>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <FilesToPackage Include="$(TargetPath)" />
+    <FilesToPackage Include="C:\src\openzfs\contrib\windows\OpenZFS\..\..\..\out\build\x64-Debug\cmd\zed\cmd\zed\os\windows\zed.cat" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="C:\src\openzfs\contrib\windows\OpenZFS\..\..\..\out\build\x64-Debug\cmd\zed\cmd\zed\os\windows\zed.inf" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="C:\src\openzfs\contrib\windows\OpenZFS\x64\Debug\OpenZFS.sys">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
   </ItemGroup>
   <ItemGroup>
     <Inf Include="..\..\..\..\module\os\windows\OpenZFS.inf" />
