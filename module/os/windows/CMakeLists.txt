@@ -52,6 +52,7 @@ set_target_properties(OpenZFS
 
 configure_file(OpenZFS.inf "${CMAKE_CURRENT_BINARY_DIR}/driver/OpenZFS.inf" COPYONLY)
 configure_file(OpenZFS.man "${CMAKE_CURRENT_BINARY_DIR}/driver/OpenZFS.man" COPYONLY)
+configure_file(OpenZFS.inf "${CMAKE_CURRENT_BINARY_DIR}/driver/zed.inf" COPYONLY)
 
 add_custom_command(
 	TARGET OpenZFS
@@ -70,8 +71,10 @@ add_custom_command(
 	COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" "${CMAKE_CURRENT_BINARY_DIR}/driver/OpenZFS.cat"
 	COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:OpenZFS>
 	WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/driver"
-	VERBATIM COMMENT "Generating and signing .cat file"
+	VERBATIM COMMENT "Generating and signing OpenZFS.cat file"
 )
+
+add_dependencies(OpenZFS zed_cat)
 	
 install(TARGETS OpenZFS RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}/driver")
 install(FILES 
