@@ -210,53 +210,22 @@ _finish_daemonize(void)
 
 	/* Notify parent that daemonization is complete. */
 	zed_log_pipe_close_writes();
+
+#ifdef _WIN32
+	void win_run_loop(void);
+	win_run_loop();
+#endif
 }
 
 /*
- * ZFS Event Daemon (ZED).
+ * Main loop for ZED.
  */
-int
-main(int argc, char *argv[])
+void
+main_loop(void)
 {
 	struct zed_conf zcp;
 	uint64_t saved_eid;
 	int64_t saved_etime[2];
-
-	zed_log_init(argv[0]);
-	zed_log_stderr_open(LOG_NOTICE);
-	zed_conf_init(&zcp);
-	zed_conf_parse_opts(&zcp, argc, argv);
-	if (zcp.do_verbose)
-		zed_log_stderr_open(LOG_INFO);
-
-	if (geteuid() != 0)
-		zed_log_die("Must be run as root");
-
-	zed_file_close_from(STDERR_FILENO + 1);
-
-	(void) umask(0);
-
-	if (chdir("/") < 0)
-		zed_log_die("Failed to change to root directory");
-
-	if (zed_conf_scan_dir(&zcp) < 0)
-		exit(EXIT_FAILURE);
-
-	if (!zcp.do_foreground) {
-		_start_daemonize();
-		zed_log_syslog_open(LOG_DAEMON);
-	}
-	_setup_sig_handlers();
-
-	if (zcp.do_memlock)
-		_lock_memory();
-
-	if ((zed_conf_write_pid(&zcp) < 0) && (!zcp.do_force))
-		exit(EXIT_FAILURE);
-
-	if (!zcp.do_foreground)
-		_finish_daemonize();
-
 	zed_log_msg(LOG_NOTICE,
 	    "ZFS Event Daemon %s-%s (PID %d)",
 	    ZFS_META_VERSION, ZFS_META_RELEASE, (int)getpid());
@@ -306,5 +275,56 @@ idle:
 out:
 	zed_conf_destroy(&zcp);
 	zed_log_fini();
+}
+
+/*
+ * ZFS Event Daemon (ZED).
+ */
+int
+main(int argc, char *argv[])
+{
+	struct zed_conf zcp;
+	uint64_t saved_eid;
+	int64_t saved_etime[2];
+
+	zed_log_init(argv[0]);
+	zed_log_stderr_open(LOG_NOTICE);
+	zed_conf_init(&zcp);
+	zed_conf_parse_opts(&zcp, argc, argv);
+	if (zcp.do_verbose)
+		zed_log_stderr_open(LOG_INFO);
+
+	if (geteuid() != 0)
+		zed_log_die("Must be run as root");
+
+	zed_file_close_from(STDERR_FILENO + 1);
+
+	(void) umask(0);
+
+	if (chdir("/") < 0)
+		zed_log_die("Failed to change to root directory");
+
+	if (zed_conf_scan_dir(&zcp) < 0)
+		exit(EXIT_FAILURE);
+
+	if (!zcp.do_foreground) {
+		_start_daemonize();
+		zed_log_syslog_open(LOG_DAEMON);
+	}
+	_setup_sig_handlers();
+
+	if (zcp.do_memlock)
+		_lock_memory();
+
+	if ((zed_conf_write_pid(&zcp) < 0) && (!zcp.do_force))
+		exit(EXIT_FAILURE);
+
+	if (!zcp.do_foreground)
+		_finish_daemonize();
+
+	/* Windows daemonize needs to specify function for thread */
+
+	main_loop();
+
 	exit(EXIT_SUCCESS);
 }

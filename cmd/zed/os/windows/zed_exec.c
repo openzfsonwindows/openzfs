@@ -510,3 +510,56 @@ zed_exec_process(uint64_t eid, const char *class, const char *subclass,
 	free(e);
 	return (0);
 }
+
+void main_loop(void);
+
+static SERVICE_STATUS ServiceStatus;
+static SERVICE_STATUS_HANDLE hStatus;
+
+// Service Control Handler
+static void WINAPI
+ServiceControlHandler(DWORD controlCode)
+{
+	switch (controlCode) {
+	case SERVICE_CONTROL_STOP:
+		ServiceStatus.dwCurrentState = SERVICE_STOP_PENDING;
+		// Perform cleanup
+		ServiceStatus.dwCurrentState = SERVICE_STOPPED;
+		SetServiceStatus(hStatus, &ServiceStatus);
+		break;
+	default:
+		break;
+	}
+}
+
+static void WINAPI
+ServiceMain(DWORD argc, LPTSTR *argv)
+{
+	ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+	ServiceStatus.dwCurrentState = SERVICE_START_PENDING;
+	ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
+	hStatus = RegisterServiceCtrlHandler(TEXT("OpenZFS_zed"),
+	    ServiceControlHandler);
+	if (!hStatus)
+		return;
+
+	ServiceStatus.dwCurrentState = SERVICE_RUNNING;
+	SetServiceStatus(hStatus, &ServiceStatus);
+
+	// Service logic here, e.g., initializing zed's main functionality
+	// while (ServiceStatus.dwCurrentState == SERVICE_RUNNING) {
+	main_loop();
+	// }
+}
+
+void
+win_run_loop(void)
+{
+	SERVICE_TABLE_ENTRY ServiceTable[] = {
+	    { TEXT("OpenZFS_zed"), (LPSERVICE_MAIN_FUNCTION) ServiceMain },
+	    { NULL, NULL }
+	};
+	/* Blocks until Service is stopped */
+	StartServiceCtrlDispatcher(ServiceTable);
+	exit(EXIT_SUCCESS);
+}
