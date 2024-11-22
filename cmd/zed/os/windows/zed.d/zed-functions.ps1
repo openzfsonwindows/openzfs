@@ -128,43 +128,6 @@ function zed_notify_burnttoast()
 
 function zed_notify_toast
 {
-    param (
-        [string]$title,
-        [string]$message
-    )
-
-    # Ensure UWP assemblies are loaded manually
-    try {
-        # Attempt to load the necessary UWP notifications assembly
-        Add-Type -AssemblyName 'Windows.Foundation.UniversalApiContract'
-        Add-Type -AssemblyName 'Windows.UI.Notifications'
-
-        # Create the toast notification
-        $toastXml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastGeneric)
-        
-        # Set up the XML toast notification content
-        $toastElements = $toastXml.GetElementsByTagName("binding")
-        $toastElements.Item(0).SetAttribute("template", "ToastGeneric")
-
-        # Set title and message
-        $toastXml.SelectSingleNode("//text[@id='1']").InnerText = $title
-        $toastXml.SelectSingleNode("//text[@id='2']").InnerText = $message
-
-        # Create the toast notification
-        $toast = New-Object Windows.UI.Notifications.ToastNotification $toastXml
-
-        # Create a ToastNotificationManager
-        $toastNotifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("OpenZFS")
-
-        # Show the notification
-        $toastNotifier.Show($toast)
-
-    } catch {
-        # If something fails (UWP API issues), log the error and return failure
-        zed_log_err "Failed to send toast notification: $_"
-        return 1
-    }
-
     # If the toast notification was successfully sent, return success
     return 0
 }

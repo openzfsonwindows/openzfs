@@ -26,14 +26,11 @@ if (Test-Path $zpoolCachePath) {
     zed_log_msg LOG_NOTICE "zpool.cache found. Importing ZFS pools"
 
     # Import ZFS pools using the zpool command and the cache file
-    $zpoolImportCommand = "$env:ZPOOL import -c $zpoolCachePath"
-    
-    # Execute the command
-    $result = Invoke-Expression $zpoolImportCommand
+    & "$env:ZPOOL" import -c "$zpoolCachePath" -a
     
     # Optionally, log the result or handle any output
-    Write-Host "ZFS Pools Imported: $result"
+    zed_log_msg "ZFS Pools Imported."
 	zed_notify "ZFS Pools Imported" "path"
 } else {
-    Write-Host "zpool.cache not found. No pools imported."
+    zed_log_msg "zpool.cache not found. No pools imported."
 }
