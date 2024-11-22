@@ -210,30 +210,24 @@ _finish_daemonize(void)
 
 	/* Notify parent that daemonization is complete. */
 	zed_log_pipe_close_writes();
-
-#ifdef _WIN32
-	void win_run_loop(void);
-	win_run_loop();
-#endif
 }
 
 /*
  * Main loop for ZED.
  */
 void
-main_loop(void)
+main_loop(struct zed_conf *zcp)
 {
-	struct zed_conf zcp;
 	uint64_t saved_eid;
 	int64_t saved_etime[2];
 	zed_log_msg(LOG_NOTICE,
 	    "ZFS Event Daemon %s-%s (PID %d)",
 	    ZFS_META_VERSION, ZFS_META_RELEASE, (int)getpid());
 
-	if (zed_conf_open_state(&zcp) < 0)
+	if (zed_conf_open_state(zcp) < 0)
 		exit(EXIT_FAILURE);
 
-	if (zed_conf_read_state(&zcp, &saved_eid, saved_etime) < 0)
+	if (zed_conf_read_state(zcp, &saved_eid, saved_etime) < 0)
 		exit(EXIT_FAILURE);
 
 idle:
@@ -242,24 +236,25 @@ idle:
 	 * successful.
 	 */
 	do {
-		if (!zed_event_init(&zcp))
+		if (!zed_event_init(zcp))
 			break;
 		/* Wait for some time and try again. tunable? */
 		sleep(30);
-	} while (!_got_exit && zcp.do_idle);
+	} while (!_got_exit && zcp->do_idle);
 
 	if (_got_exit)
 		goto out;
 
-	zed_event_seek(&zcp, saved_eid, saved_etime);
+	zed_event_seek(zcp, saved_eid, saved_etime);
 
 	while (!_got_exit) {
 		int rv;
 		if (_got_hup) {
 			_got_hup = 0;
-			(void) zed_conf_scan_dir(&zcp);
+			(void) zed_conf_scan_dir(zcp);
+
 		}
-		rv = zed_event_service(&zcp);
+		rv = zed_event_service(zcp);
 
 		/* ENODEV: When kernel module is unloaded (osx) */
 		if (rv != 0)
@@ -267,13 +262,13 @@ idle:
 	}
 
 	zed_log_msg(LOG_NOTICE, "Exiting");
-	zed_event_fini(&zcp);
+	zed_event_fini(zcp);
 
-	if (zcp.do_idle && !_got_exit)
+	if (zcp->do_idle && !_got_exit)
 		goto idle;
 
 out:
-	zed_conf_destroy(&zcp);
+	zed_conf_destroy(zcp);
 	zed_log_fini();
 }
 
@@ -322,9 +317,15 @@ main(int argc, char *argv[])
 	if (!zcp.do_foreground)
 		_finish_daemonize();
 
+#ifdef _WIN32
+	void win_run_loop(struct zed_conf *);
+	if (!zcp.do_foreground)
+		win_run_loop(&zcp);
+#endif
+
 	/* Windows daemonize needs to specify function for thread */
 
-	main_loop();
+	main_loop(&zcp);
 
 	exit(EXIT_SUCCESS);
 }

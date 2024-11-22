@@ -216,14 +216,18 @@ _zed_log_aux(int priority, const char *fmt, va_list vargs)
 		buf[sizeof (buf) - 1] = '\0';
 	}
 
-	if (_ctx.do_syslog)
-		syslog(priority, "%s", buf);
 #ifdef _WIN32
+	if (_ctx.do_syslog)
+		syslog(priority, "%s\n", buf);
+
 	if (_ctx.do_stderr && (priority <= _ctx.priority)) {
 		fprintf(stderr, "%s\r\n", buf);
 		fflush(stderr);
 	}
 #else
+	if (_ctx.do_syslog)
+		syslog(priority, "%s", buf);
+
 	if (_ctx.do_stderr && (priority <= _ctx.priority))
 		fprintf(stderr, "%s\n", buf);
 #endif
