@@ -38,6 +38,7 @@
 #include <sys/spa.h>
 #include <sys/nvpair.h>
 #include <sys/fs/zfs.h>
+#include <sys/fm/fs/zfs.h>
 #include <sys/zfs_ctldir.h>
 #include <sys/zfs_dir.h>
 #include <sys/zfs_onexit.h>
@@ -1409,6 +1410,11 @@ zfsdev_attach(void)
 	ObReferenceObject(DriverExtension->fsDiskDeviceObject);
 
 	// This should then call AddDevice() next.
+
+	/* Let zed know driver is ready */
+	(void) zfs_ereport_post(
+	    FM_RESOURCE_SYSTEM_BOOT,
+	    NULL, NULL, NULL, NULL, 0);
 
 	return (0);
 

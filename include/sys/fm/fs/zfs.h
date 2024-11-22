@@ -131,6 +131,7 @@ extern "C" {
 #define	FM_RESOURCE_ZFS_SNAPSHOT_UNMOUNT		"snapshot_unmount"
 #define	FM_RESOURCE_ZVOL_CREATE_SYMLINK		"zvol_create"
 #define	FM_RESOURCE_ZVOL_REMOVE_SYMLINK		"zvol_remove"
+#define	FM_RESOURCE_SYSTEM_BOOT		"system_boot"
 
 #ifdef	__cplusplus
 }
