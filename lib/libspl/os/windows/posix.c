@@ -758,7 +758,18 @@ openlog(const char *ident, int logopt, int facility)
 void
 syslog(int priority, const char *message, ...)
 {
-
+	FILE *fd;
+	fd = fopen("C:/src/zed.txt", "a");
+	if (fd != NULL) {
+		va_list args;
+		va_start(args, message);
+		vfprintf(fd, message, args);
+		va_end(args);
+		fclose(fd);
+	} else {
+		int ret = GetLastError();
+		printf("%d\n", ret);
+	}
 }
 
 void
@@ -1550,6 +1561,16 @@ file_mode_fmode(const char *mode)
 		return (O_RDONLY | O_BINARY);
 	if (strcmp(mode, "r") == 0)
 		return (O_RDONLY);
+	if (strcmp(mode, "w") == 0)
+		return (O_WRONLY);
+	if (strcmp(mode, "wb") == 0)
+		return (O_WRONLY | O_BINARY);
+	if (strcmp(mode, "a") == 0)
+		return (O_WRONLY | O_APPEND);
+	if (strcmp(mode, "ab") == 0)
+		return (O_WRONLY | O_BINARY | O_APPEND);
+	if (strcmp(mode, "at") == 0)
+		return (O_WRONLY | O_TEXT | O_APPEND);
 	return (O_RDWR | O_BINARY);
 }
 

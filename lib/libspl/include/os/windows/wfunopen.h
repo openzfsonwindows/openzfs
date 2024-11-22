@@ -187,6 +187,21 @@ static inline int wosix_ferror(FILE *f)
 }
 #define	ferror wosix_ferror
 
+static inline int wosix_vfprintf(FILE *const f, char const *const fmt,
+    va_list va)
+{
+	fakeFILE *fFILE = (fakeFILE *)f;
+	int result;
+
+	if (fFILE->realFILE)
+		result = vfprintf(fFILE->realFILE, fmt, va);
+	else
+		result = 0;
+
+	return (result);
+}
+#define	vfprintf wosix_vfprintf
+
 #ifdef  __cplusplus
 }
 #endif

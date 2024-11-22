@@ -104,7 +104,7 @@ extern pid_t setsid(void);
 
 static inline pid_t fork(void)
 {
-	return (1);
+	return (0); // Return as child.
 }
 
 extern int mkostemps(char *templ, int suffixlen, DWORD flags);
