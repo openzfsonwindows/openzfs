@@ -14,46 +14,83 @@
 # Return
 #   nothing
 #
-function zed_log_msg {
+function zed_log_msg
+{
     param (
-        [string]$priority,
-        [string]$tag,
+        [string]$level,
         [string]$message
     )
 
-    # Check if the event source exists, create it if not
     $eventSource = "OpenZFS_zed"
-    if (-not (EventLog SourceExists $eventSource)) {
-        New-EventLog -LogName Application -Source $eventSource
+    $eventLog = "Application"
+
+    # Ensure the event source exists
+    try {
+        if (-not [System.Diagnostics.EventLog]::SourceExists($eventSource)) {
+            [System.Diagnostics.EventLog]::CreateEventSource($eventSource, $eventLog)
+        }
+    } catch {
+        Write-Host "WARNING: Insufficient permissions to check or create event log source. Falling back to console output."
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        Write-Host "$timestamp [$level] $message"
+        return
     }
 
-    # Create the log message with priority and tag
-    $logMessage = "[$priority] [$tag] $message"
-
-    # Log the message to the Windows Event Log
-    Write-EventLog -LogName Application -Source $eventSource -EntryType Information -EventId 1001 -Message $logMessage
+    # Write the event log
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $fullMessage = "$timestamp [$level] $message"
+    try {
+        Write-EventLog -LogName $eventLog -Source $eventSource -EventId 0 -EntryType Information -Message $fullMessage
+    } catch {
+        Write-Host "ERROR: Unable to write to event log. Falling back to console output."
+        Write-Host "$timestamp [$level] $message"
+    }
 }
 
-function zed_log_err {
+# zed_log_err (msg, ...)
+#
+# Write an error message to the system log.  This message will contain the
+# script name, EID, and all argument strings.
+#
+# Globals
+#   ZED_SYSLOG_PRIORITY
+#   ZED_SYSLOG_TAG
+#   ZEVENT_EID
+#
+# Return
+#   nothing
+#
+function zed_log_err
+{
     param (
-        [string]$priority,
-        [string]$tag,
         [string]$message
     )
 
-    # Create the log entry format
-    $logEntry = "$(Get-Date) [$priority] [$tag] $message"
-    
-    # Check if the event source exists, create it if not
-    $eventSource = "ZED"
-    if (-not (EventLog SourceExists $eventSource)) {
-        New-EventLog -LogName Application -Source $eventSource
+    $eventSource = "OpenZFS_zed"
+    $eventLog = "Application"
+
+    # Ensure the event source exists
+    try {
+        if (-not [System.Diagnostics.EventLog]::SourceExists($eventSource)) {
+            [System.Diagnostics.EventLog]::CreateEventSource($eventSource, $eventLog)
+        }
+    } catch {
+        Write-Host "WARNING: Insufficient permissions to check or create event log source. Falling back to console output."
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        Write-Host "$timestamp [ERROR] $message"
+        return
     }
 
-    # Log to the Windows Event Log as an Error (higher priority)
-    Write-EventLog -LogName Application -Source $eventSource -EntryType Error -EventId 1002 -Message $logEntry
+    # Write the event log
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $fullMessage = "$timestamp [ERROR] $message"
+    try {
+        Write-EventLog -LogName $eventLog -Source $eventSource -EventId 0 -EntryType Error -Message $fullMessage
+    } catch {
+        Write-Host "ERROR: Unable to write to event log. Falling back to console output."
+        Write-Host "$timestamp [ERROR] $message"
+    }
 }
-
 
 # For real notifications to work, run in powershell (Admin)
 # "Install-Module -Name BurntToast -Force -AllowClobber"
@@ -81,55 +118,54 @@ function zed_notify_burnttoast()
         catch {
             # If there's an error, fall back to a basic notification
             Write-Host "BurntToast failed to create a notification: $_"
-            Show-MessageBox "$Message" "$Title"
         }
     }
     else {
         # Fallback if BurntToast is not installed
         Write-Host "BurntToast module is not installed. Falling back to basic notification."
-        Show-MessageBox "$Message" "$Title"
     }
 }
 
 function zed_notify_toast
 {
     param (
-        [string]$subject,
-        [string]$pathname
+        [string]$title,
+        [string]$message
     )
 
-	if (-not $env:ZED_TOAST_NOTIFICATIONS) {
-		return 2
-	}
+    # Ensure UWP assemblies are loaded manually
+    try {
+        # Attempt to load the necessary UWP notifications assembly
+        Add-Type -AssemblyName 'Windows.Foundation.UniversalApiContract'
+        Add-Type -AssemblyName 'Windows.UI.Notifications'
 
-    # Check if the 'subject' (title) is provided, otherwise use a default
-    if (-not $subject) {
-        $subject = "OpenZFS Notification"
+        # Create the toast notification
+        $toastXml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastGeneric)
+        
+        # Set up the XML toast notification content
+        $toastElements = $toastXml.GetElementsByTagName("binding")
+        $toastElements.Item(0).SetAttribute("template", "ToastGeneric")
+
+        # Set title and message
+        $toastXml.SelectSingleNode("//text[@id='1']").InnerText = $title
+        $toastXml.SelectSingleNode("//text[@id='2']").InnerText = $message
+
+        # Create the toast notification
+        $toast = New-Object Windows.UI.Notifications.ToastNotification $toastXml
+
+        # Create a ToastNotificationManager
+        $toastNotifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("OpenZFS")
+
+        # Show the notification
+        $toastNotifier.Show($toast)
+
+    } catch {
+        # If something fails (UWP API issues), log the error and return failure
+        zed_log_err "Failed to send toast notification: $_"
+        return 1
     }
 
-    # Create the message text from the pathname or fallback to the subject
-    $message = if ($pathname) { "Details: $pathname" } else { "No additional details provided" }
-
-    # Create the Toast notification
-    $toastXml = @"
-<toast>
-    <visual>
-        <binding template="ToastGeneric">
-            <text>$subject</text>
-            <text>$message</text>
-        </binding>
-    </visual>
-</toast>
-"@
-
-    # Create the Toast notification
-    $toast = [Windows.UI.Notifications.ToastNotification]::new([Windows.Data.Xml.Dom.XmlDocument]::new())
-    $toast.XmlDocument.LoadXml($toastXml)
-
-    # Display the Toast
-    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("ZFSNotificationApp").Show($toast)
-
-    # Return success (0)
+    # If the toast notification was successfully sent, return success
     return 0
 }
 
@@ -148,38 +184,54 @@ function zed_notify_messagebox
     [System.Windows.Forms.MessageBox]::Show($Message, $Title)
 }
 
-zed_notify()
+
+# zed_notify (title, message)
+#
+# Send a notification via all available methods.
+#
+# Arguments
+#   title: notification title
+#   message: notification message (OPTIONAL)
+#
+# Return
+#   0: notification succeeded via at least one method
+#   1: notification failed
+#   2: no notification methods configured
+#
+function zed_notify
 {
-    local subject="$1"
-    local pathname="$2"
-    local num_success=0
-    local num_failure=0
+    param (
+        [string]$title,
+        [string]$message
+    )
+    $num_success=0
+    $num_failure=0
 
     # Call zed_notify_toast (Windows-specific toast notification)
-    zed_notify_toast "$subject" "$pathname"
-    rv=$?
-    [ "$rv" -eq 0 ] && num_success=$((num_success + 1))
-    [ "$rv" -eq 1 ] && num_failure=$((num_failure + 1))
+    $rv = zed_notify_toast "$subject" "$pathname"
+	if ($rv -eq 0) {
+        $num_success += 1
+    } elseif ($rv -eq 1) {
+        $num_failure += 1
+    }
 
-	zed_notify_burnttoast "$subject" "$pathname"
-    rv=$?
-    [ "$rv" -eq 0 ] && num_success=$((num_success + 1))
-    [ "$rv" -eq 1 ] && num_failure=$((num_failure + 1))
+	$rv = zed_notify_burnttoast "$subject" "$pathname"
+	if ($rv -eq 0) {
+        $num_success += 1
+    } elseif ($rv -eq 1) {
+        $num_failure += 1
+    }
 
     # Additional notification methods could go here (email, pushbullet, etc.)
 
     # If we had any success, return success code
-    if [ "$num_success" -gt 0 ]; then
+  if ($num_success -gt 0) {
         return 0
-    fi
-
-    # If we had any failure, return failure code
-    if [ "$num_failure" -gt 0 ]; then
+    } elseif ($num_failure -gt 0) {
         return 1
-    fi
-
-    # If no methods were configured, return 2
-    return 2
+    } else {
+        return 2
+    }
 }
 
 
@@ -202,25 +254,24 @@ function zed_guid_to_pool
         return # Return nothing if no GUID is provided
     }
 
-    # Check if the GUID is in hex format (starts with "0x")
-    if ($guid.StartsWith("0x", [StringComparison]::OrdinalIgnoreCase)) {
-        # Strip the "0x" prefix and convert it to a decimal number
-        $guid = [Convert]::ToUInt64($guid.Substring(2), 16)
+    # Ensure $env:ZPOOL is set
+    if (-not $env:ZPOOL) {
+        Write-Error "Environment variable ZPOOL is not set"
+        return
     }
-    
-    # Run the zpool command to get the pool name for the GUID
+
     try {
-        $poolName = & $env:ZPOOL get -H -ovalue,name guid | Where-Object { $_ -match "^$guid\s+(\S+)$" } | ForEach-Object { $_ -replace "^$guid\s+", "" }
+        # Run the ZPOOL command and filter by the GUID
+        $poolName = & $env:ZPOOL get -H -o value,name guid 2>&1 | 
+                    Where-Object { $_ -match $guid } |
+                    ForEach-Object { ($_ -split '\s+')[1] }
 
         if ($poolName) {
             return $poolName
         } else {
-            Write-Host "Pool not found for GUID: $guid"
-            return ""
+            Write-Error "No pool found for GUID $guid"
         }
-    }
-    catch {
-        Write-Error "Error querying zpool: $_"
-        return ""
+    } catch {
+        Write-Error "Error querying pool name: $_"
     }
 }

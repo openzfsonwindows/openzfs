@@ -23,7 +23,7 @@ $zpoolCachePath = "C:\Windows\System32\Drivers\zpool.cache"
 # Check if the zpool.cache file exists
 if (Test-Path $zpoolCachePath) {
     Write-Host "zpool.cache found. Importing ZFS pools..."
-    zed_log_msg(LOG_NOTICE, "zpool.cache found. Importing ZFS pools");
+    zed_log_msg LOG_NOTICE "zpool.cache found. Importing ZFS pools"
 
     # Import ZFS pools using the zpool command and the cache file
     $zpoolImportCommand = "$env:ZPOOL import -c $zpoolCachePath"
@@ -33,7 +33,7 @@ if (Test-Path $zpoolCachePath) {
     
     # Optionally, log the result or handle any output
     Write-Host "ZFS Pools Imported: $result"
-	zed_notify("ZFS Pools Imported", "path");
+	zed_notify "ZFS Pools Imported" "path"
 } else {
     Write-Host "zpool.cache not found. No pools imported."
 }

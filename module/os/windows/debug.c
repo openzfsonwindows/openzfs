@@ -123,13 +123,11 @@ param_cbuf_save(ZFS_MODULE_PARAM_ARGS)
 		snprintf(zfs_cbuf_save, sizeof (zfs_cbuf_save),
 		    "* Unable to open %S", CBUF_FILENAME);
 	}
-#include <sys/fm/fs/zfs.h>
-	extern int zfs_ereport_post(const char *clazz, void *spa, void *vd,
-	    void *zb, void *zio, uint64_t state);
 
-	(void) zfs_ereport_post(
-	    FM_RESOURCE_SYSTEM_BOOT,
-	    NULL, NULL, NULL, NULL, 0);
+	void
+	    zfs_send_system_boot(void);
+
+	zfs_send_system_boot();
 
 	return (0);
 }
