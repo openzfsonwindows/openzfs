@@ -755,11 +755,12 @@ openlog(const char *ident, int logopt, int facility)
 
 }
 
+#define	ZEDLOG ZFSEXECDIR "/zed.txt"
 void
 syslog(int priority, const char *message, ...)
 {
 	FILE *fd;
-	fd = fopen("C:/src/zed.txt", "a");
+	fd = fopen(ZEDLOG, "a");
 	if (fd != NULL) {
 		va_list args;
 		va_start(args, message);
