@@ -107,6 +107,9 @@ extern uint32_t kfpu_state;
 	XSTATE_SAVE SaveState; \
 	saveStatus = KeSaveExtendedProcessorState(kfpu_state, &SaveState);
 
+#define	kfpu_begin_cont() \
+	saveStatus = KeSaveExtendedProcessorState(kfpu_state, &SaveState);
+
 #define	kfpu_end() \
 	if (NT_SUCCESS(saveStatus)) \
 		KeRestoreExtendedProcessorState(&SaveState);
