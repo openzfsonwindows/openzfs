@@ -76,6 +76,11 @@ static int gcm_init_avx(gcm_ctx_t *, const uint8_t *, size_t, const uint8_t *,
     size_t, size_t);
 #endif /* ifdef CAN_USE_GCM_ASM */
 
+/* Windows defines variables, so can't be nested */
+#ifndef kfpu_begin_cont
+#define	kfpu_begin_cont kfpu_begin
+#endif
+
 /*
  * Encrypt multiple blocks of data in GCM mode.  Decrypt for GCM mode
  * is done in another function.
@@ -1478,7 +1483,7 @@ gcm_init_avx(gcm_ctx_t *ctx, const uint8_t *iv, size_t iv_len,
 		kfpu_end();
 		gcm_format_initial_blocks(iv, iv_len, ctx, block_size,
 		    aes_copy_block, aes_xor_block);
-		kfpu_begin();
+		kfpu_begin_cont();
 	}
 
 	/* Openssl post increments the counter, adjust for that. */
@@ -1490,7 +1495,7 @@ gcm_init_avx(gcm_ctx_t *ctx, const uint8_t *iv, size_t iv_len,
 		datap += chunk_size;
 		clear_fpu_regs();
 		kfpu_end();
-		kfpu_begin();
+		kfpu_begin_cont();
 	}
 	/* Ghash the remainder and handle possible incomplete GCM block. */
 	if (bleft > 0) {
