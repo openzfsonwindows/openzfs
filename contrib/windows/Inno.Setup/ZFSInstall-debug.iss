@@ -96,6 +96,8 @@ Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.sys"; Dest
 Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.cat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.inf"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.man"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\x64-Debug\cmd\zed\cmd\zed\os\windows\zed.cat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\x64-Debug\cmd\zed\cmd\zed\os\windows\zed.inf"; DestDir: "{app}"; Flags: ignoreversion
 ;Source: "{#Root}\x64\Debug\ZFSin.cer"; DestDir: "{app}"; Flags: ignoreversion
 ;Source: "{#Root}\zfs\cmd\arcstat\arcstat.pl"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
@@ -122,8 +124,10 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "{app}\ZFSInstaller.exe"; Parameters: "install .\OpenZFS.inf"; StatusMsg: "Installing Driver..."; Flags: runascurrentuser;
+Filename: "{sys}\rundll32.exe"; Parameters: "setupapi.dll,InstallHinfSection DefaultInstall 132 {app}\zed.inf"; Flags: runhidden; StatusMsg: "Installing zed driver..."
 
 [UninstallRun]
+Filename: "{sys}\rundll32.exe"; Parameters: "setupapi.dll,InstallHinfSection DefaultUninstall 132 {app}\zed.inf"; RunOnceId: "zed"; Flags: runhidden; StatusMsg: "Uninstalling zed driver..."
 Filename: "{app}\ZFSInstaller.exe"; Parameters: "uninstall .\OpenZFS.inf"; RunOnceId: "driver"; Flags: runascurrentuser;
 
 [Registry]

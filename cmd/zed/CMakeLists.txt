@@ -34,16 +34,29 @@ install(FILES $<TARGET_PDB_FILE:zed>
 	OPTIONAL
 )
 
+# Custom command to generate zed.cat
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.cat"
+    DEPENDS 
+        "${CMAKE_SOURCE_DIR}/cmd/zed/os/windows/zed.inf" 
+        "${CMAKE_CURRENT_BINARY_DIR}/zed.exe"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/zed.exe" "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.exe"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/cmd/zed/os/windows/zed.inf" "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.inf.temp"
+    COMMAND "${STAMPINF_PROGRAM}" -d "*" -a "amd64" -v "*" -f "${CMAKE_CURRENT_BINARY_DIR}\\cmd\\zed\\os\\windows\\zed.inf.temp"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.inf.temp" "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.inf"
+    COMMAND "${CMAKE_COMMAND}" -E remove "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.inf.temp"
+    COMMAND "${INF2CAT_PROGRAM}" /verbose "/driver:${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows" /os:10_19H1_X86,10_19H1_X64,ServerRS5_X64 /uselocaltime
+    COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.cat"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows"
+    COMMENT "Generating and signing zed.cat file"
+    VERBATIM
+)
+
+# Custom target depending on the generated file
 add_custom_target(
-	zed_cat
-	BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.cat"
-	COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_BINARY_DIR}/zed.exe" "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.exe"
-    COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_SOURCE_DIR}/cmd/zed/os/windows/zed.inf" "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.inf"
-	COMMAND "${STAMPINF_PROGRAM}" -d "*" -a "amd64" -v "*" -f "${CMAKE_CURRENT_BINARY_DIR}\\cmd\\zed\\os\\windows\\zed.inf"
-	COMMAND "${INF2CAT_PROGRAM}" /verbose "/driver:${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows" /os:10_19H1_X86,10_19H1_X64,ServerRS5_X64 /uselocaltime
-	COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.cat"
-	WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows"
-	VERBATIM COMMENT "Generating and signing zed.cat file"
+    zed_cat
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.cat"
+    COMMENT "Ensure zed.cat is up to date"
 )
 
 add_dependencies(zed_cat zed)
