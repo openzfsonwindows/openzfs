@@ -125,9 +125,12 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 [Run]
 Filename: "{app}\ZFSInstaller.exe"; Parameters: "install .\OpenZFS.inf"; StatusMsg: "Installing Driver..."; Flags: runascurrentuser;
 Filename: "{sys}\rundll32.exe"; Parameters: "setupapi.dll,InstallHinfSection DefaultInstall 132 {app}\zed.inf"; Flags: runhidden; StatusMsg: "Installing zed driver..."
+Filename: "{sys}\sc.exe"; Parameters: "start OpenZFS_zed"; Flags: runhidden; StatusMsg: "Starting zed Service..."
 
 [UninstallRun]
-Filename: "{sys}\rundll32.exe"; Parameters: "setupapi.dll,InstallHinfSection DefaultUninstall 132 {app}\zed.inf"; RunOnceId: "zed"; Flags: runhidden; StatusMsg: "Uninstalling zed driver..."
+Filename: "{sys}\sc.exe"; Parameters: "stop OpenZFS_zed"; RunOnceId: "zed-stop"; Flags: runhidden; StatusMsg: "Stopping ZED Service..."
+Filename: "{sys}\sc.exe"; Parameters: "delete OpenZFS_zed"; RunOnceId: "zed-delete"; Flags: runhidden; StatusMsg: "Removing ZED Service..."
+Filename: "{sys}\rundll32.exe"; Parameters: "setupapi.dll,InstallHinfSection DefaultUninstall 132 {app}\zed.inf"; RunOnceId: "zed-uninstalled"; Flags: runhidden; StatusMsg: "Uninstalling zed driver..."
 Filename: "{app}\ZFSInstaller.exe"; Parameters: "uninstall .\OpenZFS.inf"; RunOnceId: "driver"; Flags: runascurrentuser;
 
 [Registry]
