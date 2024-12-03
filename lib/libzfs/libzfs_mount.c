@@ -532,11 +532,13 @@ zfs_mount_at(zfs_handle_t *zhp, const char *options, int flags,
 	}
 
 	/* remove the mounted entry before re-adding on remount */
-	if (remount)
-		libzfs_mnttab_remove(hdl, zhp->zfs_name);
+	if (hdl->libzfs_mnttab_enable) {
+		if (remount)
+			libzfs_mnttab_remove(hdl, zhp->zfs_name);
 
-	/* add the mounted entry into our cache */
-	libzfs_mnttab_add(hdl, zfs_get_name(zhp), mountpoint, mntopts);
+		/* add the mounted entry into our cache */
+		libzfs_mnttab_add(hdl, zfs_get_name(zhp), mountpoint, mntopts);
+	}
 	return (0);
 }
 
