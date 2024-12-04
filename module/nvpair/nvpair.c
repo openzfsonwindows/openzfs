@@ -3309,7 +3309,6 @@ nvs_xdr_nvp_##type(XDR *xdrs, void *ptr, ...)	\
 
 #endif
 
-/* BEGIN CSTYLED */
 NVS_BUILD_XDRPROC_T(char);
 NVS_BUILD_XDRPROC_T(short);
 NVS_BUILD_XDRPROC_T(u_short);
@@ -3317,7 +3316,6 @@ NVS_BUILD_XDRPROC_T(int);
 NVS_BUILD_XDRPROC_T(u_int);
 NVS_BUILD_XDRPROC_T(longlong_t);
 NVS_BUILD_XDRPROC_T(u_longlong_t);
-/* END CSTYLED */
 
 /*
  * The format of xdr encoded nvpair is:
