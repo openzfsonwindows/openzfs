@@ -547,9 +547,18 @@ sysctl_vfs_zfs_arc_no_grow_shift(ZFS_MODULE_PARAM_ARGS)
 int
 param_set_arc_u64(ZFS_MODULE_PARAM_ARGS)
 {
-	*ptr = zt->zt_ptr;
+	uint64_t val;
+
 	*len = sizeof (uint64_t);
 	*type = ZT_TYPE_U64;
+
+	if (set == B_FALSE) {
+		*ptr = zt->zt_ptr;
+		return (0);
+	}
+
+	val = *(uint64_t *)(*ptr);
+	*((uint64_t *)zt->zt_ptr) = val;
 
 	arc_tuning_update(B_TRUE);
 
@@ -559,9 +568,18 @@ param_set_arc_u64(ZFS_MODULE_PARAM_ARGS)
 int
 param_set_arc_int(ZFS_MODULE_PARAM_ARGS)
 {
-	*ptr = zt->zt_ptr;
-	*len = sizeof (uint64_t);
-	*type = ZT_TYPE_U64;
+	int val;
+
+	*len = sizeof (uint32_t);
+	*type = ZT_TYPE_UINT;
+
+	if (set == B_FALSE) {
+		*ptr = zt->zt_ptr;
+		return (0);
+	}
+
+	val = *(uint32_t *)(*ptr);
+	*((uint32_t *)zt->zt_ptr) = val;
 
 	arc_tuning_update(B_TRUE);
 
