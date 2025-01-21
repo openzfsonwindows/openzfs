@@ -411,8 +411,8 @@ vdev_file_io_start(zio_t *zio)
 
 	} else if (zio->io_type == ZIO_TYPE_TRIM) {
 		int mode = 0;
-		zio->io_error = zfs_file_fallocate(vf->vf_file,
-		    mode, zio->io_offset, zio->io_size);
+		zio->io_error = zfs_file_deallocate(vf->vf_file,
+		    zio->io_offset, zio->io_size);
 		zio_execute(zio);
 		return;
 	}

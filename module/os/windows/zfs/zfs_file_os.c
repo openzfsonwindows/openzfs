@@ -310,17 +310,16 @@ zfs_file_fsync(zfs_file_t *fp, int flags)
 	return (0);
 }
 /*
- * fallocate - allocate or free space on disk
+ * deallocate - allocate or free space on disk
  *
  * fp - file pointer
- * mode (non-standard options for hole punching etc)
  * offset - offset to start allocating or freeing from
  * len - length to free / allocate
  *
  * OPTIONAL
  */
 int
-zfs_file_fallocate(zfs_file_t *fp, int mode, loff_t offset, loff_t len)
+zfs_file_deallocate(zfs_file_t *fp, loff_t offset, loff_t len)
 {
 	int error;
 	struct flock flck;
