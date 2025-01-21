@@ -14,6 +14,7 @@ wdk_add_library(zcommonkern
 	zfs_fletcher_superscalar4.c
 	zfs_namecheck.c
 	zfs_prop.c
+	zfs_valstr.c
 	zpool_prop.c
 	zprop_common.c
 )
