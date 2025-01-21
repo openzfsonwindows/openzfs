@@ -31,4 +31,6 @@
 
 #define	MAXUID				UINT32_MAX
 
+#define	PAGESHIFT	PAGE_SHIFT
+
 #endif /* SPL_PARAM_H */

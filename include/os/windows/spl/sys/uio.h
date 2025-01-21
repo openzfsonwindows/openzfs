@@ -55,6 +55,11 @@ extern "C" {
 #include <sys/types.h>
 
 /*
+ * uio_extflg: extended flags
+ */
+#define	UIO_DIRECT	0x0001	/* Direct I/O requset */
+
+/*
  * I/O parameter information.  A uio structure describes the I/O which
  * is to be performed by an operation.  Typically the data movement will
  * be performed by a routine such as uiomove(), which updates the uio
@@ -78,18 +83,28 @@ typedef enum zfs_uio_rw { UIO_READ, UIO_WRITE } zfs_uio_rw_t;
 typedef enum zfs_uio_seg { UIO_USERSPACE, UIO_SYSSPACE, UIO_USERISPACE }
     zfs_uio_seg_t;
 
+/*
+ * This structure is used when doing Direct I/O.
+ */
+typedef void vm_page_t;
+typedef struct {
+	vm_page_t	*pages;
+	int		npages;
+} zfs_uio_dio_t;
 
 typedef struct zfs_uio {
 	const struct iovec	*uio_iov;
 	int		uio_iovcnt;
 	int		uio_index;
 	off_t		uio_loffset;
+	off_t		uio_soffset;
 	zfs_uio_seg_t	uio_segflg;
 	boolean_t	uio_fault_disable;
 	uint16_t	uio_fmode;
 	uint16_t	uio_extflg;
 	ssize_t		uio_resid;
 	size_t		uio_skip;
+	zfs_uio_dio_t	uio_dio;
 } zfs_uio_t;
 
 static inline zfs_uio_seg_t
@@ -108,6 +123,12 @@ static inline off_t
 zfs_uio_offset(zfs_uio_t *uio)
 {
 	return (uio->uio_loffset);
+}
+
+static inline off_t
+zfs_uio_soffset(zfs_uio_t *uio)
+{
+	return (uio->uio_soffset);
 }
 
 static inline size_t
@@ -132,6 +153,12 @@ static inline void
 zfs_uio_setoffset(zfs_uio_t *uio, off_t off)
 {
 	uio->uio_loffset = off;
+}
+
+static inline void
+zfs_uio_setsoffset(zfs_uio_t *uio, off_t off)
+{
+	uio->uio_soffset = off;
 }
 
 static inline void
@@ -174,6 +201,7 @@ zfs_uio_iovec_init(zfs_uio_t *uio, const struct iovec *iov,
 	uio->uio_iov = iov;
 	uio->uio_iovcnt = nr_segs;
 	uio->uio_loffset = offset;
+	uio->uio_soffset = offset;
 	uio->uio_segflg = seg;
 	uio->uio_fmode = 0;
 	uio->uio_extflg = 0;

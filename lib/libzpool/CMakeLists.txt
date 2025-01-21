@@ -64,6 +64,7 @@ add_library(libzpool
     "${MODULE_DIR}/zfs/ddt_zap.c"
     "${MODULE_DIR}/zfs/dmu.c"
     "${MODULE_DIR}/zfs/dmu_diff.c"
+    "${MODULE_DIR}/zfs/dmu_direct.c"
     "${MODULE_DIR}/zfs/dmu_object.c"
     "${MODULE_DIR}/zfs/dmu_objset.c"
     "${MODULE_DIR}/zfs/dmu_recv.c"

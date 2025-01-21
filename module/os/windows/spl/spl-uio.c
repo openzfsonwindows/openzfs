@@ -116,3 +116,41 @@ zfs_uio_prefaultpages(ssize_t n, zfs_uio_t *uio)
 {
 	return (0);
 }
+
+/*
+ * Check if the uio is page-aligned in memory.
+ */
+boolean_t
+zfs_uio_page_aligned(zfs_uio_t *uio)
+{
+	for (int i = zfs_uio_iovcnt(uio); i > 0; i--) {
+		uintptr_t addr = (uintptr_t)zfs_uio_iovbase(uio, i);
+		size_t size = zfs_uio_iovlen(uio, i);
+		if ((addr & (PAGE_SIZE - 1)) || (size & (PAGE_SIZE - 1))) {
+			return (B_FALSE);
+		}
+	}
+
+	return (B_TRUE);
+}
+
+void
+zfs_uio_free_dio_pages(zfs_uio_t *uio, zfs_uio_rw_t rw)
+{
+	(void) uio;
+	(void) rw;
+}
+
+/*
+ * This function holds user pages into the kernel. In the event that the user
+ * pages are not successfully held an error value is returned.
+ *
+ * On success, 0 is returned.
+ */
+int
+zfs_uio_get_dio_pages_alloc(zfs_uio_t *uio, zfs_uio_rw_t rw)
+{
+	(void) uio;
+	(void) rw;
+	return (ENOTSUP);
+}

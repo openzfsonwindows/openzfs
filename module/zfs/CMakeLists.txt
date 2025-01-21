@@ -24,6 +24,7 @@ wdk_add_library(zfskern
   ddt_zap.c
   dmu.c
   dmu_diff.c
+  dmu_direct.c
   dmu_object.c
   dmu_objset.c
   dmu_recv.c

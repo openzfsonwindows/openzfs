@@ -30,6 +30,8 @@
 extern "C" {
 #endif
 
+typedef void vm_page_t;
+
 struct abd_scatter {
 	uint_t		abd_offset;
 	void		*abd_chunks[1]; /* actually variable-length */
@@ -38,6 +40,9 @@ struct abd_scatter {
 struct abd_linear {
 	void		*abd_buf;
 };
+
+__attribute__((malloc))
+struct abd *abd_alloc_from_pages(vm_page_t *, unsigned long, uint64_t);
 
 #ifdef __cplusplus
 }
