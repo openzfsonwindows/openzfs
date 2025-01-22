@@ -169,7 +169,6 @@ add_library(libzpool
     "${MODULE_DIR}/os/windows/zfs/vdev_file.c"
     "${MODULE_DIR}/os/windows/zfs/zio_crypt.c"
     "${MODULE_DIR}/os/windows/zfs/zfs_debug.c"
-    "${MODULE_DIR}/os/windows/zfs/zfs_racct.c"
     "${MODULE_DIR}/os/windows/zfs/zfs_znode.c"
     "abd_os.c"
     "arc_os.c"
@@ -177,6 +176,7 @@ add_library(libzpool
     "taskq.c"
     "util.c"
     "vdev_label_os.c"
+    "zfs_racct.c"
 )
 
 # Unfortunately, libbootenv uses kernel headers as well.
