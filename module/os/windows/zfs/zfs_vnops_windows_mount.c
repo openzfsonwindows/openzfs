@@ -1877,7 +1877,7 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 		// If we timeout, lets just continue and hope for the best?
 
 		// We must wait for root usecount == 0
-		dprintf("Waiting for mount root to be released\n");
+		dprintf("Waiting for volume_opens to be released\n");
 
 		// Make sure all volume_open() has called volume_close()
 		// This could be improved, condvar etc. But it triggers
@@ -1885,6 +1885,8 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 		while (zmo_dcb->volume_opens > 0) {
 			delay(hz >> 2); // Fixme
 		}
+
+		dprintf("Waiting for mount root to be released\n");
 
 		// Then make sure we aren't still in the middle of
 		// a vmode_create() by grabbing zfs_enter() lock.

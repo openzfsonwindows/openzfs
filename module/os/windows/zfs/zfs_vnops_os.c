@@ -430,7 +430,7 @@ zfs_lookup(znode_t *zdp, char *nm, znode_t **zpp, int flags,
 }
 
 static inline boolean_t
-is_nametoolong(zfsvfs_t * zfsvfs, const char *name)
+is_nametoolong(zfsvfs_t *zfsvfs, const char *name)
 {
 	size_t dlen = strlen(name);
 	return ((!zfsvfs->z_longname && dlen >= ZAP_MAXNAMELEN) ||

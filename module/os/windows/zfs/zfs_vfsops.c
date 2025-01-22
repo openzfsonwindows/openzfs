@@ -334,8 +334,8 @@ mimic_changed_cb(void *arg, uint64_t newval)
 static void
 acl_type_changed_cb(void *arg, uint64_t newval)
 {
-    zfsvfs_t *zfsvfs = arg;
-    zfsvfs->z_acl_type = newval;
+	zfsvfs_t *zfsvfs = arg;
+	zfsvfs->z_acl_type = newval;
 }
 
 static void
@@ -620,10 +620,10 @@ zfsvfs_init(zfsvfs_t *zfsvfs, objset_t *os)
 		return (error);
 	zfsvfs->z_case = (uint_t)val;
 
-	error = zfs_get_zplprop(os, ZFS_PROP_ACLMODE, &val);
+	error = zfs_get_zplprop(os, ZFS_PROP_ACLTYPE, &val);
 	if (error != 0)
 		return (error);
-	zfsvfs->z_acl_mode = (uint_t)val;
+	zfsvfs->z_acl_type = (uint_t)val;
 
 	// zfs_get_zplprop(os, ZFS_PROP_LASTUNMOUNT, &val);
 	// zfsvfs->z_last_unmount_time = val;
@@ -685,6 +685,38 @@ zfsvfs_init(zfsvfs_t *zfsvfs, objset_t *os)
 	    8, 1, &zfsvfs->z_groupquota_obj);
 	if (error == ENOENT)
 		zfsvfs->z_groupquota_obj = 0;
+	else if (error != 0)
+		return (error);
+
+	error = zap_lookup(os, MASTER_NODE_OBJ,
+	    zfs_userquota_prop_prefixes[ZFS_PROP_PROJECTQUOTA],
+	    8, 1, &zfsvfs->z_projectquota_obj);
+	if (error == ENOENT)
+		zfsvfs->z_projectquota_obj = 0;
+	else if (error != 0)
+		return (error);
+
+	error = zap_lookup(os, MASTER_NODE_OBJ,
+	    zfs_userquota_prop_prefixes[ZFS_PROP_USEROBJQUOTA],
+	    8, 1, &zfsvfs->z_userobjquota_obj);
+	if (error == ENOENT)
+		zfsvfs->z_userobjquota_obj = 0;
+	else if (error != 0)
+		return (error);
+
+	error = zap_lookup(os, MASTER_NODE_OBJ,
+	    zfs_userquota_prop_prefixes[ZFS_PROP_GROUPOBJQUOTA],
+	    8, 1, &zfsvfs->z_groupobjquota_obj);
+	if (error == ENOENT)
+		zfsvfs->z_groupobjquota_obj = 0;
+	else if (error != 0)
+		return (error);
+
+	error = zap_lookup(os, MASTER_NODE_OBJ,
+	    zfs_userquota_prop_prefixes[ZFS_PROP_PROJECTOBJQUOTA],
+	    8, 1, &zfsvfs->z_projectobjquota_obj);
+	if (error == ENOENT)
+		zfsvfs->z_projectobjquota_obj = 0;
 	else if (error != 0)
 		return (error);
 

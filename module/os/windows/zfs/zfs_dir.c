@@ -854,7 +854,7 @@ zfs_link_create(zfs_dirlock_t *dl, znode_t *zp, dmu_tx_t *tx, int flag)
 	 * If we added a longname activate the SPA_FEATURE_LONGNAME.
 	 */
 	if (strlen(dl->dl_name) >= ZAP_MAXNAMELEN) {
-		dsl_dataset_t * ds = dmu_objset_ds(zfsvfs->z_os);
+		dsl_dataset_t *ds = dmu_objset_ds(zfsvfs->z_os);
 		ds->ds_feature_activation[SPA_FEATURE_LONGNAME] =
 		    (void *)B_TRUE;
 	}

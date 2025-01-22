@@ -2013,4 +2013,3 @@ zfs_znode_update_vfs(znode_t *zp)
 {
 	vnode_pager_setsize(NULL, ZTOV(zp), zp->z_size, TRUE);
 }
-

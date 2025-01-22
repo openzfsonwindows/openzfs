@@ -2423,8 +2423,8 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			SetFlag(ffai->FileSystemAttributes,
 			    FILE_READ_ONLY_VOLUME);
 		}
-		ffai->MaximumComponentNameLength =
-		    zfsvfs->z_longname ? (ZAP_MAXNAMELEN_NEW - 1) : (MAXNAMELEN - 1);
+		ffai->MaximumComponentNameLength = zfsvfs->z_longname ?
+		    (ZAP_MAXNAMELEN_NEW - 1) : (MAXNAMELEN - 1);
 		// ffai->FileSystemAttributes = 0x3E706FF; // ntfs 2023
 
 		// There is room for one char in the struct
@@ -6325,6 +6325,8 @@ volume_create(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject,
 		    AllocationSize,
 		    DesiredAccess,
 		    NULL);
+		// Undo the ref inside couplefileobject.
+		// vnode_rele(vp);
 		atomic_inc_64(&zmo->volume_opens);
 		VN_RELE(vp);
 
@@ -6359,12 +6361,15 @@ volume_close(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject)
 
 	if (error == 0) {
 		vp = ZTOV(zp);
-		zfs_decouplefileobject(vp, FileObject, B_TRUE);
+
 		dprintf("%s decreasing %p\n", __func__, vp);
+		zfs_decouplefileobject(vp, FileObject, B_TRUE);
 		vnode_rele(vp);
 		atomic_dec_64(&zmo->volume_opens);
-
+		dprintf("%s zmo->volume_opens %d\n", __func__,
+		    zmo->volume_opens);
 		VN_RELE(vp);
+		dprintf("vp %p iocount %d\n", vp, vp->v_iocount);
 		return (STATUS_SUCCESS);
 	}
 
@@ -8209,7 +8214,6 @@ _Function_class_(DRIVER_DISPATCH)
 	}
 
 	VERIFY3U(saveIRQL, ==, KeGetCurrentIrql());
-
 
 	return (Status);
 }
