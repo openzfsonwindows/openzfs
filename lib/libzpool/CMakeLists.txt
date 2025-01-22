@@ -169,13 +169,13 @@ add_library(libzpool
     "${MODULE_DIR}/zfs/zthr.c"
     "${MODULE_DIR}/os/windows/zfs/vdev_file.c"
     "${MODULE_DIR}/os/windows/zfs/zio_crypt.c"
-    "${MODULE_DIR}/os/windows/zfs/zfs_debug.c"
     "abd_os.c"
     "arc_os.c"
     "kernel.c"
     "taskq.c"
     "util.c"
     "vdev_label_os.c"
+    "zfs_debug.c"
     "zfs_racct.c"
 )
 
