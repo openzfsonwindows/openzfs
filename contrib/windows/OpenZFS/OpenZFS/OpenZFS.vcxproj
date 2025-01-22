@@ -240,6 +240,14 @@ copy /Y "$(SolutionDir)..\..\..\out\build\x64-Debug\cmd\zed\zed.exe" "$(TargetDi
       <PackageRelativeDirectory>
       </PackageRelativeDirectory>
     </FilesToPackage>
+    <FilesToPackage Include="C:\src\openzfs\contrib\windows\OpenZFS\..\..\..\out\build\x64-Debug\cmd\zfs\zfs.exe" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="C:\src\openzfs\contrib\windows\OpenZFS\..\..\..\out\build\x64-Debug\cmd\zpool\zpool.exe" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
     <FilesToPackage Include="C:\src\openzfs\contrib\windows\OpenZFS\x64\Debug\OpenZFS.sys">
       <PackageRelativeDirectory>
       </PackageRelativeDirectory>

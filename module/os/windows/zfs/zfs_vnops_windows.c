@@ -635,10 +635,11 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 	    word = strtok_r(NULL, "/\\", &brkt)) {
 		int direntflags = 0;
 		// dprintf("..'%s'..", word);
-
 		// If a component part name is too long
 		if (strlen(word) > MAXNAMELEN - 1) {
 			VN_RELE(dvp);
+			if (vp)
+				VN_RELE(vp);
 			return (STATUS_OBJECT_NAME_INVALID);
 		}
 		strlcpy(namebuffer, word, sizeof (namebuffer));
@@ -1230,9 +1231,10 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
 			return (STATUS_OBJECT_PATH_NOT_FOUND);
 		}
-		if (error == STATUS_OBJECT_NAME_INVALID) {
+		if (error == STATUS_OBJECT_NAME_INVALID ||
+		    error == ENAMETOOLONG) {
 			dprintf("%s: filename component too long\n", __func__);
-			return (error);
+			return (STATUS_OBJECT_NAME_INVALID);
 		}
 		if (error == STATUS_IO_REPARSE_TAG_NOT_HANDLED) {
 			dprintf("%s: reparse but asked not to handle\n",
@@ -1278,7 +1280,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		if ((error = zfs_get_xattrdir(zp, &dzp, cr,
 		    CreateFile ? CREATE_XATTR_DIR : 0))) {
 			Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
-			VN_RELE(vp);
+			VN_RELE(vp)
+			VN_RELE(dvp);
+			dprintf("No xattr dir - and not creating one\n");
 			return (STATUS_OBJECT_NAME_NOT_FOUND);
 		}
 		VN_RELE(vp);
@@ -1293,6 +1297,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		if (!CreateFile && error) {
 			zrele(dzp);
 			Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
+			dprintf("xattr dir - but no entry\n");
 			return (STATUS_OBJECT_NAME_NOT_FOUND);
 		}
 		// Here, it may not exist, as we are to create it.
@@ -6309,8 +6314,10 @@ volume_create(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject,
 	if (error == 0) {
 		vp = ZTOV(zp);
 
-		if (vp == NULL)
+		if (vp == NULL) {
+			status = STATUS_INSUFFICIENT_RESOURCES;
 			goto out;
+		}
 		ASSERT0(FileObject->FsContext);
 		dprintf("%s increasing %p\n", __func__, vp);
 		zfs_couplefileobject(vp, NULL,
