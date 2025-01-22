@@ -3000,8 +3000,6 @@ query_ea(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	uint64_t spaceused = 0;
 	znode_t *zp = NULL, *xdzp = NULL;
 	zfsvfs_t *zfsvfs = NULL;
-	zap_cursor_t  zc;
-	zap_attribute_t  za;
 	int overflow = 0;
 
 	struct vnode *vp = NULL, *xdvp = NULL;

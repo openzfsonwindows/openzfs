@@ -1316,7 +1316,7 @@ zfs_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr, zfs_ccb_t *zccb,
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
 	objset_t	*os;
 	zap_cursor_t	zc;
-	zap_attribute_t	zap;
+	zap_attribute_t	*zap;
 	uint64_t	parent;
 	uint8_t		prefetch;
 	uint8_t		type;
@@ -1383,6 +1383,7 @@ zfs_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr, zfs_ccb_t *zccb,
 	error = 0;
 	os = zfsvfs->z_os;
 	prefetch = zp->z_zn_prefetch;
+	zap = zap_attribute_alloc();
 
 	/*
 	 * Initialize the iterator cursor.
@@ -1418,20 +1419,20 @@ zfs_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr, zfs_ccb_t *zccb,
 		 * Special case `.', `..', and `.zfs'.
 		 */
 		if (ctx->offset == 0) {
-			(void) strlcpy(zap.za_name, ".", MAXNAMELEN);
-			zap.za_normalization_conflict = 0;
+			(void) strlcpy(zap->za_name, ".", MAXNAMELEN);
+			zap->za_normalization_conflict = 0;
 			objnum = zp->z_id;
 			type = DT_DIR;
 		} else if (ctx->offset == 1) {
-			(void) strlcpy(zap.za_name, "..", MAXNAMELEN);
-			zap.za_normalization_conflict = 0;
+			(void) strlcpy(zap->za_name, "..", MAXNAMELEN);
+			zap->za_normalization_conflict = 0;
 			objnum = parent;
 			type = DT_DIR;
 #if 1
 		} else if (ctx->offset == 2 && zfs_show_ctldir(zp)) {
-			(void) strlcpy(zap.za_name, ZFS_CTLDIR_NAME,
+			(void) strlcpy(zap->za_name, ZFS_CTLDIR_NAME,
 			    MAXNAMELEN);
-			zap.za_normalization_conflict = 0;
+			zap->za_normalization_conflict = 0;
 			objnum = ZFSCTL_INO_ROOT;
 			type = DT_DIR;
 #endif
@@ -1440,15 +1441,15 @@ zfs_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr, zfs_ccb_t *zccb,
 			/*
 			 * Grab next entry.
 			 */
-			if ((error = zap_cursor_retrieve(&zc, &zap))) {
+			if ((error = zap_cursor_retrieve(&zc, zap))) {
 				if (error == ENOENT)
 					break;
 				else
 					goto update;
 			}
 
-			if (zap.za_integer_length != 8 ||
-			    zap.za_num_integers != 1) {
+			if (zap->za_integer_length != 8 ||
+			    zap->za_num_integers != 1) {
 				cmn_err(CE_WARN, "zap_readdir: bad directory "
 				    "entry, obj = %lld, offset = %lld\n",
 				    (u_longlong_t)zp->z_id,
@@ -1457,15 +1458,15 @@ zfs_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr, zfs_ccb_t *zccb,
 				goto update;
 			}
 
-			objnum = ZFS_DIRENT_OBJ(zap.za_first_integer);
-			type = ZFS_DIRENT_TYPE(zap.za_first_integer);
+			objnum = ZFS_DIRENT_OBJ(zap->za_first_integer);
+			type = ZFS_DIRENT_TYPE(zap->za_first_integer);
 
 		}
 
 		if (!skip_this_entry) {
 
 			// emit
-			error = zfs_readdir_emitdir(zfsvfs, zap.za_name, ctx,
+			error = zfs_readdir_emitdir(zfsvfs, zap->za_name, ctx,
 			    zccb, objnum);
 
 			if (error == 0) {
@@ -1500,6 +1501,7 @@ zfs_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr, zfs_ccb_t *zccb,
 
 update:
 	zap_cursor_fini(&zc);
+	zap_attribute_free(zap);
 
 	ZFS_ACCESSTIME_STAMP(zfsvfs, zp);
 

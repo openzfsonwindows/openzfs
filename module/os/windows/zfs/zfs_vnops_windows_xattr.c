@@ -299,7 +299,7 @@ static int
 zpl_xattr_readdir(struct vnode *dxip, struct vnode *dvp, zfs_uio_t *uio)
 {
 	zap_cursor_t zc;
-	zap_attribute_t	zap;
+	zap_attribute_t	*zap;
 	int error;
 	FILE_FULL_EA_INFORMATION *previous_ea = NULL;
 
@@ -307,6 +307,7 @@ zpl_xattr_readdir(struct vnode *dxip, struct vnode *dvp, zfs_uio_t *uio)
 
 	// For some reason zap_cursor_init_serialized doesnt work
 //	if (start_index == 0)
+	zap = zap_attribute_alloc();
 	zap_cursor_init(&zc, ITOZSB(dxip)->z_os, ITOZ(dxip)->z_id);
 //	else
 //		zap_cursor_init_serialized(&zc,
@@ -314,16 +315,16 @@ zpl_xattr_readdir(struct vnode *dxip, struct vnode *dvp, zfs_uio_t *uio)
 //		    start_index);
 	int current_index = 0;
 
-	while ((error = zap_cursor_retrieve(&zc, &zap)) == 0) {
+	while ((error = zap_cursor_retrieve(&zc, zap)) == 0) {
 
-		if (zap.za_integer_length != 8 || zap.za_num_integers != 1) {
+		if (zap->za_integer_length != 8 || zap->za_num_integers != 1) {
 			error = STATUS_EA_CORRUPT_ERROR;
 			break;
 		}
 
 		if (current_index >= start_index) {
 			error = zpl_xattr_filldir(dvp, uio,
-			    zap.za_name, strlen(zap.za_name), &previous_ea);
+			    zap->za_name, strlen(zap->za_name), &previous_ea);
 
 			if (error)
 				break;
@@ -340,6 +341,7 @@ zpl_xattr_readdir(struct vnode *dxip, struct vnode *dvp, zfs_uio_t *uio)
 	}
 
 	zap_cursor_fini(&zc);
+	zap_attribute_free(zap);
 
 	if (error == ENOENT)
 		error = 0;

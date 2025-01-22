@@ -5327,7 +5327,7 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	uint64_t spaceused = 0;
 	zap_cursor_t  zc;
 	objset_t  *os;
-	zap_attribute_t  za;
+	zap_attribute_t *za;
 
 	// Iterate the xattrs.
 	// Windows can call this on a stream zp, in this case, we
@@ -5364,18 +5364,19 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	os = zfsvfs->z_os;
 
 	stream = (FILE_STREAM_INFORMATION *)outbuffer;
+	za = zap_attribute_alloc();
 
 	for (zap_cursor_init(&zc, os, xdzp->z_id);
-	    zap_cursor_retrieve(&zc, &za) == 0; zap_cursor_advance(&zc)) {
+	    zap_cursor_retrieve(&zc, za) == 0; zap_cursor_advance(&zc)) {
 
-		if (!xattr_stream(za.za_name))
+		if (!xattr_stream(za->za_name))
 			continue;	 /* skip */
 
 		// We need to lookup the size of the xattr.
-		int error = zfs_dirlook(xdzp, za.za_name, &xzp, 0,
+		int error = zfs_dirlook(xdzp, za->za_name, &xzp, 0,
 		    NULL, NULL);
 
-		overflow += zfswin_insert_streamname(za.za_name, outbuffer,
+		overflow += zfswin_insert_streamname(za->za_name, outbuffer,
 		    &previous_stream, availablebytes, &spaceused,
 		    xzp ? xzp->z_size : 0);
 
@@ -5385,6 +5386,7 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	zap_cursor_fini(&zc);
+	zap_attribute_free(za);
 
 out:
 	if (xdvp) {
