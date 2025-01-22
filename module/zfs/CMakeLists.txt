@@ -125,6 +125,7 @@ wdk_add_library(zfskern
   zfs_rlock.c
   zfs_sa.c
   zfs_vnops.c
+  zfs_znode.c
   zil.c
   zio.c
   zio_checksum.c
