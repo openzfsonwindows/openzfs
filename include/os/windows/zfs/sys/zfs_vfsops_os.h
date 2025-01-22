@@ -74,6 +74,7 @@ struct zfsvfs {
 	struct zfs_fuid_info *z_fuid_replay; /* fuid info for replay */
 	uint64_t	z_assign;	/* TXG_NOWAIT or set by zil_replay() */
 	zilog_t	*z_log;	/* intent log pointer */
+	uint_t	z_acl_type;	/* acl chmod/mode behavior */
 	uint_t	z_acl_mode;	/* acl chmod/mode behavior */
 	uint_t	z_acl_inherit;	/* acl inheritance behavior */
 	zfs_case_t	z_case;	/* case-sense */
@@ -89,11 +90,11 @@ struct zfsvfs {
 	uint64_t	z_ctldir_startid;	/* Start of snapdir range */
 	boolean_t	z_show_ctldir; 	/* expose .zfs in the root dir */
 	boolean_t	z_issnap;	/* true if this is a snapshot */
-	boolean_t	z_vscan;	/* virus scan on/off */
 	boolean_t	z_use_fuids;	/* version allows fuids */
 	boolean_t	z_replay;	/* set during ZIL replay */
 	boolean_t	z_use_sa;	/* version allow system attributes */
 	boolean_t	z_xattr_sa;	/* allow xattrs to be stores as SA */
+	boolean_t	z_longname;	/* Dataset supports long names */
 	uint64_t	z_version;
 	uint64_t	z_shares_dir;	/* hidden shares dir */
 	kmutex_t	z_lock;

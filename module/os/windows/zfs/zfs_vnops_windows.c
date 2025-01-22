@@ -2418,7 +2418,8 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			SetFlag(ffai->FileSystemAttributes,
 			    FILE_READ_ONLY_VOLUME);
 		}
-		ffai->MaximumComponentNameLength = MAXNAMELEN - 1;
+		ffai->MaximumComponentNameLength =
+		    zfsvfs->z_longname ? (ZAP_MAXNAMELEN_NEW - 1) : (MAXNAMELEN - 1);
 		// ffai->FileSystemAttributes = 0x3E706FF; // ntfs 2023
 
 		// There is room for one char in the struct

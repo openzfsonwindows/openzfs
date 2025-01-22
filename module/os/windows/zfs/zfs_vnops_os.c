@@ -210,15 +210,6 @@ zfs_open(struct vnode *vp, int mode, int flag, cred_t *cr)
 		return (SET_ERROR(EPERM));
 	}
 
-	/* Virus scan eligible files on open */
-	if (!zfs_has_ctldir(zp) && zfsvfs->z_vscan && S_ISREG(zp->z_mode) &&
-	    !(zp->z_pflags & ZFS_AV_QUARANTINED) && zp->z_size > 0) {
-		if (zfs_vscan(vp, cr, 0) != 0) {
-			zfs_exit(zfsvfs, FTAG);
-			return (SET_ERROR(EACCES));
-		}
-	}
-
 	/* Keep a count of the synchronous opens in the znode */
 	if (flag & (FSYNC | FDSYNC))
 		atomic_inc_32(&zp->z_sync_cnt);
@@ -242,10 +233,6 @@ zfs_close(struct vnode *vp, int flag, cred_t *cr)
 	/* Decrement the synchronous opens in the znode */
 	if (flag & (FSYNC | FDSYNC))
 		atomic_dec_32(&zp->z_sync_cnt);
-
-	if (!zfs_has_ctldir(zp) && zfsvfs->z_vscan && S_ISREG(zp->z_mode) &&
-	    !(zp->z_pflags & ZFS_AV_QUARANTINED) && zp->z_size > 0)
-		VERIFY(zfs_vscan(vp, cr, 1) == 0);
 
 	zfs_exit(zfsvfs, FTAG);
 	return (0);
@@ -442,6 +429,15 @@ zfs_lookup(znode_t *zdp, char *nm, znode_t **zpp, int flags,
 	return (error);
 }
 
+static inline boolean_t
+is_nametoolong(zfsvfs_t * zfsvfs, const char *name)
+{
+	size_t dlen = strlen(name);
+	return ((!zfsvfs->z_longname && dlen >= ZAP_MAXNAMELEN) ||
+	    dlen >= ZAP_MAXNAMELEN_NEW);
+}
+
+
 /*
  * Attempt to create a new entry in a directory.  If the entry
  * already exists, truncate the file if permissible, else return
@@ -483,6 +479,9 @@ zfs_create(znode_t *dzp, char *name, vattr_t *vap, int excl,
 	boolean_t	fuid_dirtied;
 	boolean_t	have_acl = B_FALSE;
 	boolean_t	waited = B_FALSE;
+
+	if (is_nametoolong(zfsvfs, name))
+		return (SET_ERROR(ENAMETOOLONG));
 
 	/*
 	 * If we have an ephemeral id, ACL, or XVATTR then
@@ -1002,6 +1001,9 @@ zfs_mkdir(znode_t *dzp, char *dirname, vattr_t *vap, znode_t **zpp,
 
 	ASSERT(S_ISDIR(vap->va_mode));
 
+	if (is_nametoolong(zfsvfs, dirname))
+		return (SET_ERROR(ENAMETOOLONG));
+
 	/*
 	 * If we have an ephemeral id, ACL, or XVATTR then
 	 * make sure file system is at proper version
@@ -1383,7 +1385,7 @@ zfs_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr, zfs_ccb_t *zccb,
 	error = 0;
 	os = zfsvfs->z_os;
 	prefetch = zp->z_zn_prefetch;
-	zap = zap_attribute_alloc();
+	zap = zap_attribute_long_alloc();
 
 	/*
 	 * Initialize the iterator cursor.
@@ -2602,6 +2604,9 @@ zfs_rename(znode_t *sdzp, char *snm, znode_t *tdzp, char *tnm,
 	int		zflg = 0;
 	boolean_t	waited = B_FALSE;
 
+	if (is_nametoolong(tdzp->z_zfsvfs, tnm))
+		return (SET_ERROR(ENAMETOOLONG));
+
 	if (rflags != 0 || wo_vap != NULL)
 		return (SET_ERROR(EINVAL));
 
@@ -2989,6 +2994,9 @@ zfs_symlink(znode_t *dzp, char *name, vattr_t *vap, char *link,
 
 	ASSERT(S_ISLNK(vap->va_mode));
 
+	if (is_nametoolong(zfsvfs, name))
+		return (SET_ERROR(ENAMETOOLONG));
+
 	if (name == NULL)
 		return (SET_ERROR(EINVAL));
 
@@ -3196,6 +3204,9 @@ zfs_link(znode_t *tdzp, znode_t *szp, char *name, cred_t *cr,
 	uint64_t	txg;
 
 	ASSERT(S_ISDIR(tdzp->z_mode));
+
+	if (is_nametoolong(zfsvfs, name))
+		return (SET_ERROR(ENAMETOOLONG));
 
 	if (name == NULL)
 		return (SET_ERROR(EINVAL));

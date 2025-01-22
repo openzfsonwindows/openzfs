@@ -49,6 +49,7 @@
 #include <sys/dsl_dir.h>
 #include <sys/dataset_kstats.h>
 #include <sys/zfs_vfsops_os.h>
+#include <sys/zfeature.h>
 
 unsigned int zfs_vnop_skip_unlinked_drain = 0;
 
@@ -286,13 +287,6 @@ snapdir_changed_cb(void *arg, uint64_t newval)
 }
 
 static void
-vscan_changed_cb(void *arg, uint64_t newval)
-{
-	// zfsvfs_t *zfsvfs = arg;
-	// zfsvfs->z_vscan = newval;
-}
-
-static void
 acl_mode_changed_cb(void *arg, uint64_t newval)
 {
 	zfsvfs_t *zfsvfs = arg;
@@ -335,6 +329,20 @@ mimic_changed_cb(void *arg, uint64_t newval)
 
 	if (zfsvfs != NULL)
 		zfsvfs->z_mimic = newval;
+}
+
+static void
+acl_type_changed_cb(void *arg, uint64_t newval)
+{
+    zfsvfs_t *zfsvfs = arg;
+    zfsvfs->z_acl_type = newval;
+}
+
+static void
+longname_changed_cb(void *arg, uint64_t newval)
+{
+	zfsvfs_t *zfsvfs = arg;
+	zfsvfs->z_longname = newval;
 }
 
 static int
@@ -450,15 +458,15 @@ zfs_register_callbacks(struct mount *vfsp)
 	    zfs_prop_to_name(ZFS_PROP_EXEC), exec_changed_cb, zfsvfs);
 	error = error ? error : dsl_prop_register(ds,
 	    zfs_prop_to_name(ZFS_PROP_SNAPDIR), snapdir_changed_cb, zfsvfs);
-	// This appears to be PROP_PRIVATE, investigate if we want this
-	// ZOL calls this ACLTYPE
+	error = error ? error : dsl_prop_register(ds,
+	    zfs_prop_to_name(ZFS_PROP_ACLTYPE), acl_type_changed_cb, zfsvfs);
 	error = error ? error : dsl_prop_register(ds,
 	    zfs_prop_to_name(ZFS_PROP_ACLMODE), acl_mode_changed_cb, zfsvfs);
 	error = error ? error : dsl_prop_register(ds,
 	    zfs_prop_to_name(ZFS_PROP_ACLINHERIT), acl_inherit_changed_cb,
 	    zfsvfs);
 	error = error ? error : dsl_prop_register(ds,
-	    zfs_prop_to_name(ZFS_PROP_VSCAN), vscan_changed_cb, zfsvfs);
+	    zfs_prop_to_name(ZFS_PROP_LONGNAME), longname_changed_cb, zfsvfs);
 
 	error = error ? error : dsl_prop_register(ds,
 	    zfs_prop_to_name(ZFS_PROP_MIMIC), mimic_changed_cb, zfsvfs);
