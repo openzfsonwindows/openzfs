@@ -122,6 +122,9 @@ extern uint32_t kfpu_state;
 	if (NT_SUCCESS(((O)->saveStatus))) \
 		KeRestoreExtendedProcessorState(&(O)->SaveState);
 
+#define	simd_stat_init()	0
+#define	simd_stat_fini()	0
+
 /*
  * CPUID feature tests for user-space. Linux kernel provides an interface for
  * CPU feature testing.
