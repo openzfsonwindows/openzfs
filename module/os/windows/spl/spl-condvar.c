@@ -117,8 +117,8 @@ spl_cv_wait(kcondvar_t *cvp, kmutex_t *mp, int flags, const char *msg)
 	void *locks[CV_MAX_EVENTS] =
 		{ &cvp->cv_kevent[CV_SIGNAL], &cvp->cv_kevent[CV_BROADCAST] };
 
-	result = KeWaitForMultipleObjects(2, locks, WaitAny, Executive,
-	    KernelMode, FALSE, NULL, NULL);
+	result = KeWaitForMultipleObjects(CV_MAX_EVENTS, locks, WaitAny,
+	    Executive, KernelMode, FALSE, NULL, NULL);
 
 	// If last listener, clear BROADCAST event. (Even if it was SIGNAL
 	// overclearing will not hurt?)

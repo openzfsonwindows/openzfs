@@ -45,7 +45,6 @@ enum {
 
 struct cv {
 	KEVENT cv_kevent[CV_MAX_EVENTS]; // signal event, broadcast event
-	KSPIN_LOCK cv_waiters_count_lock;
 	uint32_t cv_waiters_count;
 	uint32_t cv_initialised; // Just used as sanity
 };
