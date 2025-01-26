@@ -36,8 +36,8 @@ extern PDEVICE_OBJECT fsDiskDeviceObject;
 
 #define	ZFS_HAVE_FASTIO
 
-#define	SKIP_CHANGE_TIME	(1ULL << 0)
-#define	SKIP_WRITE_TIME		(1ULL << 1)
+#define	SKIP_CHANGE_TIME	(UIO_SKIP_CHANGETIME)
+#define	SKIP_WRITE_TIME		(UIO_SKIP_WRITETIME)
 
 // We have to remember "query directory" related items, like index and
 // search pattern. This is attached in IRP_MJ_CREATE to fscontext2

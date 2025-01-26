@@ -57,7 +57,9 @@ extern "C" {
 /*
  * uio_extflg: extended flags
  */
-#define	UIO_DIRECT	0x0001	/* Direct I/O requset */
+#define	UIO_DIRECT		(1ULL << 0)	/* Direct I/O request */
+#define	UIO_SKIP_CHANGETIME	(1ULL << 1)
+#define	UIO_SKIP_WRITETIME	(1ULL << 2)
 
 /*
  * I/O parameter information.  A uio structure describes the I/O which
