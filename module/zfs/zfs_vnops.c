@@ -875,10 +875,26 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		ssize_t tx_bytes;
 		if (abuf == NULL) {
 			tx_bytes = zfs_uio_resid(uio);
+#ifdef _WIN32
+			/*
+			 * In case we trigger an exception here, we can't
+			 * leave the rangelock around, or it will deadlock
+			 * future IO. If the functions were
+			 * zfs_uio_fault_disable() and zfs_uio_fault_enable()
+			 * I could just #define it.
+			 */
+			try {
+#endif
 			zfs_uio_fault_disable(uio, B_TRUE);
 			error = dmu_write_uio_dbuf(sa_get_db(zp->z_sa_hdl),
 			    uio, nbytes, tx);
 			zfs_uio_fault_disable(uio, B_FALSE);
+#ifdef _WIN32
+			} except(EXCEPTION_EXECUTE_HANDLER) {
+				error = GetExceptionCode();
+			}
+#endif
+
 #ifdef __linux__
 			if (error == EFAULT) {
 				zfs_clear_setid_bits_if_necessary(zfsvfs, zp,
