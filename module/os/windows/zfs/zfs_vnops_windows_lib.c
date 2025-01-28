@@ -5678,10 +5678,13 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 			}
 		}
 
+		// Lets always allocate at least 1, since 0 could corrupt
+		int allocate = MAX(count + extra, 1);
+
 		DeviceRelations = (PDEVICE_RELATIONS)ExAllocatePoolWithTag(
 		    PagedPool,
 		    sizeof (DEVICE_RELATIONS) - sizeof (PDEVICE_OBJECT) +
-		    (sizeof (PDEVICE_OBJECT) * (count + extra)),
+		    (sizeof (PDEVICE_OBJECT) * allocate),
 		    'drvg');
 		if (DeviceRelations == NULL)
 			return (STATUS_INSUFFICIENT_RESOURCES);
@@ -5723,8 +5726,8 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		Irp->IoStatus.Information =
 		    (ULONG_PTR)DeviceRelations;
 
-		dprintf("BusRelations returning %d children\n",
-		    DeviceRelations->Count);
+		dprintf("BusRelations returning %d children (allocated %d)\n",
+		    DeviceRelations->Count, allocate);
 
 		Status = STATUS_SUCCESS;
 		break;
