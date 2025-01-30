@@ -117,8 +117,24 @@ spl_cv_wait(kcondvar_t *cvp, kmutex_t *mp, int flags, const char *msg)
 	void *locks[CV_MAX_EVENTS] =
 		{ &cvp->cv_kevent[CV_SIGNAL], &cvp->cv_kevent[CV_BROADCAST] };
 
-	result = KeWaitForMultipleObjects(CV_MAX_EVENTS, locks, WaitAny,
-	    Executive, KernelMode, FALSE, NULL, NULL);
+	LARGE_INTEGER timeout;
+	timeout.QuadPart = -10000000LL;  // 1s
+
+	/*
+	 * This variant blocks forever, unless PCATCH is supplied
+	 * (the cv_wait_sig() variant, then we need to periodically
+	 * surface to see if the process has been told to terminate
+	 */
+	do {
+
+		result = KeWaitForMultipleObjects(CV_MAX_EVENTS,
+		    locks, WaitAny, Executive, KernelMode, FALSE,
+		    (flags & PCATCH) ? &timeout : NULL, NULL);
+
+		if (PsIsThreadTerminating(PsGetCurrentThread()))
+			result = STATUS_ALERTED;
+
+	} while (result == STATUS_TIMEOUT);
 
 	// If last listener, clear BROADCAST event. (Even if it was SIGNAL
 	// overclearing will not hurt?)
@@ -186,8 +202,8 @@ spl_cv_timedwait(kcondvar_t *cvp, kmutex_t *mp, clock_t tim, int flags,
 	void *locks[CV_MAX_EVENTS] =
 		{ &cvp->cv_kevent[CV_SIGNAL], &cvp->cv_kevent[CV_BROADCAST] };
 
-	result = KeWaitForMultipleObjects(2, locks, WaitAny, Executive,
-	    KernelMode, FALSE, &timeout, NULL);
+	result = KeWaitForMultipleObjects(CV_MAX_EVENTS, locks, WaitAny,
+	    Executive, KernelMode, FALSE, &timeout, NULL);
 
 	int last_waiter =
 	    result == STATUS_WAIT_0 + CV_BROADCAST &&
@@ -260,8 +276,8 @@ cv_timedwait_hires(kcondvar_t *cvp, kmutex_t *mp, hrtime_t tim,
 	void *locks[CV_MAX_EVENTS] =
 	    { &cvp->cv_kevent[CV_SIGNAL], &cvp->cv_kevent[CV_BROADCAST] };
 
-	result = KeWaitForMultipleObjects(2, locks, WaitAny, Executive,
-	    KernelMode, FALSE, &timeout, NULL);
+	result = KeWaitForMultipleObjects(CV_MAX_EVENTS, locks, WaitAny,
+	    Executive, KernelMode, FALSE, &timeout, NULL);
 
 	int last_waiter =
 	    result == STATUS_WAIT_0 + CV_BROADCAST &&
