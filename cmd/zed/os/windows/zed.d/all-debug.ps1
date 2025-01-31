@@ -26,5 +26,4 @@ if ($envVar) {
     Write-Host "ZED_ZEDLET_DIR is not set."
 }
 
-Show-ToastNotification -Title "POOL: $env:ZEVENT_POOL" -Message "Event $env:ZEVENT_SUBCLASS has occurred."
 

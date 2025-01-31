@@ -60,7 +60,7 @@ WizardImageFile="{#SourcePath}\openzfs-large.bmp"
 SignTool=signtoolc
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
-SetupLogging=yes
+; SetupLogging=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -123,8 +123,6 @@ Name: "{group}\{cm:ProgramOnTheWeb,{#MyAppName}}"; Filename: "{#MyAppURL}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
 [Run]
-; Filename: "{sys}\sc.exe"; Parameters: "stop OpenZFS_zed"; Flags: runascurrentuser; StatusMsg: "Stopping ZED Service..."
-; Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM zed.exe"; Flags: runhidden; StatusMsg: "Ensuring zed is stopped...";
 Filename: "{app}\ZFSInstaller.exe"; Parameters: "install .\OpenZFS.inf"; StatusMsg: "Installing Driver..."; Flags: runascurrentuser;
 Filename: "{sys}\rundll32.exe"; Parameters: "setupapi.dll,InstallHinfSection DefaultInstall 132 {app}\zed.inf"; Flags: runhidden; StatusMsg: "Installing zed driver..."
 Filename: "{sys}\sc.exe"; Parameters: "start OpenZFS_zed"; Flags: runhidden; StatusMsg: "Starting zed Service..."
