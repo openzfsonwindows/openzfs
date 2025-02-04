@@ -328,7 +328,10 @@ int perf_counters(char *inf_path, int type) {
 	char driver_path[MAX_PATH_LEN] = { 0 };
 	strncpy_s(driver_path, inf_path, MAX_PATH_LEN);
 	char *slash = strrchr(driver_path, '\\');
-	*slash = '\0';
+	if (!slash)
+		slash = strrchr(driver_path, '/');
+	if (slash)
+		*slash = '\0';
 
 	if (path.is_absolute())
 		final_path = std::string(driver_path) + MANIFEST_FILE;
