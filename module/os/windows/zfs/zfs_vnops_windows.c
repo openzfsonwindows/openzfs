@@ -596,7 +596,7 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 	char *brkt = NULL;
 	struct componentname cn;
 	int fullstrlen;
-	char namebuffer[MAXNAMELEN];
+	char namebuffer[PATH_MAX];
 	BOOLEAN FileOpenReparsePoint;
 	BOOLEAN has_trailing_separator = FALSE;
 
@@ -636,7 +636,8 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 		int direntflags = 0;
 		// dprintf("..'%s'..", word);
 		// If a component part name is too long
-		if (strlen(word) > MAXNAMELEN - 1) {
+		// this only applies to !longname ?
+		if (strlen(word) > PATH_MAX - 1) {
 			VN_RELE(dvp);
 			if (vp)
 				VN_RELE(vp);
@@ -650,7 +651,7 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 		cn.cn_flags = ISLASTCN;
 		cn.cn_namelen = strlen(namebuffer);
 		cn.cn_nameptr = namebuffer;
-		cn.cn_pnlen = MAXNAMELEN;
+		cn.cn_pnlen = PATH_MAX;
 		cn.cn_pnbuf = namebuffer;
 
 		error = zfs_lookup(VTOZ(dvp), namebuffer,
@@ -2425,6 +2426,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 		ffai->MaximumComponentNameLength = zfsvfs->z_longname ?
 		    (ZAP_MAXNAMELEN_NEW - 1) : (MAXNAMELEN - 1);
+		ffai->MaximumComponentNameLength = (ZAP_MAXNAMELEN_NEW - 1);
 		// ffai->FileSystemAttributes = 0x3E706FF; // ntfs 2023
 
 		// There is room for one char in the struct
