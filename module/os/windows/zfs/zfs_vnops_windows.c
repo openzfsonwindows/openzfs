@@ -3607,7 +3607,7 @@ set_sparse(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (STATUS_SUCCESS);
 }
 
-#ifndef FSCTL_GET_INTEGRITY_INFORMATION_BUFFER
+#if _WIN32_WINNT < _WIN32_WINNT_WIN8
 typedef struct _FSCTL_GET_INTEGRITY_INFORMATION_BUFFER {
     USHORT ChecksumAlgorithm;
     USHORT Reserved;
@@ -3648,7 +3648,7 @@ get_integrity_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (STATUS_SUCCESS);
 }
 
-#ifndef FSCTL_SET_INTEGRITY_INFORMATION_BUFFER
+#if _WIN32_WINNT < _WIN32_WINNT_WIN8
 typedef struct _FSCTL_SET_INTEGRITY_INFORMATION_BUFFER {
     USHORT ChecksumAlgorithm;
     USHORT Reserved;
