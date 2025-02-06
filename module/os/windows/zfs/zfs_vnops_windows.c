@@ -6835,7 +6835,7 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 		case IRP_MN_FILTER_RESOURCE_REQUIREMENTS:
 			dprintf("IRP_MN_FILTER_RESOURCE_REQUIREMENTS\n");
-			Status = STATUS_SUCCESS;
+			Status = STATUS_NOT_IMPLEMENTED; // VSS!
 			break;
 		case 0x18:
 			dprintf("IRP_MN_QUERY_LEGACY_BUS_INFORMATION\n");

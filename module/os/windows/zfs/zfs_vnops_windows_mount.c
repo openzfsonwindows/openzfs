@@ -1582,6 +1582,7 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		ObDereferenceObject(DeviceToMount);
 		dprintf("Not FILE_DEVICE_DISK object -- ignoring\n");
 		// Not a disk device, pass it down
+		return (STATUS_UNRECOGNIZED_VOLUME); // VSS
 		return (STATUS_INVALID_DEVICE_REQUEST);
 	}
 

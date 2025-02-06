@@ -5678,6 +5678,11 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 			}
 		}
 
+		if (count == 0 && extra == 0) {
+			Status = STATUS_NO_SUCH_DEVICE; // VSS
+			break;
+		}
+
 		// Lets always allocate at least 1, since 0 could corrupt
 		int allocate = MAX(count + extra, 1);
 
