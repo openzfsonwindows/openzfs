@@ -1162,7 +1162,7 @@ int
 zfsctl_snapshot_unmount(const char *snapname, int flags)
 {
 	znode_t *rootzp;
-	zfsvfs_t *zfsvfs;
+	zfsvfs_t *zfsvfs = NULL;
 
 	dprintf("%s\n", __func__);
 
