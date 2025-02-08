@@ -536,8 +536,10 @@ zfs_get_temporary_prop(dsl_dataset_t *ds, zfs_prop_t zfs_prop, uint64_t *val,
 
 	switch (zfs_prop) {
 		case ZFS_PROP_ATIME:
-//			if (vfsp->vfs_do_atime)
-//				tmp = vfsp->vfs_atime;
+			if (vfs_optionisset(vfsp, MNT_NOATIME, NULL))
+				tmp = 0;
+			else
+				tmp = 1;
 			break;
 		case ZFS_PROP_RELATIME:
 //			if (vfsp->vfs_do_relatime)

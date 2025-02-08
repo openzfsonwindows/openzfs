@@ -66,6 +66,10 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 	char driveletter[100] = "off";
 	int hasprop = 0;
 
+	/* Linux remounts to set atime etc. */
+	if (strstr(optptr, MNTOPT_REMOUNT) != NULL)
+		return (0);
+
 	/* mount 'spec' "tank/joe" on path 'dir' "/home/joe". */
 #ifdef DEBUG
 	fprintf(stderr,
