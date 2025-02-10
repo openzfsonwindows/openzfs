@@ -314,6 +314,9 @@ zvol_os_write_zv(zvol_state_t *zv, zfs_uio_t *uio, int flags)
 	if (zv->zv_objset == NULL)
 		return (ENXIO);
 
+	if (zv->zv_flags & ZVOL_RDONLY)
+		return (EROFS);
+
 	/* Some requests are just for flush and nothing else. */
 	if (zfs_uio_resid(uio) == 0)
 		return (0);

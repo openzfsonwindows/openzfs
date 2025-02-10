@@ -843,8 +843,30 @@ ScsiOpModeSense(
 	__in PSCSI_REQUEST_BLOCK pSrb)
 {
 	UNREFERENCED_PARAMETER(pHBAExt);
+	zvol_state_t *zv;
+
+	if (!pSrb->DataBuffer ||
+	    pSrb->DataTransferLength < sizeof (MODE_PARAMETER_HEADER))
+		return (SRB_STATUS_INVALID_REQUEST);
 
 	RtlZeroMemory((PUCHAR)pSrb->DataBuffer, pSrb->DataTransferLength);
+
+	zv = wzvol_find_target(pSrb->TargetId, pSrb->Lun);
+
+	if (zv) {
+		if (zv->zv_flags & ZVOL_RDONLY) {
+			// Set the Write Protect bit in the Mode Data.
+			PMODE_PARAMETER_HEADER ModeParmHeader =
+			    pSrb->DataBuffer;
+
+			// Set Mode Data Length (excludes itself)
+			ModeParmHeader->ModeDataLength =
+			    sizeof (MODE_PARAMETER_HEADER) - 1;
+			ModeParmHeader->DeviceSpecificParameter |=
+			    MODE_DSP_WRITE_PROTECT;
+		}
+		wzvol_unlock_target(zv);
+	}
 
 	return (SRB_STATUS_SUCCESS);
 }
@@ -984,6 +1006,10 @@ wzvol_WkRtn(__in PVOID pWkParms)
 
 	if (status == 0)
 		status = SRB_STATUS_SUCCESS;
+	if (status == EROFS) {
+		status = SRB_STATUS_ERROR;
+		pSrb->ScsiStatus = 7; // chatgpt SCSISTAT_WRITE_PROTECTED;
+	}
 
 Done:
 	if (zv)
