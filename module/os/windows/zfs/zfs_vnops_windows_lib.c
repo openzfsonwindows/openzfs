@@ -3203,6 +3203,12 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp)
 		goto out;
 	}
 
+	// Stopping reparsepoints in use, for now.
+	if ((zp->z_pflags & ZFS_REPARSE) && vnode_isinuse(vp, 0)) {
+		Status = STATUS_CANNOT_DELETE;
+		goto out;
+	}
+
 	// Cannot delete a user mapped image.
 	if (!MmFlushImageSection(&vp->SectionObjectPointers,
 	    MmFlushForDelete)) {
