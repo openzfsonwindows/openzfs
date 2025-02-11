@@ -6363,7 +6363,12 @@ volume_close(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject)
 
 		dprintf("%s decreasing %p\n", __func__, vp);
 		zfs_decouplefileobject(vp, FileObject, B_TRUE);
-		vnode_rele(vp);
+		if (vp->v_usecount > 0)
+			vnode_rele(vp);
+		else
+			dprintf("%s: bug, should decrease %p "
+			    "usecount but can't\n",
+			    __func__, vp);
 		atomic_dec_64(&zmo->volume_opens);
 		dprintf("%s zmo->volume_opens %d\n", __func__,
 		    zmo->volume_opens);
@@ -6372,7 +6377,7 @@ volume_close(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject)
 		return (STATUS_SUCCESS);
 	}
 
-	return (STATUS_SUCCESS);
+	return (STATUS_DEVICE_NOT_READY);
 }
 
 /*
