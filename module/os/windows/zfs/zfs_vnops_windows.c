@@ -952,6 +952,10 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		if (!(zmo->vpb->Flags & VPB_MOUNTED))
 			return (STATUS_DEVICE_NOT_READY);
 
+		if (CreateDisposition == FILE_CREATE ||
+		    CreateDisposition == FILE_OPEN_IF)
+			return (STATUS_ACCESS_DENIED);
+
 		dprintf("Started NULL open, returning root of mount\n");
 		error = zfs_zget(zfsvfs, zfsvfs->z_root, &zp);
 		if (error != 0)
@@ -1022,6 +1026,10 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 				if (NonDirectoryFile)
 					return (STATUS_FILE_IS_A_DIRECTORY);
+
+				if (CreateDisposition == FILE_CREATE ||
+				    CreateDisposition == FILE_OPEN_IF)
+					return (STATUS_ACCESS_DENIED);
 
 				error = zfs_zget(zfsvfs, zfsvfs->z_root, &zp);
 
@@ -1353,7 +1361,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	if ((CreateDisposition == FILE_OPEN_IF) && (vp != NULL))
 		CreateDirectory = 0;
 
-	// Fail if FILE_CREATE but target exist
+	// Fail if FILE_CREATE but file target exist
 	if ((CreateDisposition == FILE_CREATE) && (vp != NULL)) {
 		VN_RELE(vp);
 		if (dvp)
@@ -1362,6 +1370,18 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		if (CreateDirectory && !vnode_isdir(vp))
 			return (STATUS_NOT_A_DIRECTORY);
 		return (STATUS_OBJECT_NAME_COLLISION); // create file error
+	}
+
+	// Fail if CreateDirectory, FILE_CREATE and dir target exists
+	if (CreateDirectory &&
+	    (CreateDisposition == FILE_CREATE) &&
+	    (finalname == NULL)) {
+		if (vp) // vp is probably NULL
+			VN_RELE(vp);
+		if (dvp)
+			VN_RELE(dvp);
+		Irp->IoStatus.Information = FILE_EXISTS;
+		return (STATUS_OBJECT_NAME_COLLISION);
 	}
 
 	if (CreateDirectory && finalname) {
