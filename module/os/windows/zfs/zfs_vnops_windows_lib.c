@@ -1226,11 +1226,6 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 		return (ENOSPC);
 	}
 
-	// If it is going to fit, compute alignment,
-	// in case this dir entry is the last one,
-	// we don't align last one.
-	ctx->last_alignment = reclen - rawsize;
-
 	// Convert the filename over, or as much
 	// as we can fit
 	ULONG namelenholder2 = 0;
@@ -1277,8 +1272,10 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 	}
 	/* SEARCH PATTERN */
 
-
-
+	// If it is going to fit, compute alignment,
+	// in case this dir entry is the last one,
+	// we don't align last one.
+	ctx->last_alignment = reclen - rawsize;
 
 	// If we aren't to skip, advance all pointers
 	VERIFY3P(next_offset, !=, NULL);
