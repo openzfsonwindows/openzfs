@@ -1207,7 +1207,8 @@ zfs_readdir_emitdir(zfsvfs_t *zfsvfs, const char *name, emitdir_ptr_t *ctx,
 
 	// Release the zp
 	if (get_zp == 0 && tzp != NULL && ZTOV(tzp) != NULL) {
-		VN_RELE(ZTOV(tzp));
+		if (ZTOV(tzp) != NULL)
+			VN_RELE(ZTOV(tzp));
 	}
 
 	// If know we can't fit struct, just leave
