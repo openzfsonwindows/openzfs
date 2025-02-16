@@ -2698,9 +2698,9 @@ find_set_gid(struct vnode *vp, struct vnode *dvp,
 #if 0
 	Status = SeQueryInformationToken(subjcont->PrimaryToken,
 	    TokenGroups, (void**)&tg);
-	if (!NT_SUCCESS(Status))
+	if (!NT_SUCCESS(Status)) {
 		dprintf("SeQueryInformationToken returned %08lx\n", Status);
-	else {
+	} else {
 		ULONG i;
 
 		for (i = 0; i < tg->GroupCount; i++) {
@@ -4233,11 +4233,12 @@ end:
 			Status = GetExceptionCode();
 		}
 
-		if (!NT_SUCCESS(Status))
+		if (!NT_SUCCESS(Status)) {
 			dprintf("CcSetFileSizes threw exception %08lx\n",
 			    Status);
-		else
+		} else {
 			vp->FileHeader.AllocationSize = ccfs.AllocationSize;
+		}
 	}
 
 	zfs_exit(zfsvfs, FTAG);
