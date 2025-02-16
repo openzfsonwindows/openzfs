@@ -1206,7 +1206,8 @@ OpenZFS_AddDevice(
 		    zmo_bus->PhysicalDeviceObject);
 		DriverExtension->LowerDeviceObject = zmo_bus->AttachedDevice;
 
-		IoDetachDevice(zmo_bus->AttachedDevice);
+		if (windows_zvol_enabled)
+			IoDetachDevice(zmo_bus->AttachedDevice);
 		// Storport
 
 		DriverExtension->FunctionalDeviceObject->Flags &=
@@ -1257,17 +1258,20 @@ OpenZFS_AddDevice(
 		    ~DO_DEVICE_INITIALIZING;
 
 		// Let StorPort have a go
-		if (DriverExtension->STOR_AddDevice)
-			status = DriverExtension->STOR_AddDevice(DriverObject,
-			    PhysicalDeviceObject);
+		if (windows_zvol_enabled) {
+			if (DriverExtension->STOR_AddDevice)
+				status = DriverExtension->STOR_AddDevice(
+				    DriverObject, PhysicalDeviceObject);
 
-		// Add ourselves after Storport, and remember what Storport
-		// device object is.
-		zmo_bus->AttachedDevice =
-		    IoAttachDeviceToDeviceStack(
-		    DriverExtension->FunctionalDeviceObject,
-		    zmo_bus->PhysicalDeviceObject);
-		DriverExtension->StorportDeviceObject = zmo_bus->AttachedDevice;
+			// Add ourselves after Storport, and remember what
+			// Storport device object is.
+			zmo_bus->AttachedDevice =
+			    IoAttachDeviceToDeviceStack(
+			    DriverExtension->FunctionalDeviceObject,
+			    zmo_bus->PhysicalDeviceObject);
+			DriverExtension->StorportDeviceObject =
+			    zmo_bus->AttachedDevice;
+		}
 
 		DriverExtension->FunctionalDeviceObject->Flags &=
 		    ~DO_DEVICE_INITIALIZING;

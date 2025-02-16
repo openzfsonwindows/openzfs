@@ -70,6 +70,7 @@ struct zfs_ccb {
 typedef struct zfs_ccb zfs_ccb_t;
 
 extern uint64_t zfs_module_busy;
+extern uint64_t windows_zvol_enabled;
 
 #define	DIR_LINKS(zp) \
 	(S_ISDIR((zp)->z_mode) ? (zp)->z_links - 1 : (zp)->z_links)

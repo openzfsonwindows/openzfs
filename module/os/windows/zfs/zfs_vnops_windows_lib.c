@@ -5669,36 +5669,41 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		// We used to just IoCopyCurrentIrpStackLocationToNext()
 		// and call onwards, but it can run out of stack space,
 		// so now we do a whole new request.
-		dprintf("Calling Storport first\n");
-		Status = SendBusRelationsRequest(
-		    DriverExtension->StorportDeviceObject,
-		    &StorportRelations);
-		if (NT_SUCCESS(Status)) {
+		if (windows_zvol_enabled) {
+			dprintf("Calling Storport first\n");
+			Status = SendBusRelationsRequest(
+			    DriverExtension->StorportDeviceObject,
+			    &StorportRelations);
+			if (NT_SUCCESS(Status)) {
 
-			if (StorportRelations && StorportRelations->Count > 0) {
-				extra = StorportRelations->Count;
-				dprintf("We have extra from storport %d\n",
-				    extra);
+				if (StorportRelations &&
+				    StorportRelations->Count > 0) {
+					extra = StorportRelations->Count;
+					dprintf("storport extra %d\n",
+					    extra);
+				}
 			}
 		}
-
+#if 0
 		if (count == 0 && extra == 0) {
 			Status = STATUS_NO_SUCH_DEVICE; // VSS
 			break;
 		}
+#endif
 
-		// Lets always allocate at least 1, since 0 could corrupt
-		int allocate = MAX(count + extra, 1);
+		DeviceRelations = ExAllocatePool(PagedPool,
+		    offsetof(DEVICE_RELATIONS, Objects[count + extra]));
 
-		DeviceRelations = (PDEVICE_RELATIONS)ExAllocatePoolWithTag(
-		    PagedPool,
-		    sizeof (DEVICE_RELATIONS) - sizeof (PDEVICE_OBJECT) +
-		    (sizeof (PDEVICE_OBJECT) * allocate),
-		    'drvg');
-		if (DeviceRelations == NULL)
+		if (DeviceRelations == NULL) {
+			if (StorportRelations) // Count can be 0.
+				ExFreePool(StorportRelations);
 			return (STATUS_INSUFFICIENT_RESOURCES);
+		}
 
 		DeviceRelations->Count = 0;
+
+		if (count == 0 && extra == 0)
+			goto out;
 
 		vfs_mount_setarray(DeviceRelations->Objects, count);
 
@@ -5729,14 +5734,17 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 				DeviceRelations->Count++;
 			}
 		}
+
+out:
 		if (StorportRelations) // Count can be 0.
 			ExFreePool(StorportRelations);
 
 		Irp->IoStatus.Information =
 		    (ULONG_PTR)DeviceRelations;
 
-		dprintf("BusRelations returning %d children (allocated %d)\n",
-		    DeviceRelations->Count, allocate);
+		dprintf("BusRelations returning %d children in %p\n",
+		    DeviceRelations->Count,
+		    (void *)Irp->IoStatus.Information);
 
 		Status = STATUS_SUCCESS;
 		break;
@@ -5744,9 +5752,6 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 	default:
 	}
 
-out:
-	dprintf("TargetDeviceRelations: returning %d: %p\n",
-	    Status, ReturnDevice);
 	return (Status);
 }
 
