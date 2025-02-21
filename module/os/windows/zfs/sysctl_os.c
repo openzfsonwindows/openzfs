@@ -44,6 +44,7 @@ static UNICODE_STRING sysctl_os_RegistryPath;
 void sysctl_os_init(PUNICODE_STRING RegistryPath);
 
 extern uint32_t spl_hostid;
+extern uint64_t	real_total_memory;
 
 HANDLE
 sysctl_os_open_registry(PUNICODE_STRING pRegistryPath)
@@ -478,7 +479,7 @@ param_set_arc_max(ZFS_MODULE_PARAM_ARGS)
 	// This can come in so early we have not yet set
 	// total_memory size. Trust boot Registry value then?
 	if (val != 0 && (val < MIN_ARC_MAX || val <= arc_c_min ||
-	    (arc_all_memory() > 0 && val >= arc_all_memory())))
+	    (real_total_memory > 0 && val >= real_total_memory)))
 		return (SET_ERROR(EINVAL));
 
 	zfs_arc_max = val;
