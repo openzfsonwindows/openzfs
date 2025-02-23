@@ -48,7 +48,7 @@ char *cbuf = NULL;
 
 static unsigned long long cbuf_size = 0x100000; // 1MB
 static unsigned long long startOff = 0;
-
+void saveBuffer(void);
 
 #define	CBUF_SAVE_LEN 100
 #define	CBUF_FILENAME L"\\??\\C:\\Program Files\\OpenZFS On Windows\\cbuf.txt"
@@ -82,52 +82,7 @@ param_cbuf_save(ZFS_MODULE_PARAM_ARGS)
 	dprintf("Saving cbuf to %S\n", CBUF_FILENAME);
 	((char *)*ptr)[0] = '*'; // Take out the '1'
 
-	UNICODE_STRING fileNameUnicode;
-	OBJECT_ATTRIBUTES objectAttributes;
-	HANDLE fileHandle;
-	IO_STATUS_BLOCK ioStatusBlock;
-	NTSTATUS status;
-
-	RtlInitUnicodeString(&fileNameUnicode, CBUF_FILENAME);
-
-	InitializeObjectAttributes(&objectAttributes, &fileNameUnicode,
-	    OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
-
-	status = ZwCreateFile(&fileHandle, GENERIC_WRITE, &objectAttributes,
-	    &ioStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL,
-	    0, FILE_OVERWRITE_IF, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
-
-	if (NT_SUCCESS(status))	{
-		// To be nice, let's start at the offset, and do two saves.
-		// first, startOffset to end of buffer. Special case, if
-		// buffer has never wrapped, skip all initial "\n"
-		unsigned long long pos;
-		pos = startOff + sizeof (endBuf);
-		while (cbuf[pos] == '\n' && pos < cbuf_size)
-			pos++;
-
-		len = cbuf_size - pos;
-		if (len > 0)
-			status = ZwWriteFile(fileHandle, NULL, NULL, NULL,
-			    &ioStatusBlock, cbuf + pos, (ULONG)len, NULL, NULL);
-		// then, start of file, to startOff
-		len = startOff;
-		if (len > 0)
-			status = ZwWriteFile(fileHandle, NULL, NULL, NULL,
-			    &ioStatusBlock, cbuf, (ULONG)len, NULL, NULL);
-
-		ZwClose(fileHandle);
-		snprintf(zfs_cbuf_save, sizeof (zfs_cbuf_save),
-		    "* Saved %S", CBUF_FILENAME);
-	} else {
-		snprintf(zfs_cbuf_save, sizeof (zfs_cbuf_save),
-		    "* Unable to open %S", CBUF_FILENAME);
-	}
-
-	void
-	    zfs_send_system_boot(void);
-
-	zfs_send_system_boot();
+	saveBuffer();
 
 	return (0);
 }
@@ -235,43 +190,46 @@ printBuffer(const char *fmt, ...)
 void
 saveBuffer(void)
 {
-	UNICODE_STRING UnicodeFilespec;
-	OBJECT_ATTRIBUTES ObjectAttributes;
+	UNICODE_STRING fileNameUnicode;
+	OBJECT_ATTRIBUTES objectAttributes;
+	HANDLE fileHandle;
+	IO_STATUS_BLOCK ioStatusBlock;
 	NTSTATUS status;
-	HANDLE h;
+	int len;
 
-	printBuffer("saving buffer to disk\n");
+	RtlInitUnicodeString(&fileNameUnicode, CBUF_FILENAME);
 
-	RtlInitUnicodeString(&UnicodeFilespec,
-	    L"\\??\\C:\\Windows\\debug\\ZFSin.txt");
+	InitializeObjectAttributes(&objectAttributes, &fileNameUnicode,
+	    OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
 
-	// Attempt to create file, make a weak attempt, give up easily.
-	ObjectAttributes.Length = sizeof (OBJECT_ATTRIBUTES);
-	ObjectAttributes.RootDirectory = NULL;
-	ObjectAttributes.Attributes = OBJ_KERNEL_HANDLE;
-	ObjectAttributes.ObjectName = &UnicodeFilespec;
-	ObjectAttributes.SecurityDescriptor = NULL;
-	ObjectAttributes.SecurityQualityOfService = NULL;
-	IO_STATUS_BLOCK iostatus;
+	status = ZwCreateFile(&fileHandle, GENERIC_WRITE, &objectAttributes,
+	    &ioStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL,
+	    0, FILE_OVERWRITE_IF, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
 
-	status = ZwCreateFile(&h,
-	    GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE,
-	    &ObjectAttributes,
-	    &iostatus,
-	    0,
-	    FILE_ATTRIBUTE_NORMAL,
-	    /* FILE_SHARE_WRITE | */ FILE_SHARE_READ,
-	    FILE_OVERWRITE_IF,
-	    FILE_SYNCHRONOUS_IO_NONALERT | FILE_NO_INTERMEDIATE_BUFFERING,
-	    NULL,
-	    0);
+	if (NT_SUCCESS(status))	{
+		// To be nice, let's start at the offset, and do two saves.
+		// first, startOffset to end of buffer. Special case, if
+		// buffer has never wrapped, skip all initial "\n"
+		unsigned long long pos;
+		pos = startOff + sizeof (endBuf);
+		while (cbuf[pos] == '\n' && pos < cbuf_size)
+			pos++;
 
-	if (status != STATUS_SUCCESS) {
-		printBuffer("failed to save buffer: 0x%lx\n", status);
-		return;
+		len = cbuf_size - pos;
+		if (len > 0)
+			status = ZwWriteFile(fileHandle, NULL, NULL, NULL,
+			    &ioStatusBlock, cbuf + pos, (ULONG)len, NULL, NULL);
+		// then, start of file, to startOff
+		len = startOff;
+		if (len > 0)
+			status = ZwWriteFile(fileHandle, NULL, NULL, NULL,
+			    &ioStatusBlock, cbuf, (ULONG)len, NULL, NULL);
+
+		ZwClose(fileHandle);
+		snprintf(zfs_cbuf_save, sizeof (zfs_cbuf_save),
+		    "* Saved %S", CBUF_FILENAME);
+	} else {
+		snprintf(zfs_cbuf_save, sizeof (zfs_cbuf_save),
+		    "* Unable to open %S", CBUF_FILENAME);
 	}
-
-	ZwWriteFile(h, 0, NULL, NULL, &iostatus, cbuf, (ULONG)cbuf_size,
-	    NULL, NULL);
-	ZwClose(h);
 }
