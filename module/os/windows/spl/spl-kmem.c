@@ -49,6 +49,8 @@
 
 #include <Trace.h>
 
+#include <sys/mod_os.h>
+
 // TODO, track down what is using floats in this file
 int _fltused = 0;
 
@@ -77,6 +79,9 @@ static boolean_t spl_event_thread_exit = FALSE;
 PKEVENT low_mem_event = NULL;
 
 static volatile _Atomic int64_t spl_free_manual_pressure = 0;
+ZFS_MODULE_RAW(spl, free_manual_pressure, spl_free_manual_pressure,
+    S64, ZMOD_RW, 0, "Set to simulate memory pressure.");
+
 static volatile _Atomic boolean_t spl_free_fast_pressure = FALSE;
 static _Atomic bool spl_free_maybe_reap_flag = false;
 static _Atomic uint64_t spl_free_last_pressure = 0;
@@ -90,6 +95,11 @@ uint64_t spl_dynamic_memory_cap_reductions = 0;
 uint64_t spl_dynamic_memory_cap_hit_floor = 0;
 static uint64_t spl_manual_memory_cap = 0;
 static uint64_t spl_memory_cap_enforcements = 0;
+
+ZFS_MODULE_RAW(spl, manual_memory_cap, spl_manual_memory_cap,
+    U64, ZMOD_RW, 0, "Set manual memory limit.");
+ZFS_MODULE_RAW(spl, memory_cap_enforcements, spl_memory_cap_enforcements,
+    U64, ZMOD_RW, 0, "Enforce manual memory limits.");
 
 extern void spl_set_arc_no_grow(int);
 
@@ -4715,8 +4725,13 @@ spl_free_thread()
 		if (time_now > hz)
 			time_now_seconds = time_now / hz;
 
-		new_spl_free = total_memory -
-		    segkmem_total_mem_allocated;
+		if (segkmem_total_mem_allocated > total_memory)
+			spl_vm_pages_wanted =
+			    (segkmem_total_mem_allocated - total_memory)
+			    / PAGE_SIZE;
+		else
+			new_spl_free = total_memory -
+			    segkmem_total_mem_allocated;
 
 		/* Ask Mach about pressure */
 

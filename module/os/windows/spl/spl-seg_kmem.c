@@ -89,6 +89,7 @@
 
 #ifdef _KERNEL
 #include <Trace.h>
+#include <sys/mod_os.h>
 #endif /* _KERNEL */
 
 typedef int page_t;
@@ -98,6 +99,8 @@ void segkmem_free(vmem_t *vmp, const void *inaddr, size_t size);
 
 /* Total memory held allocated */
 uint64_t segkmem_total_mem_allocated = 0;
+ZFS_MODULE_RAW(spl, segkmem_total_mem_allocated, segkmem_total_mem_allocated,
+    U64, ZMOD_RD, 0, "Total memory allocated.");
 
 /* primary kernel heap arena */
 vmem_t *heap_arena;
