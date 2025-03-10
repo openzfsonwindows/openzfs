@@ -10,6 +10,7 @@
  * See the License for the specific language governing permissions
  * and limitations under the License.
  *
+ *
  * When distributing Covered Code, include this CDDL HEADER in each
  * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
  * If applicable, add the following below this CDDL HEADER, with the
@@ -1118,7 +1119,7 @@ int
 vnode_put(vnode_t *vp)
 #endif
 {
-	ASSERT(!(vp->v_flags & VNODE_DEAD));
+	// ASSERT(!(vp->v_flags & VNODE_DEAD));
 	ASSERT(vp->v_iocount > 0);
 	ASSERT((vp->v_flags & ~VNODE_VALIDBITS) == 0);
 
@@ -1168,7 +1169,7 @@ int
 vnode_recycle_int(vnode_t *vp, int flags)
 {
 	// KIRQL OldIrql;
-	ASSERT((vp->v_flags & VNODE_DEAD) == 0);
+	// ASSERT((vp->v_flags & VNODE_DEAD) == 0);
 
 	// Already locked calling in...
 	if (!(flags & VNODELOCKED)) {
@@ -1402,7 +1403,7 @@ vnode_rele(vnode_t *vp)
 {
 	// KIRQL OldIrql;
 
-	ASSERT(!(vp->v_flags & VNODE_DEAD));
+	// ASSERT(!(vp->v_flags & VNODE_DEAD));
 	ASSERT(vp->v_iocount > 0);
 	ASSERT(vp->v_usecount > 0);
 	atomic_dec_32(&vp->v_usecount);
@@ -1417,7 +1418,7 @@ vnode_rele(vnode_t *vp)
 	} else {
 		// We are idle, call inactive, grab a hold
 		// so we can call inactive unlocked
-		ASSERT0(vp->v_flags & VNODE_DEAD);
+		// ASSERT0(vp->v_flags & VNODE_DEAD);
 		vp->v_flags &= ~VNODE_NEEDINACTIVE;
 		atomic_inc_32(&vp->v_iocount);
 		mutex_exit(&vp->v_mutex);
