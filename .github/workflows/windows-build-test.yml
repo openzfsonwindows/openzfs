@@ -611,6 +611,7 @@ jobs:
       with:
         url: "https://github.com/andrewc12/btrfs/releases/download/v1.8/x64-Debug.zip"
         target: ${{github.workspace}}/
+        retry-times: 3
 
     - name: extract
       run: Expand-Archive -LiteralPath '${{ steps.winbtrs.outputs.filename }}' -DestinationPath ${{github.workspace}}\winbtrfs
@@ -2300,6 +2301,7 @@ jobs:
       with:
         url: "https://github.com/andrewc12/btrfs/releases/download/v1.8/x64-Debug.zip"
         target: ${{github.workspace}}/
+        retry-times: 3
 
     - name: extract
       run: Expand-Archive -LiteralPath '${{ steps.winbtrs.outputs.filename }}' -DestinationPath ${{github.workspace}}\winbtrfs
@@ -2693,6 +2695,7 @@ jobs:
       with:
         url: "https://github.com/andrewc12/ifstest/raw/main/ifs_test_kit.zip"
         target: ${{github.workspace}}/
+        retry-times: 3
 
     - name: extract
       run: Expand-Archive -LiteralPath '${{ steps.winbtrs.outputs.filename }}' -DestinationPath ${{github.workspace}}\ifs_test_kit
