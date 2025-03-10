@@ -212,7 +212,7 @@ saveBuffer(void)
 		// buffer has never wrapped, skip all initial "\n"
 		unsigned long long pos;
 		pos = startOff + sizeof (endBuf);
-		while (cbuf[pos] == '\n' && pos < cbuf_size)
+		while (cbuf[pos] == '\n' && pos < (cbuf_size - sizeof(endBuf)))
 			pos++;
 
 		len = cbuf_size - pos;

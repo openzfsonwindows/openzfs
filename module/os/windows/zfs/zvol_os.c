@@ -154,7 +154,6 @@ zvol_os_wait_openzvol(void *arg)
 
 		delay(hz * 3);
 	}
-	dprintf("%s thread exit\n", __func__);
 }
 
 static void

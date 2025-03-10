@@ -84,7 +84,6 @@ OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
 	ZFS_DRIVER_EXTENSION(DriverObject, DriverExtension);
 
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "OpenZFS_Fini\n"));
-	DbgBreakPoint();
 
 	sysctl_os_fini();
 
