@@ -1892,9 +1892,14 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 		// Then make sure we aren't still in the middle of
 		// a vmode_create() by grabbing zfs_enter() lock.
 		ZFS_TEARDOWN_ENTER_WRITE(zfsvfs, FTAG);
-		while (vp && vp->v_iocount > 0) {
-			delay(hz >> 2); // Fixme
+		if (vp != NULL) {
+			int retry = 0;
+			while (vp->v_iocount > 0 || vp->v_usecount > 0) {
+				delay(hz >> 2); // Fixme, condvar
+				if (retry++ > 10) break;
+			}
 		}
+
 		// Unix would handle this at unmount, effectively dealing
 		// with the markroot vnode. So we remove the ROOT part so
 		// it can be recycled. vflush() should handle it.

@@ -1127,6 +1127,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			// assign "dvp" - but
 			// the stream_name check below will expect it in "vp".
 			// dvp_no_rele is already set.
+			// So dvp should be "filename.txt", and streamname
+			// has ":streamname" - short hand.
 			dprintf("special case Zone.Identifier\n");
 			dvp_no_rele = 1;
 			vp = FileObject->RelatedFileObject->FsContext;
@@ -4635,8 +4637,9 @@ notify_change_directory(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	dprintf("%s\n", __func__);
 	zmo = DeviceObject->DeviceExtension;
-	ASSERT(zmo != NULL);
-	if (zmo->type != MOUNT_TYPE_VCB) {
+
+	if (zmo == NULL ||
+	    zmo->type != MOUNT_TYPE_VCB) {
 		return (STATUS_INVALID_PARAMETER);
 	}
 
