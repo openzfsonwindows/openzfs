@@ -36,6 +36,7 @@
 #include <sys/taskq.h>
 #include <sys/wzvol.h>
 #include <sys/mount.h>
+#include <sys/random.h>
 #include <sys/driver_extension.h>
 
 #include "Trace.h"
@@ -62,6 +63,7 @@ extern void sysctl_os_all(PUNICODE_STRING RegistryPath);
 extern void sysctl_os_fini(void);
 
 extern void saveBuffer(void);
+extern uint32_t spl_hostid;
 
 
 #ifdef __clang__
@@ -191,6 +193,10 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 	if (DriverExtension->fsDiskDeviceObject)
 		sysctl_os_registry_change(DriverExtension->fsDiskDeviceObject,
 		    pRegistryPath);
+
+	// Set hostid here, it will be overwritten if it is in registry
+	if (spl_hostid == 0)
+		random_get_bytes(&spl_hostid, sizeof (spl_hostid));
 
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
 	    "OpenZFS: Started\n"));

@@ -528,11 +528,6 @@ spl_start(PUNICODE_STRING RegistryPath)
 	    zfs_total_memory_limit, total_memory);
 	physmem = total_memory / PAGE_SIZE;
 
-
-	// Set hostid here, it will be overwritten if it is in registry
-	if (spl_hostid == 0)
-		random_get_bytes(&spl_hostid, sizeof (spl_hostid));
-
 	/*
 	 * For some reason, (CTLFLAG_KERN is not set) looking up hostname
 	 * returns 1. So we set it to uuid just to give it *something*.
