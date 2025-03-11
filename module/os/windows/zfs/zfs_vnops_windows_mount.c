@@ -1031,7 +1031,7 @@ zfs_windows_mount(zfs_cmd_t *zc)
 
 	// Get ready to wait for the volume mounted notification
 	KeInitializeEvent((PRKEVENT)&zmo_dcb->volume_mounted_event,
-	    SynchronizationEvent, TRUE);
+	    SynchronizationEvent, FALSE);
 
 	zfs_vfs_uuid_gen(zc->zc_name, zmo_dcb->rawuuid);
 
@@ -1188,7 +1188,7 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	 */
 	dprintf("Waiting mount to finish\n");
 	LARGE_INTEGER timeout;
-	timeout.QuadPart = -100000 * 10;
+	timeout.QuadPart = -1000000 * 10; // 10s
 	status = KeWaitForSingleObject(&zmo_dcb->volume_mounted_event,
 	    Executive, KernelMode, TRUE, &timeout);
 
@@ -1779,7 +1779,7 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 
 		// Get ready to wait for the volume removed notification
 		KeInitializeEvent((PRKEVENT)&zmo_dcb->volume_removed_event,
-		    SynchronizationEvent, TRUE);
+		    SynchronizationEvent, FALSE);
 
 		dprintf("Set UNMOUNTING\n");
 		vfs_setflags(zmo, MNT_UNMOUNTING);
@@ -1875,7 +1875,7 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 
 		// wait for volume removal notification
 		LARGE_INTEGER timeout;
-		timeout.QuadPart = -100000 * 10;
+		timeout.QuadPart = -1000000 * 10;
 		status = KeWaitForSingleObject(&zmo_dcb->volume_removed_event,
 		    Executive, KernelMode, TRUE, &timeout);
 		// If we timeout, lets just continue and hope for the best?
