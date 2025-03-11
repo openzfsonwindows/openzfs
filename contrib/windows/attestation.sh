@@ -39,6 +39,13 @@ fi
 
 rm -rf drivers
 unzip $1
-cp drivers/OpenZFS/* out/build/x64-Debug/module/os/windows/driver/
+
+cp drivers/OpenZFS/OpenZFS.Inf out/build/x64-Debug/module/os/windows/driver/
+cp drivers/OpenZFS/OpenZFS.cat out/build/x64-Debug/module/os/windows/driver/
+cp drivers/OpenZFS/OpenZFS.man out/build/x64-Debug/module/os/windows/driver/
+cp drivers/OpenZFS/OpenZFS.sys out/build/x64-Debug/module/os/windows/driver/
+cp drivers/OpenZFS/OpenZVOL.sys out/build/x64-Debug/module/os/windows/zvol/driver/
+cp drivers/OpenZFS/OpenZVOL.cat out/build/x64-Debug/module/os/windows/zvol/driver/
+cp drivers/OpenZFS/OpenZVOL.Inf out/build/x64-Debug/module/os/windows/zvol/driver/
 
 echo "Now run Inno Setup to produce installer"

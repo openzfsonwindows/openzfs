@@ -2277,10 +2277,13 @@ pnp_query_id(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	 */
 	switch (IrpSp->Parameters.QueryId.IdType) {
 	case BusQueryDeviceID:
-		// RtlUnicodeStringPrintf(&mpt,
-		//    L"OpenZFS\\%wZ%lc", &zmo->uuid, 0);
-		RtlUnicodeStringPrintf(&mpt,
-		    L"OpenZFS_bus\\%wZ%lc", &zmo->uuid, 0); // OpenZFS_bus
+		if (zmo->type == MOUNT_TYPE_BUS) {
+			RtlUnicodeStringPrintf(&mpt,
+			    L"OpenZFS_bus\\GenericBus%lc", 0);
+		} else {
+			RtlUnicodeStringPrintf(&mpt,
+			    L"OpenZFS_bus\\%wZ%lc", &zmo->uuid, 0);
+		}
 		idString = mpt.Buffer;
 		idLen = mpt.Length;
 		break;
@@ -6825,29 +6828,38 @@ _Function_class_(DRIVER_DISPATCH)
 			dprintf("IRP_MN_REMOVE_DEVICE\n");
 			VERIFY(zmo->type == MOUNT_TYPE_BUS);
 
-			// DriverExtension->LowerDeviceObject == zmo_bus->AttachedDevice
-			IoDetachDevice(zmo->AttachedDevice);
+			if (DriverExtension->Unload_Module == B_TRUE) {
+				// DriverExtension->LowerDeviceObject == zmo_bus->AttachedDevice
+				IoDetachDevice(zmo->AttachedDevice);
 
-			// Forward the IRP down the stack before deleting
-			IoSkipCurrentIrpStackLocation(Irp);
-			Status = IoCallDriver(zmo->AttachedDevice, Irp);
+				// Forward the IRP down the stack before deleting
+				IoSkipCurrentIrpStackLocation(Irp);
+				Status = IoCallDriver(zmo->AttachedDevice, Irp);
 
-			zfs_unload_stage_1();
+				zfs_unload_stage_1();
 
-			*PIrp = NULL; // Stop completion of IRP below
-			Status = STATUS_SUCCESS;
+				*PIrp = NULL; // Stop completion of IRP below
+				Status = STATUS_SUCCESS;
+				break;
+			}
+			Status = STATUS_UNSUCCESSFUL;
 			break;
 		case IRP_MN_QUERY_REMOVE_DEVICE:
 			dprintf("IRP_MN_QUERY_REMOVE_DEVICE\n");
-			IoSkipCurrentIrpStackLocation(Irp);
-			Status = IoCallDriver(zmo->AttachedDevice, Irp);
-			*PIrp = NULL; // Stop completion of IRP below
-			if (NT_SUCCESS(Status)) {
-				Status = STATUS_SUCCESS;
-				dprintf("IRP_MN_QUERY_REMOVE_DEVICE: success\n");
+
+			if (DriverExtension->Unload_Module == B_TRUE) {
+				IoSkipCurrentIrpStackLocation(Irp);
+				Status = IoCallDriver(zmo->AttachedDevice, Irp);
+				*PIrp = NULL; // Stop completion of IRP below
+				if (NT_SUCCESS(Status)) {
+					Status = STATUS_SUCCESS;
+					dprintf("IRP_MN_QUERY_REMOVE_DEVICE: success\n");
+				} else {
+					Status = STATUS_UNSUCCESSFUL;
+					dprintf("IRP_MN_QUERY_REMOVE_DEVICE: unsuccessful\n");
+				}
 			} else {
 				Status = STATUS_UNSUCCESSFUL;
-				dprintf("IRP_MN_QUERY_REMOVE_DEVICE: unsuccessful\n");
 			}
 			break;
 		case IRP_MN_QUERY_DEVICE_RELATIONS:

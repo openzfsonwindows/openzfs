@@ -3581,7 +3581,10 @@ zfs_ioc_create(const char *fsname, nvlist_t *innvl, nvlist_t *outnvl)
 			 * until all asynchronous minor handling (e.g. from
 			 * setting the volmode property) has completed. Wait for
 			 * the spa_zvol_taskq to drain then retry.
+			 * Windows does not have the zvol_taskq, so we don't need to wait,
+			 * plus it always holds expect_count==1 so this hangs.
 			 */
+#ifndef WIN32
 			error2 = dsl_destroy_head(fsname);
 			while ((error2 == EBUSY) && (type == DMU_OST_ZVOL)) {
 				error2 = spa_open(fsname, &spa, FTAG);
@@ -3591,6 +3594,7 @@ zfs_ioc_create(const char *fsname, nvlist_t *innvl, nvlist_t *outnvl)
 				}
 				error2 = dsl_destroy_head(fsname);
 			}
+#endif
 		}
 	}
 	return (error);

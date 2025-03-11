@@ -17,8 +17,12 @@
 ; and each driver package must be in a separate subfolder.
 .Set DestinationDir=OpenZFS
 ;Specify files to be included in cab file
-C:\src\openzfs\out\build\x64-Debug\module\os\windows\driver\OpenZFS.Inf
-C:\src\openzfs\out\build\x64-Debug\module\os\windows\driver\OpenZFS.sys
-C:\src\openzfs\out\build\x64-Debug\module\os\windows\driver\OpenZFS.pdb
-C:\src\openzfs\out\build\x64-Debug\module\os\windows\driver\OpenZFS.cat
-C:\src\openzfs\out\build\x64-Debug\module\os\windows\driver\OpenZFS.man
+out\build\x64-Debug\module\os\windows\driver\OpenZFS.Inf
+out\build\x64-Debug\module\os\windows\driver\OpenZFS.sys
+out\build\x64-Debug\module\os\windows\driver\OpenZFS.pdb
+out\build\x64-Debug\module\os\windows\driver\OpenZFS.cat
+out\build\x64-Debug\module\os\windows\driver\OpenZFS.man
+out\build\x64-Debug\module\os\windows\zvol\driver\OpenZVOL.sys
+out\build\x64-Debug\module\os\windows\zvol\driver\OpenZVOL.Inf
+out\build\x64-Debug\module\os\windows\zvol\driver\OpenZVOL.pdb
+out\build\x64-Debug\module\os\windows\zvol\driver\OpenZVOL.cat

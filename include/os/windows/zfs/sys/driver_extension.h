@@ -32,6 +32,7 @@ struct OpenZFS_Driver_Extension_s {
 	PDEVICE_OBJECT FunctionalDeviceObject; // OpenZFS_bus
 	PDEVICE_OBJECT ioctlDeviceObject;  // /dev/zfs pdo
 	PDEVICE_OBJECT fsDiskDeviceObject; // /dev/zfs vdo
+	boolean_t Unload_Module;
 };
 
 typedef struct OpenZFS_Driver_Extension_s OpenZFS_Driver_Extension;

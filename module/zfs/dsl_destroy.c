@@ -820,11 +820,7 @@ dsl_destroy_head_check(void *arg, dmu_tx_t *tx)
 	error = dsl_dataset_hold(dp, ddha->ddha_name, FTAG, &ds);
 	if (error != 0)
 		return (error);
-#ifdef _WIN32
-	error = dsl_destroy_head_check_impl(ds, 1);
-#else
 	error = dsl_destroy_head_check_impl(ds, 0);
-#endif
 	dsl_dataset_rele(ds, FTAG);
 	return (error);
 }

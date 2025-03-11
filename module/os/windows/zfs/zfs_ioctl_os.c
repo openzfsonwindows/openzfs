@@ -1042,6 +1042,10 @@ zfs_ioc_unregister_fs(void)
 		return (zfs_module_busy);
 	}
 
+	ZFS_DRIVER_EXTENSION(WIN_DriverObject, DriverExtension);
+	dprintf("%s: unregistering filesystem\n", __func__);
+	DriverExtension->Unload_Module = TRUE;
+
 	return (0);
 }
 
