@@ -1178,7 +1178,7 @@ zfs_windows_mount(zfs_cmd_t *zc)
 
 	// Free diskDeviceName
 	FreeUnicodeString(&diskDeviceName);
-	
+
 	/*
 	 * Here the rest of the mount will happen async, but
 	 * if we return now, userland will carry on and mount the

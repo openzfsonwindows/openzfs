@@ -20,6 +20,7 @@
  */
 /*
  * Copyright (c) 2018 Julian Heuking <J.Heuking@beckhoff.com>
+ * Copyright (c) 2025 Jorgen Lundman <lundman@lundman.net>
  */
 
 // Get "_daylight: has bad storage class" in time.h
@@ -212,7 +213,7 @@ saveBuffer(void)
 		// buffer has never wrapped, skip all initial "\n"
 		unsigned long long pos;
 		pos = startOff + sizeof (endBuf);
-		while (cbuf[pos] == '\n' && pos < (cbuf_size - sizeof(endBuf)))
+		while (cbuf[pos] == '\n' && pos < (cbuf_size - sizeof (endBuf)))
 			pos++;
 
 		len = cbuf_size - pos;

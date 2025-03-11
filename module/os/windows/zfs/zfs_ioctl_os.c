@@ -125,7 +125,7 @@ void ZFSinCachePerfEnumerate(PCW_MASK_INFORMATION EnumerateInstances);
 #endif
 
 static void *notification_entry = NULL, *notification_entry2 = NULL,
-    *notification_entry3 = NULL;
+	*notification_entry3 = NULL;
 
 extern int zcommon_init(void);
 
@@ -985,7 +985,8 @@ zfs_unload_stage_1(void)
 	dprintf("Starting Driver Unload stage 1...\n");
 
 	if (DriverExtension->FunctionalDeviceObject) {
-		mount_t *zmo_bus = DriverExtension->FunctionalDeviceObject->DeviceExtension;
+		mount_t *zmo_bus =
+		    DriverExtension->FunctionalDeviceObject->DeviceExtension;
 
 		// REMOVE_DEVICE already detached these.
 		zmo_bus->AttachedDevice = NULL;
@@ -1006,10 +1007,11 @@ zfs_unload_stage_1(void)
 	// Remove the ioctl node for userland
 	if (DriverExtension->ioctlDeviceObject) {
 		mutex_enter(&zfsdev_state_lock);
-		mount_t *dgl = DriverExtension->ioctlDeviceObject->DeviceExtension;
+		mount_t *dgl =
+		    DriverExtension->ioctlDeviceObject->DeviceExtension;
 		IoDeleteSymbolicLink(&dgl->symlink_name);
 		IoDeleteDevice(DriverExtension->ioctlDeviceObject);
-		DriverExtension->ioctlDeviceObject = NULL; // Use to signal we unloaded
+		DriverExtension->ioctlDeviceObject = NULL;
 		mutex_exit(&zfsdev_state_lock);
 	}
 
@@ -1199,10 +1201,12 @@ OpenZFS_AddDevice(
 		    DriverExtension->FunctionalDeviceObject;
 		zmo_bus->PhysicalDeviceObject = PhysicalDeviceObject;
 
-		status = IoReportDetectedDevice(DriverObject, InterfaceTypeUndefined, 0xFFFFFFFF, 0xFFFFFFFF,
-		    NULL, NULL, 0, &zmo_bus->PhysicalDeviceObject);
+		status = IoReportDetectedDevice(DriverObject,
+		    InterfaceTypeUndefined, 0xFFFFFFFF, 0xFFFFFFFF, NULL, NULL,
+		    0, &zmo_bus->PhysicalDeviceObject);
 		zmo_bus->AttachedDevice = IoAttachDeviceToDeviceStack(
-		    DriverExtension->FunctionalDeviceObject, zmo_bus->PhysicalDeviceObject);
+		    DriverExtension->FunctionalDeviceObject,
+		    zmo_bus->PhysicalDeviceObject);
 		DriverExtension->LowerDeviceObject = zmo_bus->AttachedDevice;
 		zmo_bus->PhysicalDeviceObject->Flags &=
 		    ~DO_DEVICE_INITIALIZING;

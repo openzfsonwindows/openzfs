@@ -60,7 +60,8 @@
 #include <sys/openzvol.h>
 #include <sys/driver_extension.h>
 
-#define	dprintf(...) 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, __VA_ARGS__))
+#define	dprintf(...) \
+	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, __VA_ARGS__))
 extern PDRIVER_OBJECT OPENZVOL_DriverObject;
 
 /*

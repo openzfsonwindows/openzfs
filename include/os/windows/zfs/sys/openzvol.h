@@ -19,12 +19,15 @@
  * CDDL HEADER END
  */
 
- /*
-  * Copyright (c) 2025 by Jorgen Lundman <lundman@lundman.net>.
-  */
+/*
+ * Copyright (c) 2025 by Jorgen Lundman <lundman@lundman.net>.
+ */
 
 #ifndef SYS_OPENZVOL_H
 #define	SYS_OPENZVOL_H
+
+#define	DEVICE_NAME L"\\Device\\OpenZVOL"
+#define	SYMBOLIC_LINK_NAME L"\\??\\OpenZVOL"
 
 NTSYSCALLAPI NTSTATUS NTAPI ZwQuerySystemInformation(
 	ULONG SystemInformationClass,
@@ -56,11 +59,16 @@ typedef struct _SYSTEM_MODULE_INFORMATION {
 
 #define	SystemModuleInformation 11
 
-#define OPENZVOL_REGISTER CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8e0, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define OPENZVOL_DEREGISTER CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8e1, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define OPENZVOL_ASSIGN_TARGETID CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8e2, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define OPENZVOL_CLEAR_TARGETID CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8e3, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define OPENZVOL_ANNOUNCE_BUSCHANGE CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8e4, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define	OPENZVOL_REGISTER \
+	CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8e0, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define	OPENZVOL_DEREGISTER \
+	CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8e1, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define	OPENZVOL_ASSIGN_TARGETID \
+	CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8e2, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define	OPENZVOL_CLEAR_TARGETID \
+	CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8e3, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define	OPENZVOL_ANNOUNCE_BUSCHANGE \
+	CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8e4, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 typedef struct zvol_state zvol_state_t;
 
@@ -120,9 +128,6 @@ FindDriver(char *driver_name)
 	ExFreePoolWithTag(buffer, 'sysm');
 
 	dprintf("%s: %s driver %s on system\n",
-	    __func__, found ? "found" : "did not find",
-	    driver_name);
-	xprintf("%s: %s driver %s on system\n",
 	    __func__, found ? "found" : "did not find",
 	    driver_name);
 

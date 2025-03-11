@@ -31,7 +31,8 @@
 #include <sys/zfs_context.h>
 #include <sys/wzvol.h>
 
-#define	dprintf(...) 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, __VA_ARGS__))
+#define	dprintf(...) \
+	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, __VA_ARGS__))
 
 #include <sys/openzvol.h>
 

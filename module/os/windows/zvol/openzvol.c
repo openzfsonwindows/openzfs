@@ -27,16 +27,17 @@
  * It is undesirable for /FileSystem/OpenZFS and the StorPort miniport for ZVOL
  * to be in the same driver. Not only as they both need to set DriverObject
  * MajorFunction table, AddDevice and DriverUnload function pointers, but they
- * need to attach at different places in the driver stack, as well as, to be installed
- * as different device types from the .INF file.
+ * need to attach at different places in the driver stack, as well as, to be
+ * installed as different device types from the .INF file.
  *
- * So OpenZFS.sys driver, and the StorPort miniport driver for ZVOLs (OpenZVOL.sys)
- * are now separate, with two .INF files, OpenZFS.inf and OpenZVOL.inf.
- * 
+ * So OpenZFS.sys driver, and the StorPort miniport driver for ZVOLs
+ * (OpenZVOL.sys) are now separate, with two .INF files, OpenZFS.inf and
+ * OpenZVOL.inf.
+ *
  * We consider OpenZFS.sys to be the main driver, and can function without
  * OpenZVOL.sys, although without ZVOL device support. Datasets can still be
  * used and mounted, just not ZVOL Volumes.
- * 
+ *
  * OpenZVOL.sys's DriverLoad() calls StorPortInit() to get ready, and uses
  * IoCreateDriver() to have a second set of MajorFunctions for the creation of
  * \Device\OpenZVOL device node. This is used for IRP communication with
@@ -49,40 +50,44 @@
  * OpenZVOL.sys held, until deregister time. Both for performance, and to
  * ensure the driver will not unload.
  *
- * zvol_os_register_module(zfs_api_t *): Issue IRP [OPENZVOL_REGISTER] with includes
- *         function pointers for IO; namely zvol_os_read_zv(), 
+ * zvol_os_register_module(zfs_api_t *): Issue IRP [OPENZVOL_REGISTER] with
+ *         function pointers for IO; namely zvol_os_read_zv(),
  *         zvol_os_write_zv() and zvol_os_unmap().
  *         OpenZVOL when receiving IRP will save the function pointers, and
  *         keep a reference on DriverObject.
  *
- * zvol_os_deregister_module(void): Issue IRP [OPENZVOL_DEREGISTER]. Closes FileObject
+ * zvol_os_deregister_module(void): Issue IRP [OPENZVOL_DEREGISTER].
+ * Closes FileObject
  *         to \Device\OpenZVOL.
  *         OpenZVOL will clear the function pointers, and release DriverObject.
  *
- * zvol_os_assign_targetid(zvol_state_t *): Issue IRP [OPENZVOL_ASSIGN_TARGETID] with "zv"
+ * zvol_os_assign_targetid(zvol_state_t *): Issue IRP [OPENZVOL_ASSIGN_TARGETID]
  *         Passing over a pointer to "zv" zvol_state_t.
- *         OpenZVOL looks up available (lun, tag) and assigns to "zv". After completion
- *         "zv" is not used by OpenZVOL, just the address to map (lun, id) and "zv".
+ *         OpenZVOL looks up available (lun, tag) and assigns to "zv".
+ *         After completion "zv" is not used by OpenZVOL, just the address to
+ *         map (lun, id) and "zv".
  *
- * zvol_os_clear_targetid(zvol_state_t *): Issue IRP [OPENZVOL_CLEAR_TARGETID] with "zv"
+ * zvol_os_clear_targetid(zvol_state_t *): Issue IRP [OPENZVOL_CLEAR_TARGETID]
  *         Passing pointer to "zv" zvol_state_t.
- *         OpenZVOL will release (lun, id) mapping to "zv" and not refer to it again.
+ *         OpenZVOL will release (lun, id) mapping to "zv" and not refer
+ *         to it again.
  *
  * zvol_os_announce_buschange(void): Issue IRP [OPENZVOL_ANNOUNCE_BUSCHANGE]
  *         OpenZVOL will issue buschanged notification, for drive added/removed.
  *
- * It could be considered hacky to pass the IO functions (zvol_os_read_zv(), 
- * zvol_os_write_zv() and zvol_os_unmap()) to OpenZVOL.sys, and call them directly.
- * It hopefully means there is no performance penalty to separate the two drivers,
- * but it could be explored to instead issue IRPs for IO as well. Comments welcome.
- * Certainly direct calling functions would not work in Unix, so it is surprising
- * that it does in Windows.
- * 
+ * It could be considered hacky to pass the IO functions (zvol_os_read_zv(),
+ * zvol_os_write_zv() and zvol_os_unmap()) to OpenZVOL.sys, and call them
+ * directly. It hopefully means there is no performance penalty to separate
+ * the two drivers, but it could be explored to instead issue IRPs for IO
+ * as well. Comments welcome.
+ * Certainly direct calling functions would not work in Unix, so it is
+ * surprising that it does in Windows.
+ *
  *
  */
 
 
-  // Get "_daylight: has bad storage class" in time.h
+// Get "_daylight: has bad storage class" in time.h
 #define	_INC_TIME
 
 #include <sys/types.h>
@@ -116,14 +121,19 @@ int zfs_flags = 0;
 // #error "This file should be compiled with MSVC not Clang"
 #endif
 
-#define	dprintf(...) 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, __VA_ARGS__))
+#define	dprintf(...) \
+	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, __VA_ARGS__))
 
 PDRIVER_OBJECT OPENZVOL_DriverObject = NULL;
-extern int zvol_start(PDRIVER_OBJECT DriverObject, PUNICODE_STRING pRegistryPath);
+extern int zvol_start(PDRIVER_OBJECT DriverObject,
+    PUNICODE_STRING pRegistryPath);
 
-int (*pzvol_os_read_zv)(zvol_state_t *zv, zfs_uio_t *uio, int flags) = NULL;
-int (*pzvol_os_write_zv)(zvol_state_t *zv, zfs_uio_t *uio, int flags) = NULL;
-int (*pzvol_os_unmap)(zvol_state_t *zv, uint64_t off, uint64_t bytes) = NULL;
+int (*pzvol_os_read_zv)(zvol_state_t *zv, zfs_uio_t *uio,
+    int flags) = NULL;
+int (*pzvol_os_write_zv)(zvol_state_t *zv, zfs_uio_t *uio,
+    int flags) = NULL;
+int (*pzvol_os_unmap)(zvol_state_t *zv, uint64_t off,
+    uint64_t bytes) = NULL;
 
 /*
  * These things are here cos we have cheated with the
@@ -172,8 +182,8 @@ ControlDeviceIoctlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 
 		zvol_api_t *api = (zvol_api_t *)Irp->AssociatedIrp.SystemBuffer;
 
-		if (irpSp->Parameters.DeviceIoControl.InputBufferLength != sizeof (zvol_api_t) ||
-		    api == NULL) {
+		if (irpSp->Parameters.DeviceIoControl.InputBufferLength !=
+		    sizeof (zvol_api_t) || api == NULL) {
 			dprintf("Received IOCTL with invalid size or buffer\n");
 			status = STATUS_INVALID_PARAMETER;
 			goto out;
@@ -210,8 +220,8 @@ ControlDeviceIoctlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	case OPENZVOL_ASSIGN_TARGETID:
 		dprintf("OPENZVOL_ASSIGN_TARGETID\n");
 		addr = Irp->AssociatedIrp.SystemBuffer;
-		if (irpSp->Parameters.DeviceIoControl.InputBufferLength != sizeof (zvol_state_t *) ||
-		    addr == NULL) {
+		if (irpSp->Parameters.DeviceIoControl.InputBufferLength !=
+		    sizeof (zvol_state_t *) || addr == NULL) {
 			dprintf("Received IOCTL with invalid size or buffer\n");
 			status = STATUS_INVALID_PARAMETER;
 			goto out;
@@ -224,8 +234,8 @@ ControlDeviceIoctlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	case OPENZVOL_CLEAR_TARGETID:
 		dprintf("OPENZVOL_CLEAR_TARGETID\n");
 		addr = Irp->AssociatedIrp.SystemBuffer;
-		if (irpSp->Parameters.DeviceIoControl.InputBufferLength != sizeof(zvol_state_t *) ||
-		    addr == NULL) {
+		if (irpSp->Parameters.DeviceIoControl.InputBufferLength !=
+		    sizeof (zvol_state_t *) || addr == NULL) {
 			dprintf("Received IOCTL with invalid size or buffer\n");
 			status = STATUS_INVALID_PARAMETER;
 			goto out;
@@ -250,7 +260,7 @@ out:
 	Irp->IoStatus.Status = status;
 	Irp->IoStatus.Information = 0;
 	IoCompleteRequest(Irp, IO_NO_INCREMENT);
-	return status;
+	return (status);
 }
 
 NTSTATUS
@@ -260,7 +270,7 @@ OpenZVOLCreateCloseCleanUp(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	Irp->IoStatus.Status = STATUS_SUCCESS;
 	Irp->IoStatus.Information = 0;
 	IoCompleteRequest(Irp, IO_NO_INCREMENT);
-	return STATUS_SUCCESS;
+	return (STATUS_SUCCESS);
 }
 
 NTSTATUS
@@ -269,10 +279,8 @@ OpenZVOLNoCall(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	DbgBreakPoint();
 }
 
-#define DEVICE_NAME L"\\Device\\OpenZVOL"
-#define SYMBOLIC_LINK_NAME L"\\??\\OpenZVOL"
-
-VOID OpenZVOLUnloadRoutine(IN PDRIVER_OBJECT DriverObject)
+void
+OpenZVOLUnloadRoutine(IN PDRIVER_OBJECT DriverObject)
 {
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
 	    "Deleting /Device/OpenZVOL\n"));
@@ -287,7 +295,8 @@ VOID OpenZVOLUnloadRoutine(IN PDRIVER_OBJECT DriverObject)
 }
 
 NTSTATUS
-OpenZVOLDriverInitialize(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING RegistryPath)
+OpenZVOLDriverInitialize(IN PDRIVER_OBJECT DriverObject,
+    IN PUNICODE_STRING RegistryPath)
 {
 	UNREFERENCED_PARAMETER(RegistryPath);
 	NTSTATUS status;
@@ -301,15 +310,14 @@ OpenZVOLDriverInitialize(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Regi
 	status = IoCreateDevice(DriverObject, 0, &deviceName,
 	    FILE_DEVICE_UNKNOWN, 0, FALSE, &deviceObject);
 
-	if (!NT_SUCCESS(status)) {
-		return status;
-	}
+	if (!NT_SUCCESS(status))
+		return (status);
 
 	status = IoCreateSymbolicLink(&symbolicLinkName, &deviceName);
 
 	if (!NT_SUCCESS(status)) {
 		IoDeleteDevice(deviceObject);
-		return status;
+		return (status);
 	}
 
 #if 1
@@ -317,17 +325,21 @@ OpenZVOLDriverInitialize(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Regi
 		DriverObject->MajorFunction[i] = OpenZVOLNoCall;
 #endif
 
-	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = ControlDeviceIoctlHandler;
-	DriverObject->MajorFunction[IRP_MJ_CREATE] = OpenZVOLCreateCloseCleanUp;
-	DriverObject->MajorFunction[IRP_MJ_CLOSE] = OpenZVOLCreateCloseCleanUp;
-	DriverObject->MajorFunction[IRP_MJ_CLEANUP] = OpenZVOLCreateCloseCleanUp;
+	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] =
+	    ControlDeviceIoctlHandler;
+	DriverObject->MajorFunction[IRP_MJ_CREATE] =
+	    OpenZVOLCreateCloseCleanUp;
+	DriverObject->MajorFunction[IRP_MJ_CLOSE] =
+	    OpenZVOLCreateCloseCleanUp;
+	DriverObject->MajorFunction[IRP_MJ_CLEANUP] =
+	    OpenZVOLCreateCloseCleanUp;
 	DriverObject->DriverUnload = OpenZVOLUnloadRoutine;
 	deviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
 	    "Created /Device/OpenZVOL\n"));
 
-	return STATUS_SUCCESS;
+	return (STATUS_SUCCESS);
 }
 
 NTSTATUS NTAPI IoCreateDriver(
@@ -351,10 +363,12 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 	UNICODE_STRING driverName;
 	RtlInitUnicodeString(&driverName, L"\\Driver\\OpenZVOL_Helper");
 
-	NTSTATUS status = IoCreateDriver(&driverName, &OpenZVOLDriverInitialize);
+	NTSTATUS status = IoCreateDriver(&driverName,
+	    &OpenZVOLDriverInitialize);
 	if (!NT_SUCCESS(status)) {
 		KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-		    "Failed to create OpenZVOL helper driver: %08X\n", status));
+		    "Failed to create OpenZVOL helper driver: %08X\n",
+		    status));
 	}
 
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -373,4 +387,3 @@ OpenZVOL_Fini(PDRIVER_OBJECT DriverObject)
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
 	    "OpenZVOL: Goodbye.\n"));
 }
-

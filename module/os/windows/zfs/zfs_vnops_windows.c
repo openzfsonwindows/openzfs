@@ -6829,10 +6829,10 @@ _Function_class_(DRIVER_DISPATCH)
 			VERIFY(zmo->type == MOUNT_TYPE_BUS);
 
 			if (DriverExtension->Unload_Module == B_TRUE) {
-				// DriverExtension->LowerDeviceObject == zmo_bus->AttachedDevice
+		// DriverExtension->LowerDeviceObject == zmo_bus->AttachedDevice
 				IoDetachDevice(zmo->AttachedDevice);
 
-				// Forward the IRP down the stack before deleting
+				// Forward the IRP down stack before deleting
 				IoSkipCurrentIrpStackLocation(Irp);
 				Status = IoCallDriver(zmo->AttachedDevice, Irp);
 
@@ -6853,10 +6853,12 @@ _Function_class_(DRIVER_DISPATCH)
 				*PIrp = NULL; // Stop completion of IRP below
 				if (NT_SUCCESS(Status)) {
 					Status = STATUS_SUCCESS;
-					dprintf("IRP_MN_QUERY_REMOVE_DEVICE: success\n");
+					dprintf("IRP_MN_QUERY_REMOVE_DEVICE:"
+					    " success\n");
 				} else {
 					Status = STATUS_UNSUCCESSFUL;
-					dprintf("IRP_MN_QUERY_REMOVE_DEVICE: unsuccessful\n");
+					dprintf("IRP_MN_QUERY_REMOVE_DEVICE:"
+					    " unsuccessful\n");
 				}
 			} else {
 				Status = STATUS_UNSUCCESSFUL;
@@ -6971,19 +6973,6 @@ _Function_class_(DRIVER_DISPATCH)
 		break;
 	case IRP_MJ_CLOSE:
 		Status = zfsdev_release((dev_t)IrpSp->FileObject, Irp);
-//		if (DriverExtension->Unload) {
-//			DriverExtension->Unload = B_FALSE;
-			// If we are shutting down, the main device is gone, but
-			// ioctl remains, release it.
-//			if (DriverExtension->fsDiskDeviceObject != NULL) {
-//				PIO_WORKITEM workItem =
-//				    IoAllocateWorkItem(DriverExtension->fsDiskDeviceObject);
-//				if (workItem) {
-//					IoQueueWorkItem(workItem, zfs_unload_ioctl,
-//					    DelayedWorkQueue, workItem);
-//				}
-//			}
-//		}
 		break;
 	case IRP_MJ_DEVICE_CONTROL:
 		{
