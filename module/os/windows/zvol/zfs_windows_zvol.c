@@ -76,10 +76,10 @@ zvol_start(PDRIVER_OBJECT DriverObject, PUNICODE_STRING pRegistryPath)
 	pwzvolDriverInfo pwzvolDrvInfo;
 	NTSTATUS status;
 
-	ListLoadedDrivers();
+	// ListLoadedDrivers();
 
-	if (windows_zvol_enabled == 0)
-		return (STATUS_FS_DRIVER_REQUIRED);
+	// if (windows_zvol_enabled == 0)
+	//	return (STATUS_FS_DRIVER_REQUIRED);
 
 	RtlZeroMemory(&STOR_wzvolDriverInfo, sizeof (STOR_wzvolDriverInfo));
 	pwzvolDrvInfo = &STOR_wzvolDriverInfo;

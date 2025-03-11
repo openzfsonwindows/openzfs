@@ -74,6 +74,10 @@ typedef struct zv_request {
 static PFILE_OBJECT openzvol_fileObject = NULL;
 static PDEVICE_OBJECT openzvol_deviceObject = NULL;
 
+static kcondvar_t zvol_os_wait_openzvol_thread_cv;
+static kmutex_t zvol_os_wait_openzvol_thread_lock;
+static boolean_t zvol_os_wait_openzvol_thread_exit;
+
 static void
 register_with_openzvol(void)
 {
@@ -133,22 +137,24 @@ register_with_openzvol(void)
 	}
 }
 
-static boolean_t zvol_os_wait_openzvol_exit = B_TRUE;
-
 static void
 zvol_os_wait_openzvol(void *arg)
 {
 	UNICODE_STRING deviceName;
 	NTSTATUS status;
+	PFILE_OBJECT fileObject;
+	PDEVICE_OBJECT deviceObject;
+	callb_cpr_t cpr;
+
+	CALLB_CPR_INIT(&cpr, &zvol_os_wait_openzvol_thread_lock,
+	    callb_generic_cpr, FTAG);
 
 	dprintf("%s thread start\n", __func__);
 
 	RtlInitUnicodeString(&deviceName, L"\\Device\\OpenZVOL");
 
-	while (!zvol_os_wait_openzvol_exit) {
-
-		PFILE_OBJECT fileObject;
-		PDEVICE_OBJECT deviceObject;
+	mutex_enter(&zvol_os_wait_openzvol_thread_lock);
+	while (!zvol_os_wait_openzvol_thread_exit) {
 
 		status = IoGetDeviceObjectPointer(&deviceName, FILE_READ_DATA,
 		    &fileObject, &deviceObject);
@@ -158,8 +164,18 @@ zvol_os_wait_openzvol(void *arg)
 			break;
 		}
 
-		delay(hz * 3);
+		CALLB_CPR_SAFE_BEGIN(&cpr);
+		(void) cv_timedwait_hires(&zvol_os_wait_openzvol_thread_cv,
+		    &zvol_os_wait_openzvol_thread_lock, SEC2NSEC(3), 0, 0);
+		CALLB_CPR_SAFE_END(&cpr, &zvol_os_wait_openzvol_thread_lock);
 	}
+
+	zvol_os_wait_openzvol_thread_exit = TRUE;
+	cv_broadcast(&zvol_os_wait_openzvol_thread_cv);
+	CALLB_CPR_EXIT(&cpr);
+	dprintf("%s thread_exit\n", __func__);
+
+	thread_exit();
 }
 
 static void
@@ -273,12 +289,12 @@ zvol_os_announce_buschange(void)
 int
 zvol_os_register_module(void)
 {
-	boolean_t found;
-
-	zvol_os_wait_openzvol_exit = B_FALSE;
-
-	taskq_dispatch(system_taskq, zvol_os_wait_openzvol, NULL,
-	    TQ_SLEEP);
+	zvol_os_wait_openzvol_thread_exit = FALSE;
+	mutex_init(&zvol_os_wait_openzvol_thread_lock,
+	    "zvol_os_wait_openzvol_thead_lock", MUTEX_DEFAULT, NULL);
+	(void) cv_init(&zvol_os_wait_openzvol_thread_cv, NULL, CV_DEFAULT,
+	    NULL);
+	(void) thread_create(NULL, 0, zvol_os_wait_openzvol, 0, 0, 0, 0, 92);
 
 	return (0);
 }
@@ -291,7 +307,18 @@ zvol_os_deregister_module(void)
 	KEVENT event;
 	NTSTATUS status;
 
-	zvol_os_wait_openzvol_exit = B_TRUE;
+	dprintf("%s: waiting for thread to exit...\n", __func__);
+	mutex_enter(&zvol_os_wait_openzvol_thread_lock);
+	if (!zvol_os_wait_openzvol_thread_exit) {
+		zvol_os_wait_openzvol_thread_exit = TRUE;
+		cv_signal(&zvol_os_wait_openzvol_thread_cv);
+		cv_wait(&zvol_os_wait_openzvol_thread_cv,
+		    &zvol_os_wait_openzvol_thread_lock);
+	}
+	dprintf("%s: thread exited.\n", __func__);
+	mutex_exit(&zvol_os_wait_openzvol_thread_lock);
+	cv_destroy(&zvol_os_wait_openzvol_thread_cv);
+	mutex_destroy(&zvol_os_wait_openzvol_thread_lock);
 
 	if (!openzvol_deviceObject)
 		return;
