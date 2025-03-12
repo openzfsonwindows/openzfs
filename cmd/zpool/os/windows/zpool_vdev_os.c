@@ -62,7 +62,48 @@ check_error(int err)
 static int
 check_slice(const char *path, int force, boolean_t isspare)
 {
-	return (0);
+	int flags = O_RDONLY | O_DIRECT;
+	int fd;
+	int err = 0;
+	DWORD bytesReturned;
+	BOOL result;
+
+	if ((fd = open(path, flags)) < 0) {
+		return (-1);
+	}
+
+	result = DeviceIoControl(
+	    fd,
+	    FSCTL_LOCK_VOLUME,
+	    NULL, 0,
+	    NULL, 0,
+	    &bytesReturned, NULL);
+
+	if (!result) {
+		DWORD dwError = GetLastError();
+		if (dwError == ERROR_ACCESS_DENIED) {
+			dprintf("Volume is already in use "
+			    "(locked by another process or OS).\n");
+		} else {
+			dprintf("Failed to lock volume: %lu\n", dwError);
+		}
+		(void) fprintf(stderr,
+		    gettext("Slice %s appears in use.\n"), path);
+
+		err = EBUSY;
+	} else {
+		dprintf("Volume locked successfully. (So available for use)\n");
+		result = DeviceIoControl(
+		    fd,
+		    FSCTL_UNLOCK_VOLUME,
+		    NULL, 0,
+		    NULL, 0,
+		    &bytesReturned, NULL);
+		err = 0;
+	}
+
+	(void) close(fd);
+	return (err);
 }
 
 /*
@@ -86,6 +127,10 @@ check_disk(const char *path, int force,
 	int err = 0;
 	int fd, i;
 	int flags = O_RDONLY|O_DIRECT;
+	STORAGE_DEVICE_NUMBER deviceNumber;
+	DWORD bytesReturned;
+	DRIVE_LAYOUT_INFORMATION_EX *driveLayout;
+	BYTE buffer[1024];
 
 	if (!iswholedisk)
 		return (check_slice(path, force, isspare));
@@ -96,6 +141,49 @@ check_disk(const char *path, int force,
 
 	if ((fd = open(path, flags)) < 0) {
 		return (-1);
+	}
+
+	// Query the device number using IOCTL_STORAGE_GET_DEVICE_NUMBER
+	if (!DeviceIoControl(fd,
+	    IOCTL_STORAGE_GET_DEVICE_NUMBER,
+	    NULL, 0,
+	    &deviceNumber, sizeof (deviceNumber),
+	    &bytesReturned, NULL)) {
+		return (-1);
+	}
+
+	driveLayout = (DRIVE_LAYOUT_INFORMATION_EX *)buffer;
+
+	// Retrieve the drive layout information
+	BOOL result = DeviceIoControl(
+	    fd,
+	    IOCTL_DISK_GET_DRIVE_LAYOUT_EX,
+	    NULL, 0,
+	    driveLayout, sizeof (buffer),
+	    &bytesReturned,
+	    NULL);
+
+	if (result) {
+
+		// Print out the partition information
+		printf("Partition Count: %lu\n", driveLayout->PartitionCount);
+		err = 0;
+		for (DWORD i = 0; i < driveLayout->PartitionCount; i++) {
+			PARTITION_INFORMATION_EX partition =
+			    driveLayout->PartitionEntry[i];
+			snprintf(slice_path, sizeof (slice_path),
+			    "\\\\?\\Harddisk%luPartition%lu",
+			    deviceNumber.DeviceNumber,
+			    partition.PartitionNumber);
+			err += check_slice(slice_path, force, isspare);
+		}
+		if (err > 0) {
+
+			(void) fprintf(stderr,
+			    gettext("Disk appears in use.\n"));
+
+			return (EBUSY);
+		}
 	}
 
 	/*
