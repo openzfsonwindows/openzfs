@@ -121,6 +121,14 @@ ZFS_MODULE_RAW(zfs, disable_wincache, zfs_disable_wincache,
 #endif
 
 extern void UnlockAndFreeMdl(PMDL);
+void CcSetAdditionalCacheAttributesEx(
+	[in] PFILE_OBJECT FileObject,
+	[in] ULONG Flags
+);
+void __stdcall PsUpdateDiskCounters(PEPROCESS Process,
+    ULONG64 BytesRead, ULONG64 BytesWritten,
+    ULONG ReadOperationCount, ULONG WriteOperationCount,
+    ULONG FlushOperationCount);
 
 BOOLEAN
 zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
@@ -314,6 +322,9 @@ zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp, CC_FILE_SIZES *ccfs)
 			// must be FALSE (Disk IO only)
 			// CcSetReadAheadGranularity(fo, READ_AHEAD_GRAN);
 			// fo->Flags |= FO_CACHE_SUPPORTED;
+			CcSetAdditionalCacheAttributesEx(fo,
+			    CC_ENABLE_DISK_IO_ACCOUNTING);
+
 			dprintf("%s: CcInitializeCacheMap\n", __func__);
 		}
 	} except(EXCEPTION_EXECUTE_HANDLER) {
@@ -5480,6 +5491,12 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			uio.uio_extflg |= SKIP_WRITE_TIME;
 	}
 
+	// Can hold lock, in case dmu_tx() stalls
+	if (acquired_vp_lock) {
+		ExReleaseResourceLite(vp->FileHeader.Resource);
+		acquired_vp_lock = FALSE;
+	}
+
 	try {
 		Status = zfs_write(zp, &uio, 0, NULL);
 	} except(EXCEPTION_EXECUTE_HANDLER) {
@@ -5633,8 +5650,8 @@ fs_write_impl(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp,
 	}
 
 	if (NT_SUCCESS(Status)) {
-#if 0 // Updating benchmark stats?
-		if (diskacc && Status != STATUS_PENDING &&
+#if 1 // Updating benchmark stats?
+		if (/*diskacc && */ Status != STATUS_PENDING &&
 		    nocache) {
 			PETHREAD thread = NULL;
 
@@ -5648,7 +5665,7 @@ fs_write_impl(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp,
 				thread = PsGetCurrentThread();
 
 			if (thread)
-				fPsUpdateDiskCounters(
+				PsUpdateDiskCounters(
 				    PsGetThreadProcess(thread),
 				    0, IrpSp->Parameters.Write.Length, 0, 1, 0);
 		}
