@@ -47,4 +47,4 @@ zvol_os.c
 ${TMH_FILE_LIST}
 )
 
-target_link_libraries(zfskern_os PRIVATE splkern icpkern)
+target_link_libraries(zfskern_os PRIVATE splkern icpkern spl_cr_wrappers)

@@ -73,7 +73,7 @@ uint32_t spl_hostid = 0;
 uint64_t
 __readcr8(void)
 {
-	return (0ULL);
+	return (read_cr8_msvc());
 }
 
 unsigned long
