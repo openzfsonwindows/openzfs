@@ -5573,13 +5573,16 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	} else if (!ExIsResourceAcquiredExclusiveLite(
 	    vp->FileHeader.Resource)) {
 
-		if (!ExAcquireResourceExclusiveLite(
-		    vp->FileHeader.Resource, wait)) {
-			Status = STATUS_PENDING;
-			IoMarkIrpPending(Irp);
-			goto end;
-		} else {
-			acquired_vp_lock = TRUE;
+		// chatgpt claims locks will be held for paging_io
+		if (!paging_io) {
+			if (!ExAcquireResourceExclusiveLite(
+			    vp->FileHeader.Resource, wait)) {
+				Status = STATUS_PENDING;
+				IoMarkIrpPending(Irp);
+				goto end;
+			} else {
+				acquired_vp_lock = TRUE;
+			}
 		}
 	}
 
@@ -9232,12 +9235,11 @@ fastio_acquire_for_mod_write(PFILE_OBJECT FileObject,
 	vnode_ref(vp);
 	Status = STATUS_SUCCESS;
 
+	dprintf("%s: returning STATUS_SUCCESS\n", __func__);
+
 out:
 	VN_RELE(vp);
 
-	// No zfs_exit(zfsvfs, FTAG) until below
-
-	dprintf("%s: returning STATUS_SUCCESS\n", __func__);
 	FsRtlExitFileSystem();
 
 	return (Status);

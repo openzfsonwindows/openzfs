@@ -5,6 +5,7 @@ wdk_add_library(zfskern_os
   KMDF 1.9
 abd_os.c
 arc_os.c
+partition_shim.c
 qat.c
 qat_compress.c
 qat_crypt.c

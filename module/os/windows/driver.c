@@ -66,6 +66,10 @@ extern int  zvol_os_register_module(void);
 extern void zvol_os_deregister_module(void);
 extern void saveBuffer(void);
 
+extern void InitializePartitionShim(void);
+extern void UnInitializePartitionShim();
+
+
 #ifdef __clang__
 #error "This file should be compiled with MSVC not Clang"
 #endif
@@ -85,6 +89,8 @@ OpenZFS_Fini(PDRIVER_OBJECT DriverObject)
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "OpenZFS_Fini\n"));
 
 	sysctl_os_fini();
+
+	UnInitializePartitionShim();
 
 	zfs_unload_stage_2();
 
@@ -170,6 +176,8 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 
 	/* Register fs with Win */
 	zfs_vfsops_init();
+
+	InitializePartitionShim();
 
 	/* Start monitoring Registry for changes */
 	if (DriverExtension->fsDiskDeviceObject)

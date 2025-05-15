@@ -78,6 +78,9 @@ typedef void	zidmap_t;
 
 typedef uint32_t accmode_t;
 
+typedef u_longlong_t len_t;
+typedef longlong_t diskaddr_t;
+
 // clang spits out "atomics are disabled" - change code to use atomic() calls.
 // #define	_Atomic
 
