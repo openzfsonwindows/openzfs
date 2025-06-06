@@ -101,10 +101,16 @@ static intptr_t stack_remaining(void) {
 
 typedef	struct _label_t { long long unsigned val[JMP_BUF_CNT]; } label_t;
 
+#if !defined (_WIN32) && !defined (__aarch64__)
 int ASMABI setjmp(label_t *) __attribute__ ((__nothrow__));
 extern __attribute__((noreturn)) void ASMABI longjmp(label_t *);
+#endif
 
+#if defined (_WIN32) && defined (__aarch64__)
+#define LUAI_THROW(L,c)		longjmp(&(c)->b, 1)
+#else
 #define LUAI_THROW(L,c)		longjmp(&(c)->b)
+#endif
 #define LUAI_TRY(L,c,a)		if (setjmp(&(c)->b) == 0) { a }
 #define luai_jmpbuf		label_t
 

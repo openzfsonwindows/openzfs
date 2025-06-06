@@ -11,7 +11,7 @@ wdk_add_driver(OpenZVOL
   # resource.rc
 )
 
-target_link_libraries(OpenZVOL PRIVATE
+target_link_libraries(OpenZVOL
 	splkern
 #	zlibkern
 #	icpkern
@@ -54,8 +54,8 @@ add_custom_command(
 	#COMMAND "${SIGNTOOL_PROGRAM}" sign /v /fd sha1 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /t "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:OpenZFS>
 	#COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /s "${OPENZFS_SIGNTOOL_CERTSTORE}" /n "${OPENZFS_SIGNTOOL_CERTNAME}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:OpenZFS>
 	# lundman's line
-	COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" "${CMAKE_CURRENT_BINARY_DIR}/driver/OpenZVOL.cat"
-	COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:OpenZVOL>
+#	COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" "${CMAKE_CURRENT_BINARY_DIR}/driver/OpenZVOL.cat"
+#	COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:OpenZVOL>
 	WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/driver"
 	VERBATIM COMMENT "Generating and signing OpenZVOL.cat file"
 )

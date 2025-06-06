@@ -36,24 +36,26 @@ add_library(libicp
     "${ICP_MODULE_DIR}/io/aes.c"
     "${ICP_MODULE_DIR}/io/sha2_mod.c"
     "${ICP_MODULE_DIR}/spi/kcf_spi.c"
+)
 
+# Add windows/assembler sources here too.
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+    add_library(libicp
     "${ICP_MODULE_DIR}/asm-x86_64/aes/aeskey.c"
     "${ICP_MODULE_DIR}/asm-x86_64/aes/aes_aesni.S"
     "${ICP_MODULE_DIR}/asm-x86_64/aes/aes_amd64.S"
     "${ICP_MODULE_DIR}/asm-x86_64/modes/aesni-gcm-x86_64.S"
     "${ICP_MODULE_DIR}/asm-x86_64/modes/gcm_pclmulqdq.S"
     "${ICP_MODULE_DIR}/asm-x86_64/modes/ghash-x86_64.S"
-
     "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_avx2.S"
     "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_avx512.S"
     "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_sse2.S"
     "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_sse41.S"
     "${ICP_MODULE_DIR}/asm-x86_64/sha2/sha256-x86_64.S"
     "${ICP_MODULE_DIR}/asm-x86_64/sha2/sha512-x86_64.S"
-
-)
-
-# Add windows/assembler sources here too.
+    )
+elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "ARM64")
+endif()
 
 
 target_include_directories(libicp PRIVATE "${ICP_MODULE_DIR}/include")

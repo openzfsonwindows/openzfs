@@ -2198,7 +2198,7 @@ zfs_znode_getvnode(znode_t *zp, znode_t *dzp, zfsvfs_t *zfsvfs)
 			VERIFY(sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
 			    &parent, sizeof (parent)) == 0);
 			if (zfs_zget(zfsvfs, parent, &parentzp) != 0) {
-				return (NULL);
+				return (ENOSYS);
 			}
 			parentvp = ZTOV(parentzp);
 		}
@@ -2318,7 +2318,7 @@ pnp_query_id(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	dprintf("%s: query id type %d\n", __func__,
 	    IrpSp->Parameters.QueryId.IdType);
 
-	Irp->IoStatus.Information = NULL;
+	Irp->IoStatus.Information = (ULONG_PTR) NULL;
 
 	zmo = (mount_t *)DeviceObject->DeviceExtension;
 	/*

@@ -30,7 +30,7 @@
 #include <sys/kstat.h>
 
 #include <ntddk.h>
-#include <ntddstor.h>
+// #include <ntddstor.h>
 #include <storport.h>
 
 #include <sys/taskq.h>

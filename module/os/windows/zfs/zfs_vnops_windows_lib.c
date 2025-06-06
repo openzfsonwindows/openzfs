@@ -3109,7 +3109,7 @@ zfs_parent(struct vnode *vp)
 	struct vnode *dvp;
 
 	if (vp == NULL)
-		return (SET_ERROR(NULL));
+		return (NULL);
 
 	/* easy, do we have it? */
 	dvp = vnode_parent(vp);
@@ -3117,13 +3117,13 @@ zfs_parent(struct vnode *vp)
 		if (VN_HOLD(dvp) == 0)
 			return (dvp);
 		else
-			return (SET_ERROR(NULL));
+			return (NULL);
 	}
 	/* .. then look it up */
 	znode_t *zp = VTOZ(vp);
 
 	if (zp == NULL)
-		return (SET_ERROR(NULL));
+		return (NULL);
 
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	uint64_t parent;
@@ -3136,7 +3136,7 @@ zfs_parent(struct vnode *vp)
 
 	error = zfs_zget(zfsvfs, parent, &dzp);
 	if (error)
-		return (SET_ERROR(NULL));
+		return (NULL);
 
 	/*
 	 * Tempting as it may be, we can not
@@ -5761,7 +5761,7 @@ pnp_query_device_text(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		length = (ULONG)(wcslen(deviceText) + 1) * sizeof (WCHAR);
 		void *addr;
 
-		addr = (ULONG_PTR)ExAllocatePoolWithTag(PagedPool, length,
+		addr = (void *)ExAllocatePoolWithTag(PagedPool, length,
 		    'txtZ');
 		if (addr) {
 			RtlCopyMemory(addr, deviceText, length);

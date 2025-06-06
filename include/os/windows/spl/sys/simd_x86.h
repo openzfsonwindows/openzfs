@@ -2,12 +2,11 @@
  * CDDL HEADER START
  *
  * The contents of this file are subject to the terms of the
- * Common Development and Distribution License, Version 1.0 only
- * (the "License").  You may not use this file except in compliance
- * with the License.
+ * Common Development and Distribution License (the "License").
+ * You may not use this file except in compliance with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or https://opensource.org/licenses/CDDL-1.0.
+ * or http://www.opensolaris.org/os/licensing.
  * See the License for the specific language governing permissions
  * and limitations under the License.
  *
@@ -20,50 +19,124 @@
  * CDDL HEADER END
  */
 /*
- * Copyright (c) 2006 Sun Microsystems, Inc.  All rights reserved.
- * Copyright (c) 2022 Tino Reichardt <milky-zfs@mcmilk.de>
+ * Copyright (C) 2016 Gvozden Neskovic <neskovic@compeng.uni-frankfurt.de>.
  */
 
-#ifndef _LIBSPL_SYS_SIMD_H
-#define	_LIBSPL_SYS_SIMD_H
+/*
+ * USER API:
+ *
+ * Kernel fpu methods:
+ * 	kfpu_begin()
+ * 	kfpu_end()
+ *
+ * SIMD support:
+ *
+ * Following functions should be called to determine whether CPU feature
+ * is supported. All functions are usable in kernel and user space.
+ * If a SIMD algorithm is using more than one instruction set
+ * all relevant feature test functions should be called.
+ *
+ * Supported features:
+ * 	zfs_sse_available()
+ * 	zfs_sse2_available()
+ * 	zfs_sse3_available()
+ * 	zfs_ssse3_available()
+ * 	zfs_sse4_1_available()
+ * 	zfs_sse4_2_available()
+ *
+ * 	zfs_avx_available()
+ * 	zfs_avx2_available()
+ *
+ * 	zfs_bmi1_available()
+ * 	zfs_bmi2_available()
+ *
+ * 	zfs_avx512f_available()
+ * 	zfs_avx512cd_available()
+ * 	zfs_avx512er_available()
+ * 	zfs_avx512pf_available()
+ * 	zfs_avx512bw_available()
+ * 	zfs_avx512dq_available()
+ * 	zfs_avx512vl_available()
+ * 	zfs_avx512ifma_available()
+ * 	zfs_avx512vbmi_available()
+ *
+ * NOTE(AVX-512VL):	If using AVX-512 instructions with 128Bit registers
+ * 			also add zfs_avx512vl_available() to feature check.
+ */
+
+#ifndef _WINDOWS_SYS_SIMD_X86_H
+#define	_WINDOWS_SYS_SIMD_X86_H
 
 #include <sys/isa_defs.h>
+#include <sys/processor.h>
+
+/* only for __x86 */
+#if defined(__x86)
+
 #include <sys/types.h>
 
-/* including <sys/auxv.h> clashes with AT_UID and others */
-#if defined(__arm__) || defined(__aarch64__) || defined(__powerpc__)
-#if defined(__FreeBSD__)
-#define	AT_HWCAP	25
-#define	AT_HWCAP2	26
-extern int elf_aux_info(int aux, void *buf, int buflen);
-static inline unsigned long getauxval(unsigned long key)
+#if defined(_KERNEL)
+
+#ifndef __clang__
+#include <intrin.h>
+#endif
+
+#ifdef _WIN33
+// XNU fpu.h
+static inline uint64_t
+xgetbv(uint32_t c)
 {
-	unsigned long val = 0UL;
-
-	if (elf_aux_info((int)key, &val, sizeof (val)) != 0)
-		return (0UL);
-
-	return (val);
+	uint32_t mask_hi, mask_lo;
+	__asm__ __volatile__("xgetbv" : "=a"(mask_lo), "=d"(mask_hi) : "c" (c));
+	return (((uint64_t)mask_hi<<32) + (uint64_t)mask_lo);
 }
-#elif defined(__linux__)
-#define	AT_HWCAP	16
-#define	AT_HWCAP2	26
-extern unsigned long getauxval(unsigned long type);
-#endif /* __linux__ */
-#endif /* arm || aarch64 || powerpc */
 
-#if defined(__x86)
-#include <cpuid.h>
+#endif
 
 #define	kfpu_allowed()		1
-#define	kfpu_begin()		do {} while (0)
-#define	kfpu_end()		do {} while (0)
-#define	kfpu_init()		0
-#define	kfpu_fini()		((void) 0)
+
+#endif
+
+#define	kfpu_init()		(0)
+#define	kfpu_fini()		do {} while (0)
+
+extern uint32_t kfpu_state;
+
+#define	kfpu_begin() \
+	NTSTATUS saveStatus = STATUS_INVALID_PARAMETER; \
+	XSTATE_SAVE SaveState; \
+	saveStatus = KeSaveExtendedProcessorState(kfpu_state, &SaveState);
+
+#define	kfpu_begin_cont() \
+	saveStatus = KeSaveExtendedProcessorState(kfpu_state, &SaveState);
+
+#define	kfpu_end() \
+	if (NT_SUCCESS(saveStatus)) \
+		KeRestoreExtendedProcessorState(&SaveState);
+
+#define	kfpu_begin_ctx(O) \
+	(O)->saveStatus = \
+	KeSaveExtendedProcessorState(kfpu_state, &(O)->SaveState);
+
+#define	kfpu_end_ctx(O) \
+	if (NT_SUCCESS(((O)->saveStatus))) \
+		KeRestoreExtendedProcessorState(&(O)->SaveState);
+
+#define	simd_stat_init()	0
+#define	simd_stat_fini()	0
 
 /*
- * CPUID feature tests for user-space.
- *
+ * CPUID feature tests for user-space. Linux kernel provides an interface for
+ * CPU feature testing.
+ */
+#if !defined(_KERNEL)
+#include <i386/cpuid.h>
+#include <i386/proc_reg.h>
+#else
+#include <assert.h>
+#endif // KERNEL
+
+/*
  * x86 registers used implicitly by CPUID
  */
 typedef enum cpuid_regs {
@@ -101,7 +174,7 @@ typedef enum cpuid_inst_sets {
 	AES,
 	PCLMULQDQ,
 	MOVBE,
-	SHA_NI
+	SHANI,
 } cpuid_inst_sets_t;
 
 /*
@@ -126,13 +199,13 @@ typedef struct cpuid_feature_desc {
 #define	_AES_BIT		(1U << 25)
 #define	_PCLMULQDQ_BIT		(1U << 1)
 #define	_MOVBE_BIT		(1U << 22)
-#define	_SHA_NI_BIT		(1U << 29)
+#define	_SHANI_BIT		(1U << 29)
 
 /*
  * Descriptions of supported instruction sets
  */
-static const cpuid_feature_desc_t cpuid_features[] = {
-	[SSE]		= {1U, 0U,	1U << 25,	EDX	},
+static const cpuid_feature_desc_t spl_cpuid_features[] = {
+	[SSE]		= {1U, 0U,	1U << 25, 	EDX	},
 	[SSE2]		= {1U, 0U,	1U << 26,	EDX	},
 	[SSE3]		= {1U, 0U,	1U << 0,	ECX	},
 	[SSSE3]		= {1U, 0U,	1U << 9,	ECX	},
@@ -154,8 +227,8 @@ static const cpuid_feature_desc_t cpuid_features[] = {
 	[AVX512VL]	= {7U, 0U, _AVX512ER_BIT,	EBX	},
 	[AES]		= {1U, 0U, _AES_BIT,		ECX	},
 	[PCLMULQDQ]	= {1U, 0U, _PCLMULQDQ_BIT,	ECX	},
-	[MOVBE]		= {1U, 0U, _MOVBE_BIT,		ECX	},
-	[SHA_NI]	= {7U, 0U, _SHA_NI_BIT,		EBX	},
+	[MOVBE]	= {1U, 0U, _MOVBE_BIT,	ECX	},
+	[SHANI]	= {1U, 0U, _SHANI_BIT,	EBX	},
 };
 
 /*
@@ -183,24 +256,20 @@ __cpuid_check_feature(const cpuid_feature_desc_t *desc)
 {
 	uint32_t r[CPUID_REG_CNT];
 
-	if (__get_cpuid_max(0, NULL) >= desc->leaf) {
-		/*
-		 * __cpuid_count is needed to properly check
-		 * for AVX2. It is a macro, so return parameters
-		 * are passed by value.
-		 */
-		__cpuid_count(desc->leaf, desc->subleaf,
-		    r[EAX], r[EBX], r[ECX], r[EDX]);
+	__cpuidex((int *)r, 0, 0);
+	// EAX has leaf count
+	if (r[EAX] >= desc->leaf) {
+		__cpuidex((int *)r, desc->leaf, desc->subleaf);
 		return ((r[desc->reg] & desc->flag) == desc->flag);
 	}
 	return (B_FALSE);
 }
 
-#define	CPUID_FEATURE_CHECK(name, id)				\
-static inline boolean_t						\
-__cpuid_has_ ## name(void)					\
-{								\
-	return (__cpuid_check_feature(&cpuid_features[id]));	\
+#define	CPUID_FEATURE_CHECK(name, id) \
+static inline boolean_t \
+__cpuid_has_ ## name(void) \
+{ \
+	return (__cpuid_check_feature(&spl_cpuid_features[id])); \
 }
 
 /*
@@ -228,8 +297,9 @@ CPUID_FEATURE_CHECK(avx512er, AVX512ER);
 CPUID_FEATURE_CHECK(avx512vl, AVX512VL);
 CPUID_FEATURE_CHECK(aes, AES);
 CPUID_FEATURE_CHECK(pclmulqdq, PCLMULQDQ);
+CPUID_FEATURE_CHECK(shani, SHANI);
 CPUID_FEATURE_CHECK(movbe, MOVBE);
-CPUID_FEATURE_CHECK(shani, SHA_NI);
+
 
 /*
  * Detect register set support
@@ -241,6 +311,7 @@ __simd_state_enabled(const uint64_t state)
 	uint64_t xcr0;
 
 	has_osxsave = __cpuid_has_osxsave();
+
 	if (!has_osxsave)
 		return (B_FALSE);
 
@@ -251,8 +322,8 @@ __simd_state_enabled(const uint64_t state)
 #define	_XSTATE_SSE_AVX		(0x2 | 0x4)
 #define	_XSTATE_AVX512		(0xE0 | _XSTATE_SSE_AVX)
 
-#define	__ymm_enabled()		__simd_state_enabled(_XSTATE_SSE_AVX)
-#define	__zmm_enabled()		__simd_state_enabled(_XSTATE_AVX512)
+#define	__ymm_enabled() __simd_state_enabled(_XSTATE_SSE_AVX)
+#define	__zmm_enabled() __simd_state_enabled(_XSTATE_AVX512)
 
 /*
  * Check if SSE instruction set is available
@@ -309,12 +380,24 @@ zfs_sse4_2_available(void)
 }
 
 /*
+ * Check if SSE4.2 instruction set is available
+ */
+static inline boolean_t
+zfs_osxsave_available(void)
+{
+	return (__cpuid_has_osxsave());
+}
+
+/*
  * Check if AVX instruction set is available
  */
 static inline boolean_t
 zfs_avx_available(void)
 {
-	return (__cpuid_has_avx() && __ymm_enabled());
+	boolean_t has_avx;
+	has_avx = __cpuid_has_avx();
+
+	return (has_avx && __ymm_enabled());
 }
 
 /*
@@ -323,7 +406,9 @@ zfs_avx_available(void)
 static inline boolean_t
 zfs_avx2_available(void)
 {
-	return (__cpuid_has_avx2() && __ymm_enabled());
+	boolean_t has_avx2;
+	has_avx2 = __cpuid_has_avx2();
+	return (has_avx2 && __ymm_enabled());
 }
 
 /*
@@ -372,7 +457,7 @@ zfs_movbe_available(void)
 }
 
 /*
- * Check if SHA_NI instruction is available
+ * Check if SHA_NI instruction set is available
  */
 static inline boolean_t
 zfs_shani_available(void)
@@ -396,236 +481,97 @@ zfs_shani_available(void)
  * AVX512VBMI	Vector Byte Manipulation Instructions
  */
 
-/*
- * Check if AVX512F instruction set is available
- */
+
+/* Check if AVX512F instruction set is available */
 static inline boolean_t
 zfs_avx512f_available(void)
 {
-	return (__cpuid_has_avx512f() && __zmm_enabled());
+	boolean_t has_avx512 = B_FALSE;
+	has_avx512 = __cpuid_has_avx512f();
+	return (has_avx512 && __zmm_enabled());
 }
 
-/*
- * Check if AVX512CD instruction set is available
- */
+/* Check if AVX512CD instruction set is available */
 static inline boolean_t
 zfs_avx512cd_available(void)
 {
-	return (__cpuid_has_avx512cd() && __zmm_enabled());
+	boolean_t has_avx512 = B_FALSE;
+
+	has_avx512 = __cpuid_has_avx512cd();
+	return (has_avx512 && __zmm_enabled());
 }
 
-/*
- * Check if AVX512ER instruction set is available
- */
+/* Check if AVX512ER instruction set is available */
 static inline boolean_t
 zfs_avx512er_available(void)
 {
-	return (__cpuid_has_avx512er() && __zmm_enabled());
+	boolean_t has_avx512 = B_FALSE;
+
+	has_avx512 = __cpuid_has_avx512er();
+	return (has_avx512 && __zmm_enabled());
 }
 
-/*
- * Check if AVX512PF instruction set is available
- */
+/* Check if AVX512PF instruction set is available */
 static inline boolean_t
 zfs_avx512pf_available(void)
 {
-	return (__cpuid_has_avx512pf() && __zmm_enabled());
+	boolean_t has_avx512 = B_FALSE;
+
+	has_avx512 = __cpuid_has_avx512pf();
+	return (has_avx512 && __zmm_enabled());
 }
 
-/*
- * Check if AVX512BW instruction set is available
- */
+/* Check if AVX512BW instruction set is available */
 static inline boolean_t
 zfs_avx512bw_available(void)
 {
-	return (__cpuid_has_avx512bw() && __zmm_enabled());
+	boolean_t has_avx512 = B_FALSE;
+
+	has_avx512 = __cpuid_has_avx512bw();
+	return (has_avx512 && __zmm_enabled());
 }
 
-/*
- * Check if AVX512DQ instruction set is available
- */
+/* Check if AVX512DQ instruction set is available */
 static inline boolean_t
 zfs_avx512dq_available(void)
 {
-	return (__cpuid_has_avx512dq() && __zmm_enabled());
+	boolean_t has_avx512 = B_FALSE;
+
+	has_avx512 = __cpuid_has_avx512dq();
+	return (has_avx512 && __zmm_enabled());
 }
 
-/*
- * Check if AVX512VL instruction set is available
- */
+/* Check if AVX512VL instruction set is available */
 static inline boolean_t
 zfs_avx512vl_available(void)
 {
-	return (__cpuid_has_avx512vl() && __zmm_enabled());
+	boolean_t has_avx512 = B_FALSE;
+
+	has_avx512 = __cpuid_has_avx512vl();
+	return (has_avx512 && __zmm_enabled());
 }
 
-/*
- * Check if AVX512IFMA instruction set is available
- */
+/* Check if AVX512IFMA instruction set is available */
 static inline boolean_t
 zfs_avx512ifma_available(void)
 {
-	return (__cpuid_has_avx512ifma() && __zmm_enabled());
+	boolean_t has_avx512 = B_FALSE;
+
+	has_avx512 = __cpuid_has_avx512ifma();
+	return (has_avx512 && __zmm_enabled());
 }
 
-/*
- * Check if AVX512VBMI instruction set is available
- */
+/* Check if AVX512VBMI instruction set is available */
 static inline boolean_t
 zfs_avx512vbmi_available(void)
 {
-	return (__cpuid_has_avx512f() && __cpuid_has_avx512vbmi() &&
-	    __zmm_enabled());
+	boolean_t has_avx512 = B_FALSE;
+
+	has_avx512 = __cpuid_has_avx512f() &&
+	    __cpuid_has_avx512vbmi();
+	return (has_avx512 && __zmm_enabled());
 }
 
-#elif defined(__arm__)
+#endif /* defined(__x86) */
 
-#define	kfpu_allowed()		1
-#define	kfpu_initialize(tsk)	do {} while (0)
-#define	kfpu_begin()		do {} while (0)
-#define	kfpu_end()		do {} while (0)
-
-#define	HWCAP_NEON		0x00001000
-#define	HWCAP2_SHA2		0x00000008
-
-/*
- * Check if NEON is available
- */
-static inline boolean_t
-zfs_neon_available(void)
-{
-	unsigned long hwcap = getauxval(AT_HWCAP);
-	return (hwcap & HWCAP_NEON);
-}
-
-/*
- * Check if SHA2 is available
- */
-static inline boolean_t
-zfs_sha256_available(void)
-{
-	unsigned long hwcap = getauxval(AT_HWCAP);
-	return (hwcap & HWCAP2_SHA2);
-}
-
-#elif defined(__aarch64__)
-
-#define	kfpu_allowed()		1
-#define	kfpu_initialize(tsk)	do {} while (0)
-#define	kfpu_begin()		do {} while (0)
-#define	kfpu_end()		do {} while (0)
-
-#ifdef _WIN32
-
-/*
- * Check if NEON is available
- */
-static inline boolean_t
-zfs_neon_available(void)
-{
-    return (IsProcessorFeaturePresent(PF_ARM_VFP_32_REGISTERS_AVAILABLE));
-}
-
-/*
- * Check if SHA2 is available
- */
-static inline boolean_t
-zfs_sha256_available(void)
-{
-    return (IsProcessorFeaturePresent(PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE));
-}
-
-/*
- * Check if SHA512 is available
- */
-static inline boolean_t
-zfs_sha512_available(void)
-{
-    return (IsProcessorFeaturePresent(PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE));
-}
-
-#else
-
-#define	HWCAP_FP		0x00000001
-#define	HWCAP_SHA2		0x00000040
-#define	HWCAP_SHA512		0x00200000
-
-/*
- * Check if NEON is available
- */
-static inline boolean_t
-zfs_neon_available(void)
-{
-	unsigned long hwcap = getauxval(AT_HWCAP);
-	return (hwcap & HWCAP_FP);
-}
-
-/*
- * Check if SHA2 is available
- */
-static inline boolean_t
-zfs_sha256_available(void)
-{
-	unsigned long hwcap = getauxval(AT_HWCAP);
-	return (hwcap & HWCAP_SHA2);
-}
-
-/*
- * Check if SHA512 is available
- */
-static inline boolean_t
-zfs_sha512_available(void)
-{
-	unsigned long hwcap = getauxval(AT_HWCAP);
-	return (hwcap & HWCAP_SHA512);
-}
-
-#endif /* WIN32 */
-
-#elif defined(__powerpc__)
-
-#define	kfpu_allowed()		0
-#define	kfpu_initialize(tsk)	do {} while (0)
-#define	kfpu_begin()		do {} while (0)
-#define	kfpu_end()		do {} while (0)
-
-#define	PPC_FEATURE_HAS_ALTIVEC	0x10000000
-#define	PPC_FEATURE_HAS_VSX	0x00000080
-#define	PPC_FEATURE2_ARCH_2_07	0x80000000
-
-static inline boolean_t
-zfs_altivec_available(void)
-{
-	unsigned long hwcap = getauxval(AT_HWCAP);
-	return (hwcap & PPC_FEATURE_HAS_ALTIVEC);
-}
-
-static inline boolean_t
-zfs_vsx_available(void)
-{
-	unsigned long hwcap = getauxval(AT_HWCAP);
-	return (hwcap & PPC_FEATURE_HAS_VSX);
-}
-
-static inline boolean_t
-zfs_isa207_available(void)
-{
-	unsigned long hwcap = getauxval(AT_HWCAP);
-	unsigned long hwcap2 = getauxval(AT_HWCAP2);
-	return ((hwcap & PPC_FEATURE_HAS_VSX) &&
-	    (hwcap2 & PPC_FEATURE2_ARCH_2_07));
-}
-
-#else
-
-#define	kfpu_allowed()		0
-#define	kfpu_initialize(tsk)	do {} while (0)
-#define	kfpu_begin()		do {} while (0)
-#define	kfpu_end()		do {} while (0)
-
-#endif
-
-extern void simd_stat_init(void);
-extern void simd_stat_fini(void);
-
-#endif /* _LIBSPL_SYS_SIMD_H */
+#endif /* _WINDOWS_SYS_SIMD_X86_H */

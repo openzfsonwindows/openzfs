@@ -249,7 +249,7 @@ zfsctl_vnode_alloc(zfsvfs_t *zfsvfs, uint64_t id,
 
 	if (error && !parentvp) {
 		dprintf("%s: unable to get parent?", __func__);
-		return (SET_ERROR(EINVAL));
+		return (NULL);
 	}
 
 	if (!parentvp && parentzp)

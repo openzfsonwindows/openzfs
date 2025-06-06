@@ -61,7 +61,7 @@ static const raidz_impl_ops_t *const raidz_all_maths[] = {
 #if defined(__x86_64) && defined(HAVE_AVX512BW)	/* only x86_64 for now */
 	&vdev_raidz_avx512bw_impl,
 #endif
-#if defined(__aarch64__) && !defined(__FreeBSD__)
+#if defined(__aarch64__NOTYET) && !defined(__FreeBSD__)
 	&vdev_raidz_aarch64_neon_impl,
 	&vdev_raidz_aarch64_neonx2_impl,
 #endif

@@ -10,8 +10,13 @@ find_package(WDK REQUIRED)
 
 option(BUILD_SHARED_LIBS "Build Shared Libraries" OFF)
 
-set(OPENSSL_CRYPTO_LIBRARY "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MTd/libcrypto_static.lib")
-set(OPENSSL_SSL_LIBRARY "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MTd/libssl_static.lib")
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+	set(OPENSSL_CRYPTO_LIBRARY "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MTd/libcrypto_static.lib")
+	set(OPENSSL_SSL_LIBRARY "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MTd/libssl_static.lib")
+elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "ARM64")
+	set(OPENSSL_CRYPTO_LIBRARY "C:/Program Files/OpenSSL-Win64-ARM/lib/VC/arm64/MTd/libcrypto_static.lib")
+	set(OPENSSL_SSL_LIBRARY "C:/Program Files/OpenSSL-Win64-ARM/lib/VC/arm64/MTd/libssl_static.lib")
+endif()
 
 set(OPENSSL_USE_STATIC_LIBS TRUE)
 set(OPENSSL_MSVC_STATIC_RT TRUE)
@@ -38,10 +43,15 @@ function(use_clang)
 add_compile_options(/FI ${CMAKE_SOURCE_DIR}/include/os/windows/zfs/zfs_config.h)
 set(CMAKE_C_COMPILER clang-cl.exe PARENT_SCOPE)
 set(CMAKE_CXX_COMPILER clang-cl.exe PARENT_SCOPE)
-if(CMAKE_SIZEOF_VOID_P EQUAL 4)
-	add_compile_options(-m32)
-else()
-	add_compile_options(-m64)
+
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+	if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+		add_compile_options(-m32)
+	else()
+		add_compile_options(-m64)
+	endif()
+elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "ARM64") # all except wdk_add_library
+		add_compile_options(-target aarch64-pc-windows-msvc)
 endif()
 
 add_compile_options(
@@ -67,12 +77,18 @@ add_compile_options(
 )
 endfunction()
 
-if(CMAKE_SIZEOF_VOID_P EQUAL 4)
-    add_definitions(-D__x86_32__ -D__i386 -D__i386__ -D_LP32 -DWIN32)
-elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    add_definitions(-D__x86_64__ -D_LP64 -D__LP64__ -D__x86_64 -D_AMD64_ -D_WIN64 -DAMD64 -DWIN64)
-else()
-    message(FATAL_ERROR "Unsupported architecture")
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+	if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+	    add_definitions(-D__x86_32__ -D__i386 -D__i386__ -D_LP32 -DWIN32)
+	elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+	    add_definitions(-D__x86_64__ -D_LP64 -D__LP64__ -D__x86_64 -D_AMD64_ -D_WIN64 -DAMD64 -DWIN64)
+	endif()
+elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "ARM64")
+	add_definitions(-DARM64 -D_ARM64_ -D__aarch64__ -D_LP64 -D__LP64__ -D_WIN64 -DWIN64)
+	# Fix up wdk_add_library
+	set(WDK_COMPILE_FLAGS "--target=arm64-windows-msvc" CACHE STRING "" FORCE)
+	#set(WDK_C_FLAGS   "/target:aarch64-pc-windows-msvc" CACHE STRING "" FORCE)
+	#set(WDK_CXX_FLAGS "/target:aarch64-pc-windows-msvc" CACHE STRING "" FORCE)
 endif()
 
 # Add .pdb debug symbols - always.
@@ -81,6 +97,10 @@ add_compile_options(/Zi)
 add_link_options(/DEBUG)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "x64-Debug")
+    add_definitions(-DDBG -DZFS_DEBUG)
+endif()
+
+if(CMAKE_BUILD_TYPE STREQUAL "arm64-Debug")
     add_definitions(-DDBG -DZFS_DEBUG)
 endif()
 

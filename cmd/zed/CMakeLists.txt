@@ -46,7 +46,7 @@ add_custom_command(
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.inf.temp" "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.inf"
     COMMAND "${CMAKE_COMMAND}" -E remove "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.inf.temp"
     COMMAND "${INF2CAT_PROGRAM}" /verbose "/driver:${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows" /os:10_19H1_X86,10_19H1_X64,ServerRS5_X64 /uselocaltime
-    COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.cat"
+#    COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows/zed.cat"
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/cmd/zed/os/windows"
     COMMENT "Generating and signing zed.cat file"
     VERBATIM

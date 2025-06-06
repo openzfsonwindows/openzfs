@@ -28,8 +28,8 @@
 /* Define to 1 to enabled dmu tx validation */
 /* #undef DEBUG_DMU_TX */
 
-#define	SYSCONFDIR ZFSEXECDIR  // Windwosify me
-#define	PKGDATADIR "\\SystemRoot\\System32\\drivers"  // Windwosify me
+#define	SYSCONFDIR ZFSEXECDIR  // Windowsify me
+#define	PKGDATADIR "\\SystemRoot\\System32\\drivers"  // Windowsify me
 
 #define	TEXT_DOMAIN "zfs-windows-user"
 
@@ -87,6 +87,7 @@
 #define	HAVE_USLEEP 1
 
 /* These control which assembler files to use */
+#if defined(__i386) || defined(__amd64)
 #define	HAVE_SSE2 1
 #define	HAVE_SSSE3 1
 #define	HAVE_SSE4_1
@@ -105,6 +106,11 @@
 #define	HAVE_AVX512IFMA 1
 #define	HAVE_AVX512VBMI 1
 #define	HAVE_AVX512PF 1
+#endif
+
+#if defined(__aarch64__)
+// #define	HAVE_ARMV8 1
+#endif
 
 #define	LIBFETCH_IS_FETCH 1
 

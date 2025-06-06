@@ -23,16 +23,30 @@ add_library(libzfs
 # set(CRYPTO_STATIC "notset")
 # '/c/Program Files/OpenSSL-Win64/lib/VC/x64/MTd/libssl_static.lib'
 set(CMAKE_FIND_DEBUG_MODE TRUE)
-find_library(CRYPTO_STATIC_TEST
-    NAMES
-      libcrypto_static
-    NAMES_PER_DIR
-	HINTS
-	  "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MTd"
-    PATH_SUFFIXES
-      lib
-	REQUIRED
-  )
+
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+	find_library(CRYPTO_STATIC_TEST
+		NAMES
+		  libcrypto_static
+		NAMES_PER_DIR
+		HINTS
+		  "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MTd"
+		PATH_SUFFIXES
+		  lib
+		REQUIRED
+	  )
+elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "ARM64")
+	find_library(CRYPTO_STATIC_TEST
+		NAMES
+		  libcrypto_static
+		NAMES_PER_DIR
+		HINTS
+		  "C:/Program Files/OpenSSL-Win64-ARM/lib/VC/arm64/MTd"
+		PATH_SUFFIXES
+		  lib
+		REQUIRED
+	  )
+endif()
 
 # Optionally, if there is a "lib/curl*" directory
 # for example, "lib/curl-8.6.0_4-win64-mingw" we also enable

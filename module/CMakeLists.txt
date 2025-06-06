@@ -1,3 +1,4 @@
+# x86/inf2cat.exe can run on 64bit, and arm64.
 find_program(INF2CAT_PROGRAM
 	inf2cat
 	PATHS "${WDK_ROOT}/bin/${WDK_VERSION}/x86" # no x64 version of the tool
@@ -17,7 +18,6 @@ find_program(SIGNTOOL_PROGRAM
 if (NOT SIGNTOOL_PROGRAM)
 	message(FATAL_ERROR "Failed to find signtool.exe")
 endif()
-
 
 find_program(STAMPINF_PROGRAM
 	stampinf
@@ -114,11 +114,26 @@ function(um_add_executable name)
 		#COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /s "${OPENZFS_SIGNTOOL_CERTSTORE}" /n "${OPENZFS_SIGNTOOL_CERTNAME}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:${name}>
 		#COMMAND "${SIGNTOOL_PROGRAM}" sign /v /fd sha1 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /t "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:${name}>
 		# Lundman's line
-		COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:${name}>
+#		COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:${name}>
 		WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
 		VERBATIM COMMENT "Sign userspace tool"
 	)
 endfunction()
+
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+	message(STATUS "Configuring for Intel x64/amd64")
+	if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+		add_compile_options(-m32)
+	else()
+		add_compile_options(-m64)
+	endif()
+elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "ARM64")
+	message(STATUS "Configuring for ARM64")
+	add_compile_options(-target aarch64-pc-windows-msvc)
+else()
+	message(STATUS "Unknown architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+
 
 set(OpenZFS_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}")
 

@@ -27,7 +27,6 @@
 
 #include <sys/cred.h>
 #include <sys/kmem.h>
-
 /* Return the effective user id */
 uid_t
 crgetuid(const cred_t *cr)

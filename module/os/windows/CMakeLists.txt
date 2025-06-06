@@ -13,10 +13,12 @@
 #    SOURCE_DIR "zfs" # Tell CMake to use subdirectory as source.
 #)
 
-
 add_subdirectory(spl)
 add_subdirectory(zfs)
 add_subdirectory(zvol)
+
+string(REPLACE "/RTC1" "" CMAKE_C_FLAGS_DEBUG   "${CMAKE_C_FLAGS_DEBUG}")
+string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 
 wdk_add_driver(OpenZFS
   debug.c
@@ -26,7 +28,7 @@ wdk_add_driver(OpenZFS
   resource.rc
 )
 
-target_link_libraries(OpenZFS PRIVATE
+target_link_libraries(OpenZFS
 	splkern
 	zlibkern
 	icpkern
@@ -69,8 +71,8 @@ add_custom_command(
 	#COMMAND "${SIGNTOOL_PROGRAM}" sign /v /fd sha1 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /t "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:OpenZFS>
 	#COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /s "${OPENZFS_SIGNTOOL_CERTSTORE}" /n "${OPENZFS_SIGNTOOL_CERTNAME}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:OpenZFS>
 	# lundman's line
-	COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" "${CMAKE_CURRENT_BINARY_DIR}/driver/OpenZFS.cat"
-	COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:OpenZFS>
+#	COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" "${CMAKE_CURRENT_BINARY_DIR}/driver/OpenZFS.cat"
+#	COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:OpenZFS>
 	WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/driver"
 	VERBATIM COMMENT "Generating and signing OpenZFS.cat file"
 )

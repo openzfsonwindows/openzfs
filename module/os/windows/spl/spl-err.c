@@ -31,6 +31,8 @@
 
 #include <Trace.h>
 
+#include <zfs_gitrev.h>
+
 void
 vcmn_err(int ce, const char *fmt, va_list ap)
 {

@@ -27,19 +27,6 @@ wdk_add_library(icpkern
   api/kcf_cipher.c
   api/kcf_ctxops.c
   api/kcf_mac.c
-  asm-x86_64/aes/aeskey.c
-  asm-x86_64/aes/aes_aesni.S
-  asm-x86_64/aes/aes_amd64.S
-  asm-x86_64/modes/gcm_pclmulqdq.S
-  asm-x86_64/modes/ghash-x86_64.S
-  asm-x86_64/modes/aesni-gcm-x86_64.S
-#  asm-x86_64/sha1/sha1-x86_64.S
-  asm-x86_64/blake3/blake3_avx2.S
-  asm-x86_64/blake3/blake3_avx512.S
-  asm-x86_64/blake3/blake3_sse2.S
-  asm-x86_64/blake3/blake3_sse41.S
-  asm-x86_64/sha2/sha256-x86_64.S
-  asm-x86_64/sha2/sha512-x86_64.S
   core/kcf_callprov.c
   core/kcf_mech_tabs.c
   core/kcf_prov_lib.c
@@ -50,6 +37,25 @@ wdk_add_library(icpkern
   io/sha2_mod.c
   spi/kcf_spi.c
 )
+
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+	wdk_add_library(icpkern
+	  asm-x86_64/aes/aeskey.c
+	  asm-x86_64/aes/aes_aesni.S
+	  asm-x86_64/aes/aes_amd64.S
+	  asm-x86_64/modes/gcm_pclmulqdq.S
+	  asm-x86_64/modes/ghash-x86_64.S
+	  asm-x86_64/modes/aesni-gcm-x86_64.S
+	  asm-x86_64/blake3/blake3_avx2.S
+	  asm-x86_64/blake3/blake3_avx512.S
+	  asm-x86_64/blake3/blake3_sse2.S
+	  asm-x86_64/blake3/blake3_sse41.S
+	  asm-x86_64/sha2/sha256-x86_64.S
+	  asm-x86_64/sha2/sha512-x86_64.S
+	)
+elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "ARM64")
+endif()
+
 
 target_link_libraries(icpkern PRIVATE splkern)
 target_include_directories(icpkern BEFORE PUBLIC "include")

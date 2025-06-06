@@ -93,7 +93,7 @@
 #include <sys/types.h>
 #include <sys/mod_os.h>
 #include <ntddk.h>
-#include <ntddstor.h>
+// #include <ntddstor.h>
 #include <storport.h>
 
 #include <sys/zfs_context.h>

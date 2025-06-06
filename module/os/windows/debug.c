@@ -26,6 +26,7 @@
 // Get "_daylight: has bad storage class" in time.h
 #define	_INC_TIME
 
+
 #define	_NO_CRT_STDIO_INLINE
 
 #include <sys/debug.h>

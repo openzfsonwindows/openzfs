@@ -19,4 +19,14 @@ wdk_add_library(zcommonkern
 	zprop_common.c
 )
 
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+	wdk_add_library(zcommonkern
+		zfs_fletcher_avx512.c
+		zfs_fletcher_intel.c
+		zfs_fletcher_sse.c
+	)
+elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "ARM64")
+endif()
+
+
 target_link_libraries(zcommonkern PRIVATE splkern)

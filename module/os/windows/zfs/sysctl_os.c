@@ -280,9 +280,9 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 					if (!(zt->zt_flag & ZT_FLAG_STATIC)) {
 
 						if (maybestr != NULL)
-							ExFreePool(*maybestr);
+							ExFreePool((void *)*maybestr);
 
-						*maybestr = NULL;
+						(*(void **)maybestr) = NULL;
 					}
 					/* How much space needed? */
 					Status = RtlUnicodeToUTF8N(NULL, 0,

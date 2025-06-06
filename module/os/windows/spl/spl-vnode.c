@@ -198,7 +198,7 @@ kernel_ioctl(PDEVICE_OBJECT DeviceObject, FILE_OBJECT *FileObject,
 	PIRP Irp;
 	NTSTATUS Status;
 	// ULONG Remainder;
-	PAGED_CODE();
+	// PAGED_CODE();
 
 	/* Build the information IRP */
 	KeInitializeEvent(&Event, SynchronizationEvent, FALSE);
@@ -465,7 +465,7 @@ dnlc_purge_vfsp(struct mount *mp, int flags)
 		if (vnode_isdir(rvp))
 			continue;
 
-		CcFlushCache(&rvp->SectionObjectPointers, NULL, NULL,
+		CcFlushCache(&rvp->SectionObjectPointers, NULL, 0,
 		    &ioStatus);
 	}
 	mutex_exit(&vnode_all_list_lock);
@@ -676,7 +676,7 @@ getf(uint64_t fd)
 
 	sfp->f_vnode	= sfp;
 
-	sfp->f_handle	= fd;
+	sfp->f_handle	= (HANDLE) fd;
 	sfp->f_offset	= 0;
 	sfp->f_proc	= current_proc();
 	sfp->f_fp	= (void *)fp;
