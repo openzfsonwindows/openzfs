@@ -35,14 +35,12 @@
 #include <libintl.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
 #include <unistd.h>
 #include <libgen.h>
 #include <zone.h>
 #include <sys/stat.h>
 #include <sys/efi_partition.h>
 #include <sys/systeminfo.h>
-#include <sys/vtoc.h>
 #include <sys/zfs_ioctl.h>
 #include <sys/vdev_disk.h>
 #include <dlfcn.h>
@@ -53,6 +51,9 @@
 #include "libzfs_impl.h"
 #include "zfs_comutil.h"
 #include "zfeature_common.h"
+
+HRESULT OfflineDisk(const char *devicePath);
+HRESULT OnlineDisk(const char *devicePath);
 
 /*
  * If the device has being dynamically expanded then we need to relabel
@@ -208,6 +209,164 @@ zpool_label_name(char *label_name, int label_size)
 	snprintf(label_name, label_size, "zfs-%016llx", (u_longlong_t)id);
 }
 
+void
+dump_label(int fd)
+{
+	struct dk_gpt *vtoc;
+	int err;
+	if (efi_alloc_and_read(fd, &vtoc) != 0) {
+		fprintf(stderr, "Failed to read label\n");
+		return;
+	}
+	fprintf(stderr,
+	    "EFI read OK, max partitions %d\n",
+	    vtoc->efi_nparts);
+	fflush(stderr);
+	for (int i = 0; i < vtoc->efi_nparts; i++) {
+		fprintf(stderr,
+		    "    part %d:  offset %llx:    len %llx:    "
+		    "tag: %x    name: '%s'\n",
+		    i, vtoc->efi_parts[i].p_start,
+		    vtoc->efi_parts[i].p_size,
+		    vtoc->efi_parts[i].p_tag,
+		    vtoc->efi_parts[i].p_name);
+		fflush(stderr);
+		if (i > 11) break;
+	}
+	efi_free(vtoc);
+}
+
+void
+process_volumes(HANDLE hDisk)
+{
+	// Step 1: Get physical disk number
+	STORAGE_DEVICE_NUMBER devNum;
+	DWORD bytesReturned;
+	if (!DeviceIoControl(hDisk,
+	    IOCTL_STORAGE_GET_DEVICE_NUMBER,
+	    NULL, 0,
+	    &devNum, sizeof (devNum),
+	    &bytesReturned, NULL)) {
+		fprintf(stderr, "Failed to get device number: %lu\n",
+		    GetLastError());
+		return;
+	}
+
+	DWORD targetDiskNumber = devNum.DeviceNumber;
+
+	// Step 2: Enumerate all volumes
+	WCHAR volumeName[MAX_PATH];
+	HANDLE hFind = FindFirstVolumeW(volumeName,
+	    ARRAYSIZE(volumeName));
+	if (hFind == INVALID_HANDLE_VALUE) {
+		fprintf(stderr, "FindFirstVolumeW failed: %lu\n",
+		    GetLastError());
+		return;
+	}
+
+	do {
+		// Remove trailing backslash for CreateFileW
+		size_t len = wcslen(volumeName);
+		if (volumeName[len - 1] == L'\\') {
+			volumeName[len - 1] = L'\0';
+		}
+
+		HANDLE hVol = CreateFileW(volumeName,
+		    GENERIC_READ | GENERIC_WRITE,
+		    FILE_SHARE_READ | FILE_SHARE_WRITE,
+		    NULL, OPEN_EXISTING, 0, NULL);
+
+		if (hVol == INVALID_HANDLE_VALUE)
+			continue;
+
+		// Step 3: Check disk extents
+		VOLUME_DISK_EXTENTS extents;
+		if (!DeviceIoControl(hVol,
+		    IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
+		    NULL, 0,
+		    &extents, sizeof (extents),
+		    &bytesReturned, NULL)) {
+			CloseHandle(hVol);
+			continue;
+		}
+
+		for (DWORD i = 0;
+		    i < extents.NumberOfDiskExtents;
+		    ++i) {
+			if (extents.Extents[i].DiskNumber ==
+			    targetDiskNumber) {
+				fwprintf(stderr,
+				    L"Volume %s is on PHYSICALDRIVE%lu\n",
+				    volumeName, targetDiskNumber);
+
+				// Try to lock and dismount
+				if (DeviceIoControl(hVol, FSCTL_LOCK_VOLUME,
+				    NULL, 0, NULL, 0, &bytesReturned, NULL)) {
+					fprintf(stderr, "  Locked.\n");
+					if (DeviceIoControl(hVol,
+					    FSCTL_DISMOUNT_VOLUME, NULL, 0,
+					    NULL, 0, &bytesReturned, NULL)) {
+						fprintf(stderr,
+						    "  Dismounted.\n");
+					} else {
+						fprintf(stderr,
+						    "  Dismount: %lu\n",
+						    GetLastError());
+					}
+				} else {
+					fprintf(stderr,
+					    "  Failed to lock: %lu\n",
+					    GetLastError());
+				}
+			}
+		}
+
+		CloseHandle(hVol);
+
+		// Restore trailing slash
+		volumeName[len - 1] = L'\\';
+	} while (FindNextVolumeW(hFind, volumeName, ARRAYSIZE(volumeName)));
+
+	FindVolumeClose(hFind);
+	fflush(stderr);
+}
+
+int
+efi_tryexclusive(int fd, const char *path)
+{
+	int retry = 0;
+
+	fprintf(stderr, "%s: fd %d\r\n", __func__, fd);
+
+	// Tell Windows to bugger off, we are about to wipe this
+	process_volumes(fd);
+
+	// Lets try to reopen exclusive
+	close(fd);
+	fd = -1;
+
+	fprintf(stderr, "%s: trying to offline disk\r\n", __func__);
+	OfflineDisk(path);
+
+	fprintf(stderr, "%s: trying for exclusive access\r\n", __func__);
+
+	do {
+		if ((fd = open(path, O_RDWR|O_DIRECT|O_EXCL|O_EXLOCK)) >= 0)
+			break;
+		usleep(500);
+	} while (retry++ < 3);
+
+	if (fd >= 0) {
+		fprintf(stderr, "%s: success. fd is %d\r\n", __func__, fd);
+	} else {
+		fprintf(stderr, "%s: failed, continuing with shared access\r\n",
+		    __func__);
+		fd = open(path, O_RDWR | O_DIRECT | O_EXCL);
+	}
+
+	return (fd);
+}
+
 /*
  * Label an individual disk.  The name provided is the short name,
  * stripped of any leading /dev path.
@@ -228,10 +387,8 @@ zpool_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp, const char *name)
 	    dgettext(TEXT_DOMAIN, "cannot label '%s'"), name);
 
 	if (zhp) {
-		nvlist_t *nvroot;
-
-		verify(nvlist_lookup_nvlist(zhp->zpool_config,
-		    ZPOOL_CONFIG_VDEV_TREE, &nvroot) == 0);
+		nvlist_t *nvroot = fnvlist_lookup_nvlist(zhp->zpool_config,
+		    ZPOOL_CONFIG_VDEV_TREE);
 
 		if (zhp->zpool_start_block == 0)
 			start_block = find_start_block(nvroot);
@@ -255,6 +412,9 @@ zpool_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp, const char *name)
 		return (zfs_error(hdl, EZFS_OPENFAILED, errbuf));
 	}
 
+	// This might re-open fd exclusively if it can
+	fd = efi_tryexclusive(fd, path);
+
 	if (efi_alloc_and_init(fd, EFI_NUMPAR, &vtoc) != 0) {
 		/*
 		 * The only way this can fail is if we run out of memory, or we
@@ -266,6 +426,9 @@ zpool_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp, const char *name)
 		(void) close(fd);
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "cannot "
 		    "label '%s': unable to read disk capacity"), path);
+
+		fprintf(stderr, "%s: trying to online disk\r\n", __func__);
+		OnlineDisk(path);
 
 		return (zfs_error(hdl, EZFS_NOCAP, errbuf));
 	}
@@ -290,7 +453,16 @@ zpool_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp, const char *name)
 	 */
 	vtoc->efi_parts[0].p_tag = V_USR;
 	zpool_label_name(vtoc->efi_parts[0].p_name, EFI_PART_NAME_LEN);
+#if 0
+	for (int i = 1; i < 8; i++) {
+		vtoc->efi_parts[i].p_tag = V_RESERVED;
+		vtoc->efi_parts[i].p_start = slice_size + start_block;
 
+//		vtoc->efi_parts[i].p_size = 1;
+//		resv -= 1;
+//		start_block += 1;
+	}
+#endif
 	vtoc->efi_parts[8].p_start = slice_size + start_block;
 	vtoc->efi_parts[8].p_size = resv;
 	vtoc->efi_parts[8].p_tag = V_RESERVED;
@@ -303,6 +475,15 @@ zpool_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp, const char *name)
 
 	if (rval == 0)
 		rval = efi_rescan(fd);
+
+	dump_label(fd);
+
+	fprintf(stderr, "%s: trying to online disk\r\n", __func__);
+	rval = OnlineDisk(path);
+	if (SUCCEEDED(rval))
+		fprintf(stderr, "%s: failed %d (0x%x)\r\n", __func__,
+		    rval, rval);
+	rval = 0;
 
 	/*
 	 * Some block drivers (like pcata) may not support EFI GPT labels.

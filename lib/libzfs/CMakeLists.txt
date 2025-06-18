@@ -14,6 +14,7 @@ add_library(libzfs
 	libzfs_sendrecv.c
 	libzfs_status.c
 	libzfs_util.c
+	os/windows/libzfs_disk_os.cpp
 	os/windows/libzfs_mount_os.c
 	os/windows/libzfs_pool_os.c
 	os/windows/libzfs_util_os.c
