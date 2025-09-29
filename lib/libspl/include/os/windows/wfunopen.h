@@ -53,7 +53,10 @@
 extern "C" {
 #endif
 
+#define	WFUNOPEN_MAGIC 0x5A46534D454D465AULL /* "ZFSMEMFZ" for fun */
+
 struct fakeFILE_s {
+	uint64_t magic;
 	void *cookie;
 	int (*readfn)(void *, char *, int);
 	int (*writefn)(void *, const char *, int);
@@ -64,6 +67,16 @@ struct fakeFILE_s {
 
 typedef struct fakeFILE_s fakeFILE;
 
+static inline int wosix_is_fake_file(FILE *f)
+{
+	if (!f)
+		return (0);
+
+	const fakeFILE *ff = (const fakeFILE *)f;
+	return (ff->magic == WFUNOPEN_MAGIC);
+}
+
+
 static inline FILE *
 wosix_funopen(void *cookie,
     int (*readfn)(void *, char *, int),
@@ -73,6 +86,7 @@ wosix_funopen(void *cookie,
 {
 	fakeFILE *fFILE = (fakeFILE *)malloc(sizeof (fakeFILE));
 	if (fFILE) {
+		fFILE->magic = WFUNOPEN_MAGIC;
 		fFILE->cookie = cookie;
 		fFILE->seekfn = seekfn;
 		fFILE->readfn = readfn;
@@ -112,7 +126,9 @@ static inline int wosix_fclose(FILE *f)
 	fakeFILE *fFILE = (fakeFILE *)f;
 	int result;
 
-	if (fFILE->realFILE)
+	if (!wosix_is_fake_file(f))
+		result = fclose(f);
+	else if (fFILE->realFILE)
 		result = fclose(fFILE->realFILE);
 	else
 		result = fFILE->closefn(fFILE->cookie);
@@ -131,7 +147,7 @@ static inline ssize_t wosix_getline(char **linep, size_t *linecap, FILE *f)
 	fakeFILE *fFILE = (fakeFILE *)f;
 	int result;
 
-	if (f == stdin)
+	if (!wosix_is_fake_file(f))
 		result = getline_impl(linep, linecap, f, (boolean_t)FALSE);
 	else if (fFILE->realFILE)
 		result = getline(linep, linecap, fFILE->realFILE);
@@ -148,7 +164,9 @@ static inline size_t wosix_fread(void *ptr, size_t size, size_t nmemb, FILE *f)
 	fakeFILE *fFILE = (fakeFILE *)f;
 	int result;
 
-	if (fFILE->realFILE)
+	if (!wosix_is_fake_file(f))
+		result = fread(ptr, size, nmemb, f);
+	else if (fFILE->realFILE)
 		result = fread(ptr, size, nmemb, fFILE->realFILE);
 	else
 		result = fFILE->readfn(fFILE->cookie, (char *)ptr,
@@ -163,7 +181,9 @@ static inline size_t wosix_fwrite(void *ptr, size_t size, size_t nmemb, FILE *f)
 	fakeFILE *fFILE = (fakeFILE *)f;
 	int result;
 
-	if (fFILE->realFILE)
+	if (!wosix_is_fake_file(f))
+		result = fwrite(ptr, size, nmemb, f);
+	else if (fFILE->realFILE)
 		result = fwrite(ptr, size, nmemb, fFILE->realFILE);
 	else
 		result = fFILE->writefn(fFILE->cookie, (const char *)ptr,
@@ -178,7 +198,9 @@ static inline int wosix_ferror(FILE *f)
 	fakeFILE *fFILE = (fakeFILE *)f;
 	int result;
 
-	if (fFILE->realFILE)
+	if (!wosix_is_fake_file(f))
+		result = ferror(f);
+	else if (fFILE->realFILE)
 		result = ferror(fFILE->realFILE);
 	else
 		result = 0;
@@ -187,20 +209,70 @@ static inline int wosix_ferror(FILE *f)
 }
 #define	ferror wosix_ferror
 
-static inline int wosix_vfprintf(FILE *const f, char const *const fmt,
-    va_list va)
+static inline int wosix_fflush(FILE *f)
 {
 	fakeFILE *fFILE = (fakeFILE *)f;
 	int result;
 
-	if (fFILE->realFILE)
-		result = vfprintf(fFILE->realFILE, fmt, va);
+	if (!wosix_is_fake_file(f))
+		result = fflush(f);
+	else if (fFILE->realFILE)
+		result = fflush(fFILE->realFILE);
 	else
 		result = 0;
 
 	return (result);
 }
+#define	fflush wosix_fflush
+
+static inline int wosix_vfprintf(FILE *f, const char *fmt, va_list ap)
+{
+	fakeFILE *ff = (fakeFILE *)f;
+
+	if (!wosix_is_fake_file(f))
+		return (vfprintf(f, fmt, ap));
+
+	if (ff->realFILE)
+		return (vfprintf(ff->realFILE, fmt, ap));
+
+	// MSVC/clang-cl: _vscprintf computes required chars (excluding '\0')
+	va_list ap2;
+	va_copy(ap2, ap);
+	int need = _vscprintf(fmt, ap2);
+	va_end(ap2);
+	if (need < 0)
+		return (-1);
+
+	// +1 for NUL (vsnprintf wants it)
+	char *buf = (char *)HeapAlloc(GetProcessHeap(), 0, (size_t)need + 1);
+	if (!buf)
+		return (-1);
+
+	int n = vsnprintf(buf, (size_t)need + 1, fmt, ap);
+	if (n < 0) {
+		HeapFree(GetProcessHeap(), 0, buf);
+		return (-1);
+	}
+
+	int rc = ff->writefn(ff->cookie, buf, n);
+	HeapFree(GetProcessHeap(), 0, buf);
+	return ((rc == n) ? n : -1);
+}
 #define	vfprintf wosix_vfprintf
+
+static inline int wosix_fprintf(FILE *f, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	int r = wosix_vfprintf(f, fmt, ap);
+	va_end(ap);
+	return (r);
+}
+
+// We don't wrap the call here, as it affects far too much,
+// better a consumer of this header file defines it when needed.
+#define	fprintf wosix_fprintf
+
 
 #ifdef  __cplusplus
 }
