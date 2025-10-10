@@ -267,6 +267,40 @@ statfs2mnttab(struct statfs *sfs, struct mnttab *mp)
 void
 DisplayVolumePaths(char *VolumeName, char *out, int len)
 {
+	DWORD CharCount = MAX_PATH + 1;
+	char *Names = NULL, *NameIdx = NULL;
+	BOOL Success = FALSE;
+
+	for (;;) {
+		Names = (char *)malloc(CharCount);
+		if (!Names)
+			return;
+	    Success = GetVolumePathNamesForVolumeName(VolumeName, Names, CharCount, &CharCount);
+	    if (Success || GetLastError() != ERROR_MORE_DATA) break;
+	    free(Names); Names = NULL;
+	}
+
+	if (Success) {
+	    size_t used = strnlen(out, len);                // `out` is "" on entry, but be safe
+	    for (NameIdx = Names; NameIdx[0] != '\0'; NameIdx += strlen(NameIdx) + 1) {
+		if (used + 1 < (size_t)len) {               // leave space for NUL
+		    size_t avail = (size_t)len - 1 - used;
+		    size_t copy = strnlen(NameIdx, avail);
+		    memcpy(out + used, NameIdx, copy);
+		    used += copy;
+		    out[used] = '\0';
+		} else {
+		    break;                                   // truncated, but safe
+		}
+	    }
+	}
+
+	if (Names) { free(Names); Names = NULL; }
+}
+
+void
+DisplayVolumePathsXX(char *VolumeName, char *out, int len)
+{
 	DWORD  CharCount = MAX_PATH + 1;
 	char *Names = NULL;
 	char *NameIdx = NULL;
@@ -329,9 +363,17 @@ int
 getfsstat(struct statfs *buf, int bufsize, int flags)
 {
 	char name[256];
-	HANDLE vh;
+	char saved = name[2];
+	HANDLE vh = INVALID_HANDLE_VALUE;
 	int count = 0;
 	MOUNTDEV_UNIQUE_ID *UID = NULL;
+	char *dataset;
+	char uidbuffer[1024];
+	DWORD Size;
+	BOOL gotname = FALSE;
+	HANDLE h;
+	DWORD cap = sizeof(uidbuffer);
+	DWORD outSize = 0;
 
 	// If buf is NULL, return number of entries
 	vh = FindFirstVolume(name, sizeof (name));
@@ -369,9 +411,6 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 
 		DisplayVolumePaths(name, driveletter, sizeof (driveletter));
 
-		// Open DeviceName, and query it for dataset name
-		HANDLE h;
-
 		name[2] = '.'; // "\\?\" -> "\\.\"
 
 		// We open the devices returned; like
@@ -382,55 +421,51 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 			name[trail] = 0;
 		h = CreateFile(name, 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
 		    NULL, OPEN_EXISTING, 0, NULL);
+
+		name[2] = saved;
+
 		if (name[trail] == 0)
 			name[trail] = '\\';
 
 		if (h != INVALID_HANDLE_VALUE) {
-			char *dataset;
-			char uidbuffer[1024];
-			UID = uidbuffer;
-			DWORD Size;
-			BOOL gotname = FALSE;
 
-			gotname = DeviceIoControl(h,
-			    IOCTL_MOUNTDEV_QUERY_UNIQUE_ID,
-			    NULL, 0, UID, sizeof (uidbuffer) - 1, &Size, NULL);
-			// printf("deviocon %d: namelen %d\n", status,
-			//  UID->UniqueIdLength);
-			if (gotname)
-				// Kernel doesn't null terminate
-				UID->UniqueId[UID->UniqueIdLength] = 0;
-			else
+			UID = uidbuffer;
+
+			gotname = DeviceIoControl(h, IOCTL_MOUNTDEV_QUERY_UNIQUE_ID,
+			    NULL, 0, UID, cap, &outSize, NULL);
+			if (gotname) {
+				size_t base = offsetof(MOUNTDEV_UNIQUE_ID, UniqueId);
+				if (outSize >= base &&
+				    UID->UniqueIdLength < cap - base &&
+				    base + UID->UniqueIdLength + 1 <= outSize) {
+				    UID->UniqueId[UID->UniqueIdLength] = '\0';
+				} else {
+				    UID = NULL;
+				}
+			} else {
 				UID = NULL;
-//			fprintf(stderr, "deviocon %d: namelen %d\r\n", gotname,
-//			    UID->UniqueIdLength);
-//			fflush(stderr);
+			}
 
 			IO_STATUS_BLOCK iosb;
 			long Status;
 
-			// we are not given size back here,
-			// because of METHOD BUFFERED?
-			iosb.Information = 1024;
-			fzvm = malloc(iosb.Information);
-			if (fzvm) {
-				Status = DeviceIoControl(h,
-				    ZFS_IOC_GET_MOUNT, NULL, 0, fzvm,
-				    iosb.Information, &Size, NULL);
-
-				if (Status) {
-					// Always "\??\E:\..."
-					fzvm->buffer[fzvm->len /
-					    sizeof (WCHAR)] = 0;
+			cap = 1024;
+			outSize = 0;
+			fzvm = malloc(cap);
+			if (fzvm &&
+				DeviceIoControl(h, ZFS_IOC_GET_MOUNT, NULL, 0, fzvm, cap, &outSize, NULL)) {
+				size_t off = offsetof(fsctl_zfs_volume_mountpoint_t, buffer);
+				if (outSize >= off && fzvm->len <= cap - off && (fzvm->len % sizeof (WCHAR) == 0)) {
+					fzvm->buffer[fzvm->len / sizeof(WCHAR)] = L'\0';
 				} else {
 					free(fzvm);
 					fzvm = NULL;
-					UID = NULL;
 				}
 			} else {
-				// Not ZFS - cant use UniqueID
-				UID = NULL;
+				free(fzvm);
+				fzvm = NULL;
 			}
+
 			CloseHandle(h);
 		}
 
@@ -489,6 +524,7 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 
 	} while (FindNextVolume(vh, name, sizeof (name)) != 0);
 	FindVolumeClose(vh);
+	vh = INVALID_HANDLE_VALUE;
 	return (count);
 }
 
