@@ -9,15 +9,14 @@ typedef struct {
     DWORD  timeout_ms;	// per-call timeout
 } zrpc_t;
 
-static void
-dprintf(const char *fmt, ...)
+static inline uint64_t
+parse_u64_from_utf8(const char *s, int len)
 {
-	char buf[1024];
-	va_list ap;
-	va_start(ap, fmt);
-	_vsnprintf_s(buf, sizeof (buf), _TRUNCATE, fmt, ap);
-	va_end(ap);
-	OutputDebugStringA(buf);
+	char tmp[40];
+	int n = (len < 39 ? len : 39);
+	memcpy(tmp, s, n);
+	tmp[n] = 0;
+	return (_strtoui64(tmp, NULL, 10));
 }
 
 BOOL  zrpc_init(zrpc_t *c, const wchar_t *pipename, DWORD timeout_ms);

@@ -1,5 +1,8 @@
 #include "rpc_client.h"
 
+// Include after libzfs for dprintf
+#include "pipe_rpc.h"
+
 static BOOL
 zrpc_connect(zrpc_t *c)
 {
@@ -7,7 +10,10 @@ zrpc_connect(zrpc_t *c)
 		return (TRUE);
 	for (;;) {
 		HANDLE h = CreateFileW(c->name, GENERIC_READ|GENERIC_WRITE,
-		    0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+		    0, NULL, OPEN_EXISTING,
+		    SECURITY_SQOS_PRESENT | SECURITY_IMPERSONATION |
+		    SECURITY_EFFECTIVE_ONLY | FILE_FLAG_OVERLAPPED, NULL);
+
 		if (h != INVALID_HANDLE_VALUE) {
 			c->h = h;
 			dprintf("%s: connected\n", __func__);

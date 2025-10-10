@@ -8,8 +8,13 @@
 
 #include <libzfs.h>
 
-#include "ops_status.h" // zed_status_json_build, etc.
+#include "ops_status.h"
+#include "ops_import.h"
+#include "ops_export.h"
+
 // #include "rpc_dispatch.h" // your pipe dispatch function prototypes
+
+// Include after libzfs for dprintf
 #include "pipe_rpc.h"
 
 // ---- service name
@@ -21,19 +26,6 @@ static SERVICE_STATUS g_SvcStatus = { 0 };
 static HANDLE g_StopEvent = NULL;   // signaled to stop accept loop
 
 static DWORD ClientWorker(HANDLE client);
-
-// ---- debug print
-#undef dprintf
-static void
-dprintf(const char *fmt, ...)
-{
-	char buf[1024];
-	va_list ap;
-	va_start(ap, fmt);
-	_vsnprintf_s(buf, sizeof (buf), _TRUNCATE, fmt, ap);
-	va_end(ap);
-	OutputDebugStringA(buf);
-}
 
 // ---- SCM status helper
 static void
@@ -64,6 +56,59 @@ SvcCtrlHandler(DWORD ctrl, DWORD, LPVOID, LPVOID)
 		return (NO_ERROR);
 	}
 	return (ERROR_CALL_NOT_IMPLEMENTED);
+}
+
+static BOOL
+IsCallerAdmin(HANDLE hPipe)
+{
+	BOOL isAdmin = FALSE;
+
+	if (!ImpersonateNamedPipeClient(hPipe))
+		return (FALSE);
+
+	HANDLE hTok = NULL;
+	if (!OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &hTok)) {
+		RevertToSelf();
+		return (FALSE);
+	}
+
+	// Build builtin Administrators SID
+	BYTE sidBuf[SECURITY_MAX_SID_SIZE];
+	DWORD sidLen = sizeof (sidBuf);
+	PSID adminSid = (PSID)sidBuf;
+	if (!CreateWellKnownSid(WinBuiltinAdministratorsSid, NULL, adminSid,
+	    &sidLen)) {
+		CloseHandle(hTok);
+		RevertToSelf();
+		return (FALSE);
+	}
+
+	// First try direct membership (works for elevated tokens)
+	if (!CheckTokenMembership(hTok, adminSid, &isAdmin))
+		isAdmin = FALSE;
+
+	if (!isAdmin) {
+		// Handle UAC: check the linked (elevated) token if present
+		TOKEN_ELEVATION_TYPE et; DWORD cb = 0;
+		if (GetTokenInformation(hTok, TokenElevationType, &et,
+		    sizeof (et), &cb) && et == TokenElevationTypeLimited) {
+			HANDLE hLinked = NULL;
+
+			if (GetTokenInformation(hTok, TokenLinkedToken,
+			    &hLinked, sizeof (hLinked), &cb) && hLinked) {
+				BOOL isAdminLinked = FALSE;
+				CheckTokenMembership(hLinked, adminSid,
+				    &isAdminLinked);
+				CloseHandle(hLinked);
+				if (isAdminLinked)
+					isAdmin = TRUE;
+			}
+		}
+	}
+
+	CloseHandle(hTok);
+	RevertToSelf();
+	return (isAdmin);
 }
 
 static int
@@ -317,6 +362,31 @@ WriteAll(HANDLE h, const void *buf, DWORD len)
 	return (0);
 }
 
+// Writes header + optional payload. Frees payload if 'do_free' is true.
+#define	RESP_EX(client, err, size_sz, payload_ptr, do_free) \
+	do { \
+		const void *__resp_pl = (payload_ptr); \
+		size_t __resp_sz_sz = (size_sz); \
+		uint32_t __resp_sz = (uint32_t)((__resp_sz_sz > 0xFFFFFFFFu) ? \
+		    0xFFFFFFFFu : __resp_sz_sz); \
+		rsp_hdr_t __rsp = { (uint32_t)(err), __resp_sz }; \
+		WriteAll((client), &__rsp, sizeof (__rsp)); \
+		if (__resp_sz && __resp_pl) \
+			WriteAll((client), __resp_pl, __resp_sz); \
+		if ((do_free) && __resp_pl) { \
+			HeapFree(GetProcessHeap(), 0, (void*)__resp_pl); \
+		} \
+	} while (0)
+
+// Common cases:
+#define	RESP_OK_JSON(client, size_sz, payload_ptr) do { \
+		RESP_EX(client, 0, (size_sz), (payload_ptr), TRUE); \
+		(payload_ptr) = NULL; \
+	} while (0)
+
+#define	RESP_ERR(client, win32err) RESP_EX(client, (win32err), 0, NULL, FALSE)
+
+
 static DWORD
 ClientWorker(HANDLE client)
 {
@@ -346,8 +416,7 @@ ClientWorker(HANDLE client)
 	case OP_GET_STATUS:
 		{
 			if (rh.len < sizeof (op_get_status_by_guid_req_t)) {
-				rsp_hdr_t rsp = { ERROR_GEN_FAILURE, 0 };
-				WriteAll(client, &rsp, sizeof (rsp));
+				RESP_ERR(client, ERROR_GEN_FAILURE);
 				break;
 			}
 			const op_get_status_by_guid_req_t *req =
@@ -357,13 +426,9 @@ ClientWorker(HANDLE client)
 			    zed_status_json_build_by_guid(req->guid,
 			    (zfs_status_verbosity_t)req->verbosity, &jlen);
 			if (!json) {
-				rsp_hdr_t rsp = { ERROR_GEN_FAILURE, 0 };
-				WriteAll(client, &rsp, sizeof (rsp));
+				RESP_ERR(client, ERROR_GEN_FAILURE);
 			} else {
-				rsp_hdr_t rsp = { 0, (uint32_t)jlen };
-				WriteAll(client, &rsp, sizeof (rsp));
-				WriteAll(client, json, (DWORD)jlen);
-				HeapFree(GetProcessHeap(), 0, json);
+				RESP_OK_JSON(client, jlen, json);
 			}
 			err = 0;
 		}
@@ -374,17 +439,130 @@ ClientWorker(HANDLE client)
 			size_t jlen = 0;
 			char *json = zed_list_json_build(&jlen);
 			if (!json) {
-				rsp_hdr_t rsp = { ERROR_GEN_FAILURE, 0 };
-				WriteAll(client, &rsp, sizeof (rsp));
+				RESP_ERR(client, ERROR_GEN_FAILURE);
 			} else {
-				rsp_hdr_t rsp = { 0, (uint32_t)jlen };
-				WriteAll(client, &rsp, sizeof (rsp));
-				WriteAll(client, json, (DWORD)jlen);
-				HeapFree(GetProcessHeap(), 0, json);
+				RESP_OK_JSON(client, jlen, json);
 			}
 			return (0);
 		}
 		break;
+	case OP_IMPORT_SCAN:
+		{
+			size_t jlen = 0;
+			char *json = zed_import_scan_json(&jlen);
+			RESP_OK_JSON(client, jlen, json);
+			break;
+		}
+
+	case OP_IMPORT_ONE:
+		{
+			if (!IsCallerAdmin(client)) {
+				RESP_ERR(client, ERROR_ACCESS_DENIED);
+				break;
+			}
+
+			// body:
+			// op_import_one_req_t + new_name(NUL) + altroot(NUL)
+			if (rh.len < sizeof (op_import_one_req_t)) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+
+			const op_import_one_req_t *req = (const void *)payload;
+			const char *p = (const char *)payload + sizeof (*req);
+			size_t remain = rh.len - sizeof (*req);
+
+			const char *new_name = NULL, *altroot = NULL;
+
+			// parse two NUL-terminated strings from the tail
+			// (may be empty)
+			if (remain) {
+				new_name = p;
+				size_t n0 = strnlen(new_name, remain);
+				if (n0 < remain) {
+					altroot = new_name + n0 + 1;
+				}
+			}
+
+			size_t jlen = 0;
+			char *json = zed_import_one_json(req->flags, req->guid,
+			    new_name, altroot, &jlen);
+			RESP_OK_JSON(client, jlen, json);
+			break;
+		}
+
+	case OP_IMPORT_ALL:
+		{
+			dprintf("OP_IMPORT_ALL\n");
+			if (!IsCallerAdmin(client)) {
+				RESP_ERR(client, ERROR_ACCESS_DENIED);
+				break;
+			}
+
+			dprintf("OP_IMPORT_ALL send\n");
+			// body: op_import_all_req_t + optional altroot(NUL)
+			op_import_all_req_t req = { 0 };
+			const char *altroot = NULL;
+			if (rh.len >= sizeof (req)) {
+				memcpy(&req, payload, sizeof (req));
+				size_t tail = rh.len - sizeof (req);
+				if (tail) {
+					static char ar[260];
+					size_t n = (tail < sizeof (ar) - 1) ?
+					    tail : sizeof (ar) - 1;
+					memcpy(ar, (const char *)payload +
+					    sizeof (req), n);
+					ar[n] = 0;
+					altroot = ar;
+				}
+			}
+			size_t jlen = 0;
+			char *json = zed_import_all_json(req.flags,
+			    altroot, &jlen);
+			RESP_OK_JSON(client, jlen, json);
+			break;
+		}
+
+	case OP_EXPORT_ONE:
+		{
+			if (!IsCallerAdmin(client)) {
+				RESP_ERR(client, ERROR_ACCESS_DENIED);
+				break;
+			}
+			if (rh.len < sizeof (op_export_one_req_t)) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			const op_export_one_req_t *req = (const void *)payload;
+			size_t jlen = 0;
+			char *json = zed_export_one_json(req->flags,
+			    req->guid, &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+				break;
+			}
+			RESP_OK_JSON(client, jlen, json);
+			break;
+		}
+
+	case OP_EXPORT_ALL:
+		{
+			if (!IsCallerAdmin(client)) {
+				RESP_ERR(client, ERROR_ACCESS_DENIED);
+				break;
+			}
+			op_export_all_req_t req = { 0 };
+			if (rh.len >= sizeof (req))
+				memcpy(&req, payload, sizeof (req));
+			size_t jlen = 0;
+			char *json = zed_export_all_json(req.flags, &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+				break;
+			}
+			RESP_OK_JSON(client, jlen, json);
+			break;
+		}
 
 	case OP_SUBSCRIBE_EVENTS:
 		{
@@ -393,8 +571,7 @@ ClientWorker(HANDLE client)
 		break;
 	default:
 		{
-			rsp_hdr_t rsp = { ERROR_CALL_NOT_IMPLEMENTED, 0 };
-			WriteAll(client, &rsp, sizeof (rsp));
+			RESP_ERR(client, ERROR_CALL_NOT_IMPLEMENTED);
 			err = 0;
 		}
 		break;

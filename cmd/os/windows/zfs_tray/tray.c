@@ -14,6 +14,8 @@
 #include "jsmn.h" // single-header JSON tokenizer
 #include "rpc_client.h" // zrpc_t + zrpc_init/zrpc_call from earlier
 
+#include "import_window.h"
+
 #pragma comment(lib, "comctl32.lib")
 
 // Ensure v6 common-controls manifest is present
@@ -26,12 +28,18 @@
 #define	WM_TRAYICON	(WM_USER + 1)
 #define	ID_TRAY_ICON	1001
 #define	IDM_STATUS	2001
-#define	IDM_IMPORT	2002
 #define	IDM_EXIT	2003
 
 #define	IDM_POOLS_BASE	3000 // pool items will be 3000..3099
 #define	IDM_POOLS_MAX	100
 #define	IDM_POOLS_HEADER 2100 // “Pools” parent (not clickable)
+
+#define	IDM_IMPORT_ALL	2201
+#define	IDM_IMPORT_WIN  2202
+
+#define	IDM_EXPORT_ALL 2301
+
+#define	IDM_EXPORT_BASE 3100
 
 static HINSTANCE g_hInst;
 static HWND g_hWnd;
@@ -48,16 +56,6 @@ static DWORD WINAPI EventThread(LPVOID);
 static void ShowBalloon(LPCWSTR title, LPCWSTR msg);
 
 #include "resource.h"
-
-static uint64_t
-parse_u64_from_utf8(const char *s, int len)
-{
-	char tmp[40];
-	int n = (len < 39 ? len : 39);
-	memcpy(tmp, s, n);
-	tmp[n] = 0;
-	return (_strtoui64(tmp, NULL, 10));
-}
 
 int
 ParsePoolsNameGuid(const char *json, int json_len,
@@ -243,10 +241,6 @@ ShowPoolSummary(HWND hWnd, const PoolSummary *ps)
 	if (hComCtl) {
 		typedef HRESULT(WINAPI *PFN_TaskDialogIndirect)(
 		    const TASKDIALOGCONFIG *, int *, int *, BOOL *);
-		// Load v6 common controls (makes styles render correctly)
-		INITCOMMONCONTROLSEX icc = { sizeof (icc),
-		    ICC_STANDARD_CLASSES };
-		InitCommonControlsEx(&icc);
 
 		PFN_TaskDialogIndirect pTaskDialogIndirect =
 		    (PFN_TaskDialogIndirect)GetProcAddress(hComCtl,
@@ -308,6 +302,12 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		// Start event thread (fake stream)
 		HANDLE h = CreateThread(NULL, 0, EventThread, NULL, 0, NULL);
 		if (h) CloseHandle(h);
+
+		// Load v6 common controls (makes styles render correctly)
+		INITCOMMONCONTROLSEX icc = { sizeof (icc),
+		    ICC_STANDARD_CLASSES };
+		InitCommonControlsEx(&icc);
+
 		return (0);
 	}
 	case WM_TRAYICON: {
@@ -342,10 +342,21 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			AppendMenuW(m, MF_POPUP, (UINT_PTR)pools, L"Pools");
 
 			AppendMenuW(m, MF_SEPARATOR, 0, NULL);
-			AppendMenuW(m, MF_STRING, IDM_STATUS,
-			    L"Status…(not yet)");
-			AppendMenuW(m, MF_STRING, IDM_IMPORT,
-			    L"Import…(not yet)");
+
+			AppendMenuW(m, MF_STRING, IDM_IMPORT_ALL,
+			    L"Import (All)…");
+			AppendMenuW(m, MF_STRING, IDM_IMPORT_WIN, L"Import…");
+
+			AppendMenuW(m, MF_STRING, IDM_EXPORT_ALL,
+			    L"Export (All)…");
+			HMENU ex = CreatePopupMenu();
+			AppendMenuW(m, MF_POPUP, (UINT_PTR)ex, L"Export ▶");
+			// Fill Export > with current imported pools (names),
+			// just like Pools >
+			for (int i = 0; i < g_pool_count; ++i)
+				AppendMenuW(ex, MF_STRING, IDM_EXPORT_BASE + i,
+				    g_pool_names[i]);
+
 			AppendMenuW(m, MF_SEPARATOR, 0, NULL);
 			AppendMenuW(m, MF_STRING, IDM_EXIT, L"Exit");
 
@@ -405,9 +416,109 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		case IDM_STATUS:
 			// call OP_GET_STATUS, parse, show dialog/balloon…
 			return (0);
-		case IDM_IMPORT:
-			// future: show import UI
+		case IDM_IMPORT_ALL:
+		{
+			if (MessageBoxW(hWnd, L"Import all detectable pools?",
+			    L"OpenZFS", MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
+				break;
+			op_import_all_req_t rq = { .flags = 0 };
+			uint8_t *out = NULL;
+			uint32_t st = 0, outlen = 0;
+			if (zrpc_call(&g_rpc, OP_IMPORT_ALL, &rq, sizeof (rq),
+			    &st, &out, &outlen) && st == 0 && out) {
+				// MVP: show JSON text
+				wchar_t w[2048] = { 0 };
+				MultiByteToWideChar(CP_UTF8, 0, (char *)out,
+				    (int)outlen, w, 2047);
+				MessageBoxW(hWnd, w, L"Import result",
+				    MB_OK | MB_ICONINFORMATION);
+				HeapFree(GetProcessHeap(), 0, out);
+			} else {
+				MessageBoxW(hWnd,
+				    L"Import failed or service unavailable.",
+				    L"OpenZFS", MB_OK | MB_ICONERROR);
+			}
+			break;
+		}
+
+		case IDM_IMPORT_WIN:
+		{
+			CreateImportWindow(hWnd, &g_rpc);
+			break;
+		}
+
+		case IDM_EXPORT_ALL:
+		{
+			if (MessageBoxW(hWnd, L"Export ALL imported pools?\n"
+			    "Datasets will be unmounted.",
+			    L"OpenZFS", MB_OKCANCEL | MB_ICONWARNING) != IDOK)
+				break;
+			op_export_all_req_t rq = { .flags = 0 };
+			uint8_t *out = NULL;
+			uint32_t st = 0, outlen = 0;
+			if (zrpc_call(&g_rpc, OP_EXPORT_ALL, &rq, sizeof (rq),
+			    &st, &out, &outlen) && st == 0 && out) {
+				wchar_t w[2048] = { 0 };
+				MultiByteToWideChar(CP_UTF8, 0, (char *)out,
+				    (int)outlen, w, 2047);
+				MessageBoxW(hWnd, w, L"Export result",
+				    MB_OK | MB_ICONINFORMATION);
+				HeapFree(GetProcessHeap(), 0, out);
+				RefreshPoolsFromService();
+			} else {
+				MessageBoxW(hWnd,
+				    L"Export failed or service unavailable.",
+				    L"OpenZFS", MB_OK | MB_ICONERROR);
+			}
 			return (0);
+		}
+
+		default:
+		{
+			// Export ▶ items
+			if (id >= IDM_EXPORT_BASE &&
+			    id < IDM_EXPORT_BASE + IDM_POOLS_MAX) {
+				int idx = id - IDM_EXPORT_BASE;
+				if (idx < g_pool_count) {
+					wchar_t q[256];
+					_snwprintf_s(q, _countof(q), _TRUNCATE,
+					    L"Export pool “%s”?\n"
+					    "Datasets will be unmounted.",
+					    g_pool_names[idx]);
+					if (MessageBoxW(hWnd, q, L"OpenZFS",
+					    MB_OKCANCEL | MB_ICONWARNING) !=
+					    IDOK)
+						return (0);
+
+					op_export_one_req_t rq = { .flags = 0,
+					    .guid = g_pool_guids[idx]
+					};
+					uint8_t *out = NULL;
+					uint32_t st = 0, outlen = 0;
+					if (zrpc_call(&g_rpc, OP_EXPORT_ONE,
+					    &rq, sizeof (rq), &st, &out,
+					    &outlen) && st == 0 && out) {
+						// show result, refresh pools
+						wchar_t w[1024] = { 0 };
+						MultiByteToWideChar(CP_UTF8, 0,
+						    (char *)out, (int)outlen,
+						    w, 1023);
+						MessageBoxW(hWnd, w, L"Export",
+						    MB_OK | MB_ICONINFORMATION);
+						HeapFree(GetProcessHeap(), 0,
+						    out);
+						RefreshPoolsFromService();
+					} else {
+			MessageBoxW(hWnd,
+			    L"Export failed or service unavailable.",
+			    L"OpenZFS", MB_OK | MB_ICONERROR);
+					}
+				}
+				return (0);
+			}
+		}
+
+
 		case IDM_EXIT:
 			PostQuitMessage(0);
 			return (0);

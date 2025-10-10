@@ -4,6 +4,8 @@ use_clang()
 um_add_executable(zed_service
 	zed_service.c
 	ops_status.c
+	ops_import.c
+	ops_export.c
 	# resource.rc
 )
 

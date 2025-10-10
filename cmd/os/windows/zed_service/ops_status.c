@@ -6,10 +6,9 @@
 #include <libzfs.h>
 #include <sys/nvpair.h>
 #include "memfile.h"
-#include "pipe_rpc.h"
 
-// Add in fake pools so we can test UI without a real pool
-#define	ENABLE_FAKE_POOLS 1
+// Include after libzfs for dprintf
+#include "pipe_rpc.h"
 
 static libzfs_handle_t *g_lzh = NULL;
 
