@@ -40,6 +40,7 @@
 #include <langinfo.h>
 #include <os/windows/zfs/sys/zfs_ioctl_compat.h>
 #include <sys/mman.h>
+#include <sys/mnttab.h>
 #include <wfunopen.h>
 
 /* Magic instruction to compiler to add library */
@@ -1593,6 +1594,13 @@ wosix_fopen(const char *name, const char *mode)
 	mode = check_file_mode(mode);
 
 	fmode = file_mode_fmode(mode);
+
+	// Special hack for Linux NOT using setmntent(), but
+	// calling fopen(MNTTAB, directly. Boo. Let's use
+	// our existing wrapper for funopen()
+	if (strcmp(name, MNTTAB) == 0) {
+		return (setmntent(name, mode));
+	}
 
 	// Lets enjoy the path translation work we do
 	// in open.
