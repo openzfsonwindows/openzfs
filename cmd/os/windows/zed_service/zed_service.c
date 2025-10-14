@@ -25,7 +25,7 @@ static SERVICE_STATUS_HANDLE g_ScmHandle = NULL;
 static SERVICE_STATUS g_SvcStatus = { 0 };
 static HANDLE g_StopEvent = NULL;   // signaled to stop accept loop
 
-static DWORD ClientWorker(HANDLE client);
+static DWORD ClientWorker(HANDLE client, HANDLE event);
 
 // ---- SCM status helper
 static void
@@ -48,11 +48,18 @@ ReportSvcStatus(DWORD state, DWORD win32Exit, DWORD waitHint)
 
 // ---- SCM control handler
 static DWORD WINAPI
-SvcCtrlHandler(DWORD ctrl, DWORD, LPVOID, LPVOID)
+SvcCtrlHandler(DWORD ctrl, DWORD dwEventType, LPVOID data, LPVOID context)
 {
-	if (ctrl == SERVICE_CONTROL_STOP || ctrl == SERVICE_CONTROL_SHUTDOWN) {
+	(void) dwEventType;
+	(void) data;
+	(void) context;
+
+	switch (ctrl) {
+	case SERVICE_CONTROL_STOP:
+	case SERVICE_CONTROL_SHUTDOWN:
 		ReportSvcStatus(SERVICE_STOP_PENDING, NO_ERROR, 3000);
-		if (g_StopEvent) SetEvent(g_StopEvent);
+		if (g_StopEvent)
+			SetEvent(g_StopEvent);
 		return (NO_ERROR);
 	}
 	return (ERROR_CALL_NOT_IMPLEMENTED);
@@ -178,7 +185,7 @@ MakePipeSA(SECURITY_ATTRIBUTES *sa, PSECURITY_DESCRIPTOR *psdOut)
 
 // ---- accept loop shared by service/foreground
 static DWORD
-RunPipeServerLoop(void)
+RunPipeServerLoopX(void)
 {
 	const wchar_t *pipeName = L"\\\\.\\pipe\\openzfs_zed";
 	SECURITY_ATTRIBUTES sa;
@@ -220,7 +227,7 @@ RunPipeServerLoop(void)
 		}
 
 		dprintf("Client connected\n");
-		ClientWorker(hPipe);
+		ClientWorker(hPipe, g_StopEvent);
 		FlushFileBuffers(hPipe);
 		DisconnectNamedPipe(hPipe);
 		CloseHandle(hPipe);
@@ -232,13 +239,83 @@ RunPipeServerLoop(void)
 	return (err);
 }
 
+static DWORD WINAPI
+RunPipeServerLoop(void)
+{
+	const wchar_t *pipeName = L"\\\\.\\pipe\\openzfs_zed";
+	SECURITY_ATTRIBUTES sa;
+	PSECURITY_DESCRIPTOR sd = NULL;
+
+	if (!MakePipeSA(&sa, &sd))
+		return (ERROR_ACCESS_DENIED);
+
+	for (;;) {
+		if (WaitForSingleObject(g_StopEvent, 0) == WAIT_OBJECT_0)
+			break;
+
+		HANDLE hPipe = CreateNamedPipeW(
+		    pipeName,
+		    PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+		    PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+		    PIPE_UNLIMITED_INSTANCES, 64 * 1024, 64 * 1024, 0, &sa);
+
+		if (hPipe == INVALID_HANDLE_VALUE)
+			break;
+
+		OVERLAPPED ov = { 0 };
+		ov.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+		BOOL connected = ConnectNamedPipe(hPipe, &ov);
+		if (!connected) {
+			DWORD err = GetLastError();
+			if (err == ERROR_IO_PENDING) {
+				HANDLE waitOn[2] = { ov.hEvent, g_StopEvent };
+				DWORD wr = WaitForMultipleObjects(2, waitOn,
+				    FALSE, INFINITE);
+				if (wr == WAIT_OBJECT_0) {
+					DWORD bytes = 0;
+					if (!GetOverlappedResult(hPipe, &ov,
+					    &bytes, FALSE)) {
+						// fall through to cleanup
+					} else {
+						connected = TRUE;
+					}
+				} else {
+					// stop requested
+					CancelIoEx(hPipe, &ov);
+				}
+			} else if (err == ERROR_PIPE_CONNECTED) {
+				connected = TRUE;
+			}
+		}
+
+		if (connected) {
+			// ServeOneClient should also be non-infinite blocking:
+			// use overlapped ReadFile/WriteFile OR small timeouts +
+			// poll g_stopEvent between requests
+			ClientWorker(hPipe, g_StopEvent);
+		}
+
+		if (ov.hEvent)
+			CloseHandle(ov.hEvent);
+		FlushFileBuffers(hPipe);
+		DisconnectNamedPipe(hPipe);
+		CloseHandle(hPipe);
+
+		if (WaitForSingleObject(g_StopEvent, 0) == WAIT_OBJECT_0)
+			break;
+	}
+	return (0);
+}
+
+
 static BOOL
 signal_handler(DWORD sig)
 {
 	if (sig == CTRL_C_EVENT || sig == CTRL_BREAK_EVENT ||
 	    sig == CTRL_CLOSE_EVENT || sig == CTRL_LOGOFF_EVENT ||
 	    sig == CTRL_SHUTDOWN_EVENT) {
-		if (g_StopEvent) SetEvent(g_StopEvent);
+		if (g_StopEvent)
+			SetEvent(g_StopEvent);
 		return (TRUE);
 	}
 	return (FALSE);
@@ -259,7 +336,7 @@ ServiceMain_impl(BOOL is_service)
 		ReportSvcStatus(SERVICE_START_PENDING, NO_ERROR, 3000);
 	} else {
 		// Console: Ctrl+C triggers stop event
-		// SetConsoleCtrlHandler(signal_handler, TRUE);
+		SetConsoleCtrlHandler(signal_handler, TRUE);
 	}
 
 	if (is_service)
@@ -388,7 +465,7 @@ WriteAll(HANDLE h, const void *buf, DWORD len)
 
 
 static DWORD
-ClientWorker(HANDLE client)
+ClientWorker(HANDLE client, HANDLE event)
 {
 	req_hdr_t rh;
 	DWORD err;

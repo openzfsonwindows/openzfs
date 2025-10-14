@@ -177,8 +177,10 @@ Name: envPath; Description: "Add OpenZFS to PATH variable"
 [Files]
 Source: "{#Root}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\CODE_OF_CONDUCT.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\os\windows/kstat/kstat.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\os\windows/zfsinstaller/zfsinstaller.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\kstat\kstat.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zfsinstaller\zfsinstaller.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zed_service\zed_service.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zfs_tray\zfs_tray.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zpool\zpool.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zfs\zfs.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\cmd\zdb\zdb.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -222,11 +224,23 @@ Type: files; Name: "{app}\cbuf.txt"
 [Icons]
 Name: "{group}\{cm:ProgramOnTheWeb,{#MyAppName}}"; Filename: "{#MyAppURL}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
+Name: "{commonstartup}\OpenZFS Tray"; Filename: "{app}\zfs_tray.exe"
+
 
 [Run]
 Filename: "{app}\ZFSInstaller.exe"; Parameters: "install -z .\OpenZFS.inf .\OpenZVOL.inf"; StatusMsg: "Installing Driver..."; Flags: runascurrentuser;
+; zfs_tray bit next
+Filename: "sc.exe"; Parameters: "create OpenZFS_Tray binPath= ""{app}\zed_service.exe"" start= auto DisplayName= ""OpenZFS Tray"""; Flags: runhidden waituntilterminated
+Filename: "sc.exe"; Parameters: "start OpenZFS_Tray"; Flags: runhidden
+Filename: "{app}\zfs_tray.exe"; Flags: postinstall nowait runasoriginaluser
+
 
 [UninstallRun]
+; First zfs_tray
+Filename: "taskkill.exe"; Parameters: "/IM zfs_tray.exe /T /F"; RunOnceId: "stoptray"; Flags: runhidden
+Filename: "sc.exe"; Parameters: "stop OpenZFS_Tray"; RunOnceId: "stoptrayservice"; Flags: runhidden waituntilterminated
+Filename: "sc.exe"; Parameters: "delete OpenZFS_Tray"; RunOnceId: "deletetrayservice"; Flags: runhidden waituntilterminated
+; Kernel
 Filename: "{app}\ZFSInstaller.exe"; Parameters: "uninstall -z .\OpenZFS.inf .\OpenZVOL.inf"; RunOnceId: "driver"; Flags: runascurrentuser;
 
 [Registry]
