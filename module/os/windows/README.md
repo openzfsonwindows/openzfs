@@ -128,10 +128,13 @@ File -> Open -> Folder
 and open the top source folder. Hit build when ready.
 
 It was previously expected of you to set the environment variables
-(either globally, or in your CMakeSettings.json)
+(either globally, or in your CMakeSettings.json)  
+```
 		${OPENZFS_SIGNTOOL_CERTSTORE}
 		${OPENZFS_SIGNTOOL_SHA1}
 		${OPENZFS_SIGNTOOL_TSA}
+```
+
 
 but these now default to the test signing certificate
 
