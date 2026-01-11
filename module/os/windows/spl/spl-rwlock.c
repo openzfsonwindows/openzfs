@@ -149,6 +149,16 @@ rw_tryenter(krwlock_t *rwlp, krw_t rw)
  * to be non-blocking.
  * Also note that XNU's lck_rw_lock_shared_to_exclusive() is always
  * blocking (when waiting on readers), which means we can not use it.
+ *
+ * UPDATE
+ *
+ * So this won't work. If ANY thread asked for WRITE, all future
+ * READERS are blocked until the WRITE is satisfied. This means
+ * we easily deadlock from zap_tryupgrade(), which holds the dir,
+ * try upgrade, which will block on READER now.
+ * For now, we will always return failure, and the ZFS caller
+ * can release locks, and reacquire with WRITER as needed.
+ * 
  */
 int
 rw_tryupgrade(krwlock_t *rwlp)
@@ -161,6 +171,9 @@ rw_tryupgrade(krwlock_t *rwlp)
 	/* More readers than us? give up */
 	if (rwlp->rw_readers != 1)
 		return (0);
+
+	/* Give up */
+	return (0);
 
 	/*
 	 * It is ON. We need to drop our READER lock, and try to
