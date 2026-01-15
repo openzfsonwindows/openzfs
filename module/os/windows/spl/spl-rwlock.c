@@ -49,6 +49,33 @@ rw_isinit(krwlock_t *rwlp)
 }
 #endif
 
+static __inline void
+rw_wake_waiters_locked(krwlock_t *rwlp)
+{
+	/*
+	 * Writer-prefer policy:
+	 * - If a writer can run (no active writer, no readers), wake ONE writer
+	 * - Else, if no writers are waiting and no active writer, allow readers
+	 */
+	if (rwlp->rw_owner == NULL) {
+		if (rwlp->writers_waiting > 0) {
+			if (rwlp->readers == 0) {
+				/* keep readers blocked while writers wait */
+				KeClearEvent(&rwlp->read_event);
+				KeReleaseSemaphore(&rwlp->write_sem, 0, 1,
+				    FALSE);
+			} else {
+				KeClearEvent(&rwlp->read_event);
+			}
+		} else {
+			/* no writers waiting, let readers flow */
+			KeSetEvent(&rwlp->read_event, IO_NO_INCREMENT, FALSE);
+		}
+	} else {
+		KeClearEvent(&rwlp->read_event);
+	}
+}
+
 
 void
 rw_init(krwlock_t *rwlp, char *name, krw_type_t type, __unused void *arg)
@@ -58,12 +85,22 @@ rw_init(krwlock_t *rwlp, char *name, krw_type_t type, __unused void *arg)
 #ifdef DEBUG
 	VERIFY3U(rwlp->rw_pad, !=, 0x012345678);
 #endif
-	ExInitializeResourceLite(&rwlp->rw_lock);
+	KeInitializeSpinLock(&rwlp->spin);
+
+	/* Readers allowed initially */
+	KeInitializeEvent(&rwlp->read_event, NotificationEvent, TRUE);
+
+	/* No writers runnable initially */
+	KeInitializeSemaphore(&rwlp->write_sem, 0, MAXLONG);
+
+	rwlp->readers = 0;
+	rwlp->writers_waiting = 0;
 	rwlp->rw_owner = NULL;
-	rwlp->rw_readers = 0;
+
 #ifdef DEBUG
 	rwlp->rw_pad = 0x012345678;
 #endif
+
 	atomic_inc_64(&zfs_active_rwlock);
 }
 
@@ -75,17 +112,16 @@ rw_destroy(krwlock_t *rwlp)
 #ifdef DEBUG
 	VERIFY3U(rwlp->rw_pad, ==, 0x012345678);
 #endif
-	VERIFY3U(rwlp->rw_owner, ==, 0);
-	VERIFY3U(rwlp->rw_readers, ==, 0);
+	VERIFY3U(rwlp->rw_owner, ==, NULL);
+	VERIFY3U(rwlp->readers, ==, 0);
+	VERIFY3U(rwlp->writers_waiting, ==, 0);
 
-	// This has caused panic due to IRQL panic, from
-	// taskq->zap_evict->rw_destroy
-	ExDeleteResourceLite(&rwlp->rw_lock);
 #ifdef DEBUG
 	rwlp->rw_pad = 0x99;
 #endif
 	atomic_dec_64(&zfs_active_rwlock);
 }
+
 
 void
 rw_enter(krwlock_t *rwlp, krw_t rw)
@@ -96,124 +132,215 @@ rw_enter(krwlock_t *rwlp, krw_t rw)
 #endif
 
 	if (rw == RW_READER) {
-		ExAcquireResourceSharedLite(&rwlp->rw_lock, TRUE);
-		atomic_inc_32((volatile uint32_t *)&rwlp->rw_readers);
-		ASSERT(rwlp->rw_owner == 0);
-	} else {
-		if (rwlp->rw_owner == current_thread())
-			panic("rw_enter: locking against myself!");
-		ExAcquireResourceExclusiveLite(&rwlp->rw_lock, TRUE);
-		ASSERT(rwlp->rw_owner == 0);
-		ASSERT(rwlp->rw_readers == 0);
-		rwlp->rw_owner = current_thread();
+		for (;;) {
+			KIRQL oldIrql;
+			KeAcquireSpinLock(&rwlp->spin, &oldIrql);
+
+			/*
+			 * Writer preference:
+			 * - readers may enter only if no active writer AND
+			 * no writers waiting.
+			 */
+			if (rwlp->rw_owner == NULL &&
+			    rwlp->writers_waiting == 0) {
+				rwlp->readers++;
+				KeReleaseSpinLock(&rwlp->spin, oldIrql);
+				return;
+			}
+
+			/*
+			 * Readers are blocked either because a writer
+			 * is active, or because there are waiting writers.
+			 */
+			KeClearEvent(&rwlp->read_event);
+			KeReleaseSpinLock(&rwlp->spin, oldIrql);
+
+			KeWaitForSingleObject(&rwlp->read_event, Executive,
+			    KernelMode, FALSE, NULL);
+		}
+	}
+
+	/* RW_WRITER */
+	if (rwlp->rw_owner == current_thread())
+		panic("rw_enter: locking against myself!");
+
+	/*
+	 * Make sure we count ourselves as a waiting writer only once, not on
+	 * every loop iteration.
+	 */
+	BOOLEAN counted_waiter = FALSE;
+
+	for (;;) {
+		KIRQL oldIrql;
+		KeAcquireSpinLock(&rwlp->spin, &oldIrql);
+
+		if (!counted_waiter) {
+			rwlp->writers_waiting++;
+			counted_waiter = TRUE;
+		}
+
+		if (rwlp->rw_owner == NULL && rwlp->readers == 0) {
+			/*
+			 * We are no longer waiting; we are becoming the
+			 * active writer.
+			 */
+			rwlp->writers_waiting--;
+			counted_waiter = FALSE;
+
+			rwlp->rw_owner = current_thread();
+
+			/* Block readers while writer is active */
+			KeClearEvent(&rwlp->read_event);
+
+			KeReleaseSpinLock(&rwlp->spin, oldIrql);
+			return;
+		}
+
+		/* Block new readers while writers are waiting */
+		KeClearEvent(&rwlp->read_event);
+
+		KeReleaseSpinLock(&rwlp->spin, oldIrql);
+
+		KeWaitForSingleObject(&rwlp->write_sem, Executive,
+		    KernelMode, FALSE, NULL);
+
+		/* Loop and re-check under spin */
 	}
 }
-
-/*
- * kernel private from osfmk/kern/locks.h
- */
 
 int
 rw_tryenter(krwlock_t *rwlp, krw_t rw)
 {
-	int held = 0;
-
 #ifdef DEBUG
 	if (rwlp->rw_pad != 0x012345678)
 		panic("rwlock %p not initialised\n", rwlp);
 #endif
 
 	if (rw == RW_READER) {
-		held = ExAcquireResourceSharedLite(&rwlp->rw_lock, FALSE);
-		if (held)
-			atomic_inc_32((volatile uint32_t *)&rwlp->rw_readers);
-	} else {
-		if (rwlp->rw_owner == current_thread())
-			panic("rw_tryenter: locking against myself!");
+		KIRQL oldIrql;
+		KeAcquireSpinLock(&rwlp->spin, &oldIrql);
 
-		held = ExAcquireResourceExclusiveLite(&rwlp->rw_lock, FALSE);
-		if (held)
-			rwlp->rw_owner = current_thread();
+		if (rwlp->rw_owner == NULL && rwlp->writers_waiting == 0) {
+			rwlp->readers++;
+			KeReleaseSpinLock(&rwlp->spin, oldIrql);
+			return (1);
+		}
+
+		KeReleaseSpinLock(&rwlp->spin, oldIrql);
+		return (0);
 	}
 
-	return (held);
-}
-
-/*
- * It appears a difference between Darwin's
- * lck_rw_lock_shared_to_exclusive() and Solaris's rw_tryupgrade() and
- * FreeBSD's sx_try_upgrade() is that on failure to upgrade, the prior
- * held shared/reader lock is lost on Darwin, but retained on
- * Solaris/FreeBSD. We could re-acquire the lock in this situation,
- * but it enters a possibility of blocking, when tryupgrade is meant
- * to be non-blocking.
- * Also note that XNU's lck_rw_lock_shared_to_exclusive() is always
- * blocking (when waiting on readers), which means we can not use it.
- *
- * UPDATE
- *
- * So this won't work. If ANY thread asked for WRITE, all future
- * READERS are blocked until the WRITE is satisfied. This means
- * we easily deadlock from zap_tryupgrade(), which holds the dir,
- * try upgrade, which will block on READER now.
- * For now, we will always return failure, and the ZFS caller
- * can release locks, and reacquire with WRITER as needed.
- * 
- */
-int
-rw_tryupgrade(krwlock_t *rwlp)
-{
-	int held = 0;
-
+	/* RW_WRITER */
 	if (rwlp->rw_owner == current_thread())
-		panic("rw_enter: locking against myself!");
+		panic("rw_tryenter: locking against myself!");
 
-	/* More readers than us? give up */
-	if (rwlp->rw_readers != 1)
-		return (0);
+	KIRQL oldIrql;
+	KeAcquireSpinLock(&rwlp->spin, &oldIrql);
 
-	/* Give up */
-	return (0);
-
-	/*
-	 * It is ON. We need to drop our READER lock, and try to
-	 * grab the WRITER as quickly as possible.
-	 */
-	atomic_dec_32((volatile uint32_t *)&rwlp->rw_readers);
-	ExReleaseResourceLite(&rwlp->rw_lock);
-
-	/* Grab the WRITER lock */
-	held = ExAcquireResourceExclusiveLite(&rwlp->rw_lock, FALSE);
-
-	if (held) {
-		/* Looks like we won */
+	if (rwlp->rw_owner == NULL && rwlp->readers == 0) {
 		rwlp->rw_owner = current_thread();
-		ASSERT(rwlp->rw_readers == 0);
+
+		/* Block readers while writer is active */
+		KeClearEvent(&rwlp->read_event);
+
+		KeReleaseSpinLock(&rwlp->spin, oldIrql);
 		return (1);
 	}
 
-	/*
-	 * The worst has happened, we failed to grab WRITE lock, either
-	 * due to another WRITER lock, or, some READER came along.
-	 * IllumOS implementation returns with the READER lock again
-	 * so we need to grab it.
-	 */
-	rw_enter(rwlp, RW_READER);
+	KeReleaseSpinLock(&rwlp->spin, oldIrql);
 	return (0);
 }
 
 void
 rw_exit(krwlock_t *rwlp)
 {
+#ifdef DEBUG
+	if (rwlp->rw_pad != 0x012345678)
+		panic("rwlock %p not initialised\n", rwlp);
+#endif
+
+	KIRQL oldIrql;
+
+	KeAcquireSpinLock(&rwlp->spin, &oldIrql);
+
 	if (rwlp->rw_owner == current_thread()) {
+		/* Writer exit */
 		rwlp->rw_owner = NULL;
-		ASSERT(rwlp->rw_readers == 0);
-		ExReleaseResourceLite(&rwlp->rw_lock);
 	} else {
-		atomic_dec_32((volatile uint32_t *)&rwlp->rw_readers);
-		ASSERT(rwlp->rw_owner == 0);
-		ExReleaseResourceLite(&rwlp->rw_lock);
+		/* Reader exit */
+		ASSERT(rwlp->rw_owner == NULL);
+		ASSERT(rwlp->readers > 0);
+		rwlp->readers--;
 	}
+
+	/*
+	 * Wake policy (writer preference):
+	 * - If a writer is waiting, only wake one writer once readers
+	 * drop to 0.
+	 * - Otherwise allow readers.
+	 */
+	if (rwlp->rw_owner == NULL) {
+		if (rwlp->writers_waiting > 0) {
+			KeClearEvent(&rwlp->read_event);
+
+			if (rwlp->readers == 0) {
+				KeReleaseSemaphore(&rwlp->write_sem,
+				    0, 1, FALSE);
+			}
+		} else {
+			/* No writers waiting: let readers flow */
+			KeSetEvent(&rwlp->read_event, IO_NO_INCREMENT, FALSE);
+		}
+	} else {
+		KeClearEvent(&rwlp->read_event);
+	}
+
+	KeReleaseSpinLock(&rwlp->spin, oldIrql);
+}
+
+/*
+ * Illumos semantics: try to upgrade while holding read.
+ * On failure, return 0 and *still hold read*.
+ *
+ * This implementation is atomic: it only succeeds if the caller is the
+ * sole reader and no writer is active. It does not drop the read lock to
+ * "race" for write.
+ */
+int
+rw_tryupgrade(krwlock_t *rwlp)
+{
+#ifdef DEBUG
+	if (rwlp->rw_pad != 0x012345678)
+		panic("rwlock %p not initialised\n", rwlp);
+#endif
+
+	if (rwlp->rw_owner == current_thread())
+		panic("rw_tryupgrade: already writer");
+
+	KIRQL oldIrql;
+	KeAcquireSpinLock(&rwlp->spin, &oldIrql);
+
+	/*
+	 * Must be exactly one reader (us) and no active writer.
+	 * Note: writers_waiting may be > 0; in that case we still do not
+	 * allow an upgrade unless we are the last reader and no writer is
+	 * active. This preserves writer preference for NEW readers, but
+	 * allows the current reader to upgrade safely when it is alone.
+	 */
+	if (rwlp->rw_owner == NULL && rwlp->readers == 1) {
+		rwlp->readers = 0;
+		rwlp->rw_owner = current_thread();
+
+		/* Block readers while writer is active */
+		KeClearEvent(&rwlp->read_event);
+
+		KeReleaseSpinLock(&rwlp->spin, oldIrql);
+		return (1);
+	}
+
+	/* Failure: keep the read lock held */
+	KeReleaseSpinLock(&rwlp->spin, oldIrql);
+	return (0);
 }
 
 int
@@ -225,10 +352,7 @@ rw_read_held(krwlock_t *rwlp)
 int
 rw_lock_held(krwlock_t *rwlp)
 {
-	/*
-	 * ### not sure about this one ###
-	 */
-	return (rwlp->rw_owner == current_thread() || rwlp->rw_readers > 0);
+	return (rwlp->rw_owner == current_thread() || rwlp->readers > 0);
 }
 
 int
@@ -237,13 +361,43 @@ rw_write_held(krwlock_t *rwlp)
 	return (rwlp->rw_owner == current_thread());
 }
 
+/*
+ * Downgrade from writer to reader.
+ * On return, caller holds read lock.
+ */
 void
 rw_downgrade(krwlock_t *rwlp)
 {
+#ifdef DEBUG
+	if (rwlp->rw_pad != 0x012345678)
+		panic("rwlock %p not initialised\n", rwlp);
+#endif
+
+	KIRQL oldIrql;
+	KeAcquireSpinLock(&rwlp->spin, &oldIrql);
+
 	if (rwlp->rw_owner != current_thread())
 		panic("SPL: rw_downgrade not WRITE lock held\n");
-	rw_exit(rwlp);
-	rw_enter(rwlp, RW_READER);
+
+	/*
+	 * Convert writer -> one reader (this thread).
+	 */
+	rwlp->rw_owner = NULL;
+	rwlp->readers = 1;
+
+	/*
+	 * Writer preference:
+	 * - If writers are waiting, keep read_event cleared so *new* readers
+	 *   will block. Current thread still holds read, so it's fine.
+	 * - If no writers are waiting, allow readers to flow.
+	 */
+	if (rwlp->writers_waiting > 0) {
+		KeClearEvent(&rwlp->read_event);
+	} else {
+		KeSetEvent(&rwlp->read_event, IO_NO_INCREMENT, FALSE);
+	}
+
+	KeReleaseSpinLock(&rwlp->spin, oldIrql);
 }
 
 int

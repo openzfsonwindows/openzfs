@@ -39,12 +39,32 @@ typedef enum {
 } krw_t;
 
 struct krwlock {
-	ERESOURCE	rw_lock;	/* opaque data */
-	void		*rw_owner;	/* writer (exclusive) lock only */
-	int		rw_readers;	/* reader lock only */
-	int		rw_pad;
+	/*
+	 * Short critical section protecting state transitions and
+	 * deciding who to wake. Never held across waits.
+	 */
+	KSPIN_LOCK spin;
+
+	/*
+	 * Reader gate: manual-reset event. Signaled when readers are allowed
+	 * to enter (no active writer, and no waiting writers if writer-prefer).
+	 */
+	KEVENT read_event;
+
+	/*
+	 * Writer queue: semaphore. Released one-at-a-time when a writer may run
+	 */
+	KSEMAPHORE write_sem;
+
+	/* State (protected by spin, but updated with plain stores under it). */
+	uint64_t readers; /* number of active readers */
+	uint64_t writers_waiting; /* number of waiting writers */
+
+	void *rw_owner; /* Set when WRITER, NULL when free */
+	int rw_pad;
 };
-typedef struct krwlock  krwlock_t;
+
+typedef struct krwlock krwlock_t;
 
 #define	RW_NOLOCKDEP	0
 
