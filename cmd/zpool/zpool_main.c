@@ -13797,7 +13797,7 @@ zpool_do_help(int argc, char **argv)
 
 	(void) execlp("man", "man", page, NULL);
 
-	fprintf(stderr, "couldn't run man program: %s", strerror(errno));
+	fprintf(stderr, "couldn't run man program: %s\n", strerror(errno));
 	return (-1);
 }
 
