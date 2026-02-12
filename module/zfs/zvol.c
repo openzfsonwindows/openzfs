@@ -1840,6 +1840,7 @@ zvol_rename_minors_impl(zvol_task_t *task)
 	if (zvol_inhibit_dev)
 		return;
 
+	last_error = 0;
 	oldnamelen = strlen(oldname);
 
 	rw_enter(&zvol_state_lock, RW_WRITER);
@@ -1859,6 +1860,8 @@ zvol_rename_minors_impl(zvol_task_t *task)
 			    zv->zv_name + oldnamelen + 1);
 			error = zvol_os_rename_minor(zv, name);
 			kmem_strfree(name);
+		} else {
+			error = 0;
 		}
 		if (error) {
 			last_error = error;
