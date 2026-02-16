@@ -9,6 +9,7 @@ add_library(libzfs
 	libzfs_diff.c
 	libzfs_import.c
 	libzfs_iter.c
+	libzfs_mnttab.c
 	libzfs_mount.c
 	libzfs_pool.c
 	libzfs_sendrecv.c
