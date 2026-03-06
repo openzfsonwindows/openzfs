@@ -177,6 +177,7 @@ add_library(libzpool
     "util.c"
     "vdev_label_os.c"
     "zfs_debug.c"
+    "zfs_file_os.c"
     "zfs_racct.c"
 )
 
