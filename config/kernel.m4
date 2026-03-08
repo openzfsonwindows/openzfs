@@ -452,10 +452,29 @@ AC_DEFUN([ZFS_AC_KERNEL], [
 
 	AC_MSG_RESULT([$kernsrcver])
 
-	AS_VERSION_COMPARE([$kernsrcver], [$ZFS_META_KVER_MIN], [
-		 AC_MSG_ERROR([
+	AC_ARG_ENABLE([linux-experimental],
+		AS_HELP_STRING([--enable-linux-experimental],
+		[Allow building against some unsupported kernel versions]))
+
+	AX_COMPARE_VERSION([$kernsrcver], [ge], [$ZFS_META_KVER_MAX], [
+		AX_COMPARE_VERSION([$kernsrcver], [eq2], [$ZFS_META_KVER_MAX], [
+			kern_max_version_ok=yes
+		], [
+			kern_max_version_ok=no
+		])
+	], [
+		kern_max_version_ok=yes
+	])
+
+	AS_IF([test "x$kern_max_version_ok" != "xyes"], [
+		AS_IF([test "x$enable_linux_experimental" == "xyes"], [
+			AC_DEFINE(HAVE_LINUX_EXPERIMENTAL, 1,
+			    [building against unsupported kernel version])
+		], [
+			AC_MSG_ERROR([
 	*** Cannot build against kernel version $kernsrcver.
-	*** The minimum supported kernel version is $ZFS_META_KVER_MIN.
+	*** The maximum supported kernel version is $ZFS_META_KVER_MAX.
+			])
 		])
 	])
 
@@ -850,7 +869,7 @@ AC_DEFUN([ZFS_LINUX_TEST_ERROR], [
 	*** incompatible modifications.
 	***
 	*** ZFS Version: $ZFS_META_ALIAS
-	*** Compatible Kernels: $ZFS_META_KVER_MIN - $ZFS_META_KVER_MAX
+	*** Highest compatible kernel version: $ZFS_META_KVER_MAX
 	])
 ])
 
@@ -1021,7 +1040,7 @@ AC_DEFUN([ZFS_LINUX_REQUIRE_API], [
 		*** APIs.
 		***
 		*** ZFS Version: $ZFS_META_ALIAS
-		*** Compatible Kernels: $ZFS_META_KVER_MIN - $ZFS_META_KVER_MAX
+		*** Highest compatible kernel version: $ZFS_META_KVER_MAX
 		])
 	], [
 		AC_MSG_RESULT(no)
