@@ -155,10 +155,10 @@ jobs:
       - name: Trust generated test certificate for install
         shell: pwsh
         run: |
-          $pwd = ConvertTo-SecureString "$env:OPENZFS_TEST_CERT_PASSWORD" -AsPlainText -Force
-          Import-PfxCertificate -FilePath "$env:OPENZFS_TEST_CERT_PFX" -CertStoreLocation Cert:\LocalMachine\Root -Password $pwd | Out-Null
-          Import-PfxCertificate -FilePath "$env:OPENZFS_TEST_CERT_PFX" -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $pwd | Out-Null
-          Write-Host "Using: $env:OPENZFS_TEST_CERT_PASSWORD and $(pwd)"
+          $thepass = ConvertTo-SecureString "$env:OPENZFS_TEST_CERT_PASSWORD" -AsPlainText -Force
+          Import-PfxCertificate -FilePath "$env:OPENZFS_TEST_CERT_PFX" -CertStoreLocation Cert:\LocalMachine\Root -Password $thepass | Out-Null
+          Import-PfxCertificate -FilePath "$env:OPENZFS_TEST_CERT_PFX" -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $thepass | Out-Null
+          Write-Host "Using: $env:OPENZFS_TEST_CERT_PASSWORD and $thepass"
 
       - name: Show trusted OpenZFS certs
         shell: pwsh
