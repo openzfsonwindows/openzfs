@@ -162,13 +162,6 @@ jobs:
       - name: Install OpenZFS
         shell: pwsh
         run: |
-          Start-Process -FilePath "${{ steps.innoout.outputs.installer }}" `
-            -Wait `
-            -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{ github.workspace }}\InnoSetup-Install.log`""
-
-      - name: Install OpenZFS
-        shell: pwsh
-        run: |
           $log = "${{ github.workspace }}\InnoSetup-Install.log"
           $p = Start-Process `
             -FilePath "${{ steps.innoout.outputs.installer }}" `
