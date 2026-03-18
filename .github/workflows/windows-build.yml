@@ -82,6 +82,12 @@ jobs:
             -OutputDirectory "${{ github.workspace }}\packages" `
             -Source https://api.nuget.org/v3/index.json
 
+      - name: Show WDK ntddk.h locations
+        shell: pwsh
+        run: |
+          Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter ntddk.h |
+          Select-Object FullName
+
       - name: Checkout OpenZFS
         uses: actions/checkout@v5
         with:
