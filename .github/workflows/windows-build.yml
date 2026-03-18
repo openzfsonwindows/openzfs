@@ -49,7 +49,7 @@ jobs:
             -B "${{ github.workspace }}/out/build/x64-Debug" `
             "${{ github.workspace }}" `
             -DOPENSSL_ROOT_DIR="${{ github.workspace }}/openssl" `
-            -DOPENSSL_INCLUDE_DIR="${{ github.workspace }}/openssl/include" `
+            -DOPENSSL_INCLUDE_DIR="${{ github.workspace }}/openssl/include/x64" `
             -DCRYPTO_STATIC_TEST="${{ github.workspace }}/openssl/lib/VC/x64/MTd/libcrypto_static.lib" `
             -DLIB_EAY_DEBUG="${{ github.workspace }}/openssl/lib/VC/x64/MTd/libcrypto_static.lib" `
             -DLIB_EAY_RELEASE="${{ github.workspace }}/openssl/lib/VC/x64/MT/libcrypto_static.lib" `
