@@ -82,6 +82,14 @@ jobs:
             -OutputDirectory "${{ github.workspace }}\packages" `
             -Source https://api.nuget.org/v3/index.json
 
+      - name: Verify packages dir
+        shell: pwsh
+        run: |
+          Write-Host "workspace=${{ github.workspace }}"
+          Test-Path "${{ github.workspace }}\packages"
+          Get-ChildItem "${{ github.workspace }}" | Format-Table -AutoSize
+          Get-ChildItem "${{ github.workspace }}\packages" | Format-Table -AutoSize
+
       - name: Checkout OpenZFS
         uses: actions/checkout@v5
         with:
@@ -94,6 +102,14 @@ jobs:
           repository: openzfsonwindows/openssl
           ref: openssl-3.5.5
           path: openssl
+
+      - name: Verify packages dir2
+        shell: pwsh
+        run: |
+          Write-Host "workspace=${{ github.workspace }}"
+          Test-Path "${{ github.workspace }}\packages"
+          Get-ChildItem "${{ github.workspace }}" | Format-Table -AutoSize
+          Get-ChildItem "${{ github.workspace }}\packages" | Format-Table -AutoSize
 
       - name: Configure CMake
         shell: pwsh
