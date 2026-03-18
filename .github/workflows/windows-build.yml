@@ -45,8 +45,8 @@ jobs:
             -HashAlgorithm SHA256 `
             -KeyAlgorithm RSA `
             -KeyLength 2048 `
-                  -KeyExportPolicy Exportable `
-      -NotAfter (Get-Date).AddDays(30)
+            -KeyExportPolicy Exportable `
+            -NotAfter (Get-Date).AddDays(30)
 
           if (-not $cert) {
             throw "Failed to create test signing certificate"
