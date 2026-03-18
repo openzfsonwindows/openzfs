@@ -202,10 +202,11 @@ jobs:
             }
             if (Test-Path $setupApi) {
               Write-Host "==== SetupAPI log tail ===="
-              Get-Content $setupApi -Tail 50
+              Select-String -Path $setupApi -Pattern "OpenZFS.inf","OpenZVOL.inf","ZFSInstaller","zfs" -Context 3,8
+              Get-Process | Sort-Object ProcessName | Select-Object ProcessName, Id, CPU, WS, StartTime | Format-Table -AutoSize
             }
           }
-       
+
           try { $p.Refresh() } catch {}
        
           if (-not $p.HasExited) {
