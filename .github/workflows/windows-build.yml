@@ -170,7 +170,7 @@ jobs:
         shell: pwsh
         run: |
           $log = "${{ github.workspace }}\InnoSetup-Install.log"
-		  $setupApi = "C:\Windows\INF\setupapi.dev.log"
+          $setupApi = "C:\Windows\INF\setupapi.dev.log"
           $exe = "${{ steps.innoout.outputs.installer }}"
        
           Write-Host "Starting installer"
