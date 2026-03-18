@@ -34,6 +34,9 @@ jobs:
         shell: pwsh
         run: |
           $certSubject = "OpenZFS Test Signing Certificate"
+          $pfxPath = "$env:RUNNER_TEMP\openzfs-test-signing.pfx"
+          $pfxPassword = "password123"
+          $pwd = ConvertTo-SecureString $pfxPassword -AsPlainText -Force
 
           $cert = New-SelfSignedCertificate `
             -Subject "CN=$certSubject" `
@@ -42,22 +45,34 @@ jobs:
             -HashAlgorithm SHA256 `
             -KeyAlgorithm RSA `
             -KeyLength 2048 `
-            -KeyExportPolicy Exportable `
-            -NotAfter (Get-Date).AddDays(30)
+                  -KeyExportPolicy Exportable `
+      -NotAfter (Get-Date).AddDays(30)
 
           if (-not $cert) {
             throw "Failed to create test signing certificate"
+          }
+
+          Export-PfxCertificate `
+            -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" `
+            -FilePath $pfxPath `
+            -Password $pwd | Out-Null
+
+          if (-not (Test-Path $pfxPath)) {
+            throw "Failed to export PFX"
           }
 
           "OPENZFS_SIGNTOOL_CERTSTORE=My" | Out-File -FilePath $env:GITHUB_ENV -Append
           "OPENZFS_SIGNTOOL_CERTNAME=$certSubject" | Out-File -FilePath $env:GITHUB_ENV -Append
           "OPENZFS_SIGNTOOL_SHA1=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append
           "OPENZFS_SIGNTOOL_TSA=http://timestamp.digicert.com" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "OPENZFS_TEST_CERT_PFX=$pfxPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "OPENZFS_TEST_CERT_PASSWORD=$pfxPassword" | Out-File -FilePath $env:GITHUB_ENV -Append
 
           Write-Host "Created certificate:"
           Write-Host "  Subject:    $certSubject"
           Write-Host "  Store:      My"
           Write-Host "  Thumbprint: $($cert.Thumbprint)"
+          Write-Host "  PFX:        $pfxPath"
 
       - name: Checkout OpenZFS
         uses: actions/checkout@v5
