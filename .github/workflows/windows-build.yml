@@ -124,6 +124,22 @@ jobs:
       - name: Configure CMake
         shell: pwsh
         run: |
+          $wdk = Get-ChildItem "${{ github.workspace }}\packages" -Directory |
+            Where-Object { $_.Name -like "Microsoft.Windows.WDK.x64.*" } |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+
+          if (-not $wdk) {
+            throw "WDK package directory not found"
+          }
+
+          $env:WDKContentRoot = Join-Path $wdk.FullName "c"
+
+          Write-Host "WDKContentRoot=$env:WDKContentRoot"
+          Write-Host "ntddk exists? $(Test-Path "$env:WDKContentRoot\Include\10.0.26100.0\km\ntddk.h")"
+
+          Get-ChildItem "$env:WDKContentRoot\Include" -Recurse -Filter ntddk.h | Select-Object FullName
+
           cmake -G "Ninja" `
             -B "${{ github.workspace }}/out/build/x64-Debug" `
             "${{ github.workspace }}" `
