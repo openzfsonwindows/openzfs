@@ -24,6 +24,35 @@ jobs:
       - name: Enter MSVC dev environment
         uses: ilammy/msvc-dev-cmd@v1
 
+      - name: Create OpenZFS test signing certificate
+        shell: pwsh
+        run: |
+          $certSubject = "OpenZFS Test Signing Certificate"
+
+          $cert = New-SelfSignedCertificate `
+            -Subject "CN=$certSubject" `
+            -Type CodeSigningCert `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -HashAlgorithm SHA256 `
+            -KeyAlgorithm RSA `
+            -KeyLength 2048 `
+            -KeyExportPolicy Exportable `
+            -NotAfter (Get-Date).AddDays(30)
+
+          if (-not $cert) {
+            throw "Failed to create test signing certificate"
+          }
+
+          "OPENZFS_SIGNTOOL_CERTSTORE=My" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "OPENZFS_SIGNTOOL_CERTNAME=$certSubject" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "OPENZFS_SIGNTOOL_SHA1=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "OPENZFS_SIGNTOOL_TSA=http://timestamp.digicert.com" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          Write-Host "Created certificate:"
+          Write-Host "  Subject:    $certSubject"
+          Write-Host "  Store:      My"
+          Write-Host "  Thumbprint: $($cert.Thumbprint)"
+
       - name: Checkout OpenZFS
         uses: actions/checkout@v5
         with:
@@ -42,6 +71,11 @@ jobs:
         run: |
           Get-ChildItem -Recurse openssl\lib\VC\x64 | Select-Object FullName
 
+      - name: Show code signing certs
+        shell: pwsh
+        run: |
+          Get-ChildItem Cert:\CurrentUser\My | Format-List Subject, Thumbprint, HasPrivateKey, NotAfter
+
       - name: Configure CMake
         shell: pwsh
         run: |
@@ -54,7 +88,11 @@ jobs:
             -DLIB_EAY_DEBUG="${{ github.workspace }}/openssl/lib/VC/x64/MTd/libcrypto_static.lib" `
             -DLIB_EAY_RELEASE="${{ github.workspace }}/openssl/lib/VC/x64/MT/libcrypto_static.lib" `
             -DSSL_EAY_DEBUG="${{ github.workspace }}/openssl/lib/VC/x64/MTd/libssl_static.lib" `
-            -DSSL_EAY_RELEASE="${{ github.workspace }}/openssl/lib/VC/x64/MT/libssl_static.lib"
+            -DSSL_EAY_RELEASE="${{ github.workspace }}/openssl/lib/VC/x64/MT/libssl_static.lib" `
+            -DOPENZFS_SIGNTOOL_CERTSTORE="$env:OPENZFS_SIGNTOOL_CERTSTORE" `
+            -DOPENZFS_SIGNTOOL_CERTNAME="$env:OPENZFS_SIGNTOOL_CERTNAME" `
+            -DOPENZFS_SIGNTOOL_SHA1="$env:OPENZFS_SIGNTOOL_SHA1" `
+            -DOPENZFS_SIGNTOOL_TSA="$env:OPENZFS_SIGNTOOL_TSA"
 
       - name: Build
         shell: pwsh
