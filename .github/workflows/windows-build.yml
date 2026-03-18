@@ -163,10 +163,12 @@ jobs:
         shell: pwsh
         run: |
           $log = "${{ github.workspace }}\InnoSetup-Install.log"
+          Write-Host "Starting installer"
           $p = Start-Process `
             -FilePath "${{ steps.innoout.outputs.installer }}" `
             -Wait `
             -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"$log`""
+          Write-Host "Run done"
           $p.WaitForExit(300000) | Out-Null
           if (-not $p.HasExited) {
             Write-Host "Installer appears hung, dumping process list"
