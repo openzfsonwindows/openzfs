@@ -158,6 +158,7 @@ jobs:
           $pwd = ConvertTo-SecureString "$env:OPENZFS_TEST_CERT_PASSWORD" -AsPlainText -Force
           Import-PfxCertificate -FilePath "$env:OPENZFS_TEST_CERT_PFX" -CertStoreLocation Cert:\LocalMachine\Root -Password $pwd | Out-Null
           Import-PfxCertificate -FilePath "$env:OPENZFS_TEST_CERT_PFX" -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $pwd | Out-Null
+          Write-Host "Using: $env:OPENZFS_TEST_CERT_PASSWORD and $(pwd)"
 
       - name: Show trusted OpenZFS certs
         shell: pwsh
