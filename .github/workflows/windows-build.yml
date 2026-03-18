@@ -82,11 +82,21 @@ jobs:
             -OutputDirectory "${{ github.workspace }}\packages" `
             -Source https://api.nuget.org/v3/index.json
 
-      - name: Show WDK ntddk.h locations
+      - name: Set WDKContentRoot
         shell: pwsh
         run: |
-          Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter ntddk.h |
-          Select-Object FullName
+          $wdk = Get-ChildItem "${{ github.workspace }}\packages" -Directory |
+            Where-Object { $_.Name -like "Microsoft.Windows.WDK.x64.*" } |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+       
+          if (-not $wdk) {
+            throw "WDK package directory not found"
+          }
+       
+          $root = Join-Path $wdk.FullName "c"
+          "WDKContentRoot=$root" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "WDKContentRoot=$root"
 
       - name: Checkout OpenZFS
         uses: actions/checkout@v5
