@@ -74,6 +74,14 @@ jobs:
           Write-Host "  Thumbprint: $($cert.Thumbprint)"
           Write-Host "  PFX:        $pfxPath"
 
+      - name: Install WDK via NuGet
+        shell: pwsh
+        run: |
+          nuget install Microsoft.Windows.WDK.x64 `
+            -Version 10.0.26100.6584 `
+            -OutputDirectory "${{ github.workspace }}\packages" `
+            -Source https://api.nuget.org/v3/index.json
+
       - name: Checkout OpenZFS
         uses: actions/checkout@v5
         with:
