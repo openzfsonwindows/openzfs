@@ -24,7 +24,7 @@ concurrency:
 jobs:
   build:
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 10
 
     steps:
       - name: Enter MSVC dev environment
@@ -165,8 +165,8 @@ jobs:
           $log = "${{ github.workspace }}\InnoSetup-Install.log"
           $p = Start-Process `
             -FilePath "${{ steps.innoout.outputs.installer }}" `
-            -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /SUPPRESSMSGBOXES /LOG=`"$log`"" `
-            -PassThru
+			-Wait `
+            -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"$log`""
           $p.WaitForExit(300000) | Out-Null
           if (-not $p.HasExited) {
             Write-Host "Installer appears hung, dumping process list"
