@@ -160,33 +160,27 @@ jobs:
           Import-PfxCertificate -FilePath "$env:OPENZFS_TEST_CERT_PFX" -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $pwd | Out-Null
 
       - name: Install OpenZFS
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $log = "${{ github.workspace }}\InnoSetup-Install.log"
           Write-Host "Starting installer"
-          $p = Start-Process `
-            -FilePath "${{ steps.innoout.outputs.installer }}" `
-            -Wait `
-            -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"$log`""
-          Write-Host "Run done"
-          $p.WaitForExit(300000) | Out-Null
-          if (-not $p.HasExited) {
-            Write-Host "Installer appears hung, dumping process list"
-            Get-Process | Sort-Object ProcessName | Format-Table -AutoSize
-            if (Test-Path $log) {
-              Write-Host "==== Inno log so far ===="
-              Get-Content $log -Tail 200
-            }
-            Stop-Process -Id $p.Id -Force
-            throw "Installer timed out"
-          }
-          Write-Host "Installer exit code: $($p.ExitCode)"
+      
+          & "${{ steps.innoout.outputs.installer }}" `
+            /SP- /NORESTART /ALLUSERS /VERYSILENT /SUPPRESSMSGBOXES /LOG="$log"
+      
+          $exit = $LASTEXITCODE
+          Write-Host "Installer exit code: $exit"
+      
           if (Test-Path $log) {
             Write-Host "==== Inno log tail ===="
             Get-Content $log -Tail 200
+          } else {
+            Write-Host "Installer log not found"
           }
-          if ($p.ExitCode -ne 0) {
-            throw "Installer failed with exit code $($p.ExitCode)"
+      
+          if ($exit -ne 0) {
+            throw "Installer failed with exit code $exit"
           }
 
       - name: Upload installer logs
