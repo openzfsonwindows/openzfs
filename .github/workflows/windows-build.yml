@@ -166,6 +166,34 @@ jobs:
             -Wait `
             -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{ github.workspace }}\InnoSetup-Install.log`""
 
+      - name: Install OpenZFS
+        shell: pwsh
+        run: |
+          $log = "${{ github.workspace }}\InnoSetup-Install.log"
+          $p = Start-Process `
+            -FilePath "${{ steps.innoout.outputs.installer }}" `
+            -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /SUPPRESSMSGBOXES /LOG=`"$log`"" `
+            -PassThru
+          $p.WaitForExit(300000) | Out-Null
+          if (-not $p.HasExited) {
+            Write-Host "Installer appears hung, dumping process list"
+            Get-Process | Sort-Object ProcessName | Format-Table -AutoSize
+            if (Test-Path $log) {
+              Write-Host "==== Inno log so far ===="
+              Get-Content $log -Tail 200
+            }
+            Stop-Process -Id $p.Id -Force
+            throw "Installer timed out"
+          }
+          Write-Host "Installer exit code: $($p.ExitCode)"
+          if (Test-Path $log) {
+            Write-Host "==== Inno log tail ===="
+            Get-Content $log -Tail 200
+          }
+          if ($p.ExitCode -ne 0) {
+            throw "Installer failed with exit code $($p.ExitCode)"
+          }
+
       - name: Upload installer logs
         if: always()
         uses: actions/upload-artifact@v4
