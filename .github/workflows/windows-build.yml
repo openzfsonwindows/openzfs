@@ -159,6 +159,12 @@ jobs:
           Import-PfxCertificate -FilePath "$env:OPENZFS_TEST_CERT_PFX" -CertStoreLocation Cert:\LocalMachine\Root -Password $pwd | Out-Null
           Import-PfxCertificate -FilePath "$env:OPENZFS_TEST_CERT_PFX" -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $pwd | Out-Null
 
+      - name: Show trusted OpenZFS certs
+        shell: pwsh
+        run: |
+          Get-ChildItem Cert:\LocalMachine\Root | Where-Object Subject -like "*OpenZFS*" | Format-List Subject, Thumbprint
+          Get-ChildItem Cert:\LocalMachine\TrustedPublisher | Where-Object Subject -like "*OpenZFS*" | Format-List Subject, Thumbprint
+
       - name: Install OpenZFS
         timeout-minutes: 5
         shell: pwsh
@@ -231,5 +237,13 @@ jobs:
           path: |
             ${{ github.workspace }}\iscc.log
             ${{ github.workspace }}\InnoSetup-Install.log
+          if-no-files-found: warn
+
+      - name: Upload SetupAPI log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: setupapi-log-${{ github.run_number }}
+          path: C:\Windows\INF\setupapi.dev.log
           if-no-files-found: warn
 
