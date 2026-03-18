@@ -1,0 +1,72 @@
+name: windows-build
+
+on:
+  push:
+    branches:
+      - new-github
+    tags-ignore:
+      - '*'
+  pull_request:
+    branches:
+      - new-github
+  workflow_dispatch:
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Enter MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Checkout OpenZFS
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Checkout OpenSSL
+        uses: actions/checkout@v5
+        with:
+          repository: openzfsonwindows/openssl
+          ref: openssl-3.5.5
+          path: openssl
+
+      - name: Show OpenSSL tree
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse openssl\lib\VC\x64 | Select-Object FullName
+
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          cmake -G "Ninja" `
+            -B "${{ github.workspace }}/out/build/x64-Debug" `
+            "${{ github.workspace }}" `
+            -DOPENSSL_ROOT_DIR="${{ github.workspace }}/openssl" `
+            -DOPENSSL_INCLUDE_DIR="${{ github.workspace }}/openssl/include" `
+            -DCRYPTO_STATIC_TEST="${{ github.workspace }}/openssl/lib/VC/x64/MTd/libcrypto_static.lib" `
+            -DLIB_EAY_DEBUG="${{ github.workspace }}/openssl/lib/VC/x64/MTd/libcrypto_static.lib" `
+            -DLIB_EAY_RELEASE="${{ github.workspace }}/openssl/lib/VC/x64/MT/libcrypto_static.lib" `
+            -DSSL_EAY_DEBUG="${{ github.workspace }}/openssl/lib/VC/x64/MTd/libssl_static.lib" `
+            -DSSL_EAY_RELEASE="${{ github.workspace }}/openssl/lib/VC/x64/MT/libssl_static.lib"
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build "${{ github.workspace }}/out/build/x64-Debug" --parallel
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-${{ github.run_number }}
+          path: |
+            out/build/x64-Debug/**
+            **/*.log
+          if-no-files-found: warn
