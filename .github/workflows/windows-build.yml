@@ -165,7 +165,7 @@ jobs:
           $log = "${{ github.workspace }}\InnoSetup-Install.log"
           $p = Start-Process `
             -FilePath "${{ steps.innoout.outputs.installer }}" `
-			-Wait `
+            -Wait `
             -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"$log`""
           $p.WaitForExit(300000) | Out-Null
           if (-not $p.HasExited) {
