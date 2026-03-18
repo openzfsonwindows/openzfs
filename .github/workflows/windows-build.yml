@@ -30,6 +30,19 @@ jobs:
       - name: Enter MSVC dev environment
         uses: ilammy/msvc-dev-cmd@v1
 
+      - name: Checkout OpenZFS
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Checkout OpenSSL
+        uses: actions/checkout@v5
+        with:
+          repository: openzfsonwindows/openssl
+          ref: openssl-3.5.5
+          path: openssl
+
       - name: Create OpenZFS test signing certificate
         shell: pwsh
         run: |
@@ -83,27 +96,6 @@ jobs:
             -Source https://api.nuget.org/v3/index.json
 
       - name: Verify packages dir
-        shell: pwsh
-        run: |
-          Write-Host "workspace=${{ github.workspace }}"
-          Test-Path "${{ github.workspace }}\packages"
-          Get-ChildItem "${{ github.workspace }}" | Format-Table -AutoSize
-          Get-ChildItem "${{ github.workspace }}\packages" | Format-Table -AutoSize
-
-      - name: Checkout OpenZFS
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          submodules: recursive
-
-      - name: Checkout OpenSSL
-        uses: actions/checkout@v5
-        with:
-          repository: openzfsonwindows/openssl
-          ref: openssl-3.5.5
-          path: openssl
-
-      - name: Verify packages dir2
         shell: pwsh
         run: |
           Write-Host "workspace=${{ github.workspace }}"
