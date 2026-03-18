@@ -1,3 +1,9 @@
+#
+# This based on work that Andrew Innes <andrew.c12@gmail.com> did for OpenZFSonWindows,
+# reworked for me to understand what it did, so I can support it myself.
+# - Lundman
+#
+
 name: windows-build
 
 on:
@@ -66,15 +72,15 @@ jobs:
           ref: openssl-3.5.5
           path: openssl
 
-      - name: Show OpenSSL tree
-        shell: pwsh
-        run: |
-          Get-ChildItem -Recurse openssl\lib\VC\x64 | Select-Object FullName
+#      - name: Show OpenSSL tree
+#        shell: pwsh
+#        run: |
+#          Get-ChildItem -Recurse openssl\lib\VC\x64 | Select-Object FullName
 
-      - name: Show code signing certs
-        shell: pwsh
-        run: |
-          Get-ChildItem Cert:\CurrentUser\My | Format-List Subject, Thumbprint, HasPrivateKey, NotAfter
+#      - name: Show code signing certs
+#        shell: pwsh
+#        run: |
+#          Get-ChildItem Cert:\CurrentUser\My | Format-List Subject, Thumbprint, HasPrivateKey, NotAfter
 
       - name: Configure CMake
         shell: pwsh
@@ -99,8 +105,8 @@ jobs:
         run: |
           cmake --build "${{ github.workspace }}/out/build/x64-Debug" --parallel
 
-      - name: Upload artifacts
-        if: always()
+      - name: Upload artifacts - Disabled for now change false to always()
+        if: false
         uses: actions/upload-artifact@v4
         with:
           name: windows-build-${{ github.run_number }}
@@ -108,3 +114,50 @@ jobs:
             out/build/x64-Debug/**
             **/*.log
           if-no-files-found: warn
+
+
+
+      - name: Build Inno installer
+        shell: pwsh
+        working-directory: ${{ github.workspace }}\contrib\windows\Inno.Setup
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            .\ZFSInstall-debug.iss `
+            "/Ssigntoolc=${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe sign /v /fd sha256 /sha1 $env:OPENZFS_SIGNTOOL_SHA1 /tr http://timestamp.digicert.com /td sha256 `$f" `
+            | Tee-Object -FilePath "${{ github.workspace }}\iscc.log"
+
+      - name: Find generated installer
+        id: innoout
+        shell: pwsh
+        run: |
+          $f = Get-ChildItem "${{ github.workspace }}\contrib\windows" -Filter *.exe -File |
+               Sort-Object LastWriteTime -Descending |
+               Select-Object -First 1
+          if (-not $f) { throw "No installer EXE found" }
+          "installer=$($f.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Installer: $($f.FullName)"
+
+      - name: Trust generated test certificate for install
+        shell: pwsh
+        run: |
+          $pwd = ConvertTo-SecureString "$env:OPENZFS_TEST_CERT_PASSWORD" -AsPlainText -Force
+          Import-PfxCertificate -FilePath "$env:OPENZFS_TEST_CERT_PFX" -CertStoreLocation Cert:\LocalMachine\Root -Password $pwd | Out-Null
+          Import-PfxCertificate -FilePath "$env:OPENZFS_TEST_CERT_PFX" -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -Password $pwd | Out-Null
+
+      - name: Install OpenZFS
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "${{ steps.innoout.outputs.installer }}" `
+            -Wait `
+            -ArgumentList "/NORESTART /ALLUSERS /VERYSILENT /LOG=`"${{ github.workspace }}\InnoSetup-Install.log`""
+
+      - name: Upload installer logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-logs-${{ github.run_number }}
+          path: |
+            ${{ github.workspace }}\iscc.log
+            ${{ github.workspace }}\InnoSetup-Install.log
+          if-no-files-found: warn
+
