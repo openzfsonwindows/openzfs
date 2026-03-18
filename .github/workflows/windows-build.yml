@@ -82,22 +82,6 @@ jobs:
             -OutputDirectory "${{ github.workspace }}\packages" `
             -Source https://api.nuget.org/v3/index.json
 
-      - name: Set WDKContentRoot
-        shell: pwsh
-        run: |
-          $wdk = Get-ChildItem "${{ github.workspace }}\packages" -Directory |
-            Where-Object { $_.Name -like "Microsoft.Windows.WDK.x64.*" } |
-            Sort-Object Name -Descending |
-            Select-Object -First 1
-       
-          if (-not $wdk) {
-            throw "WDK package directory not found"
-          }
-       
-          $root = Join-Path $wdk.FullName "c"
-          "WDKContentRoot=$root" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "WDKContentRoot=$root"
-
       - name: Checkout OpenZFS
         uses: actions/checkout@v5
         with:
@@ -111,16 +95,6 @@ jobs:
           ref: openssl-3.5.5
           path: openssl
 
-#      - name: Show OpenSSL tree
-#        shell: pwsh
-#        run: |
-#          Get-ChildItem -Recurse openssl\lib\VC\x64 | Select-Object FullName
-
-#      - name: Show code signing certs
-#        shell: pwsh
-#        run: |
-#          Get-ChildItem Cert:\CurrentUser\My | Format-List Subject, Thumbprint, HasPrivateKey, NotAfter
-
       - name: Configure CMake
         shell: pwsh
         run: |
@@ -128,19 +102,19 @@ jobs:
             Where-Object { $_.Name -like "Microsoft.Windows.WDK.x64.*" } |
             Sort-Object Name -Descending |
             Select-Object -First 1
-
+      
           if (-not $wdk) {
             throw "WDK package directory not found"
           }
-
+      
           $env:WDKContentRoot = Join-Path $wdk.FullName "c"
-
           Write-Host "WDKContentRoot=$env:WDKContentRoot"
-          Write-Host "ntddk exists? $(Test-Path "$env:WDKContentRoot\Include\10.0.26100.0\km\ntddk.h")"
-
-          Get-ChildItem "$env:WDKContentRoot\Include" -Recurse -Filter ntddk.h | Select-Object FullName
-
-          cmake -G "Ninja" `
+      
+          Get-ChildItem "$env:WDKContentRoot\Include" -Recurse -Filter ntddk.h |
+            Select-Object FullName
+      
+          cmake -E env WDKContentRoot="$env:WDKContentRoot" `
+            cmake -G "Ninja" `
             -B "${{ github.workspace }}/out/build/x64-Debug" `
             "${{ github.workspace }}" `
             -DOPENSSL_ROOT_DIR="${{ github.workspace }}/openssl" `
