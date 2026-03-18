@@ -166,40 +166,70 @@ jobs:
           Get-ChildItem Cert:\LocalMachine\TrustedPublisher | Where-Object Subject -like "*OpenZFS*" | Format-List Subject, Thumbprint
 
       - name: Install OpenZFS
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $log = "${{ github.workspace }}\InnoSetup-Install.log"
+		  $setupApi = "C:\Windows\INF\setupapi.dev.log"
           $exe = "${{ steps.innoout.outputs.installer }}"
-      
+       
           Write-Host "Starting installer"
+          Write-Host "EXE: $exe"
+          Write-Host "LOG: $log"
+       
           $p = Start-Process `
             -FilePath $exe `
             -ArgumentList "/SP- /NORESTART /ALLUSERS /VERYSILENT /SUPPRESSMSGBOXES /LOG=`"$log`"" `
             -PassThru
-      
+       
+          Write-Host "Installer PID: $($p.Id)"
+       
           $deadline = (Get-Date).AddMinutes(3)
-      
           while ((Get-Date) -lt $deadline) {
             Start-Sleep -Seconds 5
             try { $p.Refresh() } catch {}
+       
             if ($p.HasExited) {
-              Write-Host "Installer exited with code $($p.ExitCode)"
+              Write-Host "Installer exited"
+              Write-Host "Exit code: $($p.ExitCode)"
               break
             }
-          }
-      
-          if (-not $p.HasExited) {
-            Write-Host "Installer timed out, killing process"
-            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-      
+       
+            Write-Host "Still running..."
             if (Test-Path $log) {
               Write-Host "==== Inno log tail ===="
-              Get-Content $log -Tail 200
+              Get-Content $log -Tail 50
             }
-      
-            throw "Installer timed out after 3 minutes"
+            if (Test-Path $setupApi) {
+              Write-Host "==== SetupAPI log tail ===="
+              Get-Content $setupApi -Tail 50
+            }
           }
-      
+       
+          try { $p.Refresh() } catch {}
+       
+          if (-not $p.HasExited) {
+            Write-Host "Installer timed out"
+            Get-Process | Sort-Object ProcessName | Format-Table -AutoSize
+       
+            if (Test-Path $log) {
+              Write-Host "==== Final Inno log tail ===="
+              Get-Content $log -Tail 200
+            } else {
+              Write-Host "Installer log not found"
+            }
+       
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            throw "Installer timed out"
+          }
+       
+          if (Test-Path $log) {
+            Write-Host "==== Final Inno log tail ===="
+            Get-Content $log -Tail 200
+          } else {
+            Write-Host "Installer log not found"
+          }
+       
           if ($p.ExitCode -ne 0) {
             throw "Installer failed with exit code $($p.ExitCode)"
           }
