@@ -120,14 +120,6 @@ jobs:
           Write-Host "WDKContentRoot=$env:WDKContentRoot"
           Write-Host "WINSDK_NUGET_ROOT=$env:WINSDK_NUGET_ROOT"
 
-      - name: Find ctrpp.exe
-        shell: pwsh
-        run: |
-          Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter ctrpp.exe | Select-Object FullName
-          Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter tracewpp.exe | Select-Object FullName
-          Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter WdfTraceEnums.h | Select-Object FullName
-          Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter wdf.h | Select-Object FullName
-
       - name: Configure CMake
         shell: pwsh
         run: |
@@ -160,8 +152,6 @@ jobs:
             out/build/x64-Debug/**
             **/*.log
           if-no-files-found: warn
-
-
 
       - name: Build Inno installer
         shell: pwsh
@@ -217,7 +207,7 @@ jobs:
        
           $deadline = (Get-Date).AddMinutes(3)
           while ((Get-Date) -lt $deadline) {
-            Start-Sleep -Seconds 5
+            Start-Sleep -Seconds 50
             try { $p.Refresh() } catch {}
        
             if ($p.HasExited) {
@@ -266,6 +256,25 @@ jobs:
             throw "Installer failed with exit code $($p.ExitCode)"
           }
 
+      - name: Smoke test OpenZFS CLI
+        shell: pwsh
+        run: |
+          $zpool = "C:\Program Files\OpenZFS On Windows\zpool.exe"
+          $zfs   = "C:\Program Files\OpenZFS On Windows\zfs.exe"
+      
+          if (!(Test-Path $zpool)) { throw "zpool.exe not found" }
+          if (!(Test-Path $zfs))   { throw "zfs.exe not found" }
+      
+          & $zpool version
+          $zpoolExit = $LASTEXITCODE
+          Write-Host "zpool exit code: $zpoolExit"
+          if ($zpoolExit -ne 0) { throw "zpool version failed" }
+      
+          & $zfs version
+          $zfsExit = $LASTEXITCODE
+          Write-Host "zfs exit code: $zfsExit"
+          if ($zfsExit -ne 0) { throw "zfs version failed" }
+      
       - name: Upload installer logs
         if: always()
         uses: actions/upload-artifact@v4
