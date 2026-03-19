@@ -130,6 +130,63 @@ function(add_macro_property)
 endfunction()
 
 function(tracewpp OUTPUT_DIR SOURCE)
+	find_program(TRACEWPP_PROGRAM
+		tracewpp
+		HINTS
+			"${WDK_ROOT}/bin/${WDK_VERSION}/${WDK_PLATFORM}"
+			"$ENV{WINSDK_NUGET_ROOT}/bin/${WDK_VERSION}/${WDK_PLATFORM}"
+		NO_DEFAULT_PATH
+	)
+
+	if (NOT TRACEWPP_PROGRAM)
+		message(FATAL_ERROR "Failed to find tracewpp.exe")
+	endif()
+
+	get_filename_component(FILEN ${SOURCE} NAME)
+	set(TMH_FILEN ${FILEN}.tmh)
+	set(TMH ${OUTPUT_DIR}/${TMH_FILEN})
+
+	file(TO_NATIVE_PATH "${SOURCE}" NATIVE_SOURCE)
+	file(TO_NATIVE_PATH "${OUTPUT_DIR}" NATIVE_OUTPUT_DIR)
+	file(TO_NATIVE_PATH "${CMAKE_CURRENT_BINARY_DIR}" NATIVE_CURRENT_BINARY_DIR)
+
+	get_filename_component(TRACEWPP_DIR "${TRACEWPP_PROGRAM}" DIRECTORY)
+	get_filename_component(WPP_BIN_DIR "${TRACEWPP_DIR}" DIRECTORY)
+	set(CFGDIR "${WPP_BIN_DIR}/wppconfig/rev1")
+
+	file(TO_NATIVE_PATH "${CFGDIR}" NATIVE_CFGDIR)
+
+	set(TRACE "TraceEvent{FLAGS=MYDRIVER_ALL_INFO}(LEVEL, MSG, ...)")
+	set(SCAN "${WDK_ROOT}/Include/wdf/kmdf/1.9/WdfTraceEnums.h")
+	file(TO_NATIVE_PATH "${SCAN}" NATIVE_SCAN)
+
+	set(WPP_MACRO "WPP_INLINE __inline")
+
+	execute_process(
+		COMMAND "${TRACEWPP_PROGRAM}"
+			-scan:${NATIVE_SCAN}
+			/D${WPP_MACRO}
+			-cfgdir:${NATIVE_CFGDIR}
+			-I${NATIVE_CURRENT_BINARY_DIR}
+			-odir:${NATIVE_OUTPUT_DIR}
+			-km
+			-func:${TRACE}
+			-gen:{km-default.tpl}*.tmh
+			${NATIVE_SOURCE}
+		RESULT_VARIABLE TRACEWPP_RESULT
+		OUTPUT_VARIABLE TRACEWPP_STDOUT
+		ERROR_VARIABLE TRACEWPP_STDERR
+	)
+
+	if (NOT TRACEWPP_RESULT EQUAL 0)
+		message(FATAL_ERROR
+			"tracewpp failed with exit code ${TRACEWPP_RESULT}\n"
+			"stdout: ${TRACEWPP_STDOUT}\n"
+			"stderr: ${TRACEWPP_STDERR}")
+	endif()
+endfunction()
+
+function(XXXtracewpp OUTPUT_DIR SOURCE)
         # [mlr] list of .tmh files to be generated -> TMH
         set(WPP_DIR "${WDK_ROOT}/bin/${WDK_VERSION}")
 

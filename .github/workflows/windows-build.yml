@@ -124,6 +124,7 @@ jobs:
         shell: pwsh
         run: |
           Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter ctrpp.exe | Select-Object FullName
+		  Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter tracewpp.exe | Select-Object FullName
 
       - name: Configure CMake
         shell: pwsh
