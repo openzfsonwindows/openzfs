@@ -125,6 +125,7 @@ jobs:
         run: |
           Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter ctrpp.exe | Select-Object FullName
           Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter tracewpp.exe | Select-Object FullName
+          Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter WdfTraceEnums.h | Select-Object FullName
 
       - name: Configure CMake
         shell: pwsh
