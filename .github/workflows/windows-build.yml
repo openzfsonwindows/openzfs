@@ -95,21 +95,7 @@ jobs:
             -OutputDirectory "${{ github.workspace }}\packages" `
             -Source https://api.nuget.org/v3/index.json
 
-      - name: Verify packages dir
-        shell: pwsh
-        run: |
-          Write-Host "workspace=${{ github.workspace }}"
-          Test-Path "${{ github.workspace }}\packages"
-          Get-ChildItem "${{ github.workspace }}" | Format-Table -AutoSize
-          Get-ChildItem "${{ github.workspace }}\packages" | Format-Table -AutoSize
-
-      - name: Find signtool and stampinf
-        shell: pwsh
-        run: |
-          Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter signtool.exe | Select-Object FullName
-          Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter stampinf.exe | Select-Object FullName
-
-      - name: Configure CMake
+      - name: Set WDK and SDK roots
         shell: pwsh
         run: |
           $wdk = Get-ChildItem "${{ github.workspace }}\packages" -Directory |
@@ -117,18 +103,27 @@ jobs:
             Sort-Object Name -Descending |
             Select-Object -First 1
       
-          if (-not $wdk) {
-            throw "WDK package directory not found"
-          }
+          $sdk = Get-ChildItem "${{ github.workspace }}\packages" -Directory |
+            Where-Object { $_.Name -like "Microsoft.Windows.SDK.CPP.*" } |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+      
+          if (-not $wdk) { throw "WDK package directory not found" }
+          if (-not $sdk) { throw "SDK package directory not found" }
       
           $env:WDKContentRoot = Join-Path $wdk.FullName "c"
+          $env:WINSDK_NUGET_ROOT = Join-Path $sdk.FullName "c"
+      
+          "WDKContentRoot=$env:WDKContentRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "WINSDK_NUGET_ROOT=$env:WINSDK_NUGET_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
+      
           Write-Host "WDKContentRoot=$env:WDKContentRoot"
-      
-          Get-ChildItem "$env:WDKContentRoot\Include" -Recurse -Filter ntddk.h |
-            Select-Object FullName
-      
-          cmake -E env WDKContentRoot="$env:WDKContentRoot" `
-            cmake -G "Ninja" `
+          Write-Host "WINSDK_NUGET_ROOT=$env:WINSDK_NUGET_ROOT"
+
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          cmake -G "Ninja" `
             -B "${{ github.workspace }}/out/build/x64-Debug" `
             "${{ github.workspace }}" `
             -DOPENSSL_ROOT_DIR="${{ github.workspace }}/openssl" `
