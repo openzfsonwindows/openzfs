@@ -119,7 +119,7 @@ jobs:
       
           Write-Host "WDKContentRoot=$env:WDKContentRoot"
           Write-Host "WINSDK_NUGET_ROOT=$env:WINSDK_NUGET_ROOT"
-	
+
       - name: Configure CMake
         shell: pwsh
         run: |
