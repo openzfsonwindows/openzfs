@@ -142,6 +142,20 @@ function(tracewpp OUTPUT_DIR SOURCE)
 		message(FATAL_ERROR "Failed to find tracewpp.exe")
 	endif()
 
+	file(GLOB WDF_TRACE_ENUMS
+		"${WDK_ROOT}/Include/wdf/kmdf/*/wdftraceenums.h"
+	)
+
+	list(SORT WDF_TRACE_ENUMS)
+	list(REVERSE WDF_TRACE_ENUMS)
+	list(GET WDF_TRACE_ENUMS 0 SCAN)
+
+	if (NOT EXISTS "${SCAN}")
+		message(FATAL_ERROR "Failed to find wdftraceenums.h")
+	endif()
+
+	message(STATUS "WDF trace enums: ${SCAN}")
+
 	get_filename_component(FILEN ${SOURCE} NAME)
 	set(TMH_FILEN ${FILEN}.tmh)
 	set(TMH ${OUTPUT_DIR}/${TMH_FILEN})
@@ -157,7 +171,7 @@ function(tracewpp OUTPUT_DIR SOURCE)
 	file(TO_NATIVE_PATH "${CFGDIR}" NATIVE_CFGDIR)
 
 	set(TRACE "TraceEvent{FLAGS=MYDRIVER_ALL_INFO}(LEVEL, MSG, ...)")
-	set(SCAN "${WDK_ROOT}/Include/wdf/kmdf/1.9/WdfTraceEnums.h")
+#	set(SCAN "${WDK_ROOT}/Include/wdf/kmdf/1.9/WdfTraceEnums.h")
 	file(TO_NATIVE_PATH "${SCAN}" NATIVE_SCAN)
 
 	set(WPP_MACRO "WPP_INLINE __inline")
