@@ -45,10 +45,10 @@
 
 #define	SET_ENTRY(set, sym) \
 	static const zfs_tunable_t *			\
-	_##set##sym					\
+	_sym					\
 	__attribute__((__section__(ZFS_TUNABLE_SECTION))) \
 	__attribute__((__used__))			\
-	= &set##sym;
+	= sym;
 
 #endif
 
