@@ -85,5 +85,20 @@ file(GLOB CSOURCES CONFIGURE_DEPENDS "*.c")
 # /c/Program Files (x86)/Windows Kits/10/Include/wdf/kmdf/1.9/wdf.h
 # // "${WDK_ROOT}/bin/${WDK_VERSION}
 # set(SCAN "${WDK_ROOT}/Include/wdf/kmdf/1.9/WdfTraceEnums.h")
- target_include_directories(OpenZVOL PUBLIC "${WDK_ROOT}/Include/wdf/kmdf/1.9/" )
+# target_include_directories(OpenZVOL PUBLIC "${WDK_ROOT}/Include/wdf/kmdf/1.9/" )
 
+ file(GLOB KMDF_INCLUDE_DIRS
+	"${WDK_ROOT}/Include/wdf/kmdf/*"
+)
+
+if (NOT KMDF_INCLUDE_DIRS)
+	message(FATAL_ERROR "Failed to find KMDF include directory under ${WDK_ROOT}/Include/wdf/kmdf")
+endif()
+
+list(SORT KMDF_INCLUDE_DIRS)
+list(REVERSE KMDF_INCLUDE_DIRS)
+list(GET KMDF_INCLUDE_DIRS 0 KMDF_INCLUDE_DIR)
+
+message(STATUS "KMDF include dir: ${KMDF_INCLUDE_DIR}")
+
+target_include_directories(OpenZVOL PUBLIC "${KMDF_INCLUDE_DIR}")
