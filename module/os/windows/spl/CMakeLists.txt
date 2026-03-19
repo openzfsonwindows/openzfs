@@ -47,7 +47,7 @@ function(add_macro_property)
         endforeach()
 endfunction()
 
-function(tracewpp OUTPUT_DIR SOURCE)
+function(tracewppYYY OUTPUT_DIR SOURCE)
         # [mlr] list of .tmh files to be generated -> TMH
         set(WPP_DIR "${WDK_ROOT}/bin/${WDK_VERSION}")
 
