@@ -89,11 +89,35 @@ install(FILES
 	OPTIONAL
 )
 
-execute_process(COMMAND  "${WDK_ROOT}/bin/${WDK_VERSION}/x86/ctrpp.exe"
-  -o ${CMAKE_CURRENT_SOURCE_DIR}/OpenZFS_perf.h
-  -rc ${CMAKE_CURRENT_SOURCE_DIR}/OpenZFS_perf.rc
-  -ch ${CMAKE_CURRENT_SOURCE_DIR}/OpenZFS_counters.h
- ${CMAKE_CURRENT_SOURCE_DIR}/OpenZFS.man )
+find_program(CTRPP_PROGRAM
+	ctrpp
+	HINTS
+		"${WDK_ROOT}/bin/${WDK_VERSION}/x86"
+		"$ENV{WINSDK_NUGET_ROOT}/bin/${WDK_VERSION}/x86"
+	NO_DEFAULT_PATH
+)
+
+if (NOT CTRPP_PROGRAM)
+	message(FATAL_ERROR "Failed to find ctrpp.exe")
+endif()
+
+execute_process(
+	COMMAND "${CTRPP_PROGRAM}"
+		-o "${CMAKE_CURRENT_SOURCE_DIR}/OpenZFS_perf.h"
+		-rc "${CMAKE_CURRENT_SOURCE_DIR}/OpenZFS_perf.rc"
+		-ch "${CMAKE_CURRENT_SOURCE_DIR}/OpenZFS_counters.h"
+		"${CMAKE_CURRENT_SOURCE_DIR}/OpenZFS.man"
+	RESULT_VARIABLE CTRPP_RESULT
+	OUTPUT_VARIABLE CTRPP_STDOUT
+	ERROR_VARIABLE CTRPP_STDERR
+)
+
+if (NOT CTRPP_RESULT EQUAL 0)
+	message(FATAL_ERROR
+		"ctrpp failed with exit code ${CTRPP_RESULT}\n"
+		"stdout: ${CTRPP_STDOUT}\n"
+		"stderr: ${CTRPP_STDERR}")
+endif()
 
 file(GLOB CSOURCES CONFIGURE_DEPENDS "*.c")
 
