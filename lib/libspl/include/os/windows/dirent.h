@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
  *  MIT License
  * Copyright (c) 2019 win32ports

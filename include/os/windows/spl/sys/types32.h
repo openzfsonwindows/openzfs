@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CDDL-1.0
 
 #ifndef _SPL_TYPES32_H
 #define	_SPL_TYPES32_H

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CDDL-1.0
 #ifndef _mpwmi_h_
 #define	_mpwmi_h_
 

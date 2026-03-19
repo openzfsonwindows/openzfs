@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CDDL-1.0
 #!/bin/bash
 #
 # Submit installer to Microsoft to be signed with EV certificate.

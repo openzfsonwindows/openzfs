@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*	$NetBSD: getopt.c,v 1.10 1997/07/21 14:08:51 jtc Exp $	*/
 
 /*

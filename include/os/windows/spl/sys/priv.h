@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
  * Copyright (c) 2006 nCircle Network Security, Inc.
  * All rights reserved.

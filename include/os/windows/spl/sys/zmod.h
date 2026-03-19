@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
  *  zlib.h -- interface of the 'zlib' general purpose compression library
  *  version 1.2.5, April 19th, 2010

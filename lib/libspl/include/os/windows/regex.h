@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*	$NetBSD: regex.h,v 1.16 2021/02/23 17:14:42 christos Exp $	*/
 
 /*

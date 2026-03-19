@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CDDL-1.0
 // {{NO_DEPENDENCIES}}
 // Microsoft Visual C++ generated include file.
 // Used by resource.rc

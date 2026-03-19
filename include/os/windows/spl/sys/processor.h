@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CDDL-1.0
 
 #ifndef	_SPL_PROCESSOR_H
 #define	_SPL_PROCESSOR_H
