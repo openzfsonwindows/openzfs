@@ -120,6 +120,11 @@ jobs:
           Write-Host "WDKContentRoot=$env:WDKContentRoot"
           Write-Host "WINSDK_NUGET_ROOT=$env:WINSDK_NUGET_ROOT"
 
+      - name: Find ctrpp.exe
+        shell: pwsh
+        run: |
+          Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter ctrpp.exe | Select-Object FullName
+
       - name: Configure CMake
         shell: pwsh
         run: |
