@@ -103,6 +103,12 @@ jobs:
           Get-ChildItem "${{ github.workspace }}" | Format-Table -AutoSize
           Get-ChildItem "${{ github.workspace }}\packages" | Format-Table -AutoSize
 
+      - name: Find signtool and stampinf
+        shell: pwsh
+        run: |
+          Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter signtool.exe | Select-Object FullName
+          Get-ChildItem "${{ github.workspace }}\packages" -Recurse -Filter stampinf.exe | Select-Object FullName
+
       - name: Configure CMake
         shell: pwsh
         run: |
