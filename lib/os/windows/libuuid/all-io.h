@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 /*
  * No copyright is claimed.  This code is in the public domain; do with
  * it what you wish.

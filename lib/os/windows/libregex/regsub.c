@@ -1,6 +1,8 @@
 /*	$NetBSD: regsub.c,v 1.3 2016/02/29 22:10:13 aymeric Exp $	*/
 
 /*
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2015 The NetBSD Foundation, Inc.
  * All rights reserved.
  *

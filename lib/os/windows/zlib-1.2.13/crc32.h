@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-OpenZFS-ThirdParty-PublicDomain
 /* crc32.h -- tables for rapid CRC calculation
  * Generated automatically by crc32.c
  */

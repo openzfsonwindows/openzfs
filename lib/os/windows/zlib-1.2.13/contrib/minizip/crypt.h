@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-OpenZFS-ThirdParty-PublicDomain
 /* crypt.h -- base code for crypt/uncrypt ZIPfile
 
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
 static struct fetcherr http_errlist[] = {
 	{ 100, FETCH_OK, "Continue" },
 	{ 101, FETCH_OK, "Switching Protocols" },
