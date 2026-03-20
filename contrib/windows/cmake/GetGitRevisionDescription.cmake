@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LicenseRef-OpenZFS-ThirdParty-PublicDomain
+#
 # - Returns a version string from Git
 #
 # These functions force a re-configure on each git commit so that you can

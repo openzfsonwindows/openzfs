@@ -162,6 +162,8 @@ my $untagged_patterns = q(
 	tests/zfs-tests/include/tunables.cfg
 	tests/zfs-tests/include/zpool_script.shlib
 	tests/zfs-tests/tests/functional/mv_files/random_creation.ksh
+
+	lib/os/windows/*
 );
 
 # For files expected to have a license tags, these are the acceptable tags by
