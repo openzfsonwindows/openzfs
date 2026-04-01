@@ -72,7 +72,7 @@ AddService  = %ServiceName%,2,OpenZFS.Service
 
 [DefaultUninstall]
 UnregisterDlls = shellopenzfs
-;;,OpenZFS.DllFiles
+DelFiles = OpenZFS.DriverFiles
 
 [DefaultUninstall.Services]
 ; We shoud have this line, but if we do

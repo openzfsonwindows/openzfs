@@ -10,6 +10,7 @@ add_library(libzutil
 	zutil_pool.c
 	os/windows/zutil_compat.c
 	os/windows/zutil_device_path_os.c
+	os/windows/zutil_elevate.c
 	os/windows/zutil_import_os.c
 )
 

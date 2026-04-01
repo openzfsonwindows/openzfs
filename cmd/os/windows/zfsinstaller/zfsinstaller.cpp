@@ -1162,18 +1162,26 @@ zfs_uninstall(char *inf_path)
 	fprintf(stderr, "\n\n");
 #endif
 	bool needReboot = false;
-	QuiesceAndRemoveOpenZFS(&needReboot);
+	DWORD qret = QuiesceAndRemoveOpenZFS(&needReboot);
 	printf("QuiesceAndRemoveOpenZFS: needReboot=%d\n", needReboot);
 
+	/*
+	 * Run INF cleanup and root-device removal regardless of whether the
+	 * device was fully quiesced — these steps clean up registry/service
+	 * entries and are safe to run even if the driver is still loaded.
+	 */
+	executeInfSection("DefaultUninstall 128 ", inf_path);
+	uninstallRootDevice(inf_path, ZFS_ROOTDEV);
+	perf_counters_uninstall(inf_path);
 
-	// 128+2	Always ask the users if they want to reboot.
-	if (ret == 0)
-		ret = executeInfSection("DefaultUninstall 128 ", inf_path);
-
-	if (ret == 0) {
-		ret = uninstallRootDevice(inf_path, ZFS_ROOTDEV);
-		perf_counters_uninstall(inf_path);
-	}
+	/*
+	 * Propagate quiesce failure: if the driver wasn't actually unloaded
+	 * (e.g. needs reboot, or removal was vetoed), return non-zero so the
+	 * caller knows not to proceed with zvol_uninstall while the
+	 * zvol_os_wait_openzvol thread may still be running.
+	 */
+	if (ret == 0 && qret != ERROR_SUCCESS)
+		ret = qret;
 
 #ifdef _DEBUG
 	fprintf(stderr, "Checking status on OpenZFS service ...\n");

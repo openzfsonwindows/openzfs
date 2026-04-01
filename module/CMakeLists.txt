@@ -148,7 +148,7 @@ add_compile_options(
 function(um_add_executable name)
 	add_executable(${ARGV})
 
-	target_link_options(${name} PRIVATE "/MANIFESTUAC:level=\"requireAdministrator\" uiAccess=\"false\"")
+	target_link_options(${name} PRIVATE "/MANIFESTUAC:level=\"asInvoker\" uiAccess=\"false\"")
 	add_custom_command(
 		TARGET ${name}
 		POST_BUILD

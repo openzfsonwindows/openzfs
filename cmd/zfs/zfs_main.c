@@ -7444,6 +7444,15 @@ share_mount(int op, int argc, char **argv)
 		usage(B_FALSE);
 	}
 
+#ifdef _WIN32
+	/*
+	 * Elevation is only needed when actually mounting: 'zfs mount' with
+	 * no arguments just lists mounted filesystems and runs unprivileged.
+	 */
+	if (op == OP_MOUNT && (do_all || recursive || argc > 0))
+		windows_relaunch_elevated();
+#endif
+
 	/* check number of arguments */
 	if (do_all || recursive) {
 		enum sa_protocol protocol = SA_NO_PROTOCOL;
@@ -8058,6 +8067,9 @@ unshare_unmount(int op, int argc, char **argv)
 static int
 zfs_do_unmount(int argc, char **argv)
 {
+#ifdef _WIN32
+	windows_relaunch_elevated();
+#endif
 	return (unshare_unmount(OP_MOUNT, argc, argv));
 }
 
@@ -9318,6 +9330,9 @@ main(int argc, char **argv)
 	(void) setlocale(LC_ALL, "");
 	(void) setlocale(LC_NUMERIC, "C");
 	(void) textdomain(TEXT_DOMAIN);
+#ifdef _WIN32
+	windows_elevate_child_init(&argc, argv);
+#endif
 
 	opterr = 0;
 

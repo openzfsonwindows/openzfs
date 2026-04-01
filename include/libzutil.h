@@ -298,6 +298,16 @@ static inline char *zfs_strerror(int errnum) {
 	return (errbuf);
 }
 
+#ifdef _WIN32
+/*
+ * UAC elevation helper — implemented in libzutil/os/windows/zutil_elevate.c.
+ * CLI tools call this for operations that require administrator privileges;
+ * the library itself never calls it.
+ */
+extern void windows_elevate_child_init(int *argc, char **argv);
+extern void windows_relaunch_elevated(void);
+#endif
+
 #ifdef	__cplusplus
 }
 #endif

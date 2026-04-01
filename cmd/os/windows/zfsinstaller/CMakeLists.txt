@@ -6,6 +6,7 @@ um_add_executable(zfsinstaller
 	zfsinstaller.h
 	resource.rc
 )
+target_link_options(zfsinstaller PRIVATE "/MANIFESTUAC:level=\"requireAdministrator\" uiAccess=\"false\"")
 target_compile_definitions(zfsinstaller PRIVATE UNICODE _UNICODE)
 target_link_libraries(zfsinstaller setupapi libspl)
 install(TARGETS zfsinstaller RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}/driver")

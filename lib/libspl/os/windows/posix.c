@@ -704,7 +704,17 @@ gethostid(void)
 uid_t
 geteuid(void)
 {
-	return (0); // woah, root?
+	BOOL elevated = FALSE;
+	HANDLE token;
+	if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+		TOKEN_ELEVATION elev;
+		DWORD sz = sizeof (elev);
+		if (GetTokenInformation(token, TokenElevation,
+		    &elev, sz, &sz))
+			elevated = elev.TokenIsElevated;
+		CloseHandle(token);
+	}
+	return (elevated ? 0 : 1);
 }
 
 struct passwd *
@@ -1359,6 +1369,11 @@ wosix_isatty(int fd)
 						p = NULL;
 					}
 				}
+				/* ZFS elevation relay pipe is interactive */
+				if (p == NULL &&
+				    is_wprefix(nameinfo->FileName,
+				    L"\\zfs_elev_"))
+					p = nameinfo->FileName;
 			}
 			free(nameinfo);
 			if (p != NULL)

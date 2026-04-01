@@ -374,6 +374,7 @@ typedef struct zpool_command {
 	const char	*name;
 	int		(*func)(int, char **);
 	zpool_help_t	usage;
+	boolean_t	no_admin;	/* B_TRUE: runs without elevation */
 } zpool_command_t;
 
 /*
@@ -386,7 +387,7 @@ typedef struct zpool_command {
  * the generic usage message.
  */
 static zpool_command_t command_table[] = {
-	{ "version",	zpool_do_version,	HELP_VERSION		},
+	{ "version",	zpool_do_version,	HELP_VERSION,	B_TRUE	},
 	{ NULL },
 	{ "create",	zpool_do_create,	HELP_CREATE		},
 	{ "destroy",	zpool_do_destroy,	HELP_DESTROY		},
@@ -399,9 +400,9 @@ static zpool_command_t command_table[] = {
 	{ "checkpoint",	zpool_do_checkpoint,	HELP_CHECKPOINT		},
 	{ "prefetch",	zpool_do_prefetch,	HELP_PREFETCH		},
 	{ NULL },
-	{ "list",	zpool_do_list,		HELP_LIST		},
-	{ "iostat",	zpool_do_iostat,	HELP_IOSTAT		},
-	{ "status",	zpool_do_status,	HELP_STATUS		},
+	{ "list",	zpool_do_list,		HELP_LIST,	B_TRUE	},
+	{ "iostat",	zpool_do_iostat,	HELP_IOSTAT,	B_TRUE	},
+	{ "status",	zpool_do_status,	HELP_STATUS,	B_TRUE	},
 	{ NULL },
 	{ "online",	zpool_do_online,	HELP_ONLINE		},
 	{ "offline",	zpool_do_offline,	HELP_OFFLINE		},
@@ -423,14 +424,14 @@ static zpool_command_t command_table[] = {
 	{ "upgrade",	zpool_do_upgrade,	HELP_UPGRADE		},
 	{ "reguid",	zpool_do_reguid,	HELP_REGUID		},
 	{ NULL },
-	{ "history",	zpool_do_history,	HELP_HISTORY		},
-	{ "events",	zpool_do_events,	HELP_EVENTS		},
+	{ "history",	zpool_do_history,	HELP_HISTORY,	B_TRUE	},
+	{ "events",	zpool_do_events,	HELP_EVENTS,	B_TRUE	},
 	{ NULL },
-	{ "get",	zpool_do_get,		HELP_GET		},
+	{ "get",	zpool_do_get,		HELP_GET,	B_TRUE	},
 	{ "set",	zpool_do_set,		HELP_SET		},
 	{ "sync",	zpool_do_sync,		HELP_SYNC		},
 	{ NULL },
-	{ "wait",	zpool_do_wait,		HELP_WAIT		},
+	{ "wait",	zpool_do_wait,		HELP_WAIT,	B_TRUE	},
 	{ NULL },
 	{ "ddtprune",	zpool_do_ddt_prune,	HELP_DDT_PRUNE		},
 };
@@ -13826,6 +13827,10 @@ main(int argc, char **argv)
 	(void) textdomain(TEXT_DOMAIN);
 	srand(time(NULL));
 
+#ifdef _WIN32
+	windows_elevate_child_init(&argc, argv);
+#endif
+
 	opterr = 0;
 
 	/*
@@ -13879,10 +13884,17 @@ main(int argc, char **argv)
 	 */
 	if (find_command_idx(cmdname, &i) == 0) {
 		current_command = &command_table[i];
+#ifdef _WIN32
+		if (!command_table[i].no_admin)
+			windows_relaunch_elevated();
+#endif
 		ret = command_table[i].func(argc - 1, newargv + 1);
 	} else if (strchr(cmdname, '=')) {
 		verify(find_command_idx("set", &i) == 0);
 		current_command = &command_table[i];
+#ifdef _WIN32
+		windows_relaunch_elevated();
+#endif
 		ret = command_table[i].func(argc, newargv);
 	} else if (strcmp(cmdname, "freeze") == 0 && argc == 3) {
 		/*
