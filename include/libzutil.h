@@ -306,6 +306,7 @@ static inline char *zfs_strerror(int errnum) {
  */
 extern void windows_elevate_child_init(int *argc, char **argv);
 extern void windows_relaunch_elevated(void);
+extern boolean_t windows_is_elev_child(void);
 #endif
 
 #ifdef	__cplusplus

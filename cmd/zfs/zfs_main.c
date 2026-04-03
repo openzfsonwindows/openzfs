@@ -7444,14 +7444,6 @@ share_mount(int op, int argc, char **argv)
 		usage(B_FALSE);
 	}
 
-#ifdef _WIN32
-	/*
-	 * Elevation is only needed when actually mounting: 'zfs mount' with
-	 * no arguments just lists mounted filesystems and runs unprivileged.
-	 */
-	if (op == OP_MOUNT && (do_all || recursive || argc > 0))
-		windows_relaunch_elevated();
-#endif
 
 	/* check number of arguments */
 	if (do_all || recursive) {
@@ -8067,9 +8059,6 @@ unshare_unmount(int op, int argc, char **argv)
 static int
 zfs_do_unmount(int argc, char **argv)
 {
-#ifdef _WIN32
-	windows_relaunch_elevated();
-#endif
 	return (unshare_unmount(OP_MOUNT, argc, argv));
 }
 
@@ -9410,10 +9399,20 @@ main(int argc, char **argv)
 	if (find_command_idx(cmdname, &i) == 0) {
 		current_command = &command_table[i];
 		ret = command_table[i].func(argc - 1, newargv + 1);
+#ifdef _WIN32
+		if (ret != 0 && !windows_is_elev_child() &&
+		    libzfs_errno(g_zfs) == EZFS_PERM)
+			windows_relaunch_elevated();
+#endif
 	} else if (strchr(cmdname, '=') != NULL) {
 		verify(find_command_idx("set", &i) == 0);
 		current_command = &command_table[i];
 		ret = command_table[i].func(argc, newargv);
+#ifdef _WIN32
+		if (ret != 0 && !windows_is_elev_child() &&
+		    libzfs_errno(g_zfs) == EZFS_PERM)
+			windows_relaunch_elevated();
+#endif
 	} else {
 		(void) fprintf(stderr, gettext("unrecognized "
 		    "command '%s'\n"), cmdname);

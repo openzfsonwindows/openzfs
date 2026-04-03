@@ -374,7 +374,6 @@ typedef struct zpool_command {
 	const char	*name;
 	int		(*func)(int, char **);
 	zpool_help_t	usage;
-	boolean_t	no_admin;	/* B_TRUE: runs without elevation */
 } zpool_command_t;
 
 /*
@@ -387,53 +386,53 @@ typedef struct zpool_command {
  * the generic usage message.
  */
 static zpool_command_t command_table[] = {
-	{ "version",	zpool_do_version,	HELP_VERSION,	B_TRUE	},
+	{ "version",	zpool_do_version,	HELP_VERSION	},
 	{ NULL },
-	{ "create",	zpool_do_create,	HELP_CREATE		},
-	{ "destroy",	zpool_do_destroy,	HELP_DESTROY		},
+	{ "create",	zpool_do_create,	HELP_CREATE	},
+	{ "destroy",	zpool_do_destroy,	HELP_DESTROY	},
 	{ NULL },
-	{ "add",	zpool_do_add,		HELP_ADD		},
-	{ "remove",	zpool_do_remove,	HELP_REMOVE		},
+	{ "add",	zpool_do_add,		HELP_ADD	},
+	{ "remove",	zpool_do_remove,	HELP_REMOVE	},
 	{ NULL },
-	{ "labelclear",	zpool_do_labelclear,	HELP_LABELCLEAR		},
+	{ "labelclear",	zpool_do_labelclear,	HELP_LABELCLEAR	},
 	{ NULL },
-	{ "checkpoint",	zpool_do_checkpoint,	HELP_CHECKPOINT		},
-	{ "prefetch",	zpool_do_prefetch,	HELP_PREFETCH		},
+	{ "checkpoint",	zpool_do_checkpoint,	HELP_CHECKPOINT	},
+	{ "prefetch",	zpool_do_prefetch,	HELP_PREFETCH	},
 	{ NULL },
-	{ "list",	zpool_do_list,		HELP_LIST,	B_TRUE	},
-	{ "iostat",	zpool_do_iostat,	HELP_IOSTAT,	B_TRUE	},
-	{ "status",	zpool_do_status,	HELP_STATUS,	B_TRUE	},
+	{ "list",	zpool_do_list,		HELP_LIST	},
+	{ "iostat",	zpool_do_iostat,	HELP_IOSTAT	},
+	{ "status",	zpool_do_status,	HELP_STATUS	},
 	{ NULL },
-	{ "online",	zpool_do_online,	HELP_ONLINE		},
-	{ "offline",	zpool_do_offline,	HELP_OFFLINE		},
-	{ "clear",	zpool_do_clear,		HELP_CLEAR		},
-	{ "reopen",	zpool_do_reopen,	HELP_REOPEN		},
+	{ "online",	zpool_do_online,	HELP_ONLINE	},
+	{ "offline",	zpool_do_offline,	HELP_OFFLINE	},
+	{ "clear",	zpool_do_clear,		HELP_CLEAR	},
+	{ "reopen",	zpool_do_reopen,	HELP_REOPEN	},
 	{ NULL },
-	{ "attach",	zpool_do_attach,	HELP_ATTACH		},
-	{ "detach",	zpool_do_detach,	HELP_DETACH		},
-	{ "replace",	zpool_do_replace,	HELP_REPLACE		},
-	{ "split",	zpool_do_split,		HELP_SPLIT		},
+	{ "attach",	zpool_do_attach,	HELP_ATTACH	},
+	{ "detach",	zpool_do_detach,	HELP_DETACH	},
+	{ "replace",	zpool_do_replace,	HELP_REPLACE	},
+	{ "split",	zpool_do_split,		HELP_SPLIT	},
 	{ NULL },
-	{ "initialize",	zpool_do_initialize,	HELP_INITIALIZE		},
-	{ "resilver",	zpool_do_resilver,	HELP_RESILVER		},
-	{ "scrub",	zpool_do_scrub,		HELP_SCRUB		},
-	{ "trim",	zpool_do_trim,		HELP_TRIM		},
+	{ "initialize",	zpool_do_initialize,	HELP_INITIALIZE	},
+	{ "resilver",	zpool_do_resilver,	HELP_RESILVER	},
+	{ "scrub",	zpool_do_scrub,		HELP_SCRUB	},
+	{ "trim",	zpool_do_trim,		HELP_TRIM	},
 	{ NULL },
-	{ "import",	zpool_do_import,	HELP_IMPORT		},
-	{ "export",	zpool_do_export,	HELP_EXPORT		},
-	{ "upgrade",	zpool_do_upgrade,	HELP_UPGRADE		},
-	{ "reguid",	zpool_do_reguid,	HELP_REGUID		},
+	{ "import",	zpool_do_import,	HELP_IMPORT	},
+	{ "export",	zpool_do_export,	HELP_EXPORT	},
+	{ "upgrade",	zpool_do_upgrade,	HELP_UPGRADE	},
+	{ "reguid",	zpool_do_reguid,	HELP_REGUID	},
 	{ NULL },
-	{ "history",	zpool_do_history,	HELP_HISTORY,	B_TRUE	},
-	{ "events",	zpool_do_events,	HELP_EVENTS,	B_TRUE	},
+	{ "history",	zpool_do_history,	HELP_HISTORY	},
+	{ "events",	zpool_do_events,	HELP_EVENTS	},
 	{ NULL },
-	{ "get",	zpool_do_get,		HELP_GET,	B_TRUE	},
-	{ "set",	zpool_do_set,		HELP_SET		},
-	{ "sync",	zpool_do_sync,		HELP_SYNC		},
+	{ "get",	zpool_do_get,		HELP_GET	},
+	{ "set",	zpool_do_set,		HELP_SET	},
+	{ "sync",	zpool_do_sync,		HELP_SYNC	},
 	{ NULL },
-	{ "wait",	zpool_do_wait,		HELP_WAIT,	B_TRUE	},
+	{ "wait",	zpool_do_wait,		HELP_WAIT	},
 	{ NULL },
-	{ "ddtprune",	zpool_do_ddt_prune,	HELP_DDT_PRUNE		},
+	{ "ddtprune",	zpool_do_ddt_prune,	HELP_DDT_PRUNE	},
 };
 
 #define	NCOMMAND	(ARRAY_SIZE(command_table))
@@ -13884,18 +13883,21 @@ main(int argc, char **argv)
 	 */
 	if (find_command_idx(cmdname, &i) == 0) {
 		current_command = &command_table[i];
+		ret = command_table[i].func(argc - 1, newargv + 1);
 #ifdef _WIN32
-		if (!command_table[i].no_admin)
+		if (ret != 0 && !windows_is_elev_child() &&
+		    libzfs_errno(g_zfs) == EZFS_PERM)
 			windows_relaunch_elevated();
 #endif
-		ret = command_table[i].func(argc - 1, newargv + 1);
 	} else if (strchr(cmdname, '=')) {
 		verify(find_command_idx("set", &i) == 0);
 		current_command = &command_table[i];
-#ifdef _WIN32
-		windows_relaunch_elevated();
-#endif
 		ret = command_table[i].func(argc, newargv);
+#ifdef _WIN32
+		if (ret != 0 && !windows_is_elev_child() &&
+		    libzfs_errno(g_zfs) == EZFS_PERM)
+			windows_relaunch_elevated();
+#endif
 	} else if (strcmp(cmdname, "freeze") == 0 && argc == 3) {
 		/*
 		 * 'freeze' is a vile debugging abomination, so we treat

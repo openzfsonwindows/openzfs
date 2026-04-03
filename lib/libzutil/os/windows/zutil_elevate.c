@@ -137,6 +137,14 @@ wait_pipe_connect(HANDLE hpipe, OVERLAPPED *ov, HANDLE hprocess)
  * redirects all three standard streams through them.
  */
 void
+static boolean_t g_is_elev_child = B_FALSE;
+
+boolean_t
+windows_is_elev_child(void)
+{
+	return (g_is_elev_child);
+}
+
 windows_elevate_child_init(int *argc, char **argv)
 {
 	const char *base = NULL;
@@ -153,6 +161,8 @@ windows_elevate_child_init(int *argc, char **argv)
 
 	if (base == NULL || base[0] == '\0')
 		return;
+
+	g_is_elev_child = B_TRUE;
 
 	/* Build the two pipe names from the base */
 	char pipe_out[300], pipe_in[300];
