@@ -936,16 +936,31 @@ zfs_ioc_unmount(zfs_cmd_t *zc)
 	return (zfs_windows_unmount(zc));
 }
 
+/*
+ * Policy for Windows mount/unmount operations.
+ *
+ * Mount and unmount modify the system namespace and require
+ * administrator privilege.  Unlike dataset operations, they are not
+ * delegatable via "zfs allow": the VFS_MOUNT privilege is used rather
+ * than ZFS_POOL_CONFIG so the intent is explicit.
+ */
+static int
+zfs_secpolicy_mount(zfs_cmd_t *zc, nvlist_t *innvl, cred_t *cr)
+{
+	(void) zc; (void) innvl;
+	return (secpolicy_zfs(cr) != 0 ? SET_ERROR(EPERM) : 0);
+}
+
 void
 zfs_ioctl_init_os(void)
 {
 	/*
-	 * Windows functions
+	 * Windows-specific ioctls.
 	 */
 	zfs_ioctl_register_legacy(ZFS_IOC_MOUNT, zfs_ioc_mount,
-	    zfs_secpolicy_config, NO_NAME, B_FALSE, POOL_CHECK_NONE);
+	    zfs_secpolicy_mount, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 	zfs_ioctl_register_legacy(ZFS_IOC_UNMOUNT, zfs_ioc_unmount,
-	    zfs_secpolicy_config, NO_NAME, B_FALSE, POOL_CHECK_NONE);
+	    zfs_secpolicy_mount, NO_NAME, B_FALSE, POOL_CHECK_NONE);
 
 }
 
