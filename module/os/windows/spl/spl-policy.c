@@ -62,16 +62,28 @@ secpolicy_zinject(const cred_t *cr)
 int
 secpolicy_vnode_any_access(const cred_t *cr, struct vnode *vp, uid_t owner)
 {
-	// FIXME
-	return (0);
+	uid_t uid = crgetuid(cr);
+	if (uid == owner || uid == 0)
+		return (0);
+	return (EPERM);
 }
 
+/*
+ * Like secpolicy_vnode_access() but takes the currently-granted mode bits
+ * (curmode) and the desired mode bits (wantmode).  Returns 0 if all wanted
+ * bits are already granted, or if the caller has admin privilege to override
+ * the missing bits.
+ */
 int
 secpolicy_vnode_access2(const cred_t *cr, struct vnode *vp, uid_t owner,
     mode_t curmode, mode_t wantmode)
 {
-	// FIXME
-	return (0);
+	mode_t mode = ~curmode & wantmode;
+
+	if (mode == 0)
+		return (0);
+
+	return (crgetuid(cr) == 0 ? 0 : EACCES);
 }
 
 int
@@ -80,7 +92,50 @@ secpolicy_vnode_setattr(cred_t *cr, struct vnode *vp, vattr_t *vap,
     int unlocked_access(void *, int, cred_t *),
     void *node)
 {
-	// FIXME
+	int mask = vap->va_mask;
+	int error;
+
+	if (mask & ATTR_SIZE) {
+		if (vp->v_type == VDIR)
+			return (EISDIR);
+		error = unlocked_access(node, VWRITE, cr);
+		if (error)
+			return (error);
+	}
+	if (mask & ATTR_MODE) {
+		error = secpolicy_vnode_setdac(vp, cr, ovap->va_uid);
+		if (error)
+			return (error);
+		error = secpolicy_setid_setsticky_clear(vp, vap, ovap, cr);
+		if (error)
+			return (error);
+	} else {
+		vap->va_mode = ovap->va_mode;
+	}
+	if (mask & (ATTR_UID | ATTR_GID)) {
+		error = secpolicy_vnode_setdac(vp, cr, ovap->va_uid);
+		if (error)
+			return (error);
+		/*
+		 * Changing uid/gid to something other than the caller's own
+		 * requires admin privilege.
+		 */
+		if (((mask & ATTR_UID) && vap->va_uid != ovap->va_uid) ||
+		    ((mask & ATTR_GID) && vap->va_gid != ovap->va_gid &&
+		    !groupmember(vap->va_gid, cr))) {
+			if (crgetuid(cr) != 0)
+				return (EPERM);
+		}
+		if (((mask & ATTR_UID) && vap->va_uid != ovap->va_uid) ||
+		    ((mask & ATTR_GID) && vap->va_gid != ovap->va_gid)) {
+			secpolicy_setid_clear(vap, cr);
+		}
+	}
+	if (mask & (ATTR_ATIME | ATTR_MTIME)) {
+		error = secpolicy_vnode_setdac(vp, cr, ovap->va_uid);
+		if (error)
+			return (error);
+	}
 	return (0);
 }
 
@@ -94,39 +149,72 @@ int
 secpolicy_setid_setsticky_clear(vnode_t *vp, vattr_t *vap, const vattr_t *ovap,
     cred_t *cr)
 {
-	// FIXME
+	uid_t uid = crgetuid(cr);
+
+	/*
+	 * setuid: only the file owner or admin may set it.
+	 */
+	if ((vap->va_mode & S_ISUID) != 0 &&
+	    uid != ovap->va_uid && uid != 0)
+		vap->va_mode &= ~S_ISUID;
+
+	/*
+	 * sticky bit on a non-directory: only admin.
+	 */
+	if (vp->v_type != VDIR && (vap->va_mode & S_ISVTX) != 0 && uid != 0)
+		vap->va_mode &= ~S_ISVTX;
+
+	/*
+	 * setgid: only if the caller is a member of the target group or admin.
+	 */
+	if ((vap->va_mode & S_ISGID) != 0 && uid != 0 &&
+	    !groupmember(vap->va_gid, cr))
+		vap->va_mode &= ~S_ISGID;
+
 	return (0);
 }
 
 int
 secpolicy_vnode_remove(struct vnode *vp, const cred_t *cr)
 {
-	return (0);
+	return (crgetuid(cr) == 0 ? 0 : EPERM);
 }
 
 int
 secpolicy_vnode_create_gid(const cred_t *cred)
 {
-	return (0);
+	return (crgetuid(cred) == 0 ? 0 : EPERM);
 }
 
 int
 secpolicy_vnode_setids_setgids(struct vnode *vp, const cred_t *cr,
     gid_t gid)
 {
-	return (0);
+	if (groupmember(gid, cr))
+		return (0);
+	return (crgetuid(cr) == 0 ? 0 : EPERM);
+}
+
+/*
+ * Check whether the caller may change the DAC (mode bits / ownership) of
+ * a vnode.  The file owner and admin (uid 0) are always allowed.
+ */
+int
+secpolicy_vnode_setdac(struct vnode *vp, const cred_t *cr, uid_t owner)
+{
+	uid_t uid = crgetuid(cr);
+	if (uid == owner || uid == 0)
+		return (0);
+	return (EPERM);
 }
 
 int
-secpolicy_vnode_setdac(struct vnode *vp, const cred_t *cr, uid_t u)
+secpolicy_vnode_chown(struct vnode *vp, const cred_t *cr, uid_t owner)
 {
-	return (0);
-}
-
-int
-secpolicy_vnode_chown(struct vnode *vp, const cred_t *cr, uid_t u)
-{
-	return (0);
+	uid_t uid = crgetuid(cr);
+	if (uid == owner || uid == 0)
+		return (0);
+	return (EPERM);
 }
 
 int
@@ -141,9 +229,15 @@ secpolicy_xvattr(vattr_t *vap, uid_t uid, const cred_t *cr, mode_t mod)
 	return (0);
 }
 
+/*
+ * POSIX requires clearing setuid/setgid when ownership changes and the
+ * caller is not privileged.
+ */
 int
 secpolicy_setid_clear(vattr_t *vap, const cred_t *cr)
 {
+	if (crgetuid(cr) != 0)
+		vap->va_mode &= ~(S_ISUID | S_ISGID);
 	return (0);
 }
 
