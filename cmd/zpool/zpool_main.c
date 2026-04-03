@@ -4521,6 +4521,9 @@ zpool_do_import(int argc, char **argv)
 	 * otherwise any attempt to discover pools will silently fail.
 	 */
 	if (argc == 0 && geteuid() != 0) {
+#ifdef _WIN32
+		windows_elevate_if_needed(1, B_TRUE);
+#endif
 		(void) fprintf(stderr, gettext("cannot "
 		    "discover pools: permission denied\n"));
 
@@ -13884,20 +13887,10 @@ main(int argc, char **argv)
 	if (find_command_idx(cmdname, &i) == 0) {
 		current_command = &command_table[i];
 		ret = command_table[i].func(argc - 1, newargv + 1);
-#ifdef _WIN32
-		if (ret != 0 && !windows_is_elev_child() &&
-		    libzfs_errno(g_zfs) == EZFS_PERM)
-			windows_relaunch_elevated();
-#endif
 	} else if (strchr(cmdname, '=')) {
 		verify(find_command_idx("set", &i) == 0);
 		current_command = &command_table[i];
 		ret = command_table[i].func(argc, newargv);
-#ifdef _WIN32
-		if (ret != 0 && !windows_is_elev_child() &&
-		    libzfs_errno(g_zfs) == EZFS_PERM)
-			windows_relaunch_elevated();
-#endif
 	} else if (strcmp(cmdname, "freeze") == 0 && argc == 3) {
 		/*
 		 * 'freeze' is a vile debugging abomination, so we treat
@@ -13919,6 +13912,10 @@ main(int argc, char **argv)
 		    "command '%s'\n"), cmdname);
 		usage(B_FALSE);
 	}
+
+#ifdef _WIN32
+	ZFS_ELEV_CHECK(ret);
+#endif
 
 	for (i = 0; i < argc; i++)
 		free(newargv[i]);

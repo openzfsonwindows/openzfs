@@ -8039,6 +8039,9 @@ unshare_unmount(int op, int argc, char **argv)
 				    zfs_get_name(zhp));
 				ret = 1;
 			} else if (zfs_unmountall(zhp, flags) != 0) {
+#ifdef _WIN32
+				ZFS_ELEV_CHECK(1);
+#endif
 				ret = 1;
 			}
 			break;
@@ -9400,18 +9403,14 @@ main(int argc, char **argv)
 		current_command = &command_table[i];
 		ret = command_table[i].func(argc - 1, newargv + 1);
 #ifdef _WIN32
-		if (ret != 0 && !windows_is_elev_child() &&
-		    libzfs_errno(g_zfs) == EZFS_PERM)
-			windows_relaunch_elevated();
+		ZFS_ELEV_CHECK(ret);
 #endif
 	} else if (strchr(cmdname, '=') != NULL) {
 		verify(find_command_idx("set", &i) == 0);
 		current_command = &command_table[i];
 		ret = command_table[i].func(argc, newargv);
 #ifdef _WIN32
-		if (ret != 0 && !windows_is_elev_child() &&
-		    libzfs_errno(g_zfs) == EZFS_PERM)
-			windows_relaunch_elevated();
+		ZFS_ELEV_CHECK(ret);
 #endif
 	} else {
 		(void) fprintf(stderr, gettext("unrecognized "

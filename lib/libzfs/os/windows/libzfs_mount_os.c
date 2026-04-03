@@ -282,6 +282,9 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 	HANDLE h = ZFSCreateEvent(zc.zc_name);
 
 	ret = zfs_ioctl(zhp->zfs_hdl, ZFS_IOC_MOUNT, &zc);
+	/* zfs_ioctl returns -1 on failure; translate to the actual errno */
+	if (ret != 0)
+		ret = errno ? errno : EIO;
 
 	if (ret == 0) {
 
@@ -360,6 +363,9 @@ do_unmount_impl(zfs_handle_t *zhp, const char *mntpt, int flags)
 	(void) strlcpy(zc.zc_value, mntpt, sizeof (zc.zc_value));
 
 	ret = zfs_ioctl(zhp->zfs_hdl, ZFS_IOC_UNMOUNT, &zc);
+	/* zfs_ioctl returns -1 on failure; translate to the actual errno */
+	if (ret != 0)
+		ret = errno ? errno : EIO;
 
 	if (!ret) {
 		/*

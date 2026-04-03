@@ -136,7 +136,6 @@ wait_pipe_connect(HANDLE hpipe, OVERLAPPED *ov, HANDLE hprocess)
  * so the tool never sees them, then connects to both named pipes and
  * redirects all three standard streams through them.
  */
-void
 static boolean_t g_is_elev_child = B_FALSE;
 
 boolean_t
@@ -145,6 +144,7 @@ windows_is_elev_child(void)
 	return (g_is_elev_child);
 }
 
+void
 windows_elevate_child_init(int *argc, char **argv)
 {
 	const char *base = NULL;
@@ -228,6 +228,11 @@ windows_relaunch_elevated(void)
 	if (geteuid() == 0)
 		return;
 
+	fprintf(stderr,
+	    "Attempting to relaunch command with"
+	    " administrator privileges...\r\n");
+	fflush(stderr);
+
 	DWORD pid = GetCurrentProcessId();
 
 	char pipebase[256];
@@ -292,8 +297,8 @@ windows_relaunch_elevated(void)
 		if (hpipe_in != INVALID_HANDLE_VALUE)
 			CloseHandle(hpipe_in);
 		(void) fprintf(stderr,
-		    "ShellExecuteEx(runas) failed: error %lu\n"
-		    "This operation requires administrator privileges.\n",
+		    "ShellExecuteEx(runas) failed: error %lu\r\n"
+		    "This operation requires administrator privileges.\r\n",
 		    GetLastError());
 		exit(1);
 	}
@@ -493,4 +498,17 @@ done:
 	GetExitCodeProcess(sei.hProcess, &code);
 	CloseHandle(sei.hProcess);
 	exit((int)code);
+}
+
+/*
+ * Elevate if ret is non-zero, perm_err is true, and we are not already
+ * running as an elevated child.  This is the single call-site helper for
+ * CLI tools: they compute perm_err from the libzfs error code (which
+ * requires libzfs.h, unavailable here) and pass it in as a boolean.
+ */
+void
+windows_elevate_if_needed(int ret, boolean_t perm_err)
+{
+	if (ret != 0 && perm_err && !windows_is_elev_child())
+		windows_relaunch_elevated();
 }

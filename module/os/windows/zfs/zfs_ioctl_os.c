@@ -45,6 +45,7 @@
 #include <sys/zvol.h>
 #include <sys/fm/util.h>
 #include <sys/dsl_crypt.h>
+#include <sys/policy.h>
 #include <sys/zfs_windows.h>
 
 #include <sys/zfs_ioctl_impl.h>

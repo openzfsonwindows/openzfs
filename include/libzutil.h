@@ -300,13 +300,26 @@ static inline char *zfs_strerror(int errnum) {
 
 #ifdef _WIN32
 /*
- * UAC elevation helper — implemented in libzutil/os/windows/zutil_elevate.c.
- * CLI tools call this for operations that require administrator privileges;
- * the library itself never calls it.
+ * UAC elevation helpers — implemented in libzutil/os/windows/zutil_elevate.c.
+ * CLI tools call these for operations that require administrator privileges;
+ * the library itself never calls them.
  */
 extern void windows_elevate_child_init(int *argc, char **argv);
 extern void windows_relaunch_elevated(void);
+extern void windows_elevate_if_needed(int ret, boolean_t perm_err);
 extern boolean_t windows_is_elev_child(void);
+
+/*
+ * Convenience macro for CLI tool dispatch loops.  Callers must include
+ * libzfs.h before libzutil.h so that the EZFS_* constants are visible.
+ * g_zfs must be the libzfs_handle_t* in scope.
+ */
+#define	ZFS_ELEV_CHECK(ret) \
+	windows_elevate_if_needed((ret), \
+	    libzfs_errno(g_zfs) == EZFS_PERM || \
+	    libzfs_errno(g_zfs) == EZFS_MOUNTFAILED || \
+	    libzfs_errno(g_zfs) == EZFS_UMOUNTFAILED || \
+	    libzfs_errno(g_zfs) == EZFS_CRYPTOFAILED)
 #endif
 
 #ifdef	__cplusplus

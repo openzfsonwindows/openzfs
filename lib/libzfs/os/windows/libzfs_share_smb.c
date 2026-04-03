@@ -242,6 +242,8 @@ smb_enable_share(sa_share_impl_t impl_share)
 
 	DWORD parm_err = 0;
 	error = NetShareAdd(NULL, 502, (LPBYTE)&info, &parm_err);
+	if (error == ERROR_ACCESS_DENIED || error == ERROR_PRIVILEGE_NOT_HELD)
+		error = SA_NO_PERMISSION;
 
 out:
 	if (wmountpoint)
@@ -293,6 +295,8 @@ smb_disable_share(sa_share_impl_t impl_share)
 #endif
 
 	error = NetShareDel(NULL, wsharename, 0);
+	if (error == ERROR_ACCESS_DENIED || error == ERROR_PRIVILEGE_NOT_HELD)
+		error = SA_NO_PERMISSION;
 
 out:
 	if (wsharename)

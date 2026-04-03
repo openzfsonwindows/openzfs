@@ -42,13 +42,13 @@ static sa_fstype_t *nfs_fstype;
 static int
 nfs_enable_share(sa_share_impl_t impl_share)
 {
-	return (SA_NOT_IMPLEMENTED);
+	return (SA_OK);
 }
 
 static int
 nfs_disable_share(sa_share_impl_t impl_share)
 {
-	return (SA_NOT_IMPLEMENTED);
+	return (SA_OK);
 }
 
 /*
