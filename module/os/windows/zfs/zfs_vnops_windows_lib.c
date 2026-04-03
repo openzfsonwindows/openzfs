@@ -2646,60 +2646,7 @@ zfs_uid2sid(uint64_t uid, SID **sid)
 uint64_t
 zfs_sid2uid(SID *sid)
 {
-	// Root
-	if (sid->Revision == 1 && sid->SubAuthorityCount == 1 &&
-	    sid->IdentifierAuthority.Value[0] == 0 &&
-	    sid->IdentifierAuthority.Value[1] == 0 &&
-	    sid->IdentifierAuthority.Value[2] == 0 &&
-	    sid->IdentifierAuthority.Value[3] == 0 &&
-	    sid->IdentifierAuthority.Value[4] == 0 &&
-	    sid->IdentifierAuthority.Value[5] == 5 &&
-	    sid->SubAuthority[0] == 18) {
-		dprintf("%s: returning uid %llu\n", __func__, 0ULL);
-		return (0);
-	}
-
-	// Samba's SID scheme: S-1-22-1-X
-	if (sid->Revision == 1 && sid->SubAuthorityCount == 2 &&
-	    sid->IdentifierAuthority.Value[0] == 0 &&
-	    sid->IdentifierAuthority.Value[1] == 0 &&
-	    sid->IdentifierAuthority.Value[2] == 0 &&
-	    sid->IdentifierAuthority.Value[3] == 0 &&
-	    sid->IdentifierAuthority.Value[4] == 0 &&
-	    sid->IdentifierAuthority.Value[5] == 22 &&
-	    sid->SubAuthority[0] == 1) {
-		dprintf("%s: returning uid %llu\n", __func__,
-		    sid->SubAuthority[1]);
-		return (sid->SubAuthority[1]);
-	}
-
-	// Example matcher for S-1-5-21-*-*-*-RID
-	if (sid->Revision == 1 &&
-	    sid->IdentifierAuthority.Value[5] == 5 &&
-	    sid->SubAuthorityCount >= 5 &&
-	    sid->SubAuthority[0] == 21) {
-
-		uid_t uid = sid->SubAuthority[sid->SubAuthorityCount - 1];
-		dprintf("%s: returning2 uid %llu\n", __func__,
-		    uid);
-		return (uid);
-	}
-
-	// Example matcher for S-1-5-22-*-*-*-RID
-	if (sid->Revision == 1 &&
-	    sid->IdentifierAuthority.Value[5] == 5 &&
-	    sid->SubAuthorityCount >= 5 &&
-	    sid->SubAuthority[0] == 22) {
-
-		uid_t uid = sid->SubAuthority[sid->SubAuthorityCount - 1];
-		dprintf("%s: returning3 uid %llu\n", __func__,
-		    uid);
-		return (uid);
-	}
-
-
-	dprintf("%s: returning uid UID_NOBODY\n", __func__);
-	return (UID_NOBODY);
+	return (spl_sid_to_uid((struct _SID *)sid));
 }
 
 void
@@ -2731,47 +2678,7 @@ zfs_gid2sid(uint64_t gid, SID **sid)
 uint64_t
 zfs_sid2gid(SID *sid)
 {
-	// Root
-	if (sid->Revision == 1 && sid->SubAuthorityCount == 1 &&
-	    sid->IdentifierAuthority.Value[0] == 0 &&
-	    sid->IdentifierAuthority.Value[1] == 0 &&
-	    sid->IdentifierAuthority.Value[2] == 0 &&
-	    sid->IdentifierAuthority.Value[3] == 0 &&
-	    sid->IdentifierAuthority.Value[4] == 0 &&
-	    sid->IdentifierAuthority.Value[5] == 22 &&
-	    sid->SubAuthority[0] == 2) {
-		dprintf("%s: returning gid %llu\n", __func__, 0ULL);
-		return (0);
-	}
-
-	// Samba's SID scheme: S-1-22-1-X
-	if (sid->Revision == 1 && sid->SubAuthorityCount == 2 &&
-	    sid->IdentifierAuthority.Value[0] == 0 &&
-	    sid->IdentifierAuthority.Value[1] == 0 &&
-	    sid->IdentifierAuthority.Value[2] == 0 &&
-	    sid->IdentifierAuthority.Value[3] == 0 &&
-	    sid->IdentifierAuthority.Value[4] == 0 &&
-	    sid->IdentifierAuthority.Value[5] == 22 &&
-	    sid->SubAuthority[0] == 2) {
-		dprintf("%s: returning gid %llu\n", __func__,
-		    sid->SubAuthority[1]);
-		return (sid->SubAuthority[1]);
-	}
-
-	// Example matcher for S-1-5-21-*-*-*-RID
-	if (sid->Revision == 1 &&
-	    sid->IdentifierAuthority.Value[5] == 5 &&
-	    sid->SubAuthorityCount >= 5 &&
-	    sid->SubAuthority[0] == 21) {
-
-		uid_t gid = sid->SubAuthority[sid->SubAuthorityCount - 1];
-		dprintf("%s: returning2 gid %llu\n", __func__,
-		    gid);
-		return (gid);
-	}
-
-	dprintf("%s: returning gid GID_NOBODY\n", __func__);
-	return (GID_NOBODY);
+	return (spl_sid_to_gid((struct _SID *)sid));
 }
 
 void
@@ -3538,11 +3445,11 @@ out:
  * cleanup IRP and the directory will not be deleted.
  * The create operation can fail marking the file delete
  * on close for any of the following reasons:
- * The file is marked read-only – STATUS_CANNOT_DELETE
- * The volume is marked read-only – STATUS_CANNOT_DELETE
- * The file backs an image section – STATUS_CANNOT_DELETE
+ * The file is marked read-only : STATUS_CANNOT_DELETE
+ * The volume is marked read-only : STATUS_CANNOT_DELETE
+ * The file backs an image section : STATUS_CANNOT_DELETE
  * The link or stream is already in the delete-pending
- * state – STATUS_DELETE_PENDING
+ * state : STATUS_DELETE_PENDING
  */
 NTSTATUS
 zfs_setunlink_masked(FILE_OBJECT *fo, vnode_t *dvp)

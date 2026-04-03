@@ -25,24 +25,8 @@
 int
 spl_priv_check_cred(const cred_t *cred, int priv, int flags)
 {
-	int error = 0;
-
-	/*
-	 * The default is deny, so if no policies have granted it, reject
-	 * with a privilege error here.
-	 */
-
-	// WIN32 - only root can run commands at the moment, but we should
-	// fix this test
-	// SC_HANDLE SCM;
-	// SCL = OpenSCManager(NULL, NULL, SC_MANAGER_CREATE_SERVICE)
-	// if (SCM != NULL) {
-	//   isAdmin = TRUE;
-	//   CloseServiceHandle(SCM);
-	// }
-	// error = EPERM;
-// out:
-	return (error);
+	(void) cred; (void) priv; (void) flags;
+	return (spl_get_caller_uid() == 0 ? 0 : EPERM);
 }
 
 int

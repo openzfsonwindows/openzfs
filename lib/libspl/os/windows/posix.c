@@ -45,6 +45,8 @@
 #include <sys/uio.h>
 #include <termios.h>
 #include <wfunopen.h>
+#include <pwd.h>
+#include <grp.h>
 
 /* Magic instruction to compiler to add library */
 #pragma comment(lib, "ws2_32.lib")
@@ -135,16 +137,119 @@ getexecname(void)
 	return (execname);
 }
 
-struct passwd *
-getpwnam(const char *login)
+/*
+ * Map a Windows SID to a POSIX uid using the same scheme as the kernel's
+ * spl_sid_to_uid().  Uses Win32 SID accessor macros (no direct struct access).
+ */
+static uid_t
+win_sid_to_uid(SID *sid)
 {
-	return (NULL);
+	SID_IDENTIFIER_AUTHORITY *auth = GetSidIdentifierAuthority(sid);
+	UCHAR nsub = *GetSidSubAuthorityCount(sid);
+
+	/* S-1-5-18 (SYSTEM) -> root */
+	if (auth->Value[5] == 5 && nsub == 1 &&
+	    *GetSidSubAuthority(sid, 0) == 18)
+		return (0);
+
+	/* S-1-22-1-X (Samba unix-user) */
+	if (auth->Value[5] == 22 && nsub == 2 &&
+	    *GetSidSubAuthority(sid, 0) == 1)
+		return ((uid_t)*GetSidSubAuthority(sid, 1));
+
+	/* S-1-5-21-*-*-*-RID (domain / local account) */
+	if (auth->Value[5] == 5 && nsub >= 5 &&
+	    *GetSidSubAuthority(sid, 0) == 21)
+		return ((uid_t)*GetSidSubAuthority(sid, nsub - 1));
+
+	/* S-1-5-22-*-*-*-RID */
+	if (auth->Value[5] == 5 && nsub >= 5 &&
+	    *GetSidSubAuthority(sid, 0) == 22)
+		return ((uid_t)*GetSidSubAuthority(sid, nsub - 1));
+
+	return (65534); /* nobody */
+}
+
+/*
+ * Map a Windows SID to a POSIX gid using the same scheme as the kernel's
+ * spl_sid_to_gid().
+ */
+static gid_t
+win_sid_to_gid(SID *sid)
+{
+	SID_IDENTIFIER_AUTHORITY *auth = GetSidIdentifierAuthority(sid);
+	UCHAR nsub = *GetSidSubAuthorityCount(sid);
+
+	/* S-1-22-2-0 / S-1-22-2-X (Samba unix-group) */
+	if (auth->Value[5] == 22 && nsub >= 1 &&
+	    *GetSidSubAuthority(sid, 0) == 2) {
+		if (nsub == 1)
+			return (0);
+		return ((gid_t)*GetSidSubAuthority(sid, 1));
+	}
+
+	/* S-1-5-21-*-*-*-RID (domain / local group) */
+	if (auth->Value[5] == 5 && nsub >= 5 &&
+	    *GetSidSubAuthority(sid, 0) == 21)
+		return ((gid_t)*GetSidSubAuthority(sid, nsub - 1));
+
+	return (65534); /* nobody */
 }
 
 struct passwd *
+getpwnam(const char *login)
+{
+	static __declspec(thread) struct passwd pw;
+	static __declspec(thread) char name_buf[256];
+	BYTE sid_buf[SECURITY_MAX_SID_SIZE];
+	DWORD sid_size = sizeof (sid_buf);
+	char domain[256];
+	DWORD domain_size = sizeof (domain);
+	SID_NAME_USE sid_use;
+
+	if (!LookupAccountNameA(NULL, login, sid_buf, &sid_size,
+	    domain, &domain_size, &sid_use))
+		return (NULL);
+
+	if (sid_use != SidTypeUser)
+		return (NULL);
+
+	strlcpy(name_buf, login, sizeof (name_buf));
+	pw.pw_name = name_buf;
+	pw.pw_passwd = "";
+	pw.pw_uid = win_sid_to_uid((SID *)sid_buf);
+	pw.pw_gid = pw.pw_uid;
+	pw.pw_gecos = name_buf;
+	pw.pw_dir = "";
+	pw.pw_shell = "";
+	return (&pw);
+}
+
+struct group *
 getgrnam(const char *group)
 {
-	return (NULL);
+	static __declspec(thread) struct group grp;
+	static __declspec(thread) char name_buf[256];
+	BYTE sid_buf[SECURITY_MAX_SID_SIZE];
+	DWORD sid_size = sizeof (sid_buf);
+	char domain[256];
+	DWORD domain_size = sizeof (domain);
+	SID_NAME_USE sid_use;
+
+	if (!LookupAccountNameA(NULL, group, sid_buf, &sid_size,
+	    domain, &domain_size, &sid_use))
+		return (NULL);
+
+	if (sid_use != SidTypeGroup && sid_use != SidTypeAlias &&
+	    sid_use != SidTypeWellKnownGroup)
+		return (NULL);
+
+	strlcpy(name_buf, group, sizeof (name_buf));
+	grp.gr_name = name_buf;
+	grp.gr_passwd = "";
+	grp.gr_gid = win_sid_to_gid((SID *)sid_buf);
+	grp.gr_mem = NULL;
+	return (&grp);
 }
 
 struct tm *
@@ -720,7 +825,44 @@ geteuid(void)
 struct passwd *
 getpwuid(uid_t uid)
 {
-	return (NULL);
+	static __declspec(thread) struct passwd pw;
+	static __declspec(thread) char name_buf[256];
+	DWORD name_size = sizeof (name_buf);
+	char domain[256];
+	DWORD domain_size = sizeof (domain);
+	SID_NAME_USE sid_use;
+
+	/*
+	 * Construct S-1-5-18 for uid 0 (SYSTEM / root).  Other uids would
+	 * require knowing the machine/domain SID to reconstruct the full
+	 * S-1-5-21-*-*-*-RID, so we leave them unresolved for now.
+	 */
+	if (uid != 0)
+		return (NULL);
+
+	SID_IDENTIFIER_AUTHORITY nt_auth = SECURITY_NT_AUTHORITY;
+	BYTE sid_buf[SECURITY_MAX_SID_SIZE];
+	PSID sid = (PSID)sid_buf;
+
+	if (!AllocateAndInitializeSid(&nt_auth, 1,
+	    SECURITY_LOCAL_SYSTEM_RID, 0, 0, 0, 0, 0, 0, 0, &sid))
+		return (NULL);
+
+	BOOL ok = LookupAccountSidA(NULL, sid, name_buf, &name_size,
+	    domain, &domain_size, &sid_use);
+	FreeSid(sid);
+
+	if (!ok)
+		return (NULL);
+
+	pw.pw_name = name_buf;
+	pw.pw_passwd = "";
+	pw.pw_uid = 0;
+	pw.pw_gid = 0;
+	pw.pw_gecos = name_buf;
+	pw.pw_dir = "";
+	pw.pw_shell = "";
+	return (&pw);
 }
 
 const char *

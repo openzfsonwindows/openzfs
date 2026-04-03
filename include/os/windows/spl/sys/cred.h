@@ -56,4 +56,14 @@ extern int spl_cred_ismember_gid(cred_t *cr, gid_t gid);
 
 #define	crgetsid(cred, i)	(NULL)
 
+/*
+ * SID-to-POSIX uid/gid mapping and caller-identity helpers.
+ * Implemented in spl-cred.c; callers that need the full SID definition
+ * must include <Ntifs.h> before this header (or use the opaque pointer).
+ */
+extern uid_t spl_sid_to_uid(struct _SID *sid);
+extern gid_t spl_sid_to_gid(struct _SID *sid);
+extern uid_t spl_get_caller_uid(void);
+extern gid_t spl_get_caller_gid(void);
+
 #endif  /* _SPL_CRED_H */
