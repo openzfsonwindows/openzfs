@@ -3531,6 +3531,11 @@ show_import(nvlist_t *config, boolean_t report_error)
 		    "accessed by another system.\n"));
 		break;
 
+	case ZPOOL_STATUS_FAULTED_FDOM_R:
+		(void) printf_color(ANSI_YELLOW, gettext("One or more failure "
+		    " domains are faulted.\n"));
+		break;
+
 	case ZPOOL_STATUS_FAULTED_DEV_R:
 	case ZPOOL_STATUS_FAULTED_DEV_NR:
 		(void) printf_color(ANSI_YELLOW, gettext("One or more devices "
@@ -8078,7 +8083,7 @@ zpool_do_online(int argc, char **argv)
 
 	if ((zhp = zpool_open(g_zfs, poolname)) == NULL) {
 		(void) fprintf(stderr, gettext("failed to open pool "
-		    "\"%s\""), poolname);
+		    "\"%s\"\n"), poolname);
 		return (1);
 	}
 
@@ -8222,7 +8227,7 @@ zpool_do_offline(int argc, char **argv)
 
 	if ((zhp = zpool_open(g_zfs, poolname)) == NULL) {
 		(void) fprintf(stderr, gettext("failed to open pool "
-		    "\"%s\""), poolname);
+		    "\"%s\"\n"), poolname);
 		return (1);
 	}
 
@@ -10733,6 +10738,18 @@ print_status_reason(zpool_handle_t *zhp, status_cbdata_t *cbp,
 		(void) snprintf(action, AC_SIZE,
 		    gettext("Replace the faulted device, "
 		    "or use 'zpool clear' to mark the device\n\trepaired.\n"));
+		break;
+
+	case ZPOOL_STATUS_FAULTED_FDOM_R:
+		(void) snprintf(status, ST_SIZE,
+		    gettext("One or more failure domains are faulted. "
+		    "The storage devices may be\n\tintact. Sufficient "
+		    "replicas exist for the pool to continue functioning\n\t"
+		    "in a degraded state.\n"));
+		(void) snprintf(action, AC_SIZE,
+		    gettext("Replace the faulted domain device, "
+		    "or use 'zpool clear' to mark domain\n\tstorage devices "
+		    "repaired.\n"));
 		break;
 
 	case ZPOOL_STATUS_FAULTED_DEV_NR:
