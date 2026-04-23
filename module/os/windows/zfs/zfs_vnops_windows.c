@@ -78,6 +78,7 @@
 #include <sys/unistd.h>
 #include <sys/zfs_windows.h>
 #include <sys/kstat.h>
+#include <sys/zfs_vss.h>
 
 #ifdef DEBUG_IOCOUNT
 static kmutex_t GIANT_SERIAL_LOCK;
@@ -9243,6 +9244,8 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = diskDispatcher(DeviceObject, &Irp, IrpSp);
 		else if (zmo && zmo->type == MOUNT_TYPE_VCB)
 			Status = fsDispatcher(DeviceObject, &Irp, IrpSp);
+		else if (zmo && zmo->type == MOUNT_TYPE_VSS)
+			Status = zfs_vss_dispatcher(DeviceObject, &Irp, IrpSp);
 		else {
 			Status = STATUS_INVALID_DEVICE_REQUEST;
 			Irp->IoStatus.Information = 0;

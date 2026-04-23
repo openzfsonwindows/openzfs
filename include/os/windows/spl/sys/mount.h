@@ -91,6 +91,7 @@ typedef enum _FSD_IDENTIFIER_TYPE {
 	MOUNT_TYPE_VCB = ':VCB', // Volume Control Block
 	MOUNT_TYPE_FCB = ':FCB', // File Control Block
 	MOUNT_TYPE_CCB = ':CCB', // Context Control Block
+	MOUNT_TYPE_VSS = ':VSS', // VSS snapshot device
 } FSD_IDENTIFIER_TYPE;
 
 // typedef enum mount_type mount_type_t;

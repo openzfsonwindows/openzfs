@@ -62,13 +62,23 @@
 #include <sys/spa_impl.h>
 #include <sys/zfs_context.h>
 #include <sys/zfs_znode.h>
-#include <sys/zfs_vnode.h>
+#include <sys/vnode.h>
+#include <sys/mount.h>
 
 #include <sys/zfs_vss.h>
 
 /* Prefix for all snapshot device objects. */
 #define	ZFS_VSS_DEVICE_PREFIX	"\\Device\\ZfsSnapshot"
 #define	ZFS_VSS_DEVICE_PREFIXW	L"\\Device\\ZfsSnapshot"
+
+/*
+ * Device extension stored in each \Device\ZfsSnapshot<hex> device object.
+ * Must begin with FSD_IDENTIFIER_TYPE so the main dispatcher can route it.
+ */
+typedef struct zfs_vss_ext {
+	FSD_IDENTIFIER_TYPE	zve_type;	/* == MOUNT_TYPE_VSS */
+	uint64_t		zve_guid;	/* ZFS dataset GUID */
+} zfs_vss_ext_t;
 
 /*
  * Per-snapshot device tracking entry.
@@ -136,9 +146,11 @@ zfs_vss_snapshot_add(uint64_t guid)
 	/*
 	 * FILE_DEVICE_VIRTUAL_DISK: no "new device" popup.
 	 * FILE_READ_ONLY_DEVICE: snapshot is always read-only.
+	 * Allocate sizeof(zfs_vss_ext_t) extension so the dispatcher
+	 * can identify this as a VSS device via DeviceExtension->type.
 	 */
 	status = IoCreateDevice(WIN_DriverObject,
-	    0,
+	    sizeof (zfs_vss_ext_t),
 	    &ustr,
 	    FILE_DEVICE_VIRTUAL_DISK,
 	    FILE_DEVICE_SECURE_OPEN | FILE_READ_ONLY_DEVICE,
@@ -152,6 +164,10 @@ zfs_vss_snapshot_add(uint64_t guid)
 		    __func__, devname, status);
 		return (EIO);
 	}
+
+	zfs_vss_ext_t *ext = devobj->DeviceExtension;
+	ext->zve_type = MOUNT_TYPE_VSS;
+	ext->zve_guid = guid;
 
 	zfs_vss_snap_t *zvs = kmem_alloc(sizeof (*zvs), KM_SLEEP);
 	zvs->zvs_guid   = guid;
@@ -374,4 +390,52 @@ zfs_vss_fini(void)
 	avl_destroy(&zfs_vss_snaps);
 	mutex_exit(&zfs_vss_lock);
 	mutex_destroy(&zfs_vss_lock);
+}
+
+/*
+ * IRP dispatcher for \Device\ZfsSnapshot<hex> devices.
+ *
+ * Phase 1: handle the lifecycle IRPs so opens/closes work cleanly.
+ * Phase 2 (future): wire IRP_MJ_READ/WRITE through the snapshot objset
+ * so the device can be mounted as a read-only ZFS volume by VSS.
+ */
+NTSTATUS
+zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	PIRP Irp = *pIrp;
+	NTSTATUS status;
+
+	switch (IrpSp->MajorFunction) {
+
+	case IRP_MJ_CREATE:
+		dprintf("%s: IRP_MJ_CREATE\n", __func__);
+		Irp->IoStatus.Information = FILE_OPENED;
+		status = STATUS_SUCCESS;
+		break;
+
+	case IRP_MJ_CLEANUP:
+		dprintf("%s: IRP_MJ_CLEANUP\n", __func__);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_SUCCESS;
+		break;
+
+	case IRP_MJ_CLOSE:
+		dprintf("%s: IRP_MJ_CLOSE\n", __func__);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_SUCCESS;
+		break;
+
+	default:
+		dprintf("%s: unhandled major 0x%x\n",
+		    __func__, IrpSp->MajorFunction);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_INVALID_DEVICE_REQUEST;
+		break;
+	}
+
+	Irp->IoStatus.Status = status;
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+	*pIrp = NULL;
+	return (status);
 }

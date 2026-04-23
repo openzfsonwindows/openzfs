@@ -43,4 +43,8 @@ extern void	zfs_vss_pool_remove(spa_t *spa);
 extern int	zfs_vss_pool_add_cb(dsl_pool_t *dp, dsl_dataset_t *ds,
     void *arg);
 
+/* IRP dispatcher for \Device\ZfsSnapshot<hex> device objects */
+extern NTSTATUS	zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
+    PIO_STACK_LOCATION IrpSp);
+
 #endif /* _ZFS_VSS_H */
