@@ -569,6 +569,17 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		status = STATUS_SUCCESS;
 		break;
 
+	case IOCTL_MOUNTDEV_QUERY_SUGGESTED_LINK_NAME:
+		/*
+		 * Tell the Mount Manager we have no suggested link name so it
+		 * does not auto-assign a drive letter to snapshot devices.
+		 */
+		dprintf("VSS %s: IOCTL_MOUNTDEV_QUERY_SUGGESTED_LINK_NAME"
+		    " (suppressed)\n", __func__);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_NOT_FOUND;
+		break;
+
 	case IOCTL_STORAGE_GET_DEVICE_NUMBER:
 	{
 		dprintf("VSS %s: IOCTL_STORAGE_GET_DEVICE_NUMBER\n", __func__);
