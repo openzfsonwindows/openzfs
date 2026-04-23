@@ -1955,6 +1955,8 @@ matched_mount(PIRP Irp, PDEVICE_OBJECT DeviceToMount,
 	RtlDuplicateUnicodeString(0, &dcb->uuid, &vcb->uuid);
 	memcpy(vcb->rawuuid, dcb->rawuuid, sizeof (vcb->rawuuid));
 	vfs_set_mountedon(vcb, vfs_mountedon(dcb));
+	if (dcb->ascii_name)
+		vcb->ascii_name = kmem_strdup(dcb->ascii_name);
 
 	vcb->mountflags = dcb->mountflags;
 	if (vfs_isrdonly(dcb))
@@ -1968,6 +1970,16 @@ matched_mount(PIRP Irp, PDEVICE_OBJECT DeviceToMount,
 
 	IoAcquireVpbSpinLock(&OldIrql);
 	InitVpb(vpb, volDeviceObject, dcb);
+	/*
+	 * The IO Manager pre-fills Vpb->RealDevice with the top-of-stack
+	 * FDO, but MountMgr's \DosDevices\E: symlink targets our named DCB
+	 * (\Device\zfs-{uuid}).  IoQueryFileDosDeviceName() resolves the
+	 * drive letter via Vpb->RealDevice, so point it at the DCB so that
+	 * tools like FileSpy (and kernel callers of IoQueryFileDosDeviceName)
+	 * can resolve file paths to their drive letter instead of showing the
+	 * raw \Device\ZFS{uuid}\... NT path.
+	 */
+	vpb->RealDevice = dcb->FunctionalDeviceObject;
 	volDeviceObject->Vpb = vpb;
 	vcb->vpb = vpb;
 	vpb->ReferenceCount += 1;
@@ -2134,6 +2146,16 @@ out:
 	return (status);
 }
 
+NTSTATUS IoSetDeviceInterfacePropertyData(
+	PUNICODE_STRING SymbolicLinkName,
+	const DEVPROPKEY *PropertyKey,
+	LCID Lcid,
+	ULONG Flags,
+	DEVPROPTYPE Type,
+	ULONG Size,
+	PVOID Data
+);
+
 void
 mount_add_device(PDRIVER_OBJECT DriverObject,
     PDEVICE_OBJECT PhysicalDeviceObject)
@@ -2159,6 +2181,41 @@ mount_add_device(PDRIVER_OBJECT DriverObject,
 
 	status = IoSetDeviceInterfaceState(&zmo->deviceInterfaceName, TRUE);
 	dprintf("Enable GUID_DEVINTERFACE_VOLUME: 0x%lx\n", status);
+
+	/*
+	 * Set DEVPKEY_Storage_SystemCritical and DEVPKEY_Storage_Portable
+	 * = FALSE on our GUID_DEVINTERFACE_VOLUME entry.  twext.dll
+	 * (Previous Versions) queries both; if either is absent it skips
+	 * the SMB loopback path and FSCTL_SRV_ENUMERATE_SNAPSHOTS is never
+	 * sent.  Both must exist (FALSE) for Previous Versions to work.
+	 */
+	{
+		/* {4d1ebee8-0803-4774-9842-b77db50265e9}, 4 */
+		static const DEVPROPKEY kStorageSysCritical = {
+		    { 0x4d1ebee8, 0x0803, 0x4774,
+		    { 0x98, 0x42, 0xb7, 0x7d, 0xb5, 0x02, 0x65, 0xe9 } },
+		    4
+		};
+		/* {4d1ebee8-0803-4774-9842-b77db50265e9}, 2 */
+		static const DEVPROPKEY kStoragePortable = {
+		    { 0x4d1ebee8, 0x0803, 0x4774,
+		    { 0x98, 0x42, 0xb7, 0x7d, 0xb5, 0x02, 0x65, 0xe9 } },
+		    2
+		};
+		DEVPROP_BOOLEAN val = DEVPROP_FALSE;
+		NTSTATUS sprop_status = IoSetDeviceInterfacePropertyData(
+		    &zmo->deviceInterfaceName,
+		    &kStorageSysCritical, 0, 0,
+		    DEVPROP_TYPE_BOOLEAN, sizeof (DEVPROP_BOOLEAN), &val);
+		dprintf("Set DEVPKEY_Storage_SystemCritical: 0x%lx\n",
+		    sprop_status);
+		sprop_status = IoSetDeviceInterfacePropertyData(
+		    &zmo->deviceInterfaceName,
+		    &kStoragePortable, 0, 0,
+		    DEVPROP_TYPE_BOOLEAN, sizeof (DEVPROP_BOOLEAN), &val);
+		dprintf("Set DEVPKEY_Storage_Portable: 0x%lx\n",
+		    sprop_status);
+	}
 
 	status = IoRegisterDeviceInterface(PhysicalDeviceObject,
 	    &MOUNTDEV_MOUNTED_DEVICE_GUID, NULL,

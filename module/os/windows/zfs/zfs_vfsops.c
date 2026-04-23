@@ -468,13 +468,13 @@ zfs_register_callbacks(struct mount *vfsp)
 	error = error ? error : dsl_prop_register(ds,
 	    zfs_prop_to_name(ZFS_PROP_LONGNAME), longname_changed_cb, zfsvfs);
 
-	error = error ? error : dsl_prop_register(ds,
-	    zfs_prop_to_name(ZFS_PROP_MIMIC), mimic_changed_cb, zfsvfs);
-
 	// Set NTFS as default here, if the property isn't set one
 	// way or another, we will use NTFS. That way users can
 	// deliberate set ZFS if wanted.
 	zfsvfs->z_mimic = ZFS_MIMIC_NTFS;
+
+	error = error ? error : dsl_prop_register(ds,
+	    zfs_prop_to_name(ZFS_PROP_MIMIC), mimic_changed_cb, zfsvfs);
 
 	dsl_pool_config_exit(dmu_objset_pool(os), FTAG);
 	if (error)

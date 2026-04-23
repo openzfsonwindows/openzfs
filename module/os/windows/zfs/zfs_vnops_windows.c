@@ -78,6 +78,9 @@
 #include <sys/unistd.h>
 #include <sys/zfs_windows.h>
 #include <sys/kstat.h>
+#include <sys/zfs_vss.h>
+#include <sys/dsl_pool.h>
+#include <sys/dsl_dataset.h>
 
 #ifdef DEBUG_IOCOUNT
 static kmutex_t GIANT_SERIAL_LOCK;
@@ -1506,7 +1509,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	    FileObject->RelatedFileObject == NULL) {
 
 		// don't allow root to be opened on unmounted FS
-		if (!(zmo->vpb->Flags & VPB_MOUNTED))
+		if (vfs_fsprivate(zmo) == NULL)
 			return (STATUS_DEVICE_NOT_READY);
 
 		if (CreateDisposition == FILE_CREATE ||
@@ -1554,12 +1557,11 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			// so do so now.
 			filename[outlen] = 0;
 			dprintf("%s: converted name is '%s' input len bytes %d "
-			    "(err %d) %s %s (Vpb %lu)\n", __func__, filename,
+			    "(err %d) %s %s\n", __func__, filename,
 			    FileObject->FileName.Length, error,
 			    DeleteOnClose ? "DeleteOnClose" : "",
 			    IrpSp->Flags&SL_CASE_SENSITIVE ? "CaseSensitive" :
-			    "CaseInsensitive",
-			    IrpSp->DeviceObject->Vpb->ReferenceCount);
+			    "CaseInsensitive");
 
 			if (!(IrpSp->Flags & SL_CASE_SENSITIVE) &&
 			    (zfsvfs->z_case != ZFS_CASE_SENSITIVE))
@@ -1619,6 +1621,10 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			}
 			// Related set, return it as opened.
 			dvp = FileObject->RelatedFileObject->FsContext;
+			if (dvp == NULL) {
+				/* RelatedFileObject is a raw device, not ZFS */
+				return (STATUS_INVALID_PARAMETER);
+			}
 			zp = VTOZ(dvp);
 			dprintf("%s: Relative null-name open\n",
 			    __func__);
@@ -2256,7 +2262,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			SeLockSubjectContext(
 			    &IrpSp->Parameters.Create.SecurityContext->
 			    AccessState->SubjectSecurityContext);
-#if 1
+#if 0
 			if (!FileOpenReparsePoint &&
 			    !SeAccessCheck(vnode_security(vp ? vp : dvp),
 			    &IrpSp->Parameters.Create.SecurityContext->
@@ -2717,6 +2723,128 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 		}
 	}
 
+	/*
+	 * Time Warp: intercept \@GMT-YYYY.MM.DD-HH.MM.SS\... paths.
+	 * Windows SMB (srv2.sys) and Explorer pass these when a user
+	 * opens a Previous Versions file.  We map the UTC timestamp to the
+	 * nearest ZFS snapshot at-or-before that time and issue a
+	 * STATUS_REPARSE redirect to \Device\ZfsSnapshot<hex16>\<rest>.
+	 *
+	 * \@GMT-YYYY.MM.DD-HH.MM.SS is exactly 25 WCHARs.  After that, the
+	 * remainder of the path (including its leading \) is passed via the
+	 * REPARSE_DATA_BUFFER Reserved field so the IO Manager appends it
+	 * to the substitute device name on re-parse.
+	 */
+	{
+		PUNICODE_STRING gmt_fn = &IrpSp->FileObject->FileName;
+		if (gmt_fn->Length >= 25 * sizeof (WCHAR) &&
+		    gmt_fn->Buffer[0] == L'\\' &&
+		    gmt_fn->Buffer[1] == L'@' &&
+		    gmt_fn->Buffer[2] == L'G' &&
+		    gmt_fn->Buffer[3] == L'M' &&
+		    gmt_fn->Buffer[4] == L'T' &&
+		    gmt_fn->Buffer[5] == L'-') {
+			WCHAR *gb = gmt_fn->Buffer;
+			TIME_FIELDS gmt_tf;
+			RtlZeroMemory(&gmt_tf, sizeof (gmt_tf));
+			gmt_tf.Year   = (CSHORT)(
+			    (gb[6] - L'0') * 1000 + (gb[7] - L'0') * 100 +
+			    (gb[8] - L'0') * 10   + (gb[9] - L'0'));
+			gmt_tf.Month  = (CSHORT)(
+			    (gb[11] - L'0') * 10 + (gb[12] - L'0'));
+			gmt_tf.Day    = (CSHORT)(
+			    (gb[14] - L'0') * 10 + (gb[15] - L'0'));
+			gmt_tf.Hour   = (CSHORT)(
+			    (gb[17] - L'0') * 10 + (gb[18] - L'0'));
+			gmt_tf.Minute = (CSHORT)(
+			    (gb[20] - L'0') * 10 + (gb[21] - L'0'));
+			gmt_tf.Second = (CSHORT)(
+			    (gb[23] - L'0') * 10 + (gb[24] - L'0'));
+
+			LARGE_INTEGER gmt_li;
+			if (RtlTimeFieldsToTime(&gmt_tf, &gmt_li)) {
+				uint64_t unix_ts = (uint64_t)
+				    ((gmt_li.QuadPart -
+				    116444736000000000LL) / 10000000LL);
+
+				uint64_t snap_guid = zfs_vss_find_by_time(
+				    unix_ts, (const char *)zmo->ascii_name);
+
+				dprintf("%s: @GMT %04d.%02d.%02d-%02d.%02d.%02d"
+				    " -> unix %llu guid %016llx\n", __func__,
+				    gmt_tf.Year, gmt_tf.Month, gmt_tf.Day,
+				    gmt_tf.Hour, gmt_tf.Minute, gmt_tf.Second,
+				    (unsigned long long)unix_ts,
+				    (unsigned long long)snap_guid);
+
+				if (snap_guid != 0) {
+					/*
+					 * Build \Device\ZfsSnapshot<hex16>
+					 * (35 WCHARs = 70 bytes).
+					 */
+					static const WCHAR pfx[] =
+					    L"\\Device\\ZfsSnapshot";
+					static const WCHAR hexch[] =
+					    L"0123456789abcdef";
+					WCHAR subst[36]; /* 35 + NUL */
+					RtlCopyMemory(subst, pfx,
+					    19 * sizeof (WCHAR));
+					for (int hi = 0; hi < 16; hi++) {
+						subst[19 + hi] = hexch[
+						    (snap_guid >>
+						    (60 - hi * 4)) & 0xf];
+					}
+					subst[35] = L'\0';
+
+					/* Remaining path after \@GMT-...\  */
+					USHORT rem = (gmt_fn->Length >
+					    25 * sizeof (WCHAR)) ?
+					    gmt_fn->Length -
+					    25 * sizeof (WCHAR) :
+					    sizeof (WCHAR);
+
+					/* Allocate REPARSE_DATA_BUFFER */
+					USHORT subst_b = 35 * sizeof (WCHAR);
+					USHORT rdb_hdr =
+					    REPARSE_DATA_BUFFER_HEADER_SIZE;
+					ULONG rpb_sz = rdb_hdr +
+					    4 * sizeof (USHORT) + subst_b;
+					REPARSE_DATA_BUFFER *rpb =
+					    ExAllocatePoolWithTag(
+					    PagedPool, rpb_sz, '!TZR');
+					if (rpb != NULL) {
+						rpb->ReparseTag =
+						    IO_REPARSE_TAG_MOUNT_POINT;
+						rpb->ReparseDataLength =
+						    (USHORT)(rpb_sz - rdb_hdr);
+						rpb->Reserved = rem;
+						rpb->MountPointReparseBuffer.
+						    SubstituteNameOffset = 0;
+						rpb->MountPointReparseBuffer.
+						    SubstituteNameLength =
+						    subst_b;
+						rpb->MountPointReparseBuffer.
+						    PrintNameOffset = subst_b;
+						rpb->MountPointReparseBuffer.
+						    PrintNameLength = 0;
+						RtlCopyMemory(rpb->
+						    MountPointReparseBuffer.
+						    PathBuffer,
+						    subst, subst_b);
+
+						Irp->IoStatus.Information =
+						    IO_REPARSE_TAG_MOUNT_POINT;
+						Irp->Tail.Overlay.
+						    AuxiliaryBuffer =
+						    (void *)rpb;
+						kmem_free(filename, PATH_MAX);
+						return (STATUS_REPARSE);
+					}
+				}
+			}
+		}
+	}
+
 	do {
 
 		// Call ZFS
@@ -2786,19 +2914,6 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 			IrpSp->FileObject->Flags |= FO_CACHE_SUPPORTED;
 		}
 
-	}
-
-	if (NT_SUCCESS(status)) {
-		dprintf("fo %p set Vpb %p (%S): %lu\n",
-		    IrpSp->FileObject, IrpSp->DeviceObject->Vpb,
-		    IrpSp->DeviceObject->Vpb->VolumeLabel,
-		    IrpSp->DeviceObject->Vpb->ReferenceCount);
-
-		dprintf("FO->DO %p we are %p (Vpb %p vs Vpb %p)\n",
-		    IrpSp->FileObject->DeviceObject,
-		    IrpSp->DeviceObject,
-		    IrpSp->FileObject->DeviceObject->Vpb,
-		    IrpSp->DeviceObject->Vpb);
 	}
 
 	// Free filename
@@ -3159,7 +3274,8 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	mount_t *zmo = DeviceObject->DeviceExtension;
 	if (!zmo ||
 	    (zmo->type != MOUNT_TYPE_VCB &&
-	    zmo->type != MOUNT_TYPE_DCB)) {
+	    zmo->type != MOUNT_TYPE_DCB &&
+	    zmo->type != MOUNT_TYPE_VSS)) {
 		return (STATUS_INVALID_PARAMETER);
 	}
 
@@ -3226,11 +3342,18 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 #endif
 
+
 		ffai->FileSystemAttributes |= FILE_FILE_COMPRESSION |
 		    FILE_VOLUME_QUOTAS | FILE_SUPPORTS_SPARSE_VDL;
 
 
 		/*
+		 * Advertise USN journal support so that the Windows shell
+		 * Previous Versions extension (twext.dll) will query VSS
+		 * providers for snapshots. twext.dll gates on this flag
+		 * and on FSCTL_QUERY_USN_JOURNAL succeeding before it
+		 * enumerates VSS shadow copies.
+		 *
 		 * NTFS has these:
 		 * FILE_CASE_SENSITIVE_SEARCH | FILE_FILE_COMPRESSION |
 		 * FILE_RETURNS_CLEANUP_RESULT_INFO |
@@ -3238,6 +3361,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		 * FILE_SUPPORTS_ENCRYPTION | FILE_SUPPORTS_TRANSACTIONS |
 		 * FILE_SUPPORTS_USN_JOURNAL;
 		 */
+		ffai->FileSystemAttributes |= FILE_SUPPORTS_USN_JOURNAL;
 
 		if (zfsvfs->z_case == ZFS_CASE_SENSITIVE)
 			ffai->FileSystemAttributes |=
@@ -5194,71 +5318,83 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		break;
 	case FSCTL_FILESYSTEM_GET_STATISTICS:
 		dprintf("    FSCTL_FILESYSTEM_GET_STATISTICS: \n");
-		FILESYSTEM_STATISTICS *fss = Irp->AssociatedIrp.SystemBuffer;
+		{
+		/*
+		 * srv2.sys checks that the per-CPU block contains both the
+		 * base FILESYSTEM_STATISTICS header AND the NTFS_STATISTICS
+		 * extension.  Returning only the 56-byte header (SizeOf-
+		 * CompleteStructure == 56) causes srv2.sys to bail before
+		 * issuing FSCTL_SRV_ENUMERATE_SNAPSHOTS, producing
+		 * STATUS_INSUFFICIENT_RESOURCES at the SMB client.
+		 *
+		 * Layout: [FILESYSTEM_STATISTICS | NTFS_STATISTICS] × ncpus
+		 * SizeOfCompleteStructure is the per-CPU block size.
+		 */
+		/*
+		 * Per-CPU block: FILESYSTEM_STATISTICS + NTFS_STATISTICS.
+		 * Always return STATUS_SUCCESS — srv2.sys loops forever on
+		 * STATUS_BUFFER_TOO_SMALL without growing its buffer.
+		 * If the buffer only holds the base header, fill that and
+		 * set SizeOfCompleteStructure so the caller knows to retry
+		 * with blksz * ncpus bytes.
+		 */
+		ULONG blksz = (ULONG)(sizeof (FILESYSTEM_STATISTICS) +
+		    sizeof (NTFS_STATISTICS));
+		ULONG ncpus =
+		    KeQueryMaximumProcessorCountEx(ALL_PROCESSOR_GROUPS);
+		ULONG outlen =
+		    IrpSp->Parameters.FileSystemControl.OutputBufferLength;
 
-		// btrfs: This is hideously wrong, but at least it stops SMB
-		// from breaking
-
-		if (IrpSp->Parameters.FileSystemControl.OutputBufferLength <
-		    sizeof (FILESYSTEM_STATISTICS))
-			return (STATUS_BUFFER_TOO_SMALL);
-
-		memset(fss, 0, sizeof (FILESYSTEM_STATISTICS));
-
-		fss->Version = 1;
-		fss->FileSystemType = FILESYSTEM_STATISTICS_TYPE_NTFS;
-		fss->SizeOfCompleteStructure = sizeof (FILESYSTEM_STATISTICS);
-
-		Irp->IoStatus.Information = sizeof (FILESYSTEM_STATISTICS);
-		Status = STATUS_SUCCESS;
-		break;
-	case FSCTL_QUERY_DEPENDENT_VOLUME:
-		dprintf("    FSCTL_QUERY_DEPENDENT_VOLUME: \n");
-		STORAGE_QUERY_DEPENDENT_VOLUME_REQUEST *req =
-		    Irp->AssociatedIrp.SystemBuffer;
-		dprintf("RequestLevel %ld: RequestFlags 0x%lx\n",
-		    req->RequestLevel, req->RequestFlags);
-// #define	QUERY_DEPENDENT_VOLUME_REQUEST_FLAG_HOST_VOLUMES    0x1
-// #define	QUERY_DEPENDENT_VOLUME_REQUEST_FLAG_GUEST_VOLUMES   0x2
-		STORAGE_QUERY_DEPENDENT_VOLUME_LEV1_ENTRY *lvl1 =
-		    Irp->AssociatedIrp.SystemBuffer;
-		STORAGE_QUERY_DEPENDENT_VOLUME_LEV2_ENTRY *lvl2 =
-		    Irp->AssociatedIrp.SystemBuffer;
-
-		Status = STATUS_NOT_SUPPORTED;
-		return (Status);
-
-		switch (req->RequestLevel) {
-		case 1:
-			if (IrpSp->
-			    Parameters.FileSystemControl.OutputBufferLength <
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV1_ENTRY))
-				return (STATUS_BUFFER_TOO_SMALL);
-			memset(lvl1, 0,
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV1_ENTRY));
-			lvl1->EntryLength =
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV1_ENTRY);
-			Irp->IoStatus.Information =
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV1_ENTRY);
-			Status = STATUS_SUCCESS;
-			break;
-		case 2:
-			if (IrpSp->
-			    Parameters.FileSystemControl.OutputBufferLength <
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV2_ENTRY))
-				return (STATUS_BUFFER_TOO_SMALL);
-			memset(lvl2, 0,
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV2_ENTRY));
-			lvl2->EntryLength =
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV2_ENTRY);
-			Irp->IoStatus.Information =
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV2_ENTRY);
-			Status = STATUS_SUCCESS;
-			break;
-		default:
-			Status = STATUS_INVALID_PARAMETER;
+		if (outlen < sizeof (FILESYSTEM_STATISTICS)) {
+			Irp->IoStatus.Information = blksz * ncpus;
+			Status = STATUS_BUFFER_TOO_SMALL;
 			break;
 		}
+
+		ULONG fill = min(ncpus, outlen / blksz);
+
+		if (fill > 0) {
+			memset(Irp->AssociatedIrp.SystemBuffer, 0,
+			    fill * blksz);
+			for (ULONG i = 0; i < fill; i++) {
+				FILESYSTEM_STATISTICS *fss =
+				    (FILESYSTEM_STATISTICS *)
+				    ((UCHAR *)Irp->AssociatedIrp.SystemBuffer +
+				    i * blksz);
+				fss->Version = 1;
+				fss->FileSystemType =
+				    FILESYSTEM_STATISTICS_TYPE_NTFS;
+				fss->SizeOfCompleteStructure = blksz;
+			}
+			Irp->IoStatus.Information = fill * blksz;
+		} else {
+			/* Buffer holds header but not NTFS extension. */
+			memset(Irp->AssociatedIrp.SystemBuffer, 0,
+			    sizeof (FILESYSTEM_STATISTICS));
+			FILESYSTEM_STATISTICS *fss =
+			    Irp->AssociatedIrp.SystemBuffer;
+			fss->Version = 1;
+			fss->FileSystemType = FILESYSTEM_STATISTICS_TYPE_NTFS;
+			fss->SizeOfCompleteStructure = blksz;
+			Irp->IoStatus.Information =
+			    sizeof (FILESYSTEM_STATISTICS);
+		}
+
+		Status = STATUS_SUCCESS;
+		dprintf("    FSCTL_FILESYSTEM_GET_STATISTICS: blksz=%lu "
+		    "ncpus=%lu fill=%lu outlen=%lu\n", blksz, ncpus, fill,
+		    outlen);
+		}
+		break;
+	case FSCTL_QUERY_DEPENDENT_VOLUME:
+		/*
+		 * ZFS volumes are not backed by virtual disk files; there
+		 * are zero dependent volumes.  Return SUCCESS with an empty
+		 * array (Information = 0).
+		 */
+		dprintf("    FSCTL_QUERY_DEPENDENT_VOLUME: 0 entries\n");
+		Irp->IoStatus.Information = 0;
+		Status = STATUS_SUCCESS;
 		break;
 
 	case FSCTL_SET_SPARSE:
@@ -5313,6 +5449,226 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 	case FSCTL_ZFS_VOLUME_MOUNTPOINT: // backward compatible
 		dprintf("    FSCTL_ZFS_VOLUME_MOUNTPOINT\n");
 		Status = fsctl_zfs_volume_mountpoint(DeviceObject, Irp, IrpSp);
+		break;
+
+/*
+ * FSCTL_QUERY_USN_JOURNAL (0x900F4): WDK defines this as
+ * FILE_DEVICE_FILE_SYSTEM function 61, METHOD_BUFFERED.
+ * twext.dll (Windows Previous Versions shell extension) checks for
+ * FILE_SUPPORTS_USN_JOURNAL in FileFsAttributeInformation, then sends
+ * this FSCTL. Return a fake but valid USN_JOURNAL_DATA so twext.dll
+ * believes the volume has an active USN journal and proceeds to query
+ * VSS providers for shadow copies.
+ */
+	case FSCTL_QUERY_USN_JOURNAL: /* 0x900F4 */
+		dprintf("    FSCTL_QUERY_USN_JOURNAL:"
+		    " returning fake journal\n");
+		{
+		ULONG outlen =
+		    IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+		if (outlen < sizeof (USN_JOURNAL_DATA)) {
+			Irp->IoStatus.Information = sizeof (USN_JOURNAL_DATA);
+			Status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		USN_JOURNAL_DATA *ujd =
+		    (USN_JOURNAL_DATA *)Irp->AssociatedIrp.SystemBuffer;
+		RtlZeroMemory(ujd, sizeof (USN_JOURNAL_DATA));
+		ujd->UsnJournalID = 1; /* non-zero = journal active */
+		ujd->FirstUsn = 0;
+		ujd->NextUsn = 1;
+		ujd->LowestValidUsn = 0;
+		ujd->MaxUsn = MAXLONGLONG;
+		ujd->MaximumSize = 0x2000000; /* 32 MB */
+		ujd->AllocationDelta = 0x800000; /* 8 MB */
+		Irp->IoStatus.Information = sizeof (USN_JOURNAL_DATA);
+		Status = STATUS_SUCCESS;
+		}
+		break;
+
+/*
+ * FSCTL_QUERY_VOLUME_CONTAINER_STATE (0x90390): twext.dll (Previous
+ * Versions shell extension) sends this FSCTL and uses the return code
+ * to decide whether to attempt the SMB loopback path.  NTFS returns
+ * STATUS_INVALID_DEVICE_REQUEST; twext.dll sees that as the signal to
+ * proceed with \\localhost\<share>\ → FSCTL_SRV_ENUMERATE_SNAPSHOTS.
+ * Returning STATUS_SUCCESS here causes twext.dll to silently skip the
+ * SMB loopback, so Previous Versions never appears for ZFS volumes.
+ * Must stay INVALID_DEVICE_REQUEST to match NTFS behaviour.
+ */
+#ifndef FSCTL_QUERY_VOLUME_CONTAINER_STATE
+#define	FSCTL_QUERY_VOLUME_CONTAINER_STATE \
+	CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 228, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#endif
+	case FSCTL_QUERY_VOLUME_CONTAINER_STATE: /* 0x90390 */
+		dprintf("    FSCTL_QUERY_VOLUME_CONTAINER_STATE:"
+		    " returning INVALID_DEVICE_REQUEST (like NTFS)\n");
+		Status = STATUS_INVALID_DEVICE_REQUEST;
+		break;
+
+/*
+ * FSCTL_SRV_ENUMERATE_SNAPSHOTS (0x144064):
+ * srv2.sys (Windows SMB Server) forwards this FSCTL from an SMB2 IOCTL
+ * request to the underlying filesystem.  twext.dll (Previous Versions
+ * shell extension) sends it when accessing a file via SMB loopback
+ * (\\localhost\<share>\file) to discover shadow copies.  We enumerate
+ * ZFS snapshots of the current dataset and return their creation times
+ * formatted as @GMT-YYYY.MM.DD-HH.MM.SS UTC strings.
+ *
+ * Response layout (MS-SMB2 section 3.3.5.15.1):
+ *   ULONG NumberOfSnapshots      - total count of snapshots
+ *   ULONG NumberOfSnapshotsReturned - count of strings in this reply
+ *   ULONG SnapshotArraySize      - byte size of Snapshots[] field
+ *   WCHAR Snapshots[]            - multi-sz @GMT timestamps, NUL-terminated
+ *
+ * If the output buffer is too small for strings, we fill the header and
+ * return STATUS_BUFFER_OVERFLOW so srv2.sys can re-issue with the right
+ * buffer size (12 + SnapshotArraySize).
+ */
+#ifndef FSCTL_SRV_ENUMERATE_SNAPSHOTS
+#define	FSCTL_SRV_ENUMERATE_SNAPSHOTS \
+	CTL_CODE(FILE_DEVICE_NETWORK_FILE_SYSTEM, 25, METHOD_BUFFERED, \
+	FILE_READ_ACCESS)
+#endif
+	case FSCTL_SRV_ENUMERATE_SNAPSHOTS: /* 0x144064 */
+		dprintf("    FSCTL_SRV_ENUMERATE_SNAPSHOTS\n");
+		{
+		ULONG outlen =
+		    IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+		ULONG *hdr = (ULONG *)Irp->AssociatedIrp.SystemBuffer;
+
+		mount_t *vss_zmo = DeviceObject->DeviceExtension;
+		zfsvfs_t *vss_zfsvfs = vfs_fsprivate(vss_zmo);
+
+		if (vss_zfsvfs == NULL || vss_zfsvfs->z_os == NULL) {
+			Status = STATUS_INVALID_DEVICE_REQUEST;
+			break;
+		}
+
+		/*
+		 * First pass: count snapshots.
+		 * Each @GMT timestamp: 24 WCHAR chars + 1 NUL = 25 WCHARs.
+		 * The multi-sz array ends with an extra NUL (1 WCHAR).
+		 */
+		ULONG nsnaps = 0;
+		dsl_pool_t *vss_dp = dmu_objset_pool(vss_zfsvfs->z_os);
+
+		dsl_pool_config_enter(vss_dp, FTAG);
+		uint64_t vss_pos = 0;
+		char vss_snapname[MAXNAMELEN];
+		uint64_t vss_id;
+		boolean_t vss_cc;
+		while (dmu_snapshot_list_next(vss_zfsvfs->z_os,
+		    sizeof (vss_snapname), vss_snapname, &vss_id,
+		    &vss_pos, &vss_cc) == 0)
+			nsnaps++;
+		dsl_pool_config_exit(vss_dp, FTAG);
+
+		/* SnapshotArraySize: N * 25 WCHARs + 2 terminating NULs */
+		ULONG arr_size =
+		    nsnaps * 25 * sizeof (WCHAR) + 2 * sizeof (WCHAR);
+		ULONG needed = 3 * sizeof (ULONG) + arr_size;
+
+		dprintf("    FSCTL_SRV_ENUMERATE_SNAPSHOTS: %lu snaps, "
+		    "arr_size=%lu, outlen=%lu\n", nsnaps, arr_size, outlen);
+
+		if (outlen < 3 * sizeof (ULONG)) {
+			/*
+			 * Buffer too small for even the 12-byte header.
+			 * Return STATUS_BUFFER_OVERFLOW (not BUFFER_TOO_SMALL)
+			 * so that srv2.sys can use IoStatus.Information to
+			 * determine the needed size and retry.
+			 * STATUS_BUFFER_TOO_SMALL is non-retryable and causes
+			 * srv2.sys to return STATUS_INSUFFICIENT_RESOURCES to
+			 * the SMB client.
+			 */
+			Irp->IoStatus.Information = needed;
+			Status = STATUS_BUFFER_OVERFLOW;
+			break;
+		}
+
+		hdr[0] = nsnaps;	/* NumberOfSnapshots */
+		hdr[1] = 0;		/* NumberOfSnapshotsReturned */
+		hdr[2] = arr_size;	/* SnapshotArraySize */
+
+		if (nsnaps == 0 || outlen < needed) {
+			Irp->IoStatus.Information = 3 * sizeof (ULONG);
+			Status = (nsnaps == 0) ?
+			    STATUS_SUCCESS : STATUS_BUFFER_OVERFLOW;
+			break;
+		}
+
+		/*
+		 * Second pass: fill in @GMT-YYYY.MM.DD-HH.MM.SS strings.
+		 * Unix UTC to Windows FILETIME (100ns since 1601-01-01):
+		 *   nt = unix * 10,000,000 + 116,444,736,000,000,000
+		 */
+		WCHAR *wp =
+		    (WCHAR *)((UCHAR *)Irp->AssociatedIrp.SystemBuffer +
+		    3 * sizeof (ULONG));
+		ULONG returned = 0;
+
+		dsl_pool_config_enter(vss_dp, FTAG);
+		vss_pos = 0;
+		while (dmu_snapshot_list_next(vss_zfsvfs->z_os,
+		    sizeof (vss_snapname), vss_snapname, &vss_id,
+		    &vss_pos, &vss_cc) == 0) {
+			uint64_t creation = 0;
+			dsl_dataset_t *vss_ds;
+			if (dsl_dataset_hold_obj(vss_dp, vss_id,
+			    FTAG, &vss_ds) == 0) {
+				creation = dsl_get_creation(vss_ds);
+				dsl_dataset_rele(vss_ds, FTAG);
+			}
+
+			LARGE_INTEGER li;
+			TIME_UNIX_TO_WINDOWS_EX(creation, 0, li.QuadPart);
+
+			TIME_FIELDS tf;
+			RtlTimeToTimeFields(&li, &tf);
+
+			/* @GMT-YYYY.MM.DD-HH.MM.SS (24 chars + NUL = 25) */
+			wp[0]  = L'@'; wp[1]  = L'G'; wp[2]  = L'M';
+			wp[3]  = L'T'; wp[4]  = L'-';
+			wp[5]  = L'0' + (WCHAR)(tf.Year / 1000);
+			wp[6]  = L'0' + (WCHAR)((tf.Year / 100) % 10);
+			wp[7]  = L'0' + (WCHAR)((tf.Year / 10) % 10);
+			wp[8]  = L'0' + (WCHAR)(tf.Year % 10);
+			wp[9]  = L'.';
+			wp[10] = L'0' + (WCHAR)(tf.Month / 10);
+			wp[11] = L'0' + (WCHAR)(tf.Month % 10);
+			wp[12] = L'.';
+			wp[13] = L'0' + (WCHAR)(tf.Day / 10);
+			wp[14] = L'0' + (WCHAR)(tf.Day % 10);
+			wp[15] = L'-';
+			wp[16] = L'0' + (WCHAR)(tf.Hour / 10);
+			wp[17] = L'0' + (WCHAR)(tf.Hour % 10);
+			wp[18] = L'.';
+			wp[19] = L'0' + (WCHAR)(tf.Minute / 10);
+			wp[20] = L'0' + (WCHAR)(tf.Minute % 10);
+			wp[21] = L'.';
+			wp[22] = L'0' + (WCHAR)(tf.Second / 10);
+			wp[23] = L'0' + (WCHAR)(tf.Second % 10);
+			wp[24] = L'\0';
+
+			dprintf("    FSCTL_SRV_ENUMERATE_SNAPSHOTS: snap '%s' "
+			    "@GMT-%04d.%02d.%02d-%02d.%02d.%02d\n",
+			    vss_snapname, tf.Year, tf.Month, tf.Day,
+			    tf.Hour, tf.Minute, tf.Second);
+
+			wp += 25;
+			returned++;
+		}
+		dsl_pool_config_exit(vss_dp, FTAG);
+
+		/* Multi-sz double-NUL terminator */
+		*wp++ = L'\0';
+		*wp   = L'\0';
+
+		hdr[1] = returned;
+		Irp->IoStatus.Information = needed;
+		Status = STATUS_SUCCESS;
+		}
 		break;
 
 	case FSCTL_READ_FILE_USN_DATA:
@@ -5432,7 +5788,7 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 
 	// Grab the root zp
 	zmo = DeviceObject->DeviceExtension;
-	ASSERT(zmo->type == MOUNT_TYPE_VCB);
+	ASSERT(zmo->type == MOUNT_TYPE_VCB || zmo->type == MOUNT_TYPE_VSS);
 
 	zfsvfs = vfs_fsprivate(zmo); // or from zp
 
@@ -5647,7 +6003,8 @@ notify_change_directory(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	zmo = DeviceObject->DeviceExtension;
 
 	if (zmo == NULL ||
-	    zmo->type != MOUNT_TYPE_VCB) {
+	    (zmo->type != MOUNT_TYPE_VCB &&
+	    zmo->type != MOUNT_TYPE_VSS)) {
 		return (STATUS_INVALID_PARAMETER);
 	}
 
@@ -6037,16 +6394,22 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	mount_t *zmo = DeviceObject->DeviceExtension;
 
-#if 0
-	if (zmo && zmo->type == MOUNT_TYPE_VCB) {
-		// Status = volume_read(DeviceObject, Irp);
-		Status = STATUS_NOT_SUPPORTED;
-		goto exit;
-	} else if (!zmo || zmo->type != MOUNT_TYPE_FCB) {
-		Status = STATUS_INVALID_PARAMETER;
+	/*
+	 * Raw sector reads on the volume device (VCB, \Device\ZFS{guid})
+	 * come from the VSS coordinator reading sector 0 before provider
+	 * selection, or from SWPRV reading the boot sector for geometry.
+	 * Return zeros so the coordinator doesn't abort with an I/O error.
+	 * This covers both FileObject==NULL and the case where VSS opens the
+	 * device with FILE_NON_DIRECTORY_FILE leaving FsContext non-NULL but
+	 * pointing to the root vnode (which is a directory, not a file).
+	 */
+	if (zmo && zmo->type == MOUNT_TYPE_VCB &&
+	    (FileObject == NULL || FileObject->FsContext == NULL ||
+	    (FileObject->FsContext != NULL &&
+	    vnode_isdir((struct vnode *)FileObject->FsContext)))) {
+		Status = volume_read(DeviceObject, Irp, IrpSp);
 		goto exit;
 	}
-#endif
 
 	Irp->IoStatus.Information = 0;
 
@@ -7286,24 +7649,17 @@ volume_create(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject,
 	mount_t *zmo = DeviceObject->DeviceExtension;
 
 	if ((zmo->type != MOUNT_TYPE_VCB) &&
-	    (zmo->type != MOUNT_TYPE_DCB))
+	    (zmo->type != MOUNT_TYPE_DCB) &&
+	    (zmo->type != MOUNT_TYPE_VSS))
 		return (STATUS_INVALID_PARAMETER);
 
 #if 1
 	if (FileObject->Vpb == NULL)
 		FileObject->Vpb = zmo->vpb ? zmo->vpb : DeviceObject->Vpb;
 #endif
-	dprintf("%s: Vpb %p %S\n", __func__, FileObject->Vpb,
-	    FileObject->Vpb ? FileObject->Vpb->VolumeLabel : L"");
 
 	if (vfs_flags(zmo) & MNT_UNMOUNTING)
 		return (STATUS_VOLUME_DISMOUNTED);
-
-	if ((ShareAccess == 0) &&
-	    zmo->volume_opens != 0) {
-		dprintf("%s: sharing violation\n", __func__);
-		return (STATUS_SHARING_VIOLATION);
-	}
 
 	int error;
 	zfsvfs_t *zfsvfs;
@@ -8187,8 +8543,24 @@ _Function_class_(DRIVER_DISPATCH)
 				    IrpSp);
 				break;
 			default:
-				dprintf("**** unknown Windows IOCTL: 0x%lx\n",
-				    cmd);
+				/*
+				 * Catch VOLSNAP IOCTLs arriving at ioctlDevice.
+				 * Return STATUS_NOT_SUPPORTED (not
+				 * STATUS_NOT_IMPLEMENTED) so swprv's ichannel
+				 * sees a hard error and skips this
+				 * volume rather than treating a 0-byte
+				 * STATUS_SUCCESS
+				 * response from the lower device as valid data.
+				 */
+				if ((cmd >> 16) == 0x53) {
+					dprintf("**** ioctl: unhandled VOLSNAP"
+					    " 0x%lx -> NOT_SUPPORTED\n", cmd);
+					Irp->IoStatus.Information = 0;
+					Status = STATUS_NOT_SUPPORTED;
+				} else {
+					dprintf("**** unknown Windows IOCTL:"
+					    " 0x%lx\n", cmd);
+				}
 			}
 
 		}
@@ -8264,6 +8636,152 @@ _Function_class_(DRIVER_DISPATCH)
 	}
 
 	return (Status);
+}
+
+/*
+ * Return ZFS snapshots as a VOLSNAP_NAMES multi-string so that the
+ * Windows Previous Versions shell extension (vssui!CVSSShellExt::AddPages)
+ * finds our snapshots.  AddPages sends IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS
+ * to the live volume before contacting VSS; an empty response causes it to
+ * exit in 0ms without ever calling our VSS provider's Query() method.
+ *
+ * Layout: VOLSNAP_NAMES { ULONG MultiSzLength; WCHAR Names[1]; }
+ *   MultiSzLength = byte count of Names[] including the double-NUL
+ *   Names[]       = "\Device\ZfsSnapshot<hex16>\0" × N, then L'\0' L'\0'
+ *
+ * Note: swprv (MS System Provider) also sends this IOCTL and will try to
+ * open "<nt_device>@GMT-..." paths when it receives a non-empty list.
+ * Those opens fail because ZFS live volumes don't have timewarp support yet.
+ * swprv can only purge its own (MS Software Provider) snapshots, not ours,
+ * so the failed opens are harmless — our VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE
+ * snapshots survive and remain visible via our provider's Query().
+ */
+static NTSTATUS
+zfs_volsnap_query_names_of_snapshots(PDEVICE_OBJECT DeviceObject,
+    PIRP Irp, PIO_STACK_LOCATION IrpSp)
+{
+	mount_t *zmo = DeviceObject->DeviceExtension;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+	void *buf = Irp->AssociatedIrp.SystemBuffer;
+	ULONG outlen = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+	if (zfsvfs == NULL || zfsvfs->z_os == NULL) {
+		ULONG esz = sizeof (ULONG) + sizeof (WCHAR);
+		Irp->IoStatus.Information = esz;
+		if (outlen < esz)
+			return (STATUS_BUFFER_TOO_SMALL);
+		RtlZeroMemory(buf, esz);
+		return (STATUS_SUCCESS);
+	}
+
+	/* Pass 1: count snapshots that have live kernel device objects */
+	dsl_pool_t *vqn_dp = dmu_objset_pool(zfsvfs->z_os);
+	ULONG nsnaps = 0;
+
+	dsl_pool_config_enter(vqn_dp, FTAG);
+	{
+		uint64_t vqn_pos = 0;
+		char vqn_snapname[MAXNAMELEN];
+		uint64_t vqn_id;
+		boolean_t vqn_cc;
+		while (dmu_snapshot_list_next(zfsvfs->z_os,
+		    sizeof (vqn_snapname), vqn_snapname,
+		    &vqn_id, &vqn_pos, &vqn_cc) == 0) {
+			dsl_dataset_t *vqn_ds;
+			if (dsl_dataset_hold_obj(vqn_dp, vqn_id,
+			    FTAG, &vqn_ds) == 0) {
+				uint64_t g =
+				    dsl_dataset_phys(vqn_ds)->ds_guid;
+				dsl_dataset_rele(vqn_ds, FTAG);
+				if (zfs_vss_has_device(g))
+					nsnaps++;
+			}
+		}
+	}
+	dsl_pool_config_exit(vqn_dp, FTAG);
+
+	/*
+	 * Each entry: "\Device\ZfsSnapshot" (19 WCHARs) + 16 hex digits
+	 * + NUL = 36 WCHARs.  The path must NOT end with "\" — srv2.sys
+	 * checks [Buffer+Length*2] == '\' and if true jumps past the
+	 * Smb2ShareAddSnapShot call, so a trailing '\' prevents the
+	 * snapshot from ever entering the srv2 internal list.
+	 * Plus 2 WCHARs for the multi-sz double-NUL terminator.
+	 *
+	 * srv2.sys (Smb2SnapCheckAppInfoForTimeWarp) passes each entry
+	 * directly to NtOpenFile as an absolute NT device path, then
+	 * issues IOCTL_VOLSNAP_QUERY_APPLICATION_INFO to get the @GMT
+	 * timestamp.  We must return device paths, NOT @GMT strings.
+	 */
+	ULONG msz = (nsnaps * 36 + 2) * sizeof (WCHAR);
+	ULONG needed = sizeof (ULONG) + msz;
+	Irp->IoStatus.Information = needed;
+
+	if (outlen < sizeof (ULONG))
+		return (STATUS_BUFFER_TOO_SMALL);
+
+	*(ULONG *)buf = msz;
+
+	if (nsnaps == 0) {
+		if (outlen < needed)
+			return (STATUS_BUFFER_TOO_SMALL);
+		WCHAR *wz = (WCHAR *)((UCHAR *)buf + sizeof (ULONG));
+		wz[0] = L'\0';
+		wz[1] = L'\0';
+		dprintf("IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS: 0 snaps\n");
+		return (STATUS_SUCCESS);
+	}
+	if (outlen < needed)
+		return (STATUS_BUFFER_OVERFLOW);
+
+	/* Pass 2: fill "\Device\ZfsSnapshot<hex16>\0" entries */
+	static const WCHAR vqn_pfx[] = L"\\Device\\ZfsSnapshot";
+	static const WCHAR vqn_hex[] = L"0123456789abcdef";
+	WCHAR *wp = (WCHAR *)((UCHAR *)buf + sizeof (ULONG));
+
+	dsl_pool_config_enter(vqn_dp, FTAG);
+	{
+		uint64_t vqn_pos = 0;
+		char vqn_snapname[MAXNAMELEN];
+		uint64_t vqn_id;
+		boolean_t vqn_cc;
+
+		while (dmu_snapshot_list_next(zfsvfs->z_os,
+		    sizeof (vqn_snapname), vqn_snapname,
+		    &vqn_id, &vqn_pos, &vqn_cc) == 0) {
+			uint64_t vqn_guid = 0;
+			dsl_dataset_t *vqn_ds;
+			if (dsl_dataset_hold_obj(vqn_dp, vqn_id,
+			    FTAG, &vqn_ds) == 0) {
+				vqn_guid = dsl_dataset_phys(vqn_ds)->ds_guid;
+				dsl_dataset_rele(vqn_ds, FTAG);
+			}
+
+			/* Skip if the kernel device was removed */
+			if (!zfs_vss_has_device(vqn_guid))
+				continue;
+
+			/* "\Device\ZfsSnapshot" prefix (19 WCHARs) */
+			for (int vqn_j = 0; vqn_j < 19; vqn_j++)
+				wp[vqn_j] = vqn_pfx[vqn_j];
+			/* 16 hex digits of GUID */
+			for (int vqn_h = 0; vqn_h < 16; vqn_h++)
+				wp[19 + vqn_h] = vqn_hex[
+				    (vqn_guid >> (60 - vqn_h * 4)) & 0xf];
+			wp[35] = L'\0';
+
+			dprintf("IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS:"
+			    " %S (snap %s)\n", wp, vqn_snapname);
+
+			wp += 36;
+		}
+	}
+	dsl_pool_config_exit(vqn_dp, FTAG);
+
+	*wp++ = L'\0'; /* MULTI_SZ first terminator */
+	*wp   = L'\0'; /* MULTI_SZ second terminator (double-NUL) */
+
+	return (STATUS_SUCCESS);
 }
 
 /*
@@ -8481,9 +8999,109 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = fsctl_zfs_volume_mountpoint(DeviceObject, Irp,
 			    IrpSp);
 			break;
+		case IOCTL_VOLUME_IS_CLUSTERED: /* 0x560030 */
+			/*
+			 * srv2.sys sends this before enumerating shadow copies.
+			 * STATUS_SUCCESS means "is clustered".
+			 * STATUS_UNSUCCESSFUL means "not clustered" (normal).
+			 * STATUS_INVALID_DEVICE_REQUEST means "invalid disk
+			 * type" (e.g. dynamic) and causes srv2.sys to skip
+			 * enumeration entirely.  Must return
+			 * STATUS_UNSUCCESSFUL
+			 * so srv2.sys proceeds to enumerate our ZFS snapshots.
+			 */
+			dprintf("disk: IOCTL_VOLUME_IS_CLUSTERED"
+			    " -> not clustered\n");
+			Irp->IoStatus.Information = 0;
+			Status = STATUS_UNSUCCESSFUL;
+			break;
+
+		case IOCTL_VOLSNAP_FLUSH_AND_HOLD_WRITES:
+		case 0x0053C004: /* IOCTL_VOLSNAP_RELEASE_WRITES */
+			dprintf("disk: VOLSNAP flush/hold/release no-op"
+			    " 0x%lx\n", cmd);
+			Irp->IoStatus.Information = 0;
+			Status = STATUS_SUCCESS;
+			break;
+
+		case 0x530018: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS */
+		case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS */
+			dprintf("disk: IOCTL_VOLSNAP_QUERY_NAMES_OF"
+			    "_SNAPSHOTS\n");
+			Status = zfs_volsnap_query_names_of_snapshots(
+			    DeviceObject, Irp, IrpSp);
+			break;
+
+		case 0x530024: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA */
+		case 0x534058: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE */
+		case 0x53406C: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION */
+		case 0x530050: /* IOCTL_VOLSNAP function 0x14 QUERY_EPIC */
+		case 0x53001C: /* IOCTL_VOLSNAP function 0x7 */
+			/*
+			 * ZFS uses copy-on-write native snapshots, not a VSS
+			 * diff-area.  Return STATUS_NOT_SUPPORTED for all
+			 * diff-area IOCTLs so ichannel does not attempt to
+			 * Unpack a fixed-size struct from our response (which
+			 * caused "IOCTL Unpack overflow" / catastrophic failure
+			 * when we returned STATUS_SUCCESS + sizeof(ULONG) bytes
+			 * but ichannel expected sizeof(VOLSNAP_DIFF_AREA_TABLE)
+			 * which includes an ANYSIZE_ARRAY slot).
+			 */
+			dprintf("disk: VOLSNAP diff-area ioctl 0x%lx"
+			    " -> NOT_SUPPORTED\n", cmd);
+			Irp->IoStatus.Information = 0;
+			Status = STATUS_NOT_SUPPORTED;
+			break;
+
+		case 0x534070: /* IOCTL_VOLSNAP_QUERY_APPLICATION_FLAGS */
+		{
+			/*
+			 * Returns ApplicationInformation (68 bytes):
+			 *   ULONG  length          (4)
+			 *   GUID   guid            (16)
+			 *   GUID   shadowCopyGuid  (16)
+			 *   GUID   shadowCopySetGuid (16)
+			 *   ULONG  snapshotContext (4)
+			 *   ULONG  unknown1        (4)
+			 *   LONG   attributes      (4)
+			 *   ULONG  unknown2        (4)
+			 * Return all zeros: no VSS application has registered
+			 * flags for this volume.
+			 */
+			const ULONG appsz = 4 + 16 + 16 + 16 + 4 + 4 + 4 + 4;
+			dprintf("disk: IOCTL_VOLSNAP_QUERY_APPLICATION_FLAGS"
+			    " -> 68 zero bytes\n");
+			if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength
+			    < appsz) {
+				Irp->IoStatus.Information = appsz;
+				Status = STATUS_BUFFER_TOO_SMALL;
+			} else {
+				RtlZeroMemory(
+				    Irp->AssociatedIrp.SystemBuffer, appsz);
+				Irp->IoStatus.Information = appsz;
+				Status = STATUS_SUCCESS;
+			}
+			break;
+		}
+
 		default:
-			dprintf("**** unknown disk Windows IOCTL: 0x%lx\n",
-			    cmd);
+			/*
+			 * For VOLSNAP IOCTLs (device type 0x53) that we do not
+			 * recognise, return STATUS_NOT_SUPPORTED explicitly so
+			 * the IRP is NOT passed to the lower device.  The lower
+			 * device may return STATUS_SUCCESS + 0 bytes for
+			 * unknown IOCTLs, causing swprv's ichannel to attempt
+			 * an Unpack from an empty buffer (overflow).
+			 */
+			if ((cmd >> 16) == 0x53) {
+				dprintf("disk: unhandled VOLSNAP IOCTL 0x%lx"
+				    " -> NOT_SUPPORTED\n", cmd);
+				Irp->IoStatus.Information = 0;
+				Status = STATUS_NOT_SUPPORTED;
+			} else {
+				dprintf("**** unknown disk Windows IOCTL:"
+				    " 0x%lx\n", cmd);
+			}
 	//		DbgBreakPoint();
 		}
 
@@ -8518,9 +9136,16 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = user_fs_request(DeviceObject, PIrp, IrpSp);
 			break;
 		case IRP_MN_KERNEL_CALL:
-			dprintf("IRP_MN_KERNEL_CALL: unknown 0x%lx\n",
+			/*
+			 * srv2.sys may issue FSCTL_SRV_ENUMERATE_SNAPSHOTS (and
+			 * other FSCTLs) as IRP_MN_KERNEL_CALL on the
+			 * disk device object.  Pass through to user_fs_request
+			 * so that our FSCTL_SRV_ENUMERATE_SNAPSHOTS handler
+			 * is reached.
+			 */
+			dprintf("IRP_MN_KERNEL_CALL: FsControlCode 0x%lx\n",
 			    IrpSp->Parameters.FileSystemControl.FsControlCode);
-			Status = STATUS_INVALID_DEVICE_REQUEST;
+			Status = user_fs_request(DeviceObject, PIrp, IrpSp);
 			break;
 		default:
 			dprintf("IRP_MN_unknown: 0x%x\n", IrpSp->MinorFunction);
@@ -8634,7 +9259,7 @@ _Function_class_(DRIVER_DISPATCH)
  * vnops happen and we handle everything with files and directories in ZFS.
  */
 _Function_class_(DRIVER_DISPATCH)
-    static NTSTATUS
+    NTSTATUS
     fsDispatcher(
     _In_ PDEVICE_OBJECT DeviceObject,
     _Inout_ PIRP *PIrp,
@@ -8646,7 +9271,7 @@ _Function_class_(DRIVER_DISPATCH)
 	ULONG len = 0;
 
 	mount_t *zmo = DeviceObject->DeviceExtension;
-	VERIFY(zmo->type == MOUNT_TYPE_VCB);
+	VERIFY(zmo->type == MOUNT_TYPE_VCB || zmo->type == MOUNT_TYPE_VSS);
 
 	dprintf("  %s: enter: major %d: minor %d: %s fsDO fo %p Vpb %lu\n",
 	    __func__, IrpSp->MajorFunction, IrpSp->MinorFunction,
@@ -8827,15 +9452,25 @@ _Function_class_(DRIVER_DISPATCH)
 			dprintf("IOCTL_DISK_IS_WRITABLE\n");
 			Status = STATUS_SUCCESS;
 			break;
-#if 0
 		case IOCTL_MOUNTDEV_QUERY_DEVICE_NAME:
-			dprintf("IOCTL_MOUNTDEV_QUERY_DEVICE_NAME\n");
-			Status = ioctl_query_device_name(DeviceObject, Irp,
-			    IrpSp);
+			/*
+			 * twext.dll (Previous Versions shell extension) opens
+			 * an ordinary file handle on the volume and issues this
+			 * IOCTL.  NTFS returns STATUS_INVALID_PARAMETER for
+			 * IOCTL_MOUNTDEV_QUERY_DEVICE_NAME when it arrives on a
+			 * file object (only the disk device object answers it).
+			 * Returning SUCCESS here caused twext.dll to take a
+			 * different code path that never fires the SMB loopback
+			 * needed to enumerate snapshots.  Match NTFS behaviour.
+			 */
+			dprintf("IOCTL_MOUNTDEV_QUERY_DEVICE_NAME (fs): "
+			    "returning INVALID_PARAMETER (like NTFS)\n");
+			Status = STATUS_INVALID_PARAMETER;
 			break;
 		case IOCTL_VOLUME_GET_GPT_ATTRIBUTES:
 			dprintf("IOCTL_VOLUME_GET_GPT_ATTRIBUTES\n");
-			Status = 0;
+			Status = ioctl_get_gpt_attributes(DeviceObject, Irp,
+			    IrpSp);
 			break;
 		case IOCTL_MOUNTDEV_QUERY_UNIQUE_ID:
 			dprintf("IOCTL_MOUNTDEV_QUERY_UNIQUE_ID\n");
@@ -8913,7 +9548,12 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = ioctl_storage_query_property(DeviceObject, Irp,
 			    IrpSp);
 			break;
-#endif
+		case 0x002D148C: /* unknown storage IOCTL (fn 0x523) */
+			dprintf("unknown storage IOCTL 0x002D148C"
+			    " -> NOT_SUPPORTED\n");
+			Irp->IoStatus.Information = 0;
+			Status = STATUS_NOT_SUPPORTED;
+			break;
 		case IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS: // VSS
 			dprintf("IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS\n");
 			Status = ioctl_volume_get_volume_disk_extents(
@@ -8938,14 +9578,157 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 
 		case IOCTL_VOLSNAP_FLUSH_AND_HOLD_WRITES:
-		case 0x530018:
-		case 0x534058:
-			dprintf("IOCTL_VOLSNAP_FLUSH_AND_HOLD_WRITES\n");
+		case 0x0053C004: /* IOCTL_VOLSNAP_RELEASE_WRITES */
+			/*
+			 * ZFS is copy-on-write; no write freeze or release
+			 * is needed.
+			 */
+			dprintf("IOCTL_VOLSNAP_FLUSH/HOLD/RELEASE: no-op\n");
+			Status = STATUS_SUCCESS;
+			break;
+
+		case 0x530018: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS */
+		case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS */
+			dprintf("IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS\n");
+			Status = zfs_volsnap_query_names_of_snapshots(
+			    DeviceObject, Irp, IrpSp);
+			break;
+
+		case 0x534058: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE */
+			/*
+			 * Returning STATUS_SUCCESS here told the System
+			 * Provider this volume can host a diff-area,
+			 * causing it to probe ZFS volumes as candidates.
+			 * The "add volume to diff-area" IOCTL sequence
+			 * returned output sizes we did not match,
+			 * causing IOCTL Unpack overflow.  ZFS uses CoW;
+			 * return NOT_SUPPORTED so the System Provider
+			 * skips ZFS and picks an NTFS diff-area volume.
+			 */
+			dprintf("IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE"
+			    " -> NOT_SUPPORTED (volume)\n");
+			Irp->IoStatus.Information = 0;
 			Status = STATUS_NOT_SUPPORTED;
 			break;
 
+		case 0x53406C: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION */
+			/*
+			 * As with QUERY_DIFF_AREA_MINIMUM_SIZE: ZFS
+			 * cannot host a diff-area; decline rather than
+			 * returning partial data that would overflow.
+			 */
+			dprintf("IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION"
+			    " -> NOT_SUPPORTED (volume)\n");
+			Irp->IoStatus.Information = 0;
+			Status = STATUS_NOT_SUPPORTED;
+			break;
+
+		case 0x530024: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA */
+			/*
+			 * ZFS uses CoW native snapshots, not a diff-area.
+			 * Return STATUS_NOT_SUPPORTED so ichannel does not
+			 * attempt to Unpack VOLSNAP_DIFF_AREA_TABLE from the
+			 * response (which caused "IOCTL Unpack overflow" when
+			 * we returned only sizeof(ULONG) bytes).
+			 */
+			dprintf("IOCTL_VOLSNAP_QUERY_DIFF_AREA"
+			    " -> NOT_SUPPORTED\n");
+			Irp->IoStatus.Information = 0;
+			Status = STATUS_NOT_SUPPORTED;
+			break;
+
+		case 0x534070: /* IOCTL_VOLSNAP_QUERY_APPLICATION_FLAGS */
+		{
+			/*
+			 * Returns ApplicationInformation (68 bytes):
+			 *   ULONG  length, GUID×3, ULONG×3, LONG attributes,
+			 *   ULONG  unknown2.
+			 * All zeros = no VSS application has set flags.
+			 */
+			const ULONG appsz = 4 + 16 + 16 + 16 + 4 + 4 + 4 + 4;
+			dprintf("IOCTL_VOLSNAP_QUERY_APPLICATION_FLAGS"
+			    " (volume) -> 68 zero bytes\n");
+			if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength
+			    < appsz) {
+				Irp->IoStatus.Information = appsz;
+				Status = STATUS_BUFFER_TOO_SMALL;
+			} else {
+				RtlZeroMemory(
+				    Irp->AssociatedIrp.SystemBuffer, appsz);
+				Irp->IoStatus.Information = appsz;
+				Status = STATUS_SUCCESS;
+			}
+			break;
+		}
+
+		case 0x530050: /* IOCTL_VOLSNAP QUERY_EPIC - snapshot count */
+		{
+			/*
+			 * srv2.sys reads 4 bytes from EPIC and
+			 * compares with a cached share-object value.
+			 * It calls QUERY_NAMES_OF_SNAPSHOTS only when
+			 * the value changes (i.e. snapshot set changed).
+			 * Return the ZFS snapshot count so srv2.sys
+			 * detects new snapshots on the first call
+			 * (cache starts at 0) and triggers a full
+			 * QUERY_NAMES refresh.
+			 */
+			ULONG epic_nsnaps = 0;
+			mount_t *epic_zmo = DeviceObject->DeviceExtension;
+			zfsvfs_t *epic_zfsvfs = vfs_fsprivate(epic_zmo);
+			if (epic_zfsvfs != NULL && epic_zfsvfs->z_os != NULL) {
+				dsl_pool_t *epic_dp =
+				    dmu_objset_pool(epic_zfsvfs->z_os);
+				uint64_t epic_pos = 0;
+				char epic_sn[MAXNAMELEN];
+				uint64_t epic_id;
+				boolean_t epic_cc;
+				dsl_pool_config_enter(epic_dp, FTAG);
+				while (dmu_snapshot_list_next(epic_zfsvfs->z_os,
+				    sizeof (epic_sn), epic_sn,
+				    &epic_id, &epic_pos, &epic_cc) == 0)
+					epic_nsnaps++;
+				dsl_pool_config_exit(epic_dp, FTAG);
+			}
+			if (IrpSp->Parameters.DeviceIoControl.
+			    OutputBufferLength >= sizeof (ULONG)) {
+				*(ULONG *)Irp->AssociatedIrp.SystemBuffer =
+				    epic_nsnaps;
+				Irp->IoStatus.Information = sizeof (ULONG);
+			} else {
+				Irp->IoStatus.Information = 0;
+			}
+			dprintf("IOCTL_VOLSNAP_EPIC: %lu snap(s)\n",
+			    epic_nsnaps);
+			Status = STATUS_SUCCESS;
+			break;
+		}
+		case 0x53001C: /* IOCTL_VOLSNAP function 0x7 - no output */
+			dprintf("IOCTL_VOLSNAP 0x53001C no-op (volume)\n");
+			Irp->IoStatus.Information = 0;
+			Status = STATUS_SUCCESS;
+			break;
+
 		default:
-			dprintf("**** unknown fsWindows IOCTL: 0x%lx\n", cmd);
+			/*
+			 * For VOLSNAP IOCTLs (device type 0x53) that we
+			 * do not handle, return STATUS_NOT_SUPPORTED
+			 * explicitly.  Do NOT let these fall through to
+			 * the pass-down path: if the lower device
+			 * returns STATUS_SUCCESS with 0 bytes, the VSS
+			 * ichannel will Unpack a fixed-size struct from
+			 * zero bytes ("IOCTL Unpack overflow").
+			 */
+			if ((cmd >> 16) == 0x53) {
+				dprintf("**** unhandled VOLSNAP IOCTL: 0x%lx"
+				    " - returning NOT_SUPPORTED\n", cmd);
+				Irp->IoStatus.Information = 0;
+				Status = STATUS_NOT_SUPPORTED;
+			} else {
+				dprintf("**** unknown fsWindows IOCTL: 0x%lx\n",
+				    cmd);
+			}
+			break;
 		}
 
 	}
@@ -9243,6 +10026,8 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = diskDispatcher(DeviceObject, &Irp, IrpSp);
 		else if (zmo && zmo->type == MOUNT_TYPE_VCB)
 			Status = fsDispatcher(DeviceObject, &Irp, IrpSp);
+		else if (zmo && zmo->type == MOUNT_TYPE_VSS)
+			Status = zfs_vss_dispatcher(DeviceObject, &Irp, IrpSp);
 		else {
 			Status = STATUS_INVALID_DEVICE_REQUEST;
 			Irp->IoStatus.Information = 0;

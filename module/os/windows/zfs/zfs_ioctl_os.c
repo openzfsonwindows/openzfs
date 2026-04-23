@@ -44,6 +44,7 @@
 #include <sys/zfs_onexit.h>
 #include <sys/zvol.h>
 #include <sys/fm/util.h>
+#include <sys/zfs_vss.h>
 #include <sys/dsl_crypt.h>
 #include <sys/policy.h>
 #include <sys/zfs_windows.h>
@@ -1082,12 +1083,14 @@ zfs_ioc_unregister_fs(void)
 static int
 openzfs_init_os(void)
 {
+	zfs_vss_init();
 	return (0);
 }
 
 static void
 openzfs_fini_os(void)
 {
+	zfs_vss_fini();
 }
 
 #include <sys/fm/protocol.h>

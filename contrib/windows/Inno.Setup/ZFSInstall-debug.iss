@@ -214,6 +214,9 @@ Source: "{#Root}\out\build\x64-Debug\module\os\windows\zvol\driver\OpenZVOL.sys"
 Source: "{#Root}\out\build\x64-Debug\module\os\windows\zvol\driver\OpenZVOL.cat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\module\os\windows\zvol\driver\OpenZVOL.inf"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\x64-Debug\module\os\windows\zvol\driver\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+; VSS provider (enables Previous Versions for ZFS snapshots)
+Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zfs_vss_provider\zfs_vss_provider.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zfs_vss_provider\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 [UninstallDelete]
@@ -229,6 +232,11 @@ Name: "{commonstartup}\OpenZFS Tray"; Filename: "{app}\zfs_tray.exe"
 
 [Run]
 Filename: "{app}\ZFSInstaller.exe"; Parameters: "install -z .\OpenZFS.inf .\OpenZVOL.inf"; StatusMsg: "Installing Driver..."; Flags: runascurrentuser;
+; Register the ZFS VSS Provider so Previous Versions works for ZFS snapshots
+Filename: "{app}\zfs_vss_provider.exe"; Parameters: "/install"; StatusMsg: "Registering VSS Provider..."; Flags: runhidden waituntilterminated
+; Restart the VSS service so it picks up the newly registered provider
+Filename: "net.exe"; Parameters: "stop vss"; Flags: runhidden waituntilterminated
+Filename: "net.exe"; Parameters: "start vss"; Flags: runhidden waituntilterminated
 ; zfs_tray bit next
 Filename: "sc.exe"; Parameters: "create OpenZFS_Tray binPath= ""{app}\zed_service.exe"" start= auto DisplayName= ""OpenZFS Tray"""; Flags: runhidden waituntilterminated
 Filename: "sc.exe"; Parameters: "start OpenZFS_Tray"; Flags: runhidden
@@ -240,6 +248,8 @@ Filename: "{app}\zfs_tray.exe"; Flags: postinstall nowait runasoriginaluser
 Filename: "taskkill.exe"; Parameters: "/IM zfs_tray.exe /T /F"; RunOnceId: "stoptray"; Flags: runhidden
 Filename: "sc.exe"; Parameters: "stop OpenZFS_Tray"; RunOnceId: "stoptrayservice"; Flags: runhidden waituntilterminated
 Filename: "sc.exe"; Parameters: "delete OpenZFS_Tray"; RunOnceId: "deletetrayservice"; Flags: runhidden waituntilterminated
+; VSS provider - unregister before files are removed
+Filename: "{app}\zfs_vss_provider.exe"; Parameters: "/uninstall"; RunOnceId: "vssinst"; Flags: runhidden waituntilterminated
 ; Kernel
 Filename: "{app}\ZFSInstaller.exe"; Parameters: "uninstall -z .\OpenZFS.inf .\OpenZVOL.inf"; RunOnceId: "driver"; Flags: runascurrentuser;
 

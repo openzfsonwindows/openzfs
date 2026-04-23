@@ -581,8 +581,6 @@ zfs_unlinked_drain(zfsvfs_t *zfsvfs)
 void
 zfs_unlinked_drain_stop_wait(zfsvfs_t *zfsvfs)
 {
-	ASSERT3B(zfsvfs->z_unmounted, ==, B_FALSE);
-
 	mutex_enter(&zfsvfs->z_drain_lock);
 	while (zfsvfs->z_drain_state != ZFS_DRAIN_SHUTDOWN) {
 		zfsvfs->z_drain_state = ZFS_DRAIN_SHUTDOWN_REQ;

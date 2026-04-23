@@ -24,7 +24,11 @@
 #define	_SYS_MNTTAB_H
 
 #include <stdio.h>
+#ifndef MNTTAB_NO_DIRENT_H
 #include <dirent.h>
+#else
+typedef void *DIR;
+#endif
 #include <mntent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
