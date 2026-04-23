@@ -109,6 +109,8 @@ zfs_vss_snap_compare(const void *a, const void *b)
 
 extern PDRIVER_OBJECT WIN_DriverObject;
 
+static void zfs_vss_notify_mountmgr(PDEVICE_OBJECT devobj);
+
 /*
  * Create \Device\ZfsSnapshot<hex16> for the given ZFS dataset GUID.
  * poolname is stored in the device extension so IOCTL handlers can
@@ -185,7 +187,89 @@ zfs_vss_snapshot_add(uint64_t guid, const char *poolname)
 	mutex_exit(&zfs_vss_lock);
 
 	dprintf("%s: created %s\n", __func__, devname);
+
+	/*
+	 * Notify the Mount Manager so it probes the device with
+	 * IOCTL_MOUNTDEV_QUERY_DEVICE_NAME / QUERY_UNIQUE_ID immediately.
+	 * Failure is non-fatal — the device still exists.
+	 */
+	zfs_vss_notify_mountmgr(devobj);
+
 	return (0);
+}
+
+/*
+ * Tell the Mount Manager that a new volume has arrived.
+ * It will respond by issuing IOCTL_MOUNTDEV_QUERY_DEVICE_NAME and
+ * IOCTL_MOUNTDEV_QUERY_UNIQUE_ID to our device, exercising the handlers.
+ */
+static void
+zfs_vss_notify_mountmgr(PDEVICE_OBJECT devobj)
+{
+	UNICODE_STRING mmgrName;
+	PFILE_OBJECT   mmgrFileObj = NULL;
+	PDEVICE_OBJECT mmgrDevObj  = NULL;
+	NTSTATUS       status;
+
+	RtlInitUnicodeString(&mmgrName, L"\\Device\\MountPointManager");
+
+	status = IoGetDeviceObjectPointer(&mmgrName, FILE_READ_ATTRIBUTES,
+	    &mmgrFileObj, &mmgrDevObj);
+	if (!NT_SUCCESS(status)) {
+		dprintf("%s: IoGetDeviceObjectPointer failed 0x%x\n",
+		    __func__, status);
+		return;
+	}
+
+	/* Query the kernel name of the device we just created. */
+	ULONG nbytes = 0;
+	/* First call with size=0 returns STATUS_INFO_LENGTH_MISMATCH + size */
+	(void) ObQueryNameString(devobj, NULL, 0, &nbytes);
+	if (nbytes == 0) {
+		ObDereferenceObject(mmgrFileObj);
+		return;
+	}
+
+	POBJECT_NAME_INFORMATION oni = kmem_alloc(nbytes, KM_SLEEP);
+	status = ObQueryNameString(devobj, oni, nbytes, &nbytes);
+	if (!NT_SUCCESS(status) || oni->Name.Length == 0) {
+		kmem_free(oni, nbytes);
+		ObDereferenceObject(mmgrFileObj);
+		return;
+	}
+
+	USHORT nameLen = oni->Name.Length;
+	ULONG insize = sizeof (MOUNTMGR_TARGET_NAME) + nameLen;
+	MOUNTMGR_TARGET_NAME *mtn = kmem_alloc(insize, KM_SLEEP);
+	mtn->DeviceNameLength = nameLen;
+	RtlCopyMemory(mtn->DeviceName, oni->Name.Buffer, nameLen);
+	kmem_free(oni, nbytes);
+
+	KEVENT event;
+	KeInitializeEvent(&event, NotificationEvent, FALSE);
+	IO_STATUS_BLOCK iosb = { 0 };
+
+	PIRP irp = IoBuildDeviceIoControlRequest(
+	    IOCTL_MOUNTMGR_VOLUME_ARRIVAL_NOTIFICATION,
+	    mmgrDevObj, mtn, insize, NULL, 0,
+	    FALSE, &event, &iosb);
+
+	if (irp == NULL) {
+		kmem_free(mtn, insize);
+		ObDereferenceObject(mmgrFileObj);
+		return;
+	}
+
+	status = IoCallDriver(mmgrDevObj, irp);
+	if (status == STATUS_PENDING)
+		KeWaitForSingleObject(&event, Executive, KernelMode,
+		    FALSE, NULL);
+
+	dprintf("%s: MountMgr arrival status 0x%lx\n", __func__,
+	    iosb.Status);
+
+	kmem_free(mtn, insize);
+	ObDereferenceObject(mmgrFileObj);
 }
 
 /*
