@@ -226,6 +226,7 @@
 
 #if defined(_WIN32)
 #include <sys/zvol_os.h>
+#include <sys/zfs_vss.h>
 #endif
 
 kmutex_t zfsdev_state_lock;
@@ -4345,6 +4346,9 @@ zfs_ioc_destroy(zfs_cmd_t *zc)
 #endif
 
 	if (strchr(zc->zc_name, '@')) {
+#if defined(_WIN32) && defined(_KERNEL)
+		zfs_vss_snapshot_remove_by_name(zc->zc_name);
+#endif
 		err = dsl_destroy_snapshot(zc->zc_name, zc->zc_defer_destroy);
 	} else {
 		err = dsl_destroy_head(zc->zc_name);
