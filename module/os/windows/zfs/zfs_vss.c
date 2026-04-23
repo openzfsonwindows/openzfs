@@ -466,7 +466,9 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	case IOCTL_DISK_MEDIA_REMOVAL:
 	case IOCTL_STORAGE_MEDIA_REMOVAL:
 	case IOCTL_VOLUME_ONLINE:
+#ifdef IOCTL_VOLUME_POST_ONLINE
 	case IOCTL_VOLUME_POST_ONLINE:
+#endif
 	case IOCTL_MOUNTMGR_VOLUME_MOUNT_POINT_CREATED:
 	case IOCTL_MOUNTMGR_VOLUME_MOUNT_POINT_DELETED:
 	case IOCTL_MOUNTDEV_LINK_CREATED:
@@ -543,7 +545,7 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    __func__);
 		/* Build wide device name from the prefix + hex GUID */
 		WCHAR wname[64];
-		int nch = swprintf(wname, sizeof (wname) / sizeof (wname[0]),
+		int nch = _snwprintf(wname, sizeof (wname) / sizeof (wname[0]),
 		    ZFS_VSS_DEVICE_PREFIXW L"%016llx",
 		    (unsigned long long)ext->zve_guid);
 		USHORT namelen = (USHORT)(nch * sizeof (WCHAR));
