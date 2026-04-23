@@ -54,6 +54,11 @@
  */
 
 #include <Ntifs.h>
+#include <ntdddisk.h>
+#include <ntddstor.h>
+#include <ntddvol.h>
+#include <mountmgr.h>
+#include <Mountdev.h>
 #include <sys/dmu.h>
 #include <sys/dmu_objset.h>
 #include <sys/dsl_dataset.h>
@@ -78,6 +83,7 @@
 typedef struct zfs_vss_ext {
 	FSD_IDENTIFIER_TYPE	zve_type;	/* == MOUNT_TYPE_VSS */
 	uint64_t		zve_guid;	/* ZFS dataset GUID */
+	char			zve_poolname[MAXPATHLEN]; /* pool name for DSL */
 } zfs_vss_ext_t;
 
 /*
@@ -105,12 +111,11 @@ extern PDRIVER_OBJECT WIN_DriverObject;
 
 /*
  * Create \Device\ZfsSnapshot<hex16> for the given ZFS dataset GUID.
- * The device is a minimal placeholder: it accepts opens but returns
- * STATUS_NOT_IMPLEMENTED for all other IRPs until full IRP dispatch
- * is wired in a subsequent phase.
+ * poolname is stored in the device extension so IOCTL handlers can
+ * open the SPA and look up the snapshot for size queries.
  */
 int
-zfs_vss_snapshot_add(uint64_t guid)
+zfs_vss_snapshot_add(uint64_t guid, const char *poolname)
 {
 	NTSTATUS status;
 	char devname[64];
@@ -168,6 +173,8 @@ zfs_vss_snapshot_add(uint64_t guid)
 	zfs_vss_ext_t *ext = devobj->DeviceExtension;
 	ext->zve_type = MOUNT_TYPE_VSS;
 	ext->zve_guid = guid;
+	strlcpy(ext->zve_poolname, poolname ? poolname : "",
+	    sizeof (ext->zve_poolname));
 
 	zfs_vss_snap_t *zvs = kmem_alloc(sizeof (*zvs), KM_SLEEP);
 	zvs->zvs_guid   = guid;
@@ -228,7 +235,8 @@ zfs_vss_snapshot_add_by_name(const char *snapname)
 	dsl_pool_config_enter(dp, FTAG);
 	if (dsl_dataset_hold(dp, snapname, FTAG, &ds) == 0) {
 		if (dsl_dataset_is_snapshot(ds))
-			(void) zfs_vss_snapshot_add(dsl_dataset_phys(ds)->ds_guid);
+			(void) zfs_vss_snapshot_add(dsl_dataset_phys(ds)->ds_guid,
+			    spa_name(spa));
 		dsl_dataset_rele(ds, FTAG);
 	}
 	dsl_pool_config_exit(dp, FTAG);
@@ -294,13 +302,13 @@ zfs_vss_pool_add(spa_t *spa)
 int
 zfs_vss_pool_add_cb(dsl_pool_t *dp, dsl_dataset_t *ds, void *arg)
 {
-	(void) dp; (void) arg;
+	(void) arg;
 
 	if (!dsl_dataset_is_snapshot(ds))
 		return (0);
 
 	uint64_t guid = dsl_dataset_phys(ds)->ds_guid;
-	(void) zfs_vss_snapshot_add(guid);
+	(void) zfs_vss_snapshot_add(guid, spa_name(dp->dp_spa));
 	return (0);
 }
 
@@ -393,11 +401,249 @@ zfs_vss_fini(void)
 }
 
 /*
- * IRP dispatcher for \Device\ZfsSnapshot<hex> devices.
+ * Get the number of bytes referenced by the snapshot (its logical size).
+ * Returns 0 if the lookup fails.
+ */
+static uint64_t
+zfs_vss_snap_refbytes(zfs_vss_ext_t *ext)
+{
+	spa_t *spa;
+	dsl_pool_t *dp;
+	dsl_dataset_t *ds;
+	uint64_t refbytes = 0;
+
+	if (ext->zve_poolname[0] == '\0')
+		return (0);
+
+	if (spa_open(ext->zve_poolname, &spa, FTAG) != 0)
+		return (0);
+
+	dp = spa_get_dsl(spa);
+	if (dp == NULL) {
+		spa_close(spa, FTAG);
+		return (0);
+	}
+
+	dsl_pool_config_enter(dp, FTAG);
+	if (dsl_dataset_hold_obj(dp, ext->zve_guid, FTAG, &ds) == 0) {
+		refbytes = dsl_dataset_phys(ds)->ds_referenced_bytes;
+		dsl_dataset_rele(ds, FTAG);
+	}
+	dsl_pool_config_exit(dp, FTAG);
+	spa_close(spa, FTAG);
+
+	return (refbytes);
+}
+
+/*
+ * IRP_MJ_DEVICE_CONTROL handler for VSS snapshot devices.
  *
- * Phase 1: handle the lifecycle IRPs so opens/closes work cleanly.
- * Phase 2 (future): wire IRP_MJ_READ/WRITE through the snapshot objset
- * so the device can be mounted as a read-only ZFS volume by VSS.
+ * Handles the storage/volume/mountdev IOCTLs that VSS and the
+ * Mount Manager issue when discovering and characterising shadow copies.
+ */
+static NTSTATUS
+zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	zfs_vss_ext_t *ext = DeviceObject->DeviceExtension;
+	ulong_t cmd = IrpSp->Parameters.DeviceIoControl.IoControlCode;
+	ulong_t outlen = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+	void *buf = Irp->AssociatedIrp.SystemBuffer;
+	NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
+
+	switch (cmd) {
+
+	case IOCTL_DISK_IS_WRITABLE:
+		/* Snapshots are always read-only */
+		dprintf("VSS %s: IOCTL_DISK_IS_WRITABLE\n", __func__);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_MEDIA_WRITE_PROTECTED;
+		break;
+
+	case IOCTL_DISK_CHECK_VERIFY:
+	case IOCTL_STORAGE_CHECK_VERIFY:
+	case IOCTL_STORAGE_CHECK_VERIFY2:
+	case IOCTL_DISK_MEDIA_REMOVAL:
+	case IOCTL_STORAGE_MEDIA_REMOVAL:
+	case IOCTL_VOLUME_ONLINE:
+	case IOCTL_VOLUME_POST_ONLINE:
+	case IOCTL_MOUNTMGR_VOLUME_MOUNT_POINT_CREATED:
+	case IOCTL_MOUNTMGR_VOLUME_MOUNT_POINT_DELETED:
+	case IOCTL_MOUNTDEV_LINK_CREATED:
+	case IOCTL_MOUNTDEV_LINK_DELETED:
+		dprintf("VSS %s: simple-ok ioctl 0x%lx\n", __func__, cmd);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_SUCCESS;
+		break;
+
+	case IOCTL_STORAGE_GET_DEVICE_NUMBER:
+	{
+		dprintf("VSS %s: IOCTL_STORAGE_GET_DEVICE_NUMBER\n", __func__);
+		if (outlen < sizeof (STORAGE_DEVICE_NUMBER)) {
+			Irp->IoStatus.Information =
+			    sizeof (STORAGE_DEVICE_NUMBER);
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		STORAGE_DEVICE_NUMBER *sdn = buf;
+		sdn->DeviceType    = FILE_DEVICE_VIRTUAL_DISK;
+		sdn->DeviceNumber  = (ULONG)(ext->zve_guid & 0xffffffff);
+		sdn->PartitionNumber = (ULONG)-1;
+		Irp->IoStatus.Information = sizeof (STORAGE_DEVICE_NUMBER);
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case IOCTL_DISK_GET_LENGTH_INFO:
+	{
+		dprintf("VSS %s: IOCTL_DISK_GET_LENGTH_INFO\n", __func__);
+		if (outlen < sizeof (GET_LENGTH_INFORMATION)) {
+			Irp->IoStatus.Information =
+			    sizeof (GET_LENGTH_INFORMATION);
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		GET_LENGTH_INFORMATION *gli = buf;
+		gli->Length.QuadPart = (int64_t)zfs_vss_snap_refbytes(ext);
+		Irp->IoStatus.Information = sizeof (GET_LENGTH_INFORMATION);
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case IOCTL_DISK_GET_DRIVE_GEOMETRY:
+	{
+		dprintf("VSS %s: IOCTL_DISK_GET_DRIVE_GEOMETRY\n", __func__);
+		if (outlen < sizeof (DISK_GEOMETRY)) {
+			Irp->IoStatus.Information = sizeof (DISK_GEOMETRY);
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		uint64_t total = zfs_vss_snap_refbytes(ext);
+		const ULONG bps = 512;
+		const ULONG spt = 63;
+		const ULONG tpc = 255;
+		ULONG spc = spt * tpc;
+		LONGLONG cyls = (total / bps) / spc;
+		if (cyls < 1)
+			cyls = 1;
+		DISK_GEOMETRY *dg = buf;
+		dg->Cylinders.QuadPart = cyls;
+		dg->TracksPerCylinder  = tpc;
+		dg->SectorsPerTrack    = spt;
+		dg->BytesPerSector     = bps;
+		dg->MediaType          = FixedMedia;
+		Irp->IoStatus.Information = sizeof (DISK_GEOMETRY);
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case IOCTL_MOUNTDEV_QUERY_DEVICE_NAME:
+	{
+		dprintf("VSS %s: IOCTL_MOUNTDEV_QUERY_DEVICE_NAME\n",
+		    __func__);
+		/* Build wide device name from the prefix + hex GUID */
+		WCHAR wname[64];
+		int nch = swprintf(wname, sizeof (wname) / sizeof (wname[0]),
+		    ZFS_VSS_DEVICE_PREFIXW L"%016llx",
+		    (unsigned long long)ext->zve_guid);
+		USHORT namelen = (USHORT)(nch * sizeof (WCHAR));
+		ULONG needed = FIELD_OFFSET(MOUNTDEV_NAME, Name) + namelen;
+		if (outlen < sizeof (MOUNTDEV_NAME)) {
+			Irp->IoStatus.Information = needed;
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		MOUNTDEV_NAME *mdn = buf;
+		mdn->NameLength = namelen;
+		if (outlen < needed) {
+			Irp->IoStatus.Information = needed;
+			status = STATUS_BUFFER_OVERFLOW;
+			break;
+		}
+		RtlCopyMemory(mdn->Name, wname, namelen);
+		Irp->IoStatus.Information = needed;
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case IOCTL_MOUNTDEV_QUERY_UNIQUE_ID:
+	{
+		dprintf("VSS %s: IOCTL_MOUNTDEV_QUERY_UNIQUE_ID\n", __func__);
+		/* Use the hex GUID string as the unique ID (ASCII bytes) */
+		char uid[32];
+		int uidlen = snprintf(uid, sizeof (uid),
+		    "%016llx", (unsigned long long)ext->zve_guid);
+		ULONG needed = FIELD_OFFSET(MOUNTDEV_UNIQUE_ID, UniqueId) +
+		    uidlen;
+		if (outlen < sizeof (MOUNTDEV_UNIQUE_ID)) {
+			Irp->IoStatus.Information = needed;
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		MOUNTDEV_UNIQUE_ID *uid_out = buf;
+		uid_out->UniqueIdLength = (USHORT)uidlen;
+		if (outlen < needed) {
+			Irp->IoStatus.Information = needed;
+			status = STATUS_BUFFER_OVERFLOW;
+			break;
+		}
+		RtlCopyMemory(uid_out->UniqueId, uid, uidlen);
+		Irp->IoStatus.Information = needed;
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS:
+	{
+		dprintf("VSS %s: IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS\n",
+		    __func__);
+		if (outlen < sizeof (VOLUME_DISK_EXTENTS)) {
+			Irp->IoStatus.Information =
+			    sizeof (VOLUME_DISK_EXTENTS);
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		VOLUME_DISK_EXTENTS *vde = buf;
+		vde->NumberOfDiskExtents = 1;
+		vde->Extents[0].DiskNumber = (ULONG)(ext->zve_guid & 0xffffffff);
+		vde->Extents[0].StartingOffset.QuadPart = 0;
+		vde->Extents[0].ExtentLength.QuadPart =
+		    (int64_t)zfs_vss_snap_refbytes(ext);
+		Irp->IoStatus.Information = sizeof (VOLUME_DISK_EXTENTS);
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case IOCTL_VOLUME_GET_GPT_ATTRIBUTES:
+	{
+		dprintf("VSS %s: IOCTL_VOLUME_GET_GPT_ATTRIBUTES\n", __func__);
+		if (outlen < sizeof (VOLUME_GET_GPT_ATTRIBUTES_INFORMATION)) {
+			Irp->IoStatus.Information =
+			    sizeof (VOLUME_GET_GPT_ATTRIBUTES_INFORMATION);
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		VOLUME_GET_GPT_ATTRIBUTES_INFORMATION *ga = buf;
+		/* GPT_ATTRIBUTE_PLATFORM_REQUIRED | no-automount */
+		ga->GptAttributes = 0x8000000000000001ULL;
+		Irp->IoStatus.Information =
+		    sizeof (VOLUME_GET_GPT_ATTRIBUTES_INFORMATION);
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	default:
+		dprintf("VSS %s: unhandled ioctl 0x%lx\n", __func__, cmd);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_INVALID_DEVICE_REQUEST;
+		break;
+	}
+
+	return (status);
+}
+
+/*
+ * IRP dispatcher for \Device\ZfsSnapshot<hex> devices.
  */
 NTSTATUS
 zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
@@ -409,25 +655,29 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 	switch (IrpSp->MajorFunction) {
 
 	case IRP_MJ_CREATE:
-		dprintf("%s: IRP_MJ_CREATE\n", __func__);
+		dprintf("VSS %s: IRP_MJ_CREATE\n", __func__);
 		Irp->IoStatus.Information = FILE_OPENED;
 		status = STATUS_SUCCESS;
 		break;
 
 	case IRP_MJ_CLEANUP:
-		dprintf("%s: IRP_MJ_CLEANUP\n", __func__);
+		dprintf("VSS %s: IRP_MJ_CLEANUP\n", __func__);
 		Irp->IoStatus.Information = 0;
 		status = STATUS_SUCCESS;
 		break;
 
 	case IRP_MJ_CLOSE:
-		dprintf("%s: IRP_MJ_CLOSE\n", __func__);
+		dprintf("VSS %s: IRP_MJ_CLOSE\n", __func__);
 		Irp->IoStatus.Information = 0;
 		status = STATUS_SUCCESS;
 		break;
 
+	case IRP_MJ_DEVICE_CONTROL:
+		status = zfs_vss_device_control(DeviceObject, Irp, IrpSp);
+		break;
+
 	default:
-		dprintf("%s: unhandled major 0x%x\n",
+		dprintf("VSS %s: unhandled major 0x%x\n",
 		    __func__, IrpSp->MajorFunction);
 		Irp->IoStatus.Information = 0;
 		status = STATUS_INVALID_DEVICE_REQUEST;
