@@ -178,6 +178,13 @@ zfs_vss_snapshot_add(uint64_t guid, const char *poolname)
 	strlcpy(ext->zve_poolname, poolname ? poolname : "",
 	    sizeof (ext->zve_poolname));
 
+	/*
+	 * Clear DO_DEVICE_INITIALIZING so the I/O Manager will accept IRPs
+	 * sent to this device.  Must be done before notifying the Mount Manager,
+	 * otherwise its probe IRPs are silently rejected.
+	 */
+	devobj->Flags &= ~DO_DEVICE_INITIALIZING;
+
 	zfs_vss_snap_t *zvs = kmem_alloc(sizeof (*zvs), KM_SLEEP);
 	zvs->zvs_guid   = guid;
 	zvs->zvs_devobj = devobj;
@@ -191,7 +198,7 @@ zfs_vss_snapshot_add(uint64_t guid, const char *poolname)
 	/*
 	 * Notify the Mount Manager so it probes the device with
 	 * IOCTL_MOUNTDEV_QUERY_DEVICE_NAME / QUERY_UNIQUE_ID immediately.
-	 * Failure is non-fatal — the device still exists.
+	 * Failure is non-fatal - the device still exists.
 	 */
 	zfs_vss_notify_mountmgr(devobj);
 
