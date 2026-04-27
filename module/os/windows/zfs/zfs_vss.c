@@ -196,11 +196,15 @@ zfs_vss_snapshot_add(uint64_t guid, const char *poolname)
 	dprintf("%s: created %s\n", __func__, devname);
 
 	/*
-	 * Notify the Mount Manager so it probes the device with
-	 * IOCTL_MOUNTDEV_QUERY_DEVICE_NAME / QUERY_UNIQUE_ID immediately.
-	 * Failure is non-fatal - the device still exists.
+	 * Intentionally skip MountMgr volume-arrival notification for
+	 * snapshot devices.  Notifying MountMgr causes the Windows System
+	 * Provider to load and probe the device with VOLSNAP IOCTLs whose
+	 * responses it passes through ichannel — producing "IOCTL Unpack
+	 * overflow" errors before our software provider can respond.
+	 * Snapshot devices do not need drive letters; the VSS software
+	 * provider already knows the full device path.
 	 */
-	zfs_vss_notify_mountmgr(devobj);
+	(void) devobj;
 
 	return (0);
 }
@@ -736,12 +740,274 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 	}
 
+	case 0x534058: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE */
+		/*
+		 * VSS coordinator uses ichannel.hxx to Unpack<ULONGLONG> from
+		 * this response.  ZFS snapshots are CoW; no diff area storage
+		 * is used.  Return 0 to satisfy the Unpack size check.
+		 */
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE"
+		    " (snapshot device)\n", __func__);
+		if (outlen < sizeof (ULONGLONG)) {
+			Irp->IoStatus.Information = sizeof (ULONGLONG);
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		*(ULONGLONG *)buf = 0;
+		Irp->IoStatus.Information = sizeof (ULONGLONG);
+		status = STATUS_SUCCESS;
+		break;
+
+	case IOCTL_VOLSNAP_FLUSH_AND_HOLD_WRITES:
+	case 0x0053C004: /* IOCTL_VOLSNAP_RELEASE_WRITES */
+		/*
+		 * Snapshot devices are read-only; no write hold/release needed.
+		 */
+		dprintf("VSS %s: VOLSNAP flush/hold/release no-op 0x%lx\n",
+		    __func__, cmd);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_SUCCESS;
+		break;
+
+	case 0x53406C: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION */
+	{
+		/*
+		 * Return a zeroed structure; no diff area is maintained for
+		 * ZFS CoW snapshots.  Structure layout:
+		 *   ULONGLONG UsedSpace
+		 *   ULONGLONG AllocatedSpace
+		 *   ULONGLONG MaximumSpace
+		 */
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION\n",
+		    __func__);
+		const ULONG sz = 3 * sizeof (ULONGLONG);
+		if (outlen < sz) {
+			Irp->IoStatus.Information = sz;
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		RtlZeroMemory(buf, sz);
+		Irp->IoStatus.Information = sz;
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case 0x530018: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS (primary) */
+	case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS (alt) */
+	{
+		/*
+		 * The snapshot device itself has no child snapshots.
+		 * Return an empty VOLSNAP_NAMES: MultiSzLength=0, Names[1]=0.
+		 *
+		 * VOLSNAP_NAMES layout: { ULONG MultiSzLength; WCHAR Names[1]; }
+		 * sizeof() = 8 (ULONG=4 + WCHAR=2 + 2 bytes pad to ULONG align).
+		 * ichannel Unpack<VOLSNAP_NAMES> requires at least 8 bytes;
+		 * returning only sizeof(ULONG)=4 causes "IOCTL Unpack overflow".
+		 */
+		const ULONG sz = sizeof (ULONG) + sizeof (WCHAR) +
+		    2 * sizeof (BYTE); /* = 8, matching sizeof(VOLSNAP_NAMES) */
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS\n",
+		    __func__);
+		if (outlen < sz) {
+			Irp->IoStatus.Information = sz;
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		RtlZeroMemory(buf, sz); /* MultiSzLength=0, Names=L"" */
+		Irp->IoStatus.Information = sz;
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case 0x530050: /* IOCTL_VOLSNAP function 0x14 - control, no output */
+		/*
+		 * VSS sends this to the snapshot device with a 0-byte (or tiny)
+		 * output buffer; it is a fire-and-forget control IOCTL with no
+		 * data returned.  STATUS_SUCCESS + Information=0 is correct.
+		 */
+		dprintf("VSS %s: VOLSNAP 0x530050 no-op\n", __func__);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_SUCCESS;
+		break;
+
+	case IOCTL_STORAGE_QUERY_PROPERTY:
+	{
+		/*
+		 * Return a minimal STORAGE_DEVICE_DESCRIPTOR so that VSS and
+		 * storage subsystems can identify this as a virtual disk device.
+		 */
+		dprintf("VSS %s: IOCTL_STORAGE_QUERY_PROPERTY\n", __func__);
+
+		if (IrpSp->Parameters.DeviceIoControl.InputBufferLength <
+		    sizeof (STORAGE_PROPERTY_QUERY)) {
+			status = STATUS_INVALID_PARAMETER;
+			break;
+		}
+
+		STORAGE_PROPERTY_QUERY *q = (STORAGE_PROPERTY_QUERY *)buf;
+		STORAGE_PROPERTY_ID propid = q->PropertyId;
+		STORAGE_QUERY_TYPE qtype = q->QueryType;
+
+		if (qtype == PropertyExistsQuery) {
+			/* Exists query: just confirm StorageDeviceProperty exists */
+			Irp->IoStatus.Information = 0;
+			status = (propid == StorageDeviceProperty) ?
+			    STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
+			break;
+		}
+
+		if (propid != StorageDeviceProperty) {
+			status = STATUS_NOT_SUPPORTED;
+			break;
+		}
+
+		/* PropertyStandardQuery for StorageDeviceProperty */
+		ULONG needed = sizeof (STORAGE_DEVICE_DESCRIPTOR);
+		if (outlen < sizeof (STORAGE_DESCRIPTOR_HEADER)) {
+			Irp->IoStatus.Information = needed;
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		if (outlen < needed) {
+			/* Return just the header */
+			STORAGE_DESCRIPTOR_HEADER *h =
+			    (STORAGE_DESCRIPTOR_HEADER *)buf;
+			h->Version = sizeof (STORAGE_DEVICE_DESCRIPTOR);
+			h->Size    = needed;
+			Irp->IoStatus.Information =
+			    sizeof (STORAGE_DESCRIPTOR_HEADER);
+			status = STATUS_SUCCESS;
+			break;
+		}
+		STORAGE_DEVICE_DESCRIPTOR *d = (STORAGE_DEVICE_DESCRIPTOR *)buf;
+		RtlZeroMemory(d, needed);
+		d->Version            = sizeof (STORAGE_DEVICE_DESCRIPTOR);
+		d->Size               = needed;
+		d->DeviceType         = FILE_DEVICE_VIRTUAL_DISK;
+		d->DeviceTypeModifier = 0;
+		d->RemovableMedia     = FALSE;
+		d->CommandQueueing    = FALSE;
+		d->VendorIdOffset     = 0;
+		d->ProductIdOffset    = 0;
+		d->ProductRevisionOffset = 0;
+		d->SerialNumberOffset = 0;
+		/* BusTypeVirtual = 0x12 (Windows 8+) */
+		d->BusType            = (STORAGE_BUS_TYPE)0x12;
+		d->RawPropertiesLength = 0;
+		Irp->IoStatus.Information = needed;
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case IOCTL_DISK_GET_PARTITION_INFO_EX: /* 0x70048 */
+	{
+		/*
+		 * Snapshot devices are raw (no partition table).
+		 * Return PARTITION_STYLE_RAW with the snapshot's logical size.
+		 */
+		dprintf("VSS %s: IOCTL_DISK_GET_PARTITION_INFO_EX\n", __func__);
+		if (outlen < sizeof (PARTITION_INFORMATION_EX)) {
+			Irp->IoStatus.Information =
+			    sizeof (PARTITION_INFORMATION_EX);
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		PARTITION_INFORMATION_EX *pi = (PARTITION_INFORMATION_EX *)buf;
+		RtlZeroMemory(pi, sizeof (*pi));
+		pi->PartitionStyle = PARTITION_STYLE_RAW;
+		pi->StartingOffset.QuadPart = 0;
+		pi->PartitionLength.QuadPart =
+		    (LONGLONG)zfs_vss_snap_refbytes(ext);
+		pi->PartitionNumber = 0;
+		Irp->IoStatus.Information = sizeof (PARTITION_INFORMATION_EX);
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case 0x2d1084: /* IOCTL_STORAGE_GET_DEVICE_NUMBER_EX (Win10 1709+) */
+	{
+		/*
+		 * STORAGE_DEVICE_NUMBER_EX:
+		 *   ULONG Version, Size, Flags, DeviceType, DeviceNumber;
+		 *   GUID  DeviceGuid;
+		 *   ULONG PartitionNumber;
+		 * Total: 6 * ULONG + GUID = 24 + 16 = 40 bytes.
+		 */
+		dprintf("VSS %s: IOCTL_STORAGE_GET_DEVICE_NUMBER_EX\n",
+		    __func__);
+		const ULONG sz = 6 * sizeof (ULONG) + sizeof (GUID);
+		if (outlen < sz) {
+			Irp->IoStatus.Information = sz;
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		ULONG *p = (ULONG *)buf;
+		RtlZeroMemory(p, sz);
+		p[0] = sz;	/* Version */
+		p[1] = sz;	/* Size */
+		p[2] = 0;	/* Flags */
+		p[3] = FILE_DEVICE_VIRTUAL_DISK; /* DeviceType */
+		p[4] = (ULONG)(ext->zve_guid & 0xffffffff); /* DeviceNumber */
+		/* DeviceGuid: derive from zve_guid */
+		GUID *g = (GUID *)(p + 5);
+		g->Data1 = (ULONG)(ext->zve_guid & 0xffffffff);
+		g->Data2 = (USHORT)((ext->zve_guid >> 32) & 0xffff);
+		g->Data3 = (USHORT)((ext->zve_guid >> 48) & 0xffff);
+		/* Data4 already zeroed */
+		p[9] = (ULONG)-1;	/* PartitionNumber */
+		Irp->IoStatus.Information = sz;
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case 0x2d0c14: /* IOCTL_STORAGE_GET_HOTPLUG_INFO (function 0x305) */
+	{
+		/*
+		 * STORAGE_HOTPLUG_INFO: { ULONG Size; BOOLEAN x4; }
+		 * Snapshot devices are fixed, non-removable virtual disks.
+		 */
+		dprintf("VSS %s: IOCTL_STORAGE_GET_HOTPLUG_INFO\n", __func__);
+		const ULONG sz = sizeof (ULONG) + 4 * sizeof (BOOLEAN);
+		if (outlen < sz) {
+			Irp->IoStatus.Information = sz;
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		ULONG *shi = (ULONG *)buf;
+		RtlZeroMemory(shi, sz);
+		shi[0] = sz; /* Size field */
+		/* MediaRemovable, MediaHotplug, DeviceHotplug, Override = FALSE */
+		Irp->IoStatus.Information = sz;
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case 0x56c064: /* VOLUME function 0x19 r/w - not applicable to snaps */
+	case 0x2d118c: /* STORAGE function 0x463 - not applicable to snaps */
+	case 0x2d1190: /* STORAGE function 0x464 - not applicable to snaps */
+		dprintf("VSS %s: optional ioctl 0x%lx not supported\n",
+		    __func__, cmd);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_NOT_SUPPORTED;
+		break;
+
+	case 0x4d0010: /* VOLMGR function 4 - not applicable to snapshots */
+	case 0x4d0018: /* VOLMGR function 6 - not applicable to snapshots */
+		dprintf("VSS %s: volmgr 0x%lx not supported\n", __func__, cmd);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_NOT_SUPPORTED;
+		break;
+
 	default:
 		dprintf("VSS %s: unhandled ioctl 0x%lx\n", __func__, cmd);
 		Irp->IoStatus.Information = 0;
 		status = STATUS_INVALID_DEVICE_REQUEST;
 		break;
 	}
+
+	dprintf("VSS %s: ioctl 0x%lx -> ntstatus 0x%lx info %lu\n",
+	    __func__, cmd, (ULONG)status,
+	    (ULONG)Irp->IoStatus.Information);
 
 	return (status);
 }
@@ -778,6 +1044,57 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 
 	case IRP_MJ_DEVICE_CONTROL:
 		status = zfs_vss_device_control(DeviceObject, Irp, IrpSp);
+		break;
+
+	case IRP_MJ_READ:
+	{
+		/*
+		 * VSS reads the first sector of the snapshot device to verify
+		 * it is accessible.  The snapshot device is a virtual read-only
+		 * representation; return zeroed data so the read succeeds.
+		 * The buffer is mapped via MDL for disk-style reads.
+		 */
+		ULONG rdlen = IrpSp->Parameters.Read.Length;
+		dprintf("VSS %s: IRP_MJ_READ off=%lld len=%lu\n", __func__,
+		    IrpSp->Parameters.Read.ByteOffset.QuadPart, rdlen);
+		if (rdlen > 0 && Irp->MdlAddress != NULL) {
+			void *kbuf = MmGetSystemAddressForMdlSafe(
+			    Irp->MdlAddress, NormalPagePriority);
+			if (kbuf != NULL) {
+				RtlZeroMemory(kbuf, rdlen);
+				Irp->IoStatus.Information = rdlen;
+				status = STATUS_SUCCESS;
+				break;
+			}
+		}
+		/* No MDL (e.g. buffered read with 0 length) */
+		Irp->IoStatus.Information = 0;
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case IRP_MJ_FILE_SYSTEM_CONTROL:
+		/*
+		 * FSCTLs to the snapshot device: reject gracefully so that
+		 * VSS does not interpret the error as a fatal provider veto.
+		 */
+		dprintf("VSS %s: IRP_MJ_FILE_SYSTEM_CONTROL fsctl=0x%lx"
+		    " (not supported)\n", __func__,
+		    IrpSp->Parameters.FileSystemControl.FsControlCode);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_INVALID_DEVICE_REQUEST;
+		break;
+
+	case IRP_MJ_QUERY_VOLUME_INFORMATION:
+		/*
+		 * Volume information queries: return STATUS_INVALID_DEVICE_REQUEST
+		 * for now; snapshot devices are not full filesystem volumes.
+		 */
+		dprintf("VSS %s: IRP_MJ_QUERY_VOLUME_INFORMATION class=%d\n",
+		    __func__,
+		    IrpSp->Parameters.QueryVolume.FsInformationClass);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_INVALID_DEVICE_REQUEST;
 		break;
 
 	default:

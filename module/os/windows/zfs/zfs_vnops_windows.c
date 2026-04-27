@@ -3227,6 +3227,7 @@ query_volume_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 #endif
 
+
 		ffai->FileSystemAttributes |= FILE_FILE_COMPRESSION |
 		    FILE_VOLUME_QUOTAS | FILE_SUPPORTS_SPARSE_VDL;
 
@@ -5214,52 +5215,14 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		Status = STATUS_SUCCESS;
 		break;
 	case FSCTL_QUERY_DEPENDENT_VOLUME:
-		dprintf("    FSCTL_QUERY_DEPENDENT_VOLUME: \n");
-		STORAGE_QUERY_DEPENDENT_VOLUME_REQUEST *req =
-		    Irp->AssociatedIrp.SystemBuffer;
-		dprintf("RequestLevel %ld: RequestFlags 0x%lx\n",
-		    req->RequestLevel, req->RequestFlags);
-// #define	QUERY_DEPENDENT_VOLUME_REQUEST_FLAG_HOST_VOLUMES    0x1
-// #define	QUERY_DEPENDENT_VOLUME_REQUEST_FLAG_GUEST_VOLUMES   0x2
-		STORAGE_QUERY_DEPENDENT_VOLUME_LEV1_ENTRY *lvl1 =
-		    Irp->AssociatedIrp.SystemBuffer;
-		STORAGE_QUERY_DEPENDENT_VOLUME_LEV2_ENTRY *lvl2 =
-		    Irp->AssociatedIrp.SystemBuffer;
-
-		Status = STATUS_NOT_SUPPORTED;
-		return (Status);
-
-		switch (req->RequestLevel) {
-		case 1:
-			if (IrpSp->
-			    Parameters.FileSystemControl.OutputBufferLength <
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV1_ENTRY))
-				return (STATUS_BUFFER_TOO_SMALL);
-			memset(lvl1, 0,
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV1_ENTRY));
-			lvl1->EntryLength =
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV1_ENTRY);
-			Irp->IoStatus.Information =
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV1_ENTRY);
-			Status = STATUS_SUCCESS;
-			break;
-		case 2:
-			if (IrpSp->
-			    Parameters.FileSystemControl.OutputBufferLength <
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV2_ENTRY))
-				return (STATUS_BUFFER_TOO_SMALL);
-			memset(lvl2, 0,
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV2_ENTRY));
-			lvl2->EntryLength =
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV2_ENTRY);
-			Irp->IoStatus.Information =
-			    sizeof (STORAGE_QUERY_DEPENDENT_VOLUME_LEV2_ENTRY);
-			Status = STATUS_SUCCESS;
-			break;
-		default:
-			Status = STATUS_INVALID_PARAMETER;
-			break;
-		}
+		/*
+		 * ZFS volumes are not backed by virtual disk files; there
+		 * are zero dependent volumes.  Return SUCCESS with an empty
+		 * array (Information = 0).
+		 */
+		dprintf("    FSCTL_QUERY_DEPENDENT_VOLUME: 0 entries\n");
+		Irp->IoStatus.Information = 0;
+		Status = STATUS_SUCCESS;
 		break;
 
 	case FSCTL_SET_SPARSE:
@@ -8188,8 +8151,22 @@ _Function_class_(DRIVER_DISPATCH)
 				    IrpSp);
 				break;
 			default:
-				dprintf("**** unknown Windows IOCTL: 0x%lx\n",
-				    cmd);
+				/*
+				 * Catch VOLSNAP IOCTLs arriving at ioctlDevice.
+				 * Return STATUS_NOT_SUPPORTED (not STATUS_NOT_IMPLEMENTED)
+				 * so swprv's ichannel sees a hard error and skips this
+				 * volume rather than treating a 0-byte STATUS_SUCCESS
+				 * response from the lower device as valid data.
+				 */
+				if ((cmd >> 16) == 0x53) {
+					dprintf("**** ioctl: unhandled VOLSNAP"
+					    " 0x%lx -> NOT_SUPPORTED\n", cmd);
+					Irp->IoStatus.Information = 0;
+					Status = STATUS_NOT_SUPPORTED;
+				} else {
+					dprintf("**** unknown Windows IOCTL:"
+					    " 0x%lx\n", cmd);
+				}
 			}
 
 		}
@@ -8482,9 +8459,77 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = fsctl_zfs_volume_mountpoint(DeviceObject, Irp,
 			    IrpSp);
 			break;
-		default:
-			dprintf("**** unknown disk Windows IOCTL: 0x%lx\n",
+		case IOCTL_VOLSNAP_FLUSH_AND_HOLD_WRITES:
+		case 0x0053C004: /* IOCTL_VOLSNAP_RELEASE_WRITES */
+			dprintf("disk: VOLSNAP flush/hold/release no-op"
+			    " 0x%lx\n", cmd);
+			Irp->IoStatus.Information = 0;
+			Status = STATUS_SUCCESS;
+			break;
+
+		case 0x530018: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS */
+		case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS (alt) */
+		{
+			/*
+			 * swprv (Microsoft Software Shadow Copy Provider)
+			 * queries every volume for snapshot names via ichannel.
+			 * Return an empty VOLSNAP_NAMES so ichannel's
+			 * Unpack<ULONG> can read the MultiSzLength field (=0)
+			 * and conclude there are no snapshots on this volume.
+			 *
+			 * Layout: { ULONG MultiSzLength; WCHAR Names[1]; }
+			 * sizeof = 8 bytes; returning < 4 causes Unpack overflow.
+			 */
+			const ULONG sz = sizeof (ULONG) + sizeof (WCHAR) + 2;
+			dprintf("disk: IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS"
+			    " (no snapshots)\n");
+			if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength
+			    < sz) {
+				Irp->IoStatus.Information = sz;
+				Status = STATUS_BUFFER_TOO_SMALL;
+			} else {
+				RtlZeroMemory(Irp->AssociatedIrp.SystemBuffer,
+				    sz);
+				Irp->IoStatus.Information = sz;
+				Status = STATUS_SUCCESS;
+			}
+			break;
+		}
+
+		case 0x534058: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE */
+		case 0x53406C: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION */
+		case 0x530050: /* IOCTL_VOLSNAP function 0x14 */
+		case 0x53001C: /* IOCTL_VOLSNAP function 0x7 */
+			/*
+			 * Other VOLSNAP IOCTLs that may be sent to the disk
+			 * device.  Return STATUS_NOT_SUPPORTED rather than
+			 * passing down to avoid the lower device returning
+			 * STATUS_SUCCESS + 0 bytes (Unpack overflow).
+			 */
+			dprintf("disk: VOLSNAP ioctl 0x%lx not supported\n",
 			    cmd);
+			Irp->IoStatus.Information = 0;
+			Status = STATUS_NOT_SUPPORTED;
+			break;
+
+		default:
+			/*
+			 * For VOLSNAP IOCTLs (device type 0x53) that we do not
+			 * recognise, return STATUS_NOT_SUPPORTED explicitly so
+			 * the IRP is NOT passed to the lower device.  The lower
+			 * device may return STATUS_SUCCESS + 0 bytes for unknown
+			 * IOCTLs, which causes swprv's ichannel to attempt an
+			 * Unpack from an empty buffer ("IOCTL Unpack overflow").
+			 */
+			if ((cmd >> 16) == 0x53) {
+				dprintf("disk: unhandled VOLSNAP IOCTL 0x%lx"
+				    " -> NOT_SUPPORTED\n", cmd);
+				Irp->IoStatus.Information = 0;
+				Status = STATUS_NOT_SUPPORTED;
+			} else {
+				dprintf("**** unknown disk Windows IOCTL:"
+				    " 0x%lx\n", cmd);
+			}
 	//		DbgBreakPoint();
 		}
 
@@ -8939,14 +8984,135 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 
 		case IOCTL_VOLSNAP_FLUSH_AND_HOLD_WRITES:
-		case 0x530018:
-		case 0x534058:
-			dprintf("IOCTL_VOLSNAP_FLUSH_AND_HOLD_WRITES\n");
-			Status = STATUS_NOT_SUPPORTED;
+		case 0x0053C004: /* IOCTL_VOLSNAP_RELEASE_WRITES */
+			/*
+			 * ZFS is copy-on-write; no write freeze or release
+			 * is needed.
+			 */
+			dprintf("IOCTL_VOLSNAP_FLUSH/HOLD/RELEASE: no-op\n");
+			Status = STATUS_SUCCESS;
+			break;
+
+		case 0x530018: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS */
+		{
+			/*
+			 * swprv (Microsoft Software Shadow Copy Provider)
+			 * sends this to every volume to enumerate snapshot
+			 * names.  Return an empty VOLSNAP_NAMES so swprv's
+			 * ichannel can Unpack the MultiSzLength ULONG (=0)
+			 * and conclude there are no snapshots on this volume.
+			 *
+			 * Layout: { ULONG MultiSzLength; WCHAR Names[1]; }
+			 * Must return >= 8 bytes or Unpack overflows.
+			 * Previously (wrongly) grouped with HOLD_WRITES as a
+			 * no-op returning 0 bytes, causing Unpack overflow.
+			 */
+			const ULONG sz = sizeof (ULONG) + sizeof (WCHAR) + 2;
+			dprintf("IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS"
+			    " (0x530018): returning empty names\n");
+			if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength
+			    < sz) {
+				Irp->IoStatus.Information = sz;
+				Status = STATUS_BUFFER_TOO_SMALL;
+			} else {
+				RtlZeroMemory(
+				    Irp->AssociatedIrp.SystemBuffer, sz);
+				Irp->IoStatus.Information = sz;
+				Status = STATUS_SUCCESS;
+			}
+			break;
+		}
+
+		case 0x534058: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE */
+			/*
+			 * VSS coordinator unpacks a ULONGLONG from the output
+			 * buffer (see ichannel.hxx Unpack<ULONGLONG>).
+			 * ZFS is CoW so no diff area is needed; return 0.
+			 */
+			dprintf("IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE\n");
+			if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength
+			    < sizeof (ULONGLONG)) {
+				Irp->IoStatus.Information = sizeof (ULONGLONG);
+				Status = STATUS_BUFFER_TOO_SMALL;
+			} else {
+				*(ULONGLONG *)Irp->AssociatedIrp.SystemBuffer = 0;
+				Irp->IoStatus.Information = sizeof (ULONGLONG);
+				Status = STATUS_SUCCESS;
+			}
+			break;
+
+		case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS */
+		{
+			/*
+			 * VSS queries the live volume for its snapshot names.
+			 * Return an empty VOLSNAP_NAMES (no diff-area snapshots).
+			 * Layout: { ULONG MultiSzLength; WCHAR Names[1]; }
+			 * ichannel Unpack<VOLSNAP_NAMES> requires >= 8 bytes.
+			 */
+			const ULONG sz = sizeof (ULONG) + sizeof (WCHAR) + 2;
+			dprintf("IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS"
+			    " (volume)\n");
+			if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength
+			    < sz) {
+				Irp->IoStatus.Information = sz;
+				Status = STATUS_BUFFER_TOO_SMALL;
+			} else {
+				RtlZeroMemory(
+				    Irp->AssociatedIrp.SystemBuffer, sz);
+				Irp->IoStatus.Information = sz;
+				Status = STATUS_SUCCESS;
+			}
+			break;
+		}
+
+		case 0x53406C: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION */
+		{
+			/*
+			 * VSS unpacks 3 ULONGLONGs: UsedSpace, AllocatedSpace,
+			 * MaximumSpace.  ZFS is CoW; no diff area is maintained.
+			 */
+			const ULONG sz = 3 * sizeof (ULONGLONG);
+			dprintf("IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION"
+			    " (volume)\n");
+			if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength
+			    < sz) {
+				Irp->IoStatus.Information = sz;
+				Status = STATUS_BUFFER_TOO_SMALL;
+			} else {
+				RtlZeroMemory(
+				    Irp->AssociatedIrp.SystemBuffer, sz);
+				Irp->IoStatus.Information = sz;
+				Status = STATUS_SUCCESS;
+			}
+			break;
+		}
+
+		case 0x530050: /* IOCTL_VOLSNAP function 0x14 - no output */
+		case 0x53001C: /* IOCTL_VOLSNAP function 0x7 - no output */
+			dprintf("IOCTL_VOLSNAP 0x%lx no-op (volume)\n", cmd);
+			Irp->IoStatus.Information = 0;
+			Status = STATUS_SUCCESS;
 			break;
 
 		default:
-			dprintf("**** unknown fsWindows IOCTL: 0x%lx\n", cmd);
+			/*
+			 * For VOLSNAP IOCTLs (device type 0x53) that we do not
+			 * handle, return STATUS_NOT_SUPPORTED explicitly.  Do NOT
+			 * let these fall through to the pass-down path: if the
+			 * lower device returns STATUS_SUCCESS with 0 bytes, the VSS
+			 * ichannel will attempt to Unpack a fixed-size struct from
+			 * zero bytes and log "IOCTL Unpack overflow".
+			 */
+			if ((cmd >> 16) == 0x53) {
+				dprintf("**** unhandled VOLSNAP IOCTL: 0x%lx"
+				    " - returning NOT_SUPPORTED\n", cmd);
+				Irp->IoStatus.Information = 0;
+				Status = STATUS_NOT_SUPPORTED;
+			} else {
+				dprintf("**** unknown fsWindows IOCTL: 0x%lx\n",
+				    cmd);
+			}
+			break;
 		}
 
 	}
