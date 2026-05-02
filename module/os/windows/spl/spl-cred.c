@@ -122,12 +122,10 @@ spl_get_caller_uid(void)
 
 	token = PsReferencePrimaryToken(PsGetCurrentProcess());
 	if (token == NULL) {
-		dprintf("out1\r\n");
 		return (0);
 	}
 
 	if (SeTokenIsAdmin(token)) {
-		dprintf("out2\r\n");
 		PsDereferencePrimaryToken(token);
 		return (0);
 	}

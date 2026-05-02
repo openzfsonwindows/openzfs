@@ -71,20 +71,13 @@
 #include <sys/mount.h>
 
 #include <sys/zfs_vss.h>
+#include <sys/zfs_vfsops.h>
+#include <sys/zfs_windows.h>
+#include <sys/zfs_mount.h>
 
 /* Prefix for all snapshot device objects. */
 #define	ZFS_VSS_DEVICE_PREFIX	"\\Device\\ZfsSnapshot"
 #define	ZFS_VSS_DEVICE_PREFIXW	L"\\Device\\ZfsSnapshot"
-
-/*
- * Device extension stored in each \Device\ZfsSnapshot<hex> device object.
- * Must begin with FSD_IDENTIFIER_TYPE so the main dispatcher can route it.
- */
-typedef struct zfs_vss_ext {
-	FSD_IDENTIFIER_TYPE	zve_type;	/* == MOUNT_TYPE_VSS */
-	uint64_t		zve_guid;	/* ZFS dataset GUID */
-	char			zve_poolname[MAXPATHLEN]; /* pool name for DSL */
-} zfs_vss_ext_t;
 
 /*
  * Per-snapshot device tracking entry.
@@ -117,7 +110,7 @@ static void zfs_vss_notify_mountmgr(PDEVICE_OBJECT devobj);
  * open the SPA and look up the snapshot for size queries.
  */
 int
-zfs_vss_snapshot_add(uint64_t guid, const char *poolname)
+zfs_vss_snapshot_add(uint64_t guid, const char *snapname)
 {
 	NTSTATUS status;
 	char devname[64];
@@ -151,15 +144,20 @@ zfs_vss_snapshot_add(uint64_t guid, const char *poolname)
 	}
 
 	/*
-	 * FILE_DEVICE_VIRTUAL_DISK: no "new device" popup.
+	 * FILE_DEVICE_DISK_FILE_SYSTEM: required so that the IO Manager routes
+	 * IRP_MJ_CREATE with a path component to this device.  With any disk-
+	 * style device type (FILE_DEVICE_VIRTUAL_DISK, FILE_DEVICE_DISK, …)
+	 * the IO Manager rejects "\\?\GLOBALROOT\Device\ZfsSnapshot...\path"
+	 * with ERROR_INVALID_NAME before sending a single IRP — it requires
+	 * either a filesystem device type or a VPB to locate the FS.
 	 * FILE_READ_ONLY_DEVICE: snapshot is always read-only.
-	 * Allocate sizeof(zfs_vss_ext_t) extension so the dispatcher
-	 * can identify this as a VSS device via DeviceExtension->type.
+	 * Use sizeof(mount_t) so the device extension IS the mount object;
+	 * fsDispatcher can handle file IRPs once the snapshot is lazily mounted.
 	 */
 	status = IoCreateDevice(WIN_DriverObject,
-	    sizeof (zfs_vss_ext_t),
+	    sizeof (mount_t),
 	    &ustr,
-	    FILE_DEVICE_VIRTUAL_DISK,
+	    FILE_DEVICE_DISK_FILE_SYSTEM,
 	    FILE_DEVICE_SECURE_OPEN | FILE_READ_ONLY_DEVICE,
 	    FALSE,
 	    &devobj);
@@ -172,11 +170,20 @@ zfs_vss_snapshot_add(uint64_t guid, const char *poolname)
 		return (EIO);
 	}
 
-	zfs_vss_ext_t *ext = devobj->DeviceExtension;
-	ext->zve_type = MOUNT_TYPE_VSS;
-	ext->zve_guid = guid;
-	strlcpy(ext->zve_poolname, poolname ? poolname : "",
-	    sizeof (ext->zve_poolname));
+	mount_t *zmo = devobj->DeviceExtension;
+	RtlZeroMemory(zmo, sizeof (mount_t));
+	zmo->type = MOUNT_TYPE_VSS;
+	zmo->size = sizeof (mount_t);
+	zmo->vss_guid = guid;
+	strlcpy(zmo->vss_snapname, snapname ? snapname : "",
+	    sizeof (zmo->vss_snapname));
+	/* ascii_name points into vss_snapname ("pool/ds@snap") */
+	zmo->ascii_name = (const unsigned char *)zmo->vss_snapname;
+	zmo->mountflags = MNT_RDONLY;
+	KeInitializeMutex(&zmo->vss_mount_lock, 0);
+	InitializeListHead(&zmo->DirNotifyList);
+	FsRtlNotifyInitializeSync(&zmo->NotifySync);
+	devobj->SectorSize = 512;
 
 	/*
 	 * Clear DO_DEVICE_INITIALIZING so the I/O Manager will accept IRPs
@@ -303,6 +310,17 @@ zfs_vss_snapshot_remove(uint64_t guid)
 	dprintf("%s: removing " ZFS_VSS_DEVICE_PREFIX "%016llx\n",
 	    __func__, (unsigned long long)guid);
 
+	mount_t *zmo = zvs->zvs_devobj->DeviceExtension;
+
+	/* Unmount the snapshot filesystem if it was lazily mounted. */
+	if (vfs_fsprivate(zmo) != NULL) {
+		dprintf("%s: unmounting snapshot %016llx\n",
+		    __func__, (unsigned long long)guid);
+		(void) zfs_vfs_unmount(zmo, MNT_FORCE, NULL);
+		vfs_mount_remove(zmo);
+	}
+	FsRtlNotifyUninitializeSync(&zmo->NotifySync);
+
 	IoDeleteDevice(zvs->zvs_devobj);
 	kmem_free(zvs, sizeof (*zvs));
 }
@@ -331,7 +349,7 @@ zfs_vss_snapshot_add_by_name(const char *snapname)
 	if (dsl_dataset_hold(dp, snapname, FTAG, &ds) == 0) {
 		if (dsl_dataset_is_snapshot(ds))
 			(void) zfs_vss_snapshot_add(dsl_dataset_phys(ds)->ds_guid,
-			    spa_name(spa));
+			    snapname);
 		dsl_dataset_rele(ds, FTAG);
 	}
 	dsl_pool_config_exit(dp, FTAG);
@@ -402,8 +420,10 @@ zfs_vss_pool_add_cb(dsl_pool_t *dp, dsl_dataset_t *ds, void *arg)
 	if (!dsl_dataset_is_snapshot(ds))
 		return (0);
 
+	char dsname[ZFS_MAX_DATASET_NAME_LEN];
+	dsl_dataset_name(ds, dsname);
 	uint64_t guid = dsl_dataset_phys(ds)->ds_guid;
-	(void) zfs_vss_snapshot_add(guid, spa_name(dp->dp_spa));
+	(void) zfs_vss_snapshot_add(guid, dsname);
 	return (0);
 }
 
@@ -500,17 +520,23 @@ zfs_vss_fini(void)
  * Returns 0 if the lookup fails.
  */
 static uint64_t
-zfs_vss_snap_refbytes(zfs_vss_ext_t *ext)
+zfs_vss_snap_refbytes(mount_t *zmo)
 {
 	spa_t *spa;
 	dsl_pool_t *dp;
 	dsl_dataset_t *ds;
 	uint64_t refbytes = 0;
 
-	if (ext->zve_poolname[0] == '\0')
+	/* Extract pool name from "pool/ds@snap" or "pool" */
+	char poolname[256];
+	const char *snapname = zmo->vss_snapname;
+	const char *sep = strpbrk(snapname, "/@");
+	size_t plen = sep ? (size_t)(sep - snapname) : strlen(snapname);
+	if (plen == 0 || plen >= sizeof (poolname))
 		return (0);
+	strlcpy(poolname, snapname, plen + 1);
 
-	if (spa_open(ext->zve_poolname, &spa, FTAG) != 0)
+	if (spa_open(poolname, &spa, FTAG) != 0)
 		return (0);
 
 	dp = spa_get_dsl(spa);
@@ -520,7 +546,7 @@ zfs_vss_snap_refbytes(zfs_vss_ext_t *ext)
 	}
 
 	dsl_pool_config_enter(dp, FTAG);
-	if (dsl_dataset_hold_obj(dp, ext->zve_guid, FTAG, &ds) == 0) {
+	if (dsl_dataset_hold_obj(dp, zmo->vss_guid, FTAG, &ds) == 0) {
 		refbytes = dsl_dataset_phys(ds)->ds_referenced_bytes;
 		dsl_dataset_rele(ds, FTAG);
 	}
@@ -528,6 +554,110 @@ zfs_vss_snap_refbytes(zfs_vss_ext_t *ext)
 	spa_close(spa, FTAG);
 
 	return (refbytes);
+}
+
+/*
+ * Mount the ZFS snapshot named by zmo->vss_snapname onto zmo (which is the
+ * device extension of the \Device\ZfsSnapshot<guid> device object).
+ * After this returns 0, vfs_fsprivate(zmo) is a live zfsvfs_t and
+ * fsDispatcher can handle file IRPs on the snapshot device.
+ */
+static int
+zfs_vss_do_mount(PDEVICE_OBJECT DeviceObject, mount_t *zmo)
+{
+	struct zfs_mount_args mnt_args;
+	int err;
+
+	ASSERT(vfs_fsprivate(zmo) == NULL);
+
+	mnt_args.struct_size = sizeof (mnt_args);
+	mnt_args.optlen = 0;
+	mnt_args.mflag = MNT_RDONLY;
+	mnt_args.fspec = (char *)zmo->vss_snapname;
+
+	dprintf("%s: mounting snapshot '%s'\n", __func__, zmo->vss_snapname);
+	err = zfs_vfs_mount(zmo, NULL, (user_addr_t)&mnt_args, NULL);
+	if (err != 0) {
+		dprintf("%s: zfs_vfs_mount failed %d\n", __func__, err);
+		return (err);
+	}
+
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+	if (zfsvfs != NULL)
+		zfsvfs->z_vfs = zmo;
+
+	zmo->VolumeDeviceObject = DeviceObject;
+	zmo->FunctionalDeviceObject = DeviceObject;
+
+	/*
+	 * Do NOT install a VPB on this device.  A self-referential VPB
+	 * (DeviceObject == RealDevice == our device) confuses the IO Manager:
+	 * for FILE_DIRECTORY_FILE opens with a non-root FileName (e.g.
+	 * \HelloWorld) the IO Manager attempts a namespace sub-device lookup
+	 * for the path component, fails to find one, and the IRP never reaches
+	 * our dispatcher.  Without a VPB, FILE_DEVICE_DISK_FILE_SYSTEM devices
+	 * receive all IRPs — including sub-directory opens — directly.
+	 *
+	 * The mount-check in zfs_vnop_lookup_impl is updated to use
+	 * vfs_fsprivate(zmo) instead of the VPB_MOUNTED flag.
+	 */
+
+	vfs_mount_add(zmo);
+	dprintf("%s: snapshot '%s' mounted\n", __func__, zmo->vss_snapname);
+	return (0);
+}
+
+/*
+ * Work item context for lazy snapshot mount.
+ * Carries the pending IRP so it can be completed after the mount finishes.
+ */
+typedef struct {
+	PIO_WORKITEM	wi_item;
+	PDEVICE_OBJECT	wi_devobj;
+	PIRP		wi_irp;
+} zfs_vss_mount_wi_t;
+
+static IO_WORKITEM_ROUTINE zfs_vss_mount_workitem;
+static VOID
+zfs_vss_mount_workitem(PDEVICE_OBJECT DeviceObject, PVOID Context)
+{
+	zfs_vss_mount_wi_t *wi = Context;
+	PIRP Irp = wi->wi_irp;
+	PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
+	mount_t *zmo = DeviceObject->DeviceExtension;
+
+	/*
+	 * Serialise: only one thread mounts; others wait on the mutex and
+	 * then fall through to fsDispatcher with the snapshot already live.
+	 */
+	KeWaitForMutexObject(&zmo->vss_mount_lock, Executive,
+	    KernelMode, FALSE, NULL);
+
+	if (vfs_fsprivate(zmo) == NULL)
+		(void) zfs_vss_do_mount(DeviceObject, zmo);
+
+	KeReleaseMutex(&zmo->vss_mount_lock, FALSE);
+
+	if (vfs_fsprivate(zmo) == NULL) {
+		/* Mount failed; reject the create. */
+		Irp->IoStatus.Status = STATUS_UNRECOGNIZED_VOLUME;
+		Irp->IoStatus.Information = 0;
+		IoCompleteRequest(Irp, IO_NO_INCREMENT);
+	} else {
+		/*
+		 * Snapshot is live; let fsDispatcher handle the create.
+		 * fsDispatcher returns without completing the IRP (the main
+		 * dispatcher() loop normally does that); we must complete it.
+		 */
+		NTSTATUS st = fsDispatcher(DeviceObject, &Irp, IrpSp);
+		if (Irp != NULL) {
+			Irp->IoStatus.Status = st;
+			IoCompleteRequest(Irp, IO_NO_INCREMENT);
+		}
+	}
+
+	IoFreeWorkItem(wi->wi_item);
+	kmem_free(wi, sizeof (*wi));
 }
 
 /*
@@ -540,7 +670,7 @@ static NTSTATUS
 zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
 {
-	zfs_vss_ext_t *ext = DeviceObject->DeviceExtension;
+	mount_t *zmo = DeviceObject->DeviceExtension;
 	ulong_t cmd = IrpSp->Parameters.DeviceIoControl.IoControlCode;
 	ulong_t outlen = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
 	void *buf = Irp->AssociatedIrp.SystemBuffer;
@@ -595,7 +725,7 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 		STORAGE_DEVICE_NUMBER *sdn = buf;
 		sdn->DeviceType    = FILE_DEVICE_VIRTUAL_DISK;
-		sdn->DeviceNumber  = (ULONG)(ext->zve_guid & 0xffffffff);
+		sdn->DeviceNumber  = (ULONG)(zmo->vss_guid & 0xffffffff);
 		sdn->PartitionNumber = (ULONG)-1;
 		Irp->IoStatus.Information = sizeof (STORAGE_DEVICE_NUMBER);
 		status = STATUS_SUCCESS;
@@ -612,7 +742,7 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			break;
 		}
 		GET_LENGTH_INFORMATION *gli = buf;
-		gli->Length.QuadPart = (int64_t)zfs_vss_snap_refbytes(ext);
+		gli->Length.QuadPart = (int64_t)zfs_vss_snap_refbytes(zmo);
 		Irp->IoStatus.Information = sizeof (GET_LENGTH_INFORMATION);
 		status = STATUS_SUCCESS;
 		break;
@@ -626,7 +756,7 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			status = STATUS_BUFFER_TOO_SMALL;
 			break;
 		}
-		uint64_t total = zfs_vss_snap_refbytes(ext);
+		uint64_t total = zfs_vss_snap_refbytes(zmo);
 		const ULONG bps = 512;
 		const ULONG spt = 63;
 		const ULONG tpc = 255;
@@ -653,7 +783,7 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		WCHAR wname[64];
 		int nch = _snwprintf(wname, sizeof (wname) / sizeof (wname[0]),
 		    ZFS_VSS_DEVICE_PREFIXW L"%016llx",
-		    (unsigned long long)ext->zve_guid);
+		    (unsigned long long)zmo->vss_guid);
 		USHORT namelen = (USHORT)(nch * sizeof (WCHAR));
 		ULONG needed = FIELD_OFFSET(MOUNTDEV_NAME, Name) + namelen;
 		if (outlen < sizeof (MOUNTDEV_NAME)) {
@@ -680,7 +810,7 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		/* Use the hex GUID string as the unique ID (ASCII bytes) */
 		char uid[32];
 		int uidlen = snprintf(uid, sizeof (uid),
-		    "%016llx", (unsigned long long)ext->zve_guid);
+		    "%016llx", (unsigned long long)zmo->vss_guid);
 		ULONG needed = FIELD_OFFSET(MOUNTDEV_UNIQUE_ID, UniqueId) +
 		    uidlen;
 		if (outlen < sizeof (MOUNTDEV_UNIQUE_ID)) {
@@ -713,10 +843,10 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 		VOLUME_DISK_EXTENTS *vde = buf;
 		vde->NumberOfDiskExtents = 1;
-		vde->Extents[0].DiskNumber = (ULONG)(ext->zve_guid & 0xffffffff);
+		vde->Extents[0].DiskNumber = (ULONG)(zmo->vss_guid & 0xffffffff);
 		vde->Extents[0].StartingOffset.QuadPart = 0;
 		vde->Extents[0].ExtentLength.QuadPart =
-		    (int64_t)zfs_vss_snap_refbytes(ext);
+		    (int64_t)zfs_vss_snap_refbytes(zmo);
 		Irp->IoStatus.Information = sizeof (VOLUME_DISK_EXTENTS);
 		status = STATUS_SUCCESS;
 		break;
@@ -742,20 +872,14 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	case 0x534058: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE */
 		/*
-		 * VSS coordinator uses ichannel.hxx to Unpack<ULONGLONG> from
-		 * this response.  ZFS snapshots are CoW; no diff area storage
-		 * is used.  Return 0 to satisfy the Unpack size check.
+		 * Snapshot devices cannot host a volsnap diff-area.
+		 * Decline so the System Provider does not try to use
+		 * ZFS snapshot devices as diff-area storage targets.
 		 */
 		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE"
-		    " (snapshot device)\n", __func__);
-		if (outlen < sizeof (ULONGLONG)) {
-			Irp->IoStatus.Information = sizeof (ULONGLONG);
-			status = STATUS_BUFFER_TOO_SMALL;
-			break;
-		}
-		*(ULONGLONG *)buf = 0;
-		Irp->IoStatus.Information = sizeof (ULONGLONG);
-		status = STATUS_SUCCESS;
+		    " -> NOT_SUPPORTED\n", __func__);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_NOT_SUPPORTED;
 		break;
 
 	case IOCTL_VOLSNAP_FLUSH_AND_HOLD_WRITES:
@@ -769,28 +893,36 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		status = STATUS_SUCCESS;
 		break;
 
-	case 0x53406C: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION */
+	case 0x534070: /* IOCTL_VOLSNAP_QUERY_APPLICATION_FLAGS */
 	{
 		/*
-		 * Return a zeroed structure; no diff area is maintained for
-		 * ZFS CoW snapshots.  Structure layout:
-		 *   ULONGLONG UsedSpace
-		 *   ULONGLONG AllocatedSpace
-		 *   ULONGLONG MaximumSpace
+		 * Returns ApplicationInformation (68 bytes):
+		 *   ULONG length, GUID×3, ULONG×3, LONG attributes, ULONG.
+		 * All zeros = no VSS application has set flags.
 		 */
-		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION\n",
-		    __func__);
-		const ULONG sz = 3 * sizeof (ULONGLONG);
-		if (outlen < sz) {
-			Irp->IoStatus.Information = sz;
+		const ULONG appsz = 4 + 16 + 16 + 16 + 4 + 4 + 4 + 4;
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_APPLICATION_FLAGS"
+		    " -> 68 zero bytes\n", __func__);
+		if (outlen < appsz) {
+			Irp->IoStatus.Information = appsz;
 			status = STATUS_BUFFER_TOO_SMALL;
 			break;
 		}
-		RtlZeroMemory(buf, sz);
-		Irp->IoStatus.Information = sz;
+		RtlZeroMemory(buf, appsz);
+		Irp->IoStatus.Information = appsz;
 		status = STATUS_SUCCESS;
 		break;
 	}
+
+	case 0x53406C: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION */
+		/*
+		 * Snapshot devices cannot host a diff-area; decline.
+		 */
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION"
+		    " -> NOT_SUPPORTED\n", __func__);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_NOT_SUPPORTED;
+		break;
 
 	case 0x530018: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS (primary) */
 	case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS (alt) */
@@ -815,6 +947,27 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 		RtlZeroMemory(buf, sz); /* MultiSzLength=0, Names=L"" */
 		Irp->IoStatus.Information = sz;
+		status = STATUS_SUCCESS;
+		break;
+	}
+
+	case 0x530024: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA */
+	{
+		/*
+		 * VSS coordinator queries diff-area volumes for this snapshot
+		 * device.  ZFS uses CoW native snapshots; no diff-area exists.
+		 * Return SUCCESS with NumberOfVolumes=0.
+		 * Layout: { ULONG NumberOfVolumes; }
+		 */
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_DIFF_AREA"
+		    " -> 0 volumes\n", __func__);
+		if (outlen < sizeof (ULONG)) {
+			Irp->IoStatus.Information = sizeof (ULONG);
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		*(ULONG *)buf = 0;
+		Irp->IoStatus.Information = sizeof (ULONG);
 		status = STATUS_SUCCESS;
 		break;
 	}
@@ -917,7 +1070,7 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		pi->PartitionStyle = PARTITION_STYLE_RAW;
 		pi->StartingOffset.QuadPart = 0;
 		pi->PartitionLength.QuadPart =
-		    (LONGLONG)zfs_vss_snap_refbytes(ext);
+		    (LONGLONG)zfs_vss_snap_refbytes(zmo);
 		pi->PartitionNumber = 0;
 		Irp->IoStatus.Information = sizeof (PARTITION_INFORMATION_EX);
 		status = STATUS_SUCCESS;
@@ -947,12 +1100,12 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		p[1] = sz;	/* Size */
 		p[2] = 0;	/* Flags */
 		p[3] = FILE_DEVICE_VIRTUAL_DISK; /* DeviceType */
-		p[4] = (ULONG)(ext->zve_guid & 0xffffffff); /* DeviceNumber */
-		/* DeviceGuid: derive from zve_guid */
+		p[4] = (ULONG)(zmo->vss_guid & 0xffffffff); /* DeviceNumber */
+		/* DeviceGuid: derive from vss_guid */
 		GUID *g = (GUID *)(p + 5);
-		g->Data1 = (ULONG)(ext->zve_guid & 0xffffffff);
-		g->Data2 = (USHORT)((ext->zve_guid >> 32) & 0xffff);
-		g->Data3 = (USHORT)((ext->zve_guid >> 48) & 0xffff);
+		g->Data1 = (ULONG)(zmo->vss_guid & 0xffffffff);
+		g->Data2 = (USHORT)((zmo->vss_guid >> 32) & 0xffff);
+		g->Data3 = (USHORT)((zmo->vss_guid >> 48) & 0xffff);
 		/* Data4 already zeroed */
 		p[9] = (ULONG)-1;	/* PartitionNumber */
 		Irp->IoStatus.Information = sz;
@@ -1022,21 +1175,64 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 	PIRP Irp = *pIrp;
 	NTSTATUS status;
 
+	mount_t *zmo = DeviceObject->DeviceExtension;
+
 	switch (IrpSp->MajorFunction) {
 
 	case IRP_MJ_CREATE:
-		dprintf("VSS %s: IRP_MJ_CREATE\n", __func__);
-		Irp->IoStatus.Information = FILE_OPENED;
-		status = STATUS_SUCCESS;
-		break;
+	{
+		if (vfs_fsprivate(zmo) != NULL) {
+			/* Snapshot already mounted — fsDispatcher handles all. */
+			dprintf("VSS %s: IRP_MJ_CREATE -> fsDispatcher"
+			    " (mounted)\n", __func__);
+			return (fsDispatcher(DeviceObject, pIrp, IrpSp));
+		}
+
+		/*
+		 * Snapshot not yet mounted.  Pend the IRP and schedule a work
+		 * item to mount, then replay via fsDispatcher.  This covers
+		 * both plain volume-opens (FileName.Length==0, root '\') and
+		 * file-path opens — fsDispatcher/zfs_vnop_lookup handles both.
+		 */
+		dprintf("VSS %s: IRP_MJ_CREATE -> lazy mount\n", __func__);
+		zfs_vss_mount_wi_t *wi =
+		    kmem_alloc(sizeof (*wi), KM_NOSLEEP);
+		if (wi == NULL) {
+			status = STATUS_INSUFFICIENT_RESOURCES;
+			break;
+		}
+		wi->wi_item = IoAllocateWorkItem(DeviceObject);
+		if (wi->wi_item == NULL) {
+			kmem_free(wi, sizeof (*wi));
+			status = STATUS_INSUFFICIENT_RESOURCES;
+			break;
+		}
+		wi->wi_devobj = DeviceObject;
+		wi->wi_irp    = Irp;
+		IoMarkIrpPending(Irp);
+		IoQueueWorkItem(wi->wi_item, zfs_vss_mount_workitem,
+		    DelayedWorkQueue, wi);
+		*pIrp = NULL; /* work item owns the IRP now */
+		return (STATUS_PENDING);
+	}
 
 	case IRP_MJ_CLEANUP:
+		if (vfs_fsprivate(zmo) != NULL &&
+		    IrpSp->FileObject != NULL &&
+		    IrpSp->FileObject->FsContext != NULL) {
+			return (fsDispatcher(DeviceObject, pIrp, IrpSp));
+		}
 		dprintf("VSS %s: IRP_MJ_CLEANUP\n", __func__);
 		Irp->IoStatus.Information = 0;
 		status = STATUS_SUCCESS;
 		break;
 
 	case IRP_MJ_CLOSE:
+		if (vfs_fsprivate(zmo) != NULL &&
+		    IrpSp->FileObject != NULL &&
+		    IrpSp->FileObject->FsContext != NULL) {
+			return (fsDispatcher(DeviceObject, pIrp, IrpSp));
+		}
 		dprintf("VSS %s: IRP_MJ_CLOSE\n", __func__);
 		Irp->IoStatus.Information = 0;
 		status = STATUS_SUCCESS;
@@ -1047,52 +1243,56 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 		break;
 
 	case IRP_MJ_READ:
-	{
 		/*
-		 * VSS reads the first sector of the snapshot device to verify
-		 * it is accessible.  The snapshot device is a virtual read-only
-		 * representation; return zeroed data so the read succeeds.
-		 * The buffer is mapped via MDL for disk-style reads.
+		 * If a file is open (FsContext set), delegate to fsDispatcher.
+		 * Otherwise this is a raw sector read from VSS probing the
+		 * device; return zeroed data.
 		 */
-		ULONG rdlen = IrpSp->Parameters.Read.Length;
-		dprintf("VSS %s: IRP_MJ_READ off=%lld len=%lu\n", __func__,
-		    IrpSp->Parameters.Read.ByteOffset.QuadPart, rdlen);
-		if (rdlen > 0 && Irp->MdlAddress != NULL) {
-			void *kbuf = MmGetSystemAddressForMdlSafe(
-			    Irp->MdlAddress, NormalPagePriority);
-			if (kbuf != NULL) {
-				RtlZeroMemory(kbuf, rdlen);
-				Irp->IoStatus.Information = rdlen;
-				status = STATUS_SUCCESS;
-				break;
-			}
+		if (vfs_fsprivate(zmo) != NULL &&
+		    IrpSp->FileObject != NULL &&
+		    IrpSp->FileObject->FsContext != NULL) {
+			return (fsDispatcher(DeviceObject, pIrp, IrpSp));
 		}
-		/* No MDL (e.g. buffered read with 0 length) */
-		Irp->IoStatus.Information = 0;
-		status = STATUS_SUCCESS;
+		{
+			ULONG rdlen = IrpSp->Parameters.Read.Length;
+			dprintf("VSS %s: IRP_MJ_READ (raw) off=%lld len=%lu\n",
+			    __func__,
+			    IrpSp->Parameters.Read.ByteOffset.QuadPart, rdlen);
+			if (rdlen > 0 && Irp->MdlAddress != NULL) {
+				void *kbuf = MmGetSystemAddressForMdlSafe(
+				    Irp->MdlAddress, NormalPagePriority);
+				if (kbuf != NULL) {
+					RtlZeroMemory(kbuf, rdlen);
+					Irp->IoStatus.Information = rdlen;
+					status = STATUS_SUCCESS;
+					break;
+				}
+			}
+			Irp->IoStatus.Information = 0;
+			status = STATUS_SUCCESS;
+		}
 		break;
-	}
 
-	case IRP_MJ_FILE_SYSTEM_CONTROL:
-		/*
-		 * FSCTLs to the snapshot device: reject gracefully so that
-		 * VSS does not interpret the error as a fatal provider veto.
-		 */
-		dprintf("VSS %s: IRP_MJ_FILE_SYSTEM_CONTROL fsctl=0x%lx"
-		    " (not supported)\n", __func__,
-		    IrpSp->Parameters.FileSystemControl.FsControlCode);
-		Irp->IoStatus.Information = 0;
-		status = STATUS_INVALID_DEVICE_REQUEST;
-		break;
-
+	case IRP_MJ_WRITE:
+	case IRP_MJ_QUERY_INFORMATION:
+	case IRP_MJ_SET_INFORMATION:
+	case IRP_MJ_QUERY_EA:
+	case IRP_MJ_SET_EA:
+	case IRP_MJ_FLUSH_BUFFERS:
 	case IRP_MJ_QUERY_VOLUME_INFORMATION:
-		/*
-		 * Volume information queries: return STATUS_INVALID_DEVICE_REQUEST
-		 * for now; snapshot devices are not full filesystem volumes.
-		 */
-		dprintf("VSS %s: IRP_MJ_QUERY_VOLUME_INFORMATION class=%d\n",
-		    __func__,
-		    IrpSp->Parameters.QueryVolume.FsInformationClass);
+	case IRP_MJ_SET_VOLUME_INFORMATION:
+	case IRP_MJ_DIRECTORY_CONTROL:
+	case IRP_MJ_FILE_SYSTEM_CONTROL:
+	case IRP_MJ_LOCK_CONTROL:
+	case IRP_MJ_QUERY_SECURITY:
+	case IRP_MJ_SET_SECURITY:
+		if (vfs_fsprivate(zmo) != NULL) {
+			dprintf("VSS %s: major 0x%x -> fsDispatcher\n",
+			    __func__, IrpSp->MajorFunction);
+			return (fsDispatcher(DeviceObject, pIrp, IrpSp));
+		}
+		dprintf("VSS %s: major 0x%x unmounted\n",
+		    __func__, IrpSp->MajorFunction);
 		Irp->IoStatus.Information = 0;
 		status = STATUS_INVALID_DEVICE_REQUEST;
 		break;

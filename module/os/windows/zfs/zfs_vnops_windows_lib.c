@@ -6234,24 +6234,28 @@ ioctl_query_device_name(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_VOLUME_DISMOUNTED);
 
 
-#if 1
-	/* If given a file, it must be root */
-	if (IrpSp->FileObject != NULL && IrpSp->FileObject->FsContext != NULL) {
-		struct vnode *vp = IrpSp->FileObject->FsContext;
-		if (vp != NULL) {
-			znode_t *zp = VTOZ(vp);
-			if (zp != NULL) {
-				if (zp->z_id != zp->z_zfsvfs->z_root) {
-					dprintf("%s on file which isn't root\n",
-					    __func__);
-					return (STATUS_INVALID_PARAMETER);
-				}
-			}
-		}
+	/*
+	 * Do not restrict to root vnode.  twext.dll (Previous Versions
+	 * shell extension) opens an arbitrary file handle on the volume
+	 * and sends IOCTL_MOUNTDEV_QUERY_DEVICE_NAME to discover which
+	 * volume device hosts it.  NTFS returns the device name for any
+	 * file handle; we must do the same.
+	 *
+	 * When called from a VCB (fsDevice) context, the VCB's device_name
+	 * is the filesystem device (\Device\ZFS{uuid}).  MountManager knows
+	 * the volume by the disk device name (\Device\zfs-{uuid}, stored in
+	 * the DCB).  Return the DCB's name so that twext.dll can map it to a
+	 * Volume{} GUID and query VSS for snapshots.
+	 */
+	UNICODE_STRING *devname = &zmo->device_name;
+	if (zmo->type == MOUNT_TYPE_VCB && zmo->parent_device != NULL) {
+		mount_t *dcb = (mount_t *)zmo->parent_device;
+		if (dcb->device_name.Length > 0)
+			devname = &dcb->device_name;
 	}
-#endif
+
 	name = Irp->AssociatedIrp.SystemBuffer;
-	ULONG requiredSize = sizeof (MOUNTDEV_NAME) + zmo->device_name.Length;
+	ULONG requiredSize = sizeof (MOUNTDEV_NAME) + devname->Length;
 
 	// Check if the output buffer is large enough
 	if (OutputBufferLength < requiredSize) {
@@ -6261,11 +6265,10 @@ ioctl_query_device_name(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	// Set the length of the device name
-	name->NameLength = zmo->device_name.Length;
+	name->NameLength = devname->Length;
 
 	// Copy the device name into the buffer
-	RtlCopyMemory(name->Name, zmo->device_name.Buffer,
-	    zmo->device_name.Length);
+	RtlCopyMemory(name->Name, devname->Buffer, devname->Length);
 
 	// Set the status and information fields
 	Irp->IoStatus.Status = STATUS_SUCCESS;

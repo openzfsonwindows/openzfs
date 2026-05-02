@@ -141,6 +141,11 @@ struct mount
 	// NotifySync is used by notify directory change
 	PNOTIFY_SYNC NotifySync;
 	LIST_ENTRY DirNotifyList;
+
+	/* VSS snapshot lazy-mount fields (type == MOUNT_TYPE_VSS only) */
+	uint64_t	vss_guid;
+	char		vss_snapname[256]; /* ZFS_MAX_DATASET_NAME_LEN */
+	KMUTEX		vss_mount_lock;    /* serialise first-access mount */
 };
 typedef struct mount mount_t;
 typedef struct mount vfsp_t;

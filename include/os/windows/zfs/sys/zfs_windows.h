@@ -109,6 +109,8 @@ extern NTSTATUS dev_ioctl(PDEVICE_OBJECT DeviceObject, ULONG ControlCode,
     PVOID InputBuffer, ULONG InputBufferSize, PVOID OutputBuffer,
     ULONG OutputBufferSize, BOOLEAN Override, IO_STATUS_BLOCK* iosb);
 extern int zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo);
+extern NTSTATUS fsDispatcher(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
+    PIO_STACK_LOCATION IrpSp);
 
 extern int zfs_windows_mount(zfs_cmd_t *zc);
 extern int zfs_windows_unmount(zfs_cmd_t *zc);

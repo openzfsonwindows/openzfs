@@ -1968,6 +1968,16 @@ matched_mount(PIRP Irp, PDEVICE_OBJECT DeviceToMount,
 
 	IoAcquireVpbSpinLock(&OldIrql);
 	InitVpb(vpb, volDeviceObject, dcb);
+	/*
+	 * The IO Manager pre-fills Vpb->RealDevice with the top-of-stack
+	 * FDO, but MountMgr's \DosDevices\E: symlink targets our named DCB
+	 * (\Device\zfs-{uuid}).  IoQueryFileDosDeviceName() resolves the
+	 * drive letter via Vpb->RealDevice, so point it at the DCB so that
+	 * tools like FileSpy (and kernel callers of IoQueryFileDosDeviceName)
+	 * can resolve file paths to their drive letter instead of showing the
+	 * raw \Device\ZFS{uuid}\... NT path.
+	 */
+	vpb->RealDevice = dcb->FunctionalDeviceObject;
 	volDeviceObject->Vpb = vpb;
 	vcb->vpb = vpb;
 	vpb->ReferenceCount += 1;

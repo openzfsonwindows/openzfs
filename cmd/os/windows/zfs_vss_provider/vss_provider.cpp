@@ -61,7 +61,6 @@ extern "C" {
 #include "vss_provider.h"
 
 
-void vss_provider_signal_stop(void);
 
 
 /* ------------------------------------------------------------------ */
@@ -127,7 +126,7 @@ struct PendingSnap {
 
 class ZfsVssEnumObject : public IVssEnumObject {
 public:
-	ZfsVssEnumObject() : m_ref(1), m_pos(0), m_count(0), m_props(NULL) {
+	ZfsVssEnumObject() : m_ref(1), m_pos(0), m_count(0), m_capacity(0), m_props(NULL) {
 		InterlockedIncrement(&g_obj_count);
 	}
 
@@ -148,15 +147,20 @@ public:
 	}
 
 	BOOL Init(ULONG n) {
-		m_props = new(std::nothrow) VSS_OBJECT_PROP[n ? n : 1];
+		/* Always allocate at least 4096 slots to cover all ZFS snaps */
+		m_capacity = n > 4096 ? n : 4096;
+		m_props = new(std::nothrow) VSS_OBJECT_PROP[m_capacity];
 		if (!m_props)
 			return (FALSE);
-		ZeroMemory(m_props, (n ? n : 1) * sizeof (VSS_OBJECT_PROP));
+		ZeroMemory(m_props, m_capacity * sizeof (VSS_OBJECT_PROP));
 		m_count = 0;
 		return (TRUE);
 	}
 
-	void Add(const VSS_OBJECT_PROP &p) { m_props[m_count++] = p; }
+	void Add(const VSS_OBJECT_PROP &p) {
+		if (m_count < m_capacity)
+			m_props[m_count++] = p;
+	}
 
 	STDMETHOD_(ULONG, AddRef)() { return (InterlockedIncrement(&m_ref)); }
 	STDMETHOD_(ULONG, Release)() {
@@ -277,6 +281,7 @@ private:
 	LONG             m_ref;
 	ULONG            m_pos;
 	ULONG            m_count;
+	ULONG            m_capacity;
 	VSS_OBJECT_PROP *m_props;
 };
 
@@ -344,6 +349,117 @@ load_snap_prop(const VSS_ID &sid, VSS_SNAPSHOT_PROP *p)
 		wcscpy(p->m_pwszServiceMachine, machine);
 
 	/* VSS expects non-NULL pointers for all BSTR/LPWSTR fields */
+	p->m_pwszExposedName =
+	    (VSS_PWSZ)CoTaskMemAlloc(sizeof (wchar_t));
+	if (p->m_pwszExposedName)
+		p->m_pwszExposedName[0] = L'\0';
+
+	p->m_pwszExposedPath =
+	    (VSS_PWSZ)CoTaskMemAlloc(sizeof (wchar_t));
+	if (p->m_pwszExposedPath)
+		p->m_pwszExposedPath[0] = L'\0';
+
+	return (S_OK);
+}
+
+/* ------------------------------------------------------------------ */
+/* Helper: build VSS_SNAPSHOT_PROP from a ZFS snapshot handle          */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Map a ZFS ds_guid (uint64_t) to a stable VSS_ID (GUID) so VSS can
+ * refer back to the snapshot via GetSnapshotProperties.
+ * Layout: { (DWORD)guid_lo32, (WORD)guid_hi16, 0x4000,
+ *           { 0x80, 'Z','F','S', b4,b5,b6,b7 } }
+ * This is deterministic and reversible: given a VSS_ID we can recover
+ * the original ds_guid by reading Data1 | ((uint64_t)Data2 << 32).
+ */
+static void
+zfsguid_to_vssid(uint64_t zg, VSS_ID *out)
+{
+	ZeroMemory(out, sizeof (*out));
+	out->Data1 = (DWORD)(zg & 0xffffffff);
+	out->Data2 = (WORD)((zg >> 32) & 0xffff);
+	out->Data3 = (WORD)(0x4000 | ((zg >> 48) & 0x0fff));
+	out->Data4[0] = 0x80;
+	out->Data4[1] = 'Z';
+	out->Data4[2] = 'F';
+	out->Data4[3] = 'S';
+	/* remaining 4 bytes from upper guid bits */
+	out->Data4[4] = (BYTE)((zg >> 32) & 0xff);
+	out->Data4[5] = (BYTE)((zg >> 40) & 0xff);
+	out->Data4[6] = (BYTE)((zg >> 48) & 0xff);
+	out->Data4[7] = (BYTE)((zg >> 56) & 0xff);
+}
+
+/*
+ * Fill a VSS_SNAPSHOT_PROP from a live zfs_handle_t snapshot, without
+ * touching the registry.  The SnapshotId is derived from the ZFS ds_guid
+ * so it is stable across provider restarts.
+ *
+ * volname must be the canonical "\\?\Volume{...}\" string for the parent
+ * dataset (caller supplies; may be empty if not known — VSS uses it only
+ * for display).
+ */
+static HRESULT
+snap_prop_from_zfs(zfs_handle_t *zhp, const wchar_t *volname,
+    VSS_SNAPSHOT_PROP *p)
+{
+	uint64_t zg = zfs_prop_get_int(zhp, ZFS_PROP_GUID);
+	uint64_t ctime = zfs_prop_get_int(zhp, ZFS_PROP_CREATION);
+
+	ZeroMemory(p, sizeof (*p));
+
+	zfsguid_to_vssid(zg, &p->m_SnapshotId);
+	/* SnapshotSetId: same derivation with a different marker byte */
+	zfsguid_to_vssid(zg ^ 0x5a5a5a5a5a5a5a5aULL, &p->m_SnapshotSetId);
+
+	p->m_lSnapshotsCount     = 1;
+	p->m_ProviderId          = CLSID_ZfsVssProvider;
+	/* VSS timestamps are in 100-ns intervals since 1601-01-01 */
+	p->m_tsCreationTimestamp = ((LONGLONG)ctime + 11644473600LL) * 10000000LL;
+	p->m_eStatus             = VSS_SS_CREATED;
+	p->m_lSnapshotAttributes =
+	    VSS_VOLSNAP_ATTR_PERSISTENT |
+	    VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
+	    VSS_VOLSNAP_ATTR_DIFFERENTIAL |
+	    VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE;
+
+	wchar_t devname[128];
+	_snwprintf(devname, 128,
+	    L"\\\\?\\GLOBALROOT\\Device\\ZfsSnapshot%016I64x",
+	    (unsigned long long)zg);
+
+	p->m_pwszSnapshotDeviceObject =
+	    (VSS_PWSZ)CoTaskMemAlloc(
+	    (wcslen(devname) + 1) * sizeof (wchar_t));
+	if (!p->m_pwszSnapshotDeviceObject)
+		return (E_OUTOFMEMORY);
+	wcscpy(p->m_pwszSnapshotDeviceObject, devname);
+
+	p->m_pwszOriginalVolumeName =
+	    (VSS_PWSZ)CoTaskMemAlloc(
+	    (wcslen(volname) + 1) * sizeof (wchar_t));
+	if (!p->m_pwszOriginalVolumeName) {
+		CoTaskMemFree(p->m_pwszSnapshotDeviceObject);
+		return (E_OUTOFMEMORY);
+	}
+	wcscpy(p->m_pwszOriginalVolumeName, volname);
+
+	wchar_t machine[MAX_COMPUTERNAME_LENGTH + 1];
+	DWORD mlen = MAX_COMPUTERNAME_LENGTH + 1;
+	GetComputerNameW(machine, &mlen);
+
+	p->m_pwszOriginatingMachine =
+	    (VSS_PWSZ)CoTaskMemAlloc((mlen + 1) * sizeof (wchar_t));
+	if (p->m_pwszOriginatingMachine)
+		wcscpy(p->m_pwszOriginatingMachine, machine);
+
+	p->m_pwszServiceMachine =
+	    (VSS_PWSZ)CoTaskMemAlloc((mlen + 1) * sizeof (wchar_t));
+	if (p->m_pwszServiceMachine)
+		wcscpy(p->m_pwszServiceMachine, machine);
+
 	p->m_pwszExposedName =
 	    (VSS_PWSZ)CoTaskMemAlloc(sizeof (wchar_t));
 	if (p->m_pwszExposedName)
@@ -456,6 +572,87 @@ find_dataset_cb(zfs_handle_t *zhp, void *arg)
 			zfs_close(zhp);
 			return (1);
 		}
+
+		/*
+		 * Fallback 1: the ZFS mountpoint property (mp) may be a
+		 * Windows drive path.  Ask Windows for the canonical volume
+		 * GUID at that mount point.
+		 */
+		{
+			wchar_t mp_w[MAX_PATH];
+			if (MultiByteToWideChar(CP_UTF8, 0, mp, -1,
+			    mp_w, MAX_PATH) > 0) {
+				/* Convert forward slashes to backslashes */
+				for (wchar_t *p = mp_w; *p; p++)
+					if (*p == L'/') *p = L'\\';
+				int mplen = (int)wcslen(mp_w);
+				if (mplen > 0 && mp_w[mplen - 1] != L'\\' &&
+				    mplen + 2 < MAX_PATH) {
+					mp_w[mplen]   = L'\\';
+					mp_w[mplen+1] = L'\0';
+				}
+				wchar_t mp_guid[MAX_PATH];
+				if (GetVolumeNameForVolumeMountPointW(mp_w,
+				    mp_guid, MAX_PATH)) {
+					vss_log("find_dataset_cb: mp=%ls "
+					    "mp_guid=%ls vs %ls\n",
+					    mp_w, mp_guid, ctx->vol_guid);
+					if (_wcsicmp(mp_guid,
+					    ctx->vol_guid) == 0) {
+						strncpy(ctx->found_ds,
+						    zfs_get_name(zhp), 256);
+						zfs_close(zhp);
+						return (1);
+					}
+				}
+			}
+		}
+
+		/*
+		 * Fallback 2: on Windows, ZFS datasets use drive letters.
+		 * The ZFS mountpoint property stores "/" (Unix style) while the
+		 * actual mount is tracked via MountMgr.  Query the actual mount
+		 * path via zfs_is_mounted(), which returns the Windows path
+		 * (e.g. "E:/") derived from GetVolumePathNamesForVolumeName.
+		 */
+		{
+			char *actual = NULL;
+			if (zfs_is_mounted(zhp, &actual) && actual != NULL) {
+				wchar_t tmp_w[MAX_PATH];
+				if (MultiByteToWideChar(CP_UTF8, 0, actual, -1,
+				    tmp_w, MAX_PATH) > 0) {
+					/* libspl uses '/' separators */
+					for (wchar_t *p = tmp_w; *p; p++)
+						if (*p == L'/') *p = L'\\';
+					int tmplen = (int)wcslen(tmp_w);
+					if (tmplen > 0 &&
+					    tmp_w[tmplen-1] != L'\\' &&
+					    tmplen + 2 < MAX_PATH) {
+						tmp_w[tmplen]   = L'\\';
+						tmp_w[tmplen+1] = L'\0';
+					}
+					wchar_t tmp_guid[MAX_PATH];
+					if (GetVolumeNameForVolumeMountPointW(
+					    tmp_w, tmp_guid, MAX_PATH)) {
+						vss_log("find_dataset_cb:"
+						    " is_mounted mp=%ls"
+						    " guid=%ls vs %ls\n",
+						    tmp_w, tmp_guid,
+						    ctx->vol_guid);
+						if (_wcsicmp(tmp_guid,
+						    ctx->vol_guid) == 0) {
+							strncpy(ctx->found_ds,
+							    zfs_get_name(zhp),
+							    256);
+							free(actual);
+							zfs_close(zhp);
+							return (1);
+						}
+					}
+				}
+				free(actual);
+			}
+		}
 	}
 
 	rc = zfs_iter_filesystems(zhp, find_dataset_cb, ctx);
@@ -491,6 +688,129 @@ volume_to_zfs_dataset(libzfs_handle_t *lzh, const wchar_t *volname,
 
 	strncpy(ds_out, ctx.found_ds, ds_len);
 	return (0);
+}
+
+/* ------------------------------------------------------------------ */
+/* Helper: iterate snapshots of a dataset and add to enum              */
+/* ------------------------------------------------------------------ */
+
+struct SnapEnumCtx {
+	ZfsVssEnumObject *pEnum;
+	const wchar_t    *volname;
+	const GUID       *reg_ids;
+	int               reg_count;
+	int               added;
+};
+
+static int
+snap_enum_cb(zfs_handle_t *zhp, void *arg)
+{
+	struct SnapEnumCtx *ctx = (struct SnapEnumCtx *)arg;
+
+	uint64_t zg = zfs_prop_get_int(zhp, ZFS_PROP_GUID);
+
+	/* Skip if already returned from the registry pass */
+	VSS_ID sid;
+	zfsguid_to_vssid(zg, &sid);
+	for (int i = 0; i < ctx->reg_count; i++) {
+		if (memcmp(&ctx->reg_ids[i], &sid, sizeof (VSS_ID)) == 0) {
+			zfs_close(zhp);
+			return (0);
+		}
+	}
+
+	VSS_OBJECT_PROP op;
+	op.Type = VSS_OBJECT_SNAPSHOT;
+	HRESULT hr = snap_prop_from_zfs(zhp, ctx->volname, &op.Obj.Snap);
+	if (SUCCEEDED(hr)) {
+		ctx->pEnum->Add(op);
+		ctx->added++;
+		vss_log("snap_enum_cb: added snap %s guid=%016I64x\n",
+		    zfs_get_name(zhp), (unsigned long long)zg);
+	}
+
+	zfs_close(zhp);
+	return (0);
+}
+
+/* ------------------------------------------------------------------ */
+/* Helper: find a snapshot by ds_guid across all pools                 */
+/* ------------------------------------------------------------------ */
+
+struct FindByGuidCtx {
+	uint64_t target_guid;
+	char     found_name[256];
+};
+
+struct AllSnapCtx {
+	struct SnapEnumCtx *sc;
+	libzfs_handle_t    *lzh;
+};
+
+static int
+all_snap_child_cb(zfs_handle_t *zhp, void *arg)
+{
+	struct AllSnapCtx *a = (struct AllSnapCtx *)arg;
+	wchar_t vg[MAX_PATH];
+	ds_to_vol_guid(zfs_get_name(zhp), vg, MAX_PATH);
+	a->sc->volname = vg;
+	zfs_iter_snapshots(zhp, B_FALSE, snap_enum_cb, a->sc, 0, 0);
+	zfs_close(zhp);
+	return (0);
+}
+
+static int
+all_snap_root_cb(zfs_handle_t *zhp, void *arg)
+{
+	struct AllSnapCtx *a = (struct AllSnapCtx *)arg;
+	wchar_t vg[MAX_PATH];
+	ds_to_vol_guid(zfs_get_name(zhp), vg, MAX_PATH);
+	vss_log("all_snap_root_cb: ds=%s vol=%ls\n", zfs_get_name(zhp), vg);
+	a->sc->volname = vg;
+	zfs_iter_snapshots(zhp, B_FALSE, snap_enum_cb, a->sc, 0, 0);
+	zfs_iter_filesystems(zhp, all_snap_child_cb, a);
+	zfs_close(zhp);
+	return (0);
+}
+
+/* Stops at first snapshot found; used by IsVolumeSnapshotted */
+static int
+has_snap_cb(zfs_handle_t *zhp, void *arg)
+{
+	zfs_close(zhp);
+	*(int *)arg = 1;
+	return (1); /* stop iteration */
+}
+
+static int
+find_snap_by_guid_cb(zfs_handle_t *zhp, void *arg)
+{
+	struct FindByGuidCtx *f = (struct FindByGuidCtx *)arg;
+	uint64_t g = zfs_prop_get_int(zhp, ZFS_PROP_GUID);
+	if (g == f->target_guid) {
+		strncpy(f->found_name, zfs_get_name(zhp), 255);
+		zfs_close(zhp);
+		return (1);
+	}
+	zfs_close(zhp);
+	return (0);
+}
+
+static int
+find_guid_in_fs_cb(zfs_handle_t *zhp, void *arg)
+{
+	struct FindByGuidCtx *f = (struct FindByGuidCtx *)arg;
+	if (f->found_name[0]) {
+		zfs_close(zhp);
+		return (1);
+	}
+	/* check snapshots */
+	zfs_iter_snapshots(zhp, B_FALSE, find_snap_by_guid_cb, f, 0, 0);
+	/* recurse into children */
+	if (!f->found_name[0])
+		zfs_iter_filesystems(zhp, find_guid_in_fs_cb, f);
+	zfs_close(zhp);
+	return (f->found_name[0] ? 1 : 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -596,6 +916,7 @@ public:
 		*pbSnapshotsPresent = FALSE;
 		*plSnapshotCompatibility = 0;
 
+		/* Check registry (VSS-created snapshots) */
 		GUID ids[256];
 		int n = vss_reg_enum(ids, 256);
 		for (int i = 0; i < n; i++) {
@@ -611,9 +932,49 @@ public:
 				continue;
 			if (_wcsicmp(vol, pwszVolumeName) == 0) {
 				*pbSnapshotsPresent = TRUE;
-				break;
+				vss_log("IsVolumeSnapshotted: TRUE (registry)\n");
+				return (S_OK);
 			}
 		}
+
+		/*
+		 * Also check ZFS native snapshots: find the dataset for this
+		 * volume and check if it has any snapshots.  VSS calls this
+		 * before Query(); if we return FALSE, Query() is never called
+		 * and Previous Versions shows nothing even though we have
+		 * ZFS snapshots.
+		 */
+		if (!m_lzh)
+			m_lzh = libzfs_init();
+		if (m_lzh) {
+			char ds[256] = {0};
+			if (volume_to_zfs_dataset(m_lzh, pwszVolumeName,
+			    ds, sizeof (ds)) == 0) {
+				zfs_handle_t *zhp = zfs_open(m_lzh, ds,
+				    ZFS_TYPE_FILESYSTEM);
+				if (zhp) {
+					/*
+					 * Check if any snapshot exists by trying
+					 * to iterate — snap_count_cb stops at
+					 * the first snapshot found.
+					 */
+					int found = 0;
+					zfs_iter_snapshots(zhp, B_FALSE,
+					    has_snap_cb, &found, 0, 0);
+					zfs_close(zhp);
+					if (found) {
+						*pbSnapshotsPresent = TRUE;
+						/* 0 = no special restrictions */
+						vss_log("IsVolumeSnapshotted:"
+						    " TRUE (ZFS native, ds=%s)"
+						    "\n", ds);
+						return (S_OK);
+					}
+				}
+			}
+		}
+
+		vss_log("IsVolumeSnapshotted: FALSE\n");
 		return (S_OK);
 	}
 
@@ -652,8 +1013,80 @@ public:
 		vss_log("GetSnapshotProperties: id=%ls\n", guidstr);
 		if (!pProp)
 			return (E_INVALIDARG);
+
+		/* Try registry first (VSS-created snapshots) */
 		HRESULT hr = load_snap_prop(SnapshotId, pProp);
-		vss_log("GetSnapshotProperties: hr=0x%lx\n", (ULONG)hr);
+		if (SUCCEEDED(hr)) {
+			vss_log("GetSnapshotProperties: found in registry\n");
+			return (hr);
+		}
+
+		/*
+		 * Not in the registry — the SnapshotId may be one we
+		 * synthesised from a ZFS ds_guid in Query().  Recover
+		 * the guid from the ID layout used in zfsguid_to_vssid():
+		 *   guid = Data1 | ((uint64_t)Data2 << 32)
+		 *          | ((uint64_t)(Data3 & 0x0fff) << 48)
+		 * and look it up via libzfs.
+		 */
+		if (!m_lzh)
+			m_lzh = libzfs_init();
+		if (!m_lzh) {
+			vss_log("GetSnapshotProperties: libzfs_init failed\n");
+			return (VSS_E_OBJECT_NOT_FOUND);
+		}
+
+		uint64_t zg =
+		    (uint64_t)SnapshotId.Data1 |
+		    ((uint64_t)SnapshotId.Data2 << 32) |
+		    ((uint64_t)(SnapshotId.Data3 & 0x0fff) << 48);
+
+		/* Verify the marker bytes to avoid false positives */
+		if (SnapshotId.Data4[0] != 0x80 ||
+		    SnapshotId.Data4[1] != 'Z' ||
+		    SnapshotId.Data4[2] != 'F' ||
+		    SnapshotId.Data4[3] != 'S') {
+			vss_log("GetSnapshotProperties: not a ZFS synthetic ID\n");
+			return (VSS_E_OBJECT_NOT_FOUND);
+		}
+
+		/*
+		 * Find the snapshot by GUID via a root iteration using
+		 * the static find_guid_in_fs_cb / find_snap_by_guid_cb
+		 * helpers defined above the class.
+		 */
+		struct FindByGuidCtx fbg;
+		fbg.target_guid = zg;
+		fbg.found_name[0] = '\0';
+
+		zfs_iter_root(m_lzh, find_guid_in_fs_cb, &fbg);
+
+		if (fbg.found_name[0] == '\0') {
+			vss_log("GetSnapshotProperties: guid %016I64x not found\n",
+			    (unsigned long long)zg);
+			return (VSS_E_OBJECT_NOT_FOUND);
+		}
+
+		zfs_handle_t *zhp = zfs_open(m_lzh, fbg.found_name,
+		    ZFS_TYPE_SNAPSHOT);
+		if (!zhp) {
+			vss_log("GetSnapshotProperties: zfs_open(%s) failed\n",
+			    fbg.found_name);
+			return (VSS_E_OBJECT_NOT_FOUND);
+		}
+
+		/* Get the volume GUID for the parent dataset */
+		char parent_ds[256];
+		strncpy(parent_ds, fbg.found_name, sizeof (parent_ds));
+		char *at = strchr(parent_ds, '@');
+		if (at) *at = '\0';
+		wchar_t volname[MAX_PATH];
+		ds_to_vol_guid(parent_ds, volname, MAX_PATH);
+
+		hr = snap_prop_from_zfs(zhp, volname, pProp);
+		zfs_close(zhp);
+		vss_log("GetSnapshotProperties: libzfs path hr=0x%lx snap=%s\n",
+		    (ULONG)hr, fbg.found_name);
 		return (hr);
 	}
 
@@ -745,8 +1178,100 @@ public:
 			}
 		}
 
-		vss_log("Query: returning S_OK with %d valid entries"
-		    " (of %d in registry)\n", added, n);
+		vss_log("Query: registry pass: %d valid entries (of %d)\n",
+		    added, n);
+
+		/*
+		 * Second pass: enumerate all ZFS snapshots via libzfs and add
+		 * any that were not already returned from the registry.  This
+		 * makes pre-existing snapshots (created by 'zfs snapshot' or
+		 * imported pools) visible in Explorer's Previous Versions.
+		 *
+		 * When the query is for a specific volume (VSS_OBJECT_SNAPSHOT)
+		 * look up the matching dataset; for a global query iterate all.
+		 */
+		if (m_lzh) {
+			/*
+			 * Build the list of VSS_IDs we already returned so
+			 * snap_enum_cb can skip duplicates.
+			 */
+			VSS_ID reg_vss_ids[256];
+			int reg_vss_n = 0;
+			for (int i = 0; i < n && reg_vss_n < 256; i++) {
+				wchar_t vol[MAX_PATH];
+				char    zn[256];
+				uint64_t zg;
+				GUID    setid;
+				LONGLONG ts;
+				LONG    attrs;
+				if (vss_reg_load(&ids[i], vol, MAX_PATH,
+				    zn, 256, &zg, &setid, &ts, &attrs) == 0) {
+					VSS_ID sid;
+					zfsguid_to_vssid(zg, &sid);
+					reg_vss_ids[reg_vss_n++] = sid;
+				}
+			}
+
+			/*
+			 * Determine the volume name for the query so we can
+			 * find the matching ZFS dataset.  For VSS_OBJECT_NONE
+			 * (global query) we iterate all datasets.
+			 */
+			wchar_t qvol[MAX_PATH] = L"";
+			char    qds[256] = "";
+
+			if (eQueriedObjectType == VSS_OBJECT_SNAPSHOT) {
+				/*
+				 * QueriedObjectId is a SnapshotId — we don't
+				 * know the volume from it alone; iterate all.
+				 */
+			} else if (eQueriedObjectType == VSS_OBJECT_NONE) {
+				/* global query — iterate all datasets */
+			}
+			/* (snapshot-set queries are already handled above) */
+
+			if (qds[0] != '\0') {
+				/* Single dataset */
+				zfs_handle_t *zhp = zfs_open(m_lzh, qds,
+				    ZFS_TYPE_FILESYSTEM);
+				if (zhp) {
+					struct SnapEnumCtx sc;
+					sc.pEnum      = pEnum;
+					sc.volname    = qvol;
+					sc.reg_ids    = reg_vss_ids;
+					sc.reg_count  = reg_vss_n;
+					sc.added      = 0;
+					zfs_iter_snapshots(zhp, B_FALSE,
+					    snap_enum_cb, &sc, 0, 0);
+					added += sc.added;
+					zfs_close(zhp);
+				}
+			} else {
+				/*
+				 * Global or set query: walk every imported pool
+				 * and every filesystem in it.
+				 */
+				struct SnapEnumCtx sc;
+				sc.pEnum      = pEnum;
+				sc.volname    = L"";
+				sc.reg_ids    = reg_vss_ids;
+				sc.reg_count  = reg_vss_n;
+				sc.added      = 0;
+
+				/*
+				 * For each filesystem, fill in the canonical
+				 * volume GUID before iterating its snapshots.
+				 */
+				struct AllSnapCtx asc = { &sc, m_lzh };
+
+				zfs_iter_root(m_lzh, all_snap_root_cb, &asc);
+				added += sc.added;
+			}
+			vss_log("Query: libzfs pass added %d snapshot(s)\n",
+			    added);
+		}
+
+		vss_log("Query: returning S_OK with %d total entries\n", added);
 		*ppEnum = pEnum;
 		return (S_OK);
 	}
@@ -923,7 +1448,8 @@ public:
 
 			LONG attrs =
 			    VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
-			    VSS_VOLSNAP_ATTR_PERSISTENT;
+			    VSS_VOLSNAP_ATTR_PERSISTENT |
+			    VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE;
 
 			vss_reg_store(&m_pending[i].SnapshotId,
 			    &SnapshotSetId,
@@ -1041,160 +1567,44 @@ private:
 };
 
 /* ------------------------------------------------------------------ */
-/* Windows Service + COM LocalServer32                                  */
+/* COM InprocServer32 DLL exports                                       */
 /*                                                                      */
-/* VSS activates software providers (Type=2) via CLSCTX_LOCAL_SERVER   */
-/* with AppID LocalService.  COM starts our service, we register the    */
-/* class factory, VSS connects via RPC, we run until VSS releases us.   */
+/* VSS activates software providers (Type=2) via CLSCTX_INPROC_SERVER  */
+/* which loads our DLL into vssvc.exe's process.  We export the         */
+/* standard COM DLL entry points; vssvc calls DllGetClassObject to      */
+/* obtain a ZfsVssClassFactory and from it creates ZfsVssProvider.      */
 /* ------------------------------------------------------------------ */
 
-#define	ZFS_VSS_SERVICE_NAME	L"ZfsVssProvider"
-
-static SERVICE_STATUS_HANDLE	g_ssh = NULL;
-static HANDLE			g_stop_event = NULL;
-static DWORD			g_reg_token = 0;
-
-void
-vss_provider_signal_stop(void)
+BOOL WINAPI
+DllMain(HINSTANCE hInstDll, DWORD dwReason, LPVOID lpvReserved)
 {
-	if (g_stop_event)
-		SetEvent(g_stop_event);
+	(void)lpvReserved;
+	if (dwReason == DLL_PROCESS_ATTACH)
+		vss_log("DllMain: loaded into pid %lu\n", GetCurrentProcessId());
+	else if (dwReason == DLL_PROCESS_DETACH)
+		vss_log("DllMain: unloaded from pid %lu\n", GetCurrentProcessId());
+	(void)hInstDll;
+	return (TRUE);
 }
 
-static void
-set_service_status(DWORD state, DWORD exit_code)
+extern "C" __declspec(dllexport) HRESULT STDAPICALLTYPE
+DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv)
 {
-	SERVICE_STATUS ss = {0};
-	ss.dwServiceType		= SERVICE_WIN32_OWN_PROCESS;
-	ss.dwCurrentState		= state;
-	ss.dwControlsAccepted		= (state == SERVICE_RUNNING)
-	    ? (SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN) : 0;
-	ss.dwWin32ExitCode		= exit_code;
-	ss.dwWaitHint			= 5000;
-	if (g_ssh)
-		SetServiceStatus(g_ssh, &ss);
-}
-
-static VOID WINAPI
-ServiceCtrlHandler(DWORD ctrl)
-{
-	if (ctrl == SERVICE_CONTROL_STOP ||
-	    ctrl == SERVICE_CONTROL_SHUTDOWN) {
-		vss_log("ServiceCtrlHandler: stop/shutdown requested\n");
-		set_service_status(SERVICE_STOP_PENDING, NO_ERROR);
-		SetEvent(g_stop_event);
+	vss_log("DllGetClassObject called\n");
+	if (rclsid != CLSID_ZfsVssProvider) {
+		*ppv = NULL;
+		return (CLASS_E_CLASSNOTAVAILABLE);
 	}
-}
-
-static VOID WINAPI
-ServiceMain(DWORD argc, LPWSTR *argv)
-{
-	(void)argc; (void)argv;
-
-	g_ssh = RegisterServiceCtrlHandlerW(ZFS_VSS_SERVICE_NAME,
-	    ServiceCtrlHandler);
-	if (!g_ssh) {
-		vss_log("RegisterServiceCtrlHandlerW failed: %lu\n",
-		    GetLastError());
-		return;
-	}
-
-	set_service_status(SERVICE_START_PENDING, NO_ERROR);
-	vss_log("ServiceMain: started pid=%lu\n", GetCurrentProcessId());
-
-	g_stop_event = CreateEventW(NULL, TRUE, FALSE, NULL);
-	if (!g_stop_event) {
-		vss_log("CreateEvent failed: %lu\n", GetLastError());
-		set_service_status(SERVICE_STOPPED, GetLastError());
-		return;
-	}
-
-	HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-	if (FAILED(hr)) {
-		vss_log("CoInitializeEx failed: hr=0x%lx\n", hr);
-		set_service_status(SERVICE_STOPPED, ERROR_GEN_FAILURE);
-		CloseHandle(g_stop_event);
-		return;
-	}
-
 	ZfsVssClassFactory *pFactory = new(std::nothrow) ZfsVssClassFactory();
-	if (!pFactory) {
-		vss_log("Out of memory allocating class factory\n");
-		CoUninitialize();
-		set_service_status(SERVICE_STOPPED, ERROR_NOT_ENOUGH_MEMORY);
-		CloseHandle(g_stop_event);
-		return;
-	}
-
-	hr = CoRegisterClassObject(CLSID_ZfsVssProvider, pFactory,
-	    CLSCTX_LOCAL_SERVER, REGCLS_MULTIPLEUSE, &g_reg_token);
+	if (!pFactory)
+		return (E_OUTOFMEMORY);
+	HRESULT hr = pFactory->QueryInterface(riid, ppv);
 	pFactory->Release();
-
-	if (FAILED(hr)) {
-		vss_log("CoRegisterClassObject failed: hr=0x%lx\n", hr);
-		CoUninitialize();
-		set_service_status(SERVICE_STOPPED, ERROR_GEN_FAILURE);
-		CloseHandle(g_stop_event);
-		return;
-	}
-
-	vss_log("Class factory registered, service running\n");
-	set_service_status(SERVICE_RUNNING, NO_ERROR);
-
-	/* Wait for stop signal from SCM or from last object release */
-	WaitForSingleObject(g_stop_event, INFINITE);
-
-	vss_log("Shutting down\n");
-	CoRevokeClassObject(g_reg_token);
-	CoUninitialize();
-	CloseHandle(g_stop_event);
-	g_stop_event = NULL;
-	set_service_status(SERVICE_STOPPED, NO_ERROR);
+	return (hr);
 }
 
-int
-wmain(int argc, wchar_t *argv[])
+extern "C" __declspec(dllexport) HRESULT STDAPICALLTYPE
+DllCanUnloadNow(void)
 {
-	(void)argc; (void)argv;
-
-	static SERVICE_TABLE_ENTRYW table[] = {
-		{ (LPWSTR)ZFS_VSS_SERVICE_NAME, ServiceMain },
-		{ NULL, NULL }
-	};
-
-	/*
-	 * StartServiceCtrlDispatcher blocks until the service stops.
-	 * If it fails with ERROR_FAILED_SERVICE_CONTROLLER_CONNECT we
-	 * are running interactively — run directly for debugging.
-	 */
-	if (!StartServiceCtrlDispatcherW(table)) {
-		DWORD err = GetLastError();
-		if (err == ERROR_FAILED_SERVICE_CONTROLLER_CONNECT) {
-			vss_log("Running interactively (not as a service)\n");
-			g_stop_event = CreateEventW(NULL, TRUE, FALSE, NULL);
-			HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-			if (SUCCEEDED(hr)) {
-				ZfsVssClassFactory *pFactory =
-				    new(std::nothrow) ZfsVssClassFactory();
-				if (pFactory) {
-					CoRegisterClassObject(
-					    CLSID_ZfsVssProvider, pFactory,
-					    CLSCTX_LOCAL_SERVER,
-					    REGCLS_MULTIPLEUSE, &g_reg_token);
-					pFactory->Release();
-					vss_log("Interactive: factory registered,"
-					    " press Ctrl-C to stop\n");
-					WaitForSingleObject(g_stop_event,
-					    INFINITE);
-					CoRevokeClassObject(g_reg_token);
-				}
-				CoUninitialize();
-			}
-			CloseHandle(g_stop_event);
-		} else {
-			vss_log("StartServiceCtrlDispatcherW failed: %lu\n",
-			    err);
-		}
-	}
-	return (0);
+	return ((g_obj_count == 0 && g_server_locks == 0) ? S_OK : S_FALSE);
 }
