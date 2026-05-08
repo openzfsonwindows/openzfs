@@ -78,7 +78,7 @@ vss_log(const char *fmt, ...)
 	if (h == INVALID_HANDLE_VALUE)
 		return;
 
-	char buf[1024];
+	char buf[8192];
 	int hdr = _snprintf(buf, sizeof (buf), "[%lu] ", GetCurrentProcessId());
 	if (hdr < 0)
 		hdr = 0;
@@ -100,8 +100,7 @@ vss_log(const char *fmt, ...)
  * Used as both the COM CLSID and the VSS ProviderID.
  */
 static const GUID CLSID_ZfsVssProvider = {
-	0x89300202, 0x3CAE, 0x4584,
-	{ 0xB3, 0x8F, 0xE7, 0x2F, 0x2B, 0x3A, 0x2F, 0xBF }
+		ZFS_VSS_PROVIDER_GUID_BINARY
 };
 
 static LONG g_server_locks = 0;
@@ -117,20 +116,21 @@ struct PendingSnap {
 	VSS_ID   SnapshotId;
 	VSS_ID   SnapshotSetId;
 	wchar_t  VolumeName[MAX_PATH];
+	LONG     Context;
 	BOOL     used;
 };
 
 /* ------------------------------------------------------------------ */
 /* IVssEnumObject - simple array-backed enumerator                     */
 /* ------------------------------------------------------------------ */
-
 class ZfsVssEnumObject : public IVssEnumObject {
 public:
-	ZfsVssEnumObject() : m_ref(1), m_pos(0), m_count(0), m_capacity(0), m_props(NULL) {
+	ZfsVssEnumObject() : m_ref(1), m_pUnkFTM(NULL), m_pos(0), m_count(0), m_capacity(0), m_props(NULL) {
 		InterlockedIncrement(&g_obj_count);
 	}
 
 	~ZfsVssEnumObject() {
+		if (m_pUnkFTM) m_pUnkFTM->Release();
 		for (ULONG i = 0; i < m_count; i++) {
 			if (m_props[i].Type != VSS_OBJECT_SNAPSHOT)
 				continue;
@@ -154,6 +154,10 @@ public:
 			return (FALSE);
 		ZeroMemory(m_props, m_capacity * sizeof (VSS_OBJECT_PROP));
 		m_count = 0;
+		CoCreateFreeThreadedMarshaler(
+			static_cast<IUnknown *>(static_cast<IVssEnumObject *>(this)),
+			&m_pUnkFTM
+		);
 		return (TRUE);
 	}
 
@@ -173,11 +177,13 @@ public:
 			*ppv = static_cast<IVssEnumObject *>(this);
 			AddRef();
 			return (S_OK);
+		} else if (riid == IID_IMarshal && m_pUnkFTM != NULL) {
+			return m_pUnkFTM->QueryInterface(riid, ppv);
+		} else {
+			*ppv = NULL;
+			return (E_NOINTERFACE);
 		}
-		*ppv = NULL;
-		return (E_NOINTERFACE);
 	}
-
 	STDMETHOD(Next)(ULONG celt, VSS_OBJECT_PROP *rgelt,
 	    ULONG *pceltFetched) {
 		ULONG f = 0;
@@ -283,6 +289,7 @@ private:
 	ULONG            m_count;
 	ULONG            m_capacity;
 	VSS_OBJECT_PROP *m_props;
+	IUnknown *m_pUnkFTM;
 };
 
 /* ------------------------------------------------------------------ */
@@ -306,7 +313,7 @@ load_snap_prop(const VSS_ID &sid, VSS_SNAPSHOT_PROP *p)
 	ZeroMemory(p, sizeof (*p));
 	p->m_SnapshotId         = sid;
 	p->m_SnapshotSetId      = setid;
-	p->m_lSnapshotsCount    = 0;
+	p->m_lSnapshotsCount    = 1;
 	p->m_ProviderId         = CLSID_ZfsVssProvider;
 	p->m_tsCreationTimestamp = ts;
 	p->m_eStatus            = VSS_SS_CREATED;
@@ -314,9 +321,15 @@ load_snap_prop(const VSS_ID &sid, VSS_SNAPSHOT_PROP *p)
 
 	/* Device path that exposes the frozen ZFS snapshot */
 	wchar_t devname[128];
+#if 1
 	_snwprintf(devname, 128,
 	    L"\\\\?\\GLOBALROOT\\Device\\ZfsSnapshot%016I64x",
 	    (unsigned long long)zfsguid);
+#else
+	_snwprintf(devname, 128,
+		L"\\Device\\ZfsSnapshot%016I64x",
+		(unsigned long long)zfsguid);
+#endif
 
 	p->m_pwszSnapshotDeviceObject =
 	    (VSS_PWSZ)CoTaskMemAlloc(
@@ -348,16 +361,45 @@ load_snap_prop(const VSS_ID &sid, VSS_SNAPSHOT_PROP *p)
 	if (p->m_pwszServiceMachine)
 		wcscpy(p->m_pwszServiceMachine, machine);
 
-	/* VSS expects non-NULL pointers for all BSTR/LPWSTR fields */
-	p->m_pwszExposedName =
-	    (VSS_PWSZ)CoTaskMemAlloc(sizeof (wchar_t));
-	if (p->m_pwszExposedName)
-		p->m_pwszExposedName[0] = L'\0';
-
-	p->m_pwszExposedPath =
-	    (VSS_PWSZ)CoTaskMemAlloc(sizeof (wchar_t));
-	if (p->m_pwszExposedPath)
-		p->m_pwszExposedPath[0] = L'\0';
+	/*
+	 * Exposed name/path — read back from the registry if the coordinator
+	 * has previously called SetSnapshotProperty to record them.  Fall back
+	 * to empty strings so the fields are never NULL.
+	 */
+	{
+		HKEY hk = NULL;
+		wchar_t keyname[256];
+		wchar_t sub[64];
+		/* reuse the same key layout as vss_registry.c */
+		_snwprintf(sub, 64,
+		    L"%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+		    sid.Data1, sid.Data2, sid.Data3,
+		    sid.Data4[0], sid.Data4[1],
+		    sid.Data4[2], sid.Data4[3], sid.Data4[4],
+		    sid.Data4[5], sid.Data4[6], sid.Data4[7]);
+		_snwprintf(keyname, 256, L"%s\\%s",
+		    ZFS_VSS_REG_ROOT, sub);
+		wchar_t expname[MAX_PATH] = L"";
+		wchar_t exppath[MAX_PATH] = L"";
+		if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyname, 0,
+		    KEY_READ, &hk) == ERROR_SUCCESS) {
+			DWORD sz = (DWORD)(MAX_PATH * sizeof (wchar_t));
+			RegQueryValueExW(hk, ZFS_VSS_REG_EXPNAME,
+			    NULL, NULL, (BYTE *)expname, &sz);
+			sz = (DWORD)(MAX_PATH * sizeof (wchar_t));
+			RegQueryValueExW(hk, ZFS_VSS_REG_EXPPATH,
+			    NULL, NULL, (BYTE *)exppath, &sz);
+			RegCloseKey(hk);
+		}
+		p->m_pwszExposedName = (VSS_PWSZ)CoTaskMemAlloc(
+		    (wcslen(expname) + 1) * sizeof (wchar_t));
+		if (p->m_pwszExposedName)
+			wcscpy(p->m_pwszExposedName, expname);
+		p->m_pwszExposedPath = (VSS_PWSZ)CoTaskMemAlloc(
+		    (wcslen(exppath) + 1) * sizeof (wchar_t));
+		if (p->m_pwszExposedPath)
+			wcscpy(p->m_pwszExposedPath, exppath);
+	}
 
 	return (S_OK);
 }
@@ -422,13 +464,18 @@ snap_prop_from_zfs(zfs_handle_t *zhp, const wchar_t *volname,
 	p->m_lSnapshotAttributes =
 	    VSS_VOLSNAP_ATTR_PERSISTENT |
 	    VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
-	    VSS_VOLSNAP_ATTR_DIFFERENTIAL |
-	    VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE;
+	    VSS_VOLSNAP_ATTR_DIFFERENTIAL;
 
 	wchar_t devname[128];
+#if 1
 	_snwprintf(devname, 128,
 	    L"\\\\?\\GLOBALROOT\\Device\\ZfsSnapshot%016I64x",
 	    (unsigned long long)zg);
+#else
+	_snwprintf(devname, 128,
+		L"\\Device\\ZfsSnapshot%016I64x",
+		(unsigned long long)zg);
+#endif
 
 	p->m_pwszSnapshotDeviceObject =
 	    (VSS_PWSZ)CoTaskMemAlloc(
@@ -814,6 +861,69 @@ find_guid_in_fs_cb(zfs_handle_t *zhp, void *arg)
 }
 
 /* ------------------------------------------------------------------ */
+/* Undocumented VSS expose interfaces                                   */
+/* ------------------------------------------------------------------ */
+/*
+ * IID {AF86E2E0-B12D-4C6A-9C5A-D7AA65101E90}: discovered by logging
+ * unknown QueryInterface requests during DISKSHADOW "expose" testing.
+ * VSS queries this interface FIRST during expose; returning E_NOINTERFACE
+ * causes VSS_E_UNEXPECTED_PROVIDER_ERROR without even reaching the
+ * ExposeSnapshotVolume interface ({B076ED90}).
+ *
+ * The method list and signatures are unknown.  We expose stubs that log
+ * their vtable ordinal and return S_OK so we can discover at run-time
+ * which method(s) VSS actually calls.  On x64 Windows all calling
+ * conventions are caller-cleanup so void-parameter stubs are safe
+ * regardless of the real argument count.
+ */
+static const IID IID_IVssExposeSnapshotMgmt = {
+    0xAF86E2E0, 0xB12D, 0x4C6A,
+    { 0x9C, 0x5A, 0xD7, 0xAA, 0x65, 0x10, 0x1E, 0x90 }
+};
+
+class IVssExposeSnapshotMgmt : public IUnknown {
+public:
+    virtual HRESULT STDMETHODCALLTYPE Method1(void) = 0;
+    /*
+     * Method2 (vtable[4]): called by VSS during expose.
+     * On x64, VSS_ID (16 bytes) is passed by pointer in RDX.
+     * Signature confirmed by logging raw register values:
+     *   RDX = VSS_ID*  R8 = LONG lAttributes  R9 = VSS_PWSZ wszExpose
+     *   [rsp+28h] = VSS_PWSZ* ppwszExposed
+     * No wszPathFromRoot parameter exists in this interface.
+     */
+    virtual HRESULT STDMETHODCALLTYPE Method2(
+        const VSS_ID *pSnapshotId,
+        LONG lAttributes,
+        VSS_PWSZ wszExpose,
+        VSS_PWSZ *ppwszExposed) = 0;
+    virtual HRESULT STDMETHODCALLTYPE Method3(void) = 0;
+    virtual HRESULT STDMETHODCALLTYPE Method4(void) = 0;
+    virtual HRESULT STDMETHODCALLTYPE Method5(void) = 0;
+};
+
+/*
+ * IID {B076ED90-8BDE-4E40-AAA0-892FD3C83947}: queried after the above
+ * interface is satisfied.  VSS calls ExposeSnapshotVolume on this; we
+ * acknowledge with S_OK (coordinator does the actual drive-letter
+ * assignment via its own SYSTEM-privilege path).
+ */
+static const IID IID_IVssExposeSnapshot = {
+    0xB076ED90, 0x8BDE, 0x4E40,
+    { 0xAA, 0xA0, 0x89, 0x2F, 0xD3, 0xC8, 0x39, 0x47 }
+};
+
+class IVssExposeSnapshot : public IUnknown {
+public:
+    virtual HRESULT STDMETHODCALLTYPE ExposeSnapshotVolume(
+        VSS_ID SnapshotId,
+        LONG lAttributes,
+        VSS_PWSZ wszExposed,
+        VSS_PWSZ wszPathFromRoot
+    ) = 0;
+};
+
+/* ------------------------------------------------------------------ */
 /* ZfsVssProvider                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -821,16 +931,23 @@ class ZfsVssProvider
     : public IVssSoftwareSnapshotProvider
     , public IVssProviderCreateSnapshotSet
     , public IVssProviderNotifications
+    , public IVssExposeSnapshotMgmt
+    , public IVssExposeSnapshot
 {
 public:
 	ZfsVssProvider() : m_ref(1), m_lzh(NULL), m_ctx(VSS_CTX_BACKUP) {
 		ZeroMemory(m_pending, sizeof (m_pending));
+		CoCreateFreeThreadedMarshaler(
+			static_cast<IUnknown *>(static_cast<IVssSoftwareSnapshotProvider *>(this)),
+			&m_pUnkFTM
+		);
 		InterlockedIncrement(&g_obj_count);
 	}
 
 	~ZfsVssProvider() {
 		if (m_lzh)
 			libzfs_fini(m_lzh);
+		if (m_pUnkFTM) m_pUnkFTM->Release();
 		InterlockedDecrement(&g_obj_count);
 	}
 
@@ -852,7 +969,32 @@ public:
 			*ppv = static_cast<IVssProviderCreateSnapshotSet *>(this);
 		} else if (riid == IID_IVssProviderNotifications) {
 			*ppv = static_cast<IVssProviderNotifications *>(this);
+		} else if (IsEqualGUID(riid, IID_IVssExposeSnapshotMgmt)) {
+			/*
+			 * Cannot return S_OK here: AF86E2E0 has no registered
+			 * COM proxy/stub.  Returning the interface pointer causes
+			 * CoMarshalInterface to deadlock inside dllhost.exe's COM
+			 * apartment lock when the NDR stub tries to pack the
+			 * result for the cross-process LRPC response.
+			 * Expose work is done in ExposeSnapshotVolume instead.
+			 */
+			vss_log("QueryInterface: IVssExposeSnapshotMgmt"
+			    " {AF86E2E0} -> E_NOINTERFACE (no proxy/stub)\n");
+			*ppv = NULL;
+			return (E_NOINTERFACE);
+/*
+		} else if (IsEqualGUID(riid, IID_IVssExposeSnapshot)) {
+			vss_log("QueryInterface: IVssExposeSnapshot"
+			    " {B076ED90} -> S_OK\n");
+			*ppv = static_cast<IVssExposeSnapshot *>(this);
+*/
+			} else if (riid == IID_IMarshal && m_pUnkFTM != NULL) {
+			return m_pUnkFTM->QueryInterface(riid, ppv);
 		} else {
+			wchar_t guidstr[64];
+			StringFromGUID2(riid, guidstr, 64);
+			vss_log("QueryInterface: unknown IID %ls -> E_NOINTERFACE\n",
+			    guidstr);
 			*ppv = NULL;
 			return (E_NOINTERFACE);
 		}
@@ -985,9 +1127,12 @@ public:
 	STDMETHOD(BeginPrepareSnapshot)(VSS_ID SnapshotSetId,
 	    VSS_ID SnapshotId, VSS_PWSZ pwszVolumeName, LONG lNewContext)
 	{
-		vss_log("BeginPrepareSnapshot: %ls ctx=%ld\n",
-		    pwszVolumeName, lNewContext);
-		(void)lNewContext;
+		wchar_t snapguid[64], setguid[64];
+		StringFromGUID2(SnapshotId, snapguid, 64);
+		StringFromGUID2(SnapshotSetId, setguid, 64);
+		vss_log("BeginPrepareSnapshot: vol=%ls ctx=0x%lx"
+		    " snapid=%ls setid=%ls\n",
+		    pwszVolumeName, (ULONG)lNewContext, snapguid, setguid);
 		for (int i = 0; i < MAX_PENDING; i++) {
 			if (m_pending[i].used)
 				continue;
@@ -995,6 +1140,7 @@ public:
 			m_pending[i].SnapshotSetId = SnapshotSetId;
 			wcsncpy(m_pending[i].VolumeName, pwszVolumeName,
 			    MAX_PATH);
+			m_pending[i].Context = lNewContext;
 			m_pending[i].used = TRUE;
 			return (S_OK);
 		}
@@ -1017,9 +1163,20 @@ public:
 		/* Try registry first (VSS-created snapshots) */
 		HRESULT hr = load_snap_prop(SnapshotId, pProp);
 		if (SUCCEEDED(hr)) {
-			vss_log("GetSnapshotProperties: found in registry\n");
+			vss_log("GetSnapshotProperties: registry hit"
+			    " dev=%ls vol=%ls attrs=0x%lx status=%d"
+			    " count=%ld\n",
+			    pProp->m_pwszSnapshotDeviceObject
+			    ? pProp->m_pwszSnapshotDeviceObject : L"(null)",
+			    pProp->m_pwszOriginalVolumeName
+			    ? pProp->m_pwszOriginalVolumeName : L"(null)",
+			    (ULONG)pProp->m_lSnapshotAttributes,
+			    (int)pProp->m_eStatus,
+			    pProp->m_lSnapshotsCount);
 			return (hr);
 		}
+		vss_log("GetSnapshotProperties: not in registry"
+		    " (hr=0x%lx), trying libzfs path\n", (ULONG)hr);
 
 		/*
 		 * Not in the registry — the SnapshotId may be one we
@@ -1085,8 +1242,20 @@ public:
 
 		hr = snap_prop_from_zfs(zhp, volname, pProp);
 		zfs_close(zhp);
-		vss_log("GetSnapshotProperties: libzfs path hr=0x%lx snap=%s\n",
-		    (ULONG)hr, fbg.found_name);
+		if (SUCCEEDED(hr)) {
+			vss_log("GetSnapshotProperties: libzfs hit"
+			    " snap=%s dev=%ls vol=%ls attrs=0x%lx\n",
+			    fbg.found_name,
+			    pProp->m_pwszSnapshotDeviceObject
+			    ? pProp->m_pwszSnapshotDeviceObject : L"(null)",
+			    pProp->m_pwszOriginalVolumeName
+			    ? pProp->m_pwszOriginalVolumeName : L"(null)",
+			    (ULONG)pProp->m_lSnapshotAttributes);
+		} else {
+			vss_log("GetSnapshotProperties: libzfs path"
+			    " FAILED hr=0x%lx snap=%s\n",
+			    (ULONG)hr, fbg.found_name);
+		}
 		return (hr);
 	}
 
@@ -1334,14 +1503,28 @@ public:
 
 			if (vss_reg_load(&ids[i], vol, MAX_PATH,
 			    zname, 256, &zg, &setid, &ts, &attrs) != 0) {
-				*pNondeletedSnapshotID = ids[i];
+				/*
+				 * Not in our registry — unknown to us.
+				 * When forced, count as gone so VSS can
+				 * clear the catalog entry.
+				 */
+				if (bForceDelete)
+					(*plDeletedSnapshots)++;
+				else
+					*pNondeletedSnapshotID = ids[i];
 				continue;
 			}
 
 			zfs_handle_t *zhp = zfs_open(m_lzh, zname,
 			    ZFS_TYPE_SNAPSHOT);
 			if (!zhp) {
-				*pNondeletedSnapshotID = ids[i];
+				/*
+				 * ZFS snapshot already gone — clean up
+				 * our registry and count as deleted so
+				 * VSS removes the catalog entry.
+				 */
+				vss_reg_delete(&ids[i]);
+				(*plDeletedSnapshots)++;
 				continue;
 			}
 			int rc = zfs_destroy(zhp, B_FALSE);
@@ -1359,9 +1542,62 @@ public:
 		    S_OK : VSS_E_OBJECT_NOT_FOUND);
 	}
 
-	/* Stubs for IVssSoftwareSnapshotProvider */
-	STDMETHOD(SetSnapshotProperty)(VSS_ID, VSS_SNAPSHOT_PROPERTY_ID,
-	    VARIANT) { return (E_NOTIMPL); }
+	/*
+	 * SetSnapshotProperty - called by the coordinator after it exposes a
+	 * snapshot (local drive letter or mount point) to record the exposed
+	 * name / path / updated attributes in our persistent store.
+	 * Returning E_NOTIMPL causes VSS_E_UNEXPECTED_PROVIDER_ERROR and the
+	 * coordinator rolls back the drive-letter assignment, so we must
+	 * accept all property IDs even those we do not persist.
+	 */
+	STDMETHOD(SetSnapshotProperty)(VSS_ID SnapshotId,
+	    VSS_SNAPSHOT_PROPERTY_ID eSnapshotPropertyId,
+	    VARIANT vProperty)
+	{
+		wchar_t guidstr[64];
+		StringFromGUID2(SnapshotId, guidstr, 64);
+		vss_log("SetSnapshotProperty: id=%ls propId=%d vt=%d\n",
+		    guidstr, (int)eSnapshotPropertyId, (int)vProperty.vt);
+
+		switch (eSnapshotPropertyId) {
+		case VSS_SPROPID_SNAPSHOT_ATTRIBUTES:
+			if (vProperty.vt == VT_I4 || vProperty.vt == VT_UI4) {
+				vss_log("SetSnapshotProperty: attrs=0x%lx\n",
+				    (ULONG)vProperty.lVal);
+				vss_reg_update_attrs(&SnapshotId, vProperty.lVal);
+			}
+			break;
+		case VSS_SPROPID_EXPOSED_NAME:
+			if (vProperty.vt == VT_BSTR && vProperty.bstrVal) {
+				vss_log("SetSnapshotProperty:"
+				    " ExposedName=%ls\n", vProperty.bstrVal);
+				vss_reg_update_string(&SnapshotId,
+				    ZFS_VSS_REG_EXPNAME, vProperty.bstrVal);
+			}
+			break;
+		case VSS_SPROPID_EXPOSED_PATH:
+			if (vProperty.vt == VT_BSTR && vProperty.bstrVal) {
+				vss_log("SetSnapshotProperty:"
+				    " ExposedPath=%ls\n", vProperty.bstrVal);
+				vss_reg_update_string(&SnapshotId,
+				    ZFS_VSS_REG_EXPPATH, vProperty.bstrVal);
+			}
+			break;
+		case VSS_SPROPID_STATUS:
+			if (vProperty.vt == VT_I4 || vProperty.vt == VT_UI4) {
+				vss_log("SetSnapshotProperty: status=%d\n",
+				    (int)vProperty.lVal);
+				vss_reg_update_status(&SnapshotId,
+				    vProperty.lVal);
+			}
+			break;
+		default:
+			vss_log("SetSnapshotProperty: propId=%d ignored\n",
+			    (int)eSnapshotPropertyId);
+			break;
+		}
+		return (S_OK);
+	}
 	STDMETHOD(RevertToSnapshot)(VSS_ID) { return (E_NOTIMPL); }
 	STDMETHOD(QueryRevertStatus)(VSS_PWSZ, IVssAsync **)
 	    { return (E_NOTIMPL); }
@@ -1446,18 +1682,70 @@ public:
 				zfsguid = strtoull(guidbuf, NULL, 10);
 			zfs_close(zhp);
 
-			LONG attrs =
+			/*
+			 * Use exactly the context the requestor set, augmented
+			 * by the minimum flags ZFS always satisfies.
+			 *
+			 * Do NOT force CLIENT_ACCESSIBLE (0x04): the coordinator
+			 * gatekeeps that for system providers only; returning it
+			 * from a Type=2 provider silently blocks the catalog write.
+			 *
+			 * DO add DIFFERENTIAL (0x00020000): the coordinator
+			 * requires at least one "type" bit (DIFFERENTIAL, PLEX, or
+			 * HARDWARE_ASSISTED) before it writes the shadow set to its
+			 * persistent catalog.  Without it, DoSnapshotSet succeeds
+			 * in memory but nothing appears in "vssadmin list shadows".
+			 * ZFS uses copy-on-write, which is semantically differential.
+			 */
+			LONG attrs = m_pending[i].Context;
+			attrs |= VSS_VOLSNAP_ATTR_PERSISTENT |
 			    VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
-			    VSS_VOLSNAP_ATTR_PERSISTENT |
-			    VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE;
+			    VSS_VOLSNAP_ATTR_DIFFERENTIAL;
 
-			vss_reg_store(&m_pending[i].SnapshotId,
+			vss_log("CommitSnapshots: storing attrs=0x%lx"
+			    " ctx=0x%lx guid=%016I64x\n",
+			    (ULONG)attrs, (ULONG)m_pending[i].Context,
+			    (unsigned long long)zfsguid);
+
+			if (vss_reg_store(&m_pending[i].SnapshotId,
 			    &SnapshotSetId,
 			    m_pending[i].VolumeName,
-			    snapname, zfsguid, timestamp, attrs);
+			    snapname, zfsguid, timestamp, attrs) != 0) {
+				vss_log("CommitSnapshots: vss_reg_store FAILED"
+				    " (no write access to registry?)\n");
+				return (E_FAIL);
+			}
 
-			vss_log("CommitSnapshots: snapshot %s stored\n",
-			    snapname);
+			vss_log("CommitSnapshots: registry stored OK\n");
+
+			/*
+			 * Eagerly mount the snapshot device so that the VSS
+			 * coordinator's post-commit device probe does not
+			 * encounter a pending lazy-mount IRP.  Failure is
+			 * non-fatal: the lazy mount still works on first access.
+			 */
+			wchar_t devpath[128];
+			_snwprintf(devpath, 128,
+			    L"\\\\?\\GLOBALROOT\\Device\\"
+			    L"ZfsSnapshot%016I64x",
+			    (unsigned long long)zfsguid);
+			vss_log("CommitSnapshots: eager-mount %ls\n", devpath);
+			HANDLE hdev = CreateFileW(devpath,
+			    FILE_READ_ATTRIBUTES,
+			    FILE_SHARE_READ | FILE_SHARE_WRITE |
+			    FILE_SHARE_DELETE,
+			    NULL, OPEN_EXISTING,
+			    FILE_FLAG_BACKUP_SEMANTICS, NULL);
+			if (hdev != INVALID_HANDLE_VALUE) {
+				vss_log("CommitSnapshots: eager-mount OK"
+				    " (handle open)\n");
+				CloseHandle(hdev);
+			} else {
+				vss_log("CommitSnapshots: eager-mount failed"
+				    " err=%lu (lazy mount will be used)\n",
+				    GetLastError());
+			}
+
 			m_pending[i].used = FALSE;
 		}
 		vss_log("CommitSnapshots: returning S_OK\n");
@@ -1466,20 +1754,23 @@ public:
 
 	STDMETHOD(PostCommitSnapshots)(VSS_ID SnapshotSetId,
 	    LONG lSnapshotsCount) {
-		vss_log("PostCommitSnapshots: count=%ld\n", lSnapshotsCount);
+		vss_log("PostCommitSnapshots: count=%ld"
+		    " (next: PreFinalCommitSnapshots)\n", lSnapshotsCount);
 		(void)SnapshotSetId;
 		(void)lSnapshotsCount;
 		return (S_OK);
 	}
 
 	STDMETHOD(PreFinalCommitSnapshots)(VSS_ID SnapshotSetId) {
-		vss_log("PreFinalCommitSnapshots: called\n");
+		vss_log("PreFinalCommitSnapshots: called"
+		    " (next: PostFinalCommitSnapshots)\n");
 		(void)SnapshotSetId;
 		return (S_OK);
 	}
 
 	STDMETHOD(PostFinalCommitSnapshots)(VSS_ID SnapshotSetId) {
-		vss_log("PostFinalCommitSnapshots: called\n");
+		vss_log("PostFinalCommitSnapshots: called"
+		    " (next: coordinator should call GetSnapshotProperties)\n");
 		(void)SnapshotSetId;
 		return (S_OK);
 	}
@@ -1507,11 +1798,301 @@ public:
 		return (S_OK);
 	}
 
+	/* ---- IVssExposeSnapshotMgmt ({AF86E2E0}) ---- */
+
+	/*
+	 * Method signatures unknown; stubs log their vtable ordinal so we
+	 * can identify which method VSS calls and reverse its signature.
+	 * All return S_OK — safe because on x64 the caller cleans up args.
+	 */
+	STDMETHOD(Method1)(void) {
+		vss_log("IVssExposeSnapshotMgmt::Method1 (vtable[3]) called\n");
+		return (S_OK);
+	}
+	STDMETHOD(Method2)(
+	    const VSS_ID *pSnapshotId,
+	    LONG lAttributes,
+	    VSS_PWSZ wszExpose,
+	    VSS_PWSZ *ppwszExposed)
+	{
+		/*
+		 * Raw WriteFile before any parameter access so we can tell
+		 * whether Method2 is called even if a later crash prevents
+		 * vss_log from writing.
+		 */
+		{
+			HANDLE _h = CreateFileW(
+			    L"C:\\Windows\\Temp\\ZfsVssProvider.log",
+			    FILE_APPEND_DATA,
+			    FILE_SHARE_READ | FILE_SHARE_WRITE,
+			    NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+			if (_h != INVALID_HANDLE_VALUE) {
+				DWORD _w;
+				char _hdr[32];
+				int _n = _snprintf(_hdr, sizeof (_hdr),
+				    "[%lu] Method2:ENTRY\n",
+				    GetCurrentProcessId());
+				WriteFile(_h, _hdr, (DWORD)_n, &_w, NULL);
+				CloseHandle(_h);
+			}
+		}
+		__try {
+		wchar_t sidstr[64] = L"(null)";
+		if (pSnapshotId)
+			StringFromGUID2(*pSnapshotId, sidstr, 64);
+		vss_log("IVssExposeSnapshotMgmt::Method2: id=%ls"
+		    " attrs=0x%lx expose=[%.64ls]"
+		    " ppwszExposed=%p\n",
+		    sidstr,
+		    (ULONG)lAttributes,
+		    wszExpose ? wszExpose : L"(null)",
+		    (void *)ppwszExposed);
+
+		if (ppwszExposed)
+			*ppwszExposed = NULL;
+
+		if (!wszExpose || wszExpose[0] == L'\0')
+			return (S_OK);
+
+		/*
+		 * Software providers are responsible for creating the drive
+		 * letter (or mount point) mapping themselves via DefineDosDevice.
+		 * The VSS coordinator passes the desired drive letter in wszExpose
+		 * and expects the provider to:
+		 *   1. Map the letter to the snapshot device (DefineDosDevice).
+		 *   2. Return the canonical exposed path in *ppwszExposed.
+		 *
+		 * Look up the ZFS dataset GUID from the registry so we can
+		 * construct the NT device name \Device\ZfsSnapshot<hex>.
+		 */
+		wchar_t nt_dev[128] = L"";
+		if (pSnapshotId) {
+			wchar_t vol[MAX_PATH];
+			char zn[256];
+			uint64_t zfsguid = 0;
+			GUID setid;
+			LONGLONG ts;
+			LONG reg_attrs;
+			if (vss_reg_load(pSnapshotId, vol, MAX_PATH, zn, 256,
+			    &zfsguid, &setid, &ts, &reg_attrs) == 0) {
+				_snwprintf(nt_dev, 128,
+				    L"\\Device\\ZfsSnapshot%016I64x",
+				    (unsigned long long)zfsguid);
+			}
+		}
+
+		/*
+		 * Normalise the expose target to a "drive:" form for
+		 * DefineDosDevice, and a "drive:\" form for the returned path.
+		 * "X" → "X:\"  |  "X:" → "X:\"  |  mount point → trailing "\"
+		 */
+		wchar_t drive[8] = L"";
+		wchar_t exposed[MAX_PATH];
+		wcsncpy(exposed, wszExpose, MAX_PATH - 2);
+		exposed[MAX_PATH - 2] = L'\0';
+		int explen = (int)wcslen(exposed);
+
+		if (explen == 1) {
+			/* "X" → drive "X:", exposed "X:\" */
+			drive[0] = exposed[0]; drive[1] = L':'; drive[2] = L'\0';
+			exposed[1] = L':'; exposed[2] = L'\\'; exposed[3] = L'\0';
+		} else if (explen == 2 && exposed[1] == L':') {
+			/* "X:" → drive "X:", exposed "X:\" */
+			drive[0] = exposed[0]; drive[1] = L':'; drive[2] = L'\0';
+			exposed[2] = L'\\'; exposed[3] = L'\0';
+		} else if (explen >= 3 && exposed[1] == L':') {
+			/* "X:\..." → drive "X:", exposed as-is with trailing "\" */
+			drive[0] = exposed[0]; drive[1] = L':'; drive[2] = L'\0';
+			if (exposed[explen - 1] != L'\\' &&
+			    explen + 1 < MAX_PATH) {
+				exposed[explen]   = L'\\';
+				exposed[explen+1] = L'\0';
+			}
+		} else {
+			/* Mount-point path: use as-is, ensure trailing "\" */
+			wcsncpy(drive, exposed, 7);
+			if (explen > 0 && exposed[explen - 1] != L'\\' &&
+			    explen + 1 < MAX_PATH) {
+				exposed[explen]   = L'\\';
+				exposed[explen+1] = L'\0';
+			}
+		}
+
+		/*
+		 * Create the DOS device alias.  DefineDosDevice with
+		 * DDD_RAW_TARGET_PATH maps the NT object-namespace path
+		 * directly.  Called from Session 0 (NetworkService) this
+		 * creates an entry in \GLOBAL?? that is visible system-wide.
+		 */
+		if (nt_dev[0] != L'\0' && drive[0] != L'\0') {
+			vss_log("Method2: DefineDosDevice(%ls -> %ls)\n",
+			    drive, nt_dev);
+			/*
+			 * Remove any stale mapping first (e.g. from a prior
+			 * expose that was not cleaned up), then add the new one.
+			 * Failure of the remove is expected when no prior mapping
+			 * exists; ignore it.
+			 */
+			DefineDosDeviceW(DDD_RAW_TARGET_PATH |
+			    DDD_REMOVE_DEFINITION | DDD_EXACT_MATCH_ON_REMOVE,
+			    drive, nt_dev);
+			BOOL ok = DefineDosDeviceW(DDD_RAW_TARGET_PATH,
+			    drive, nt_dev);
+			vss_log("Method2: DefineDosDevice %s (err=%lu)\n",
+			    ok ? "OK" : "FAILED", ok ? 0UL : GetLastError());
+		} else {
+			vss_log("Method2: no NT device path available"
+			    " (nt_dev=%ls drive=%ls)\n",
+			    nt_dev[0] ? nt_dev : L"(empty)",
+			    drive[0] ? drive : L"(empty)");
+		}
+
+		if (ppwszExposed) {
+			*ppwszExposed = (VSS_PWSZ)CoTaskMemAlloc(
+			    (wcslen(exposed) + 1) * sizeof (wchar_t));
+			if (*ppwszExposed) {
+				wcscpy(*ppwszExposed, exposed);
+				vss_log("Method2: returning exposed=%ls\n",
+				    *ppwszExposed);
+			}
+		}
+
+		return (S_OK);
+		} __except (EXCEPTION_EXECUTE_HANDLER) {
+			vss_log("Method2: EXCEPTION 0x%08lx\n",
+			    (ULONG)GetExceptionCode());
+			return (E_FAIL);
+		}
+	}
+	STDMETHOD(Method3)(void) {
+		vss_log("IVssExposeSnapshotMgmt::Method3 (vtable[5]) called\n");
+		return (S_OK);
+	}
+	STDMETHOD(Method4)(void) {
+		vss_log("IVssExposeSnapshotMgmt::Method4 (vtable[6]) called\n");
+		return (S_OK);
+	}
+	STDMETHOD(Method5)(void) {
+		vss_log("IVssExposeSnapshotMgmt::Method5 (vtable[7]) called\n");
+		return (S_OK);
+	}
+
+	/* ---- IVssExposeSnapshot ({B076ED90}) ---- */
+
+	/*
+	 * Software providers are responsible for mapping the drive letter.
+	 * DefineDosDevice with DDD_RAW_TARGET_PATH maps the NT device path
+	 * to the requested drive letter.  The coordinator passes the desired
+	 * drive letter (or mount point) in wszExposed; we normalise it and
+	 * create the DOS device alias.
+	 *
+	 * Note: AF86E2E0 (IVssExposeSnapshotMgmt) has no COM proxy/stub and
+	 * cannot be returned from QI in an out-of-process provider without
+	 * deadlocking.  All expose work is done here instead.
+	 */
+	STDMETHOD(ExposeSnapshotVolume)(
+	    VSS_ID SnapshotId,
+	    LONG lAttributes,
+	    VSS_PWSZ wszExposed,
+	    VSS_PWSZ wszPathFromRoot)
+	{
+		/* Raw entry marker before any parameter use */
+		{
+			HANDLE _h = CreateFileW(
+			    L"C:\\Windows\\Temp\\ZfsVssProvider.log",
+			    FILE_APPEND_DATA,
+			    FILE_SHARE_READ | FILE_SHARE_WRITE,
+			    NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+			if (_h != INVALID_HANDLE_VALUE) {
+				DWORD _w;
+				char _hdr[32];
+				int _n = _snprintf(_hdr, sizeof (_hdr),
+				    "[%lu] ESV:ENTRY\n",
+				    GetCurrentProcessId());
+				WriteFile(_h, _hdr, (DWORD)_n, &_w, NULL);
+				CloseHandle(_h);
+			}
+		}
+		__try {
+		wchar_t sidstr[64];
+		StringFromGUID2(SnapshotId, sidstr, 64);
+		vss_log("ExposeSnapshotVolume: id=%ls attrs=0x%lx"
+		    " exposed=[%.64ls] path=[%.256ls]\n",
+		    sidstr, (ULONG)lAttributes,
+		    wszExposed ? wszExposed : L"(null)",
+		    wszPathFromRoot ? wszPathFromRoot : L"(null)");
+
+		if (!wszExposed || wszExposed[0] == L'\0')
+			return (S_OK);
+
+		/* Look up the ZFS dataset GUID from the registry. */
+		wchar_t nt_dev[128] = L"";
+		{
+			wchar_t vol[MAX_PATH];
+			char zn[256];
+			uint64_t zfsguid = 0;
+			GUID setid;
+			LONGLONG ts;
+			LONG reg_attrs;
+			if (vss_reg_load(&SnapshotId, vol, MAX_PATH, zn, 256,
+			    &zfsguid, &setid, &ts, &reg_attrs) == 0) {
+				_snwprintf(nt_dev, 128,
+				    L"\\Device\\ZfsSnapshot%016I64x",
+				    (unsigned long long)zfsguid);
+			}
+		}
+
+		/*
+		 * Normalise the expose target to "X:" (for DefineDosDevice)
+		 * and "X:\" (returned to caller).
+		 */
+		wchar_t drive[8] = L"";
+		int explen = wszExposed ? (int)wcslen(wszExposed) : 0;
+
+		if (explen == 1) {
+			drive[0] = wszExposed[0];
+			drive[1] = L':'; drive[2] = L'\0';
+		} else if (explen >= 2 && wszExposed[1] == L':') {
+			drive[0] = wszExposed[0];
+			drive[1] = L':'; drive[2] = L'\0';
+		} else if (explen > 0) {
+			wcsncpy(drive, wszExposed, 7);
+			drive[7] = L'\0';
+		}
+
+		if (nt_dev[0] != L'\0' && drive[0] != L'\0') {
+			vss_log("ExposeSnapshotVolume: DefineDosDevice(%ls -> %ls)\n",
+			    drive, nt_dev);
+			DefineDosDeviceW(DDD_RAW_TARGET_PATH |
+			    DDD_REMOVE_DEFINITION | DDD_EXACT_MATCH_ON_REMOVE,
+			    drive, nt_dev);
+			BOOL ok = DefineDosDeviceW(DDD_RAW_TARGET_PATH,
+			    drive, nt_dev);
+			vss_log("ExposeSnapshotVolume: DefineDosDevice %s"
+			    " (err=%lu)\n",
+			    ok ? "OK" : "FAILED",
+			    ok ? 0UL : GetLastError());
+		} else {
+			vss_log("ExposeSnapshotVolume: no NT device path"
+			    " (nt_dev=%ls drive=%ls)\n",
+			    nt_dev[0] ? nt_dev : L"(empty)",
+			    drive[0] ? drive : L"(empty)");
+		}
+
+		return (S_OK);
+		} __except (EXCEPTION_EXECUTE_HANDLER) {
+			vss_log("ExposeSnapshotVolume: EXCEPTION 0x%08lx\n",
+			    (ULONG)GetExceptionCode());
+			return (E_FAIL);
+		}
+	}
+
 private:
 	LONG             m_ref;
 	libzfs_handle_t *m_lzh;
 	LONG             m_ctx;
 	PendingSnap      m_pending[MAX_PENDING];
+	IUnknown *m_pUnkFTM;
 };
 
 /* ------------------------------------------------------------------ */
@@ -1534,13 +2115,13 @@ public:
 	STDMETHOD(QueryInterface)(REFIID riid, void **ppv) {
 		if (riid == IID_IUnknown || riid == IID_IClassFactory) {
 			*ppv = static_cast<IClassFactory *>(this);
-			AddRef();
-			return (S_OK);
+		} else {
+			*ppv = NULL;
+			return (E_NOINTERFACE);
 		}
-		*ppv = NULL;
-		return (E_NOINTERFACE);
+		AddRef();
+		return (S_OK);
 	}
-
 	STDMETHOD(CreateInstance)(IUnknown *pUnkOuter, REFIID riid, void **ppv)
 	{
 		vss_log("CreateInstance called\n");
@@ -1606,5 +2187,10 @@ DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv)
 extern "C" __declspec(dllexport) HRESULT STDAPICALLTYPE
 DllCanUnloadNow(void)
 {
-	return ((g_obj_count == 0 && g_server_locks == 0) ? S_OK : S_FALSE);
+	HRESULT hr = (g_obj_count == 0 && g_server_locks == 0)
+	    ? S_OK : S_FALSE;
+	vss_log("DllCanUnloadNow: obj=%ld locks=%ld -> %s\n",
+	    g_obj_count, g_server_locks,
+	    hr == S_OK ? "S_OK (may unload)" : "S_FALSE (keep loaded)");
+	return (hr);
 }

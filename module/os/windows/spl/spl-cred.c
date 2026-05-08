@@ -43,10 +43,15 @@
 uid_t
 spl_sid_to_uid(struct _SID *sid)
 {
-	/* S-1-5-18 (SYSTEM) -> root */
+	/*
+	 * S-1-5-18 (SYSTEM), S-1-5-19 (LOCAL SERVICE),
+	 * S-1-5-20 (NETWORK SERVICE) -> root.
+	 * vssvc.exe runs as NETWORK SERVICE and needs uid 0 to create
+	 * ZFS snapshots via the VSS software provider.
+	 */
 	if (sid->Revision == 1 && sid->SubAuthorityCount == 1 &&
 	    sid->IdentifierAuthority.Value[5] == 5 &&
-	    sid->SubAuthority[0] == 18)
+	    sid->SubAuthority[0] >= 18 && sid->SubAuthority[0] <= 20)
 		return (0);
 
 	/* S-1-22-1-X (Samba unix-user) */

@@ -234,6 +234,53 @@ out:
 }
 
 /*
+ * vss_reg_update_attrs - update only the Attributes field.
+ */
+int
+vss_reg_update_attrs(const GUID *sid, LONG attrs)
+{
+	HKEY hk = open_snap_key(sid, FALSE);
+	if (hk == NULL)
+		return (-1);
+	LONG r = RegSetValueExW(hk, ZFS_VSS_REG_ATTRS, 0, REG_DWORD,
+	    (const BYTE *)&attrs, sizeof (attrs));
+	RegCloseKey(hk);
+	return (r == ERROR_SUCCESS ? 0 : -1);
+}
+
+/*
+ * vss_reg_update_status - update only the Status field.
+ */
+int
+vss_reg_update_status(const GUID *sid, LONG status)
+{
+	HKEY hk = open_snap_key(sid, FALSE);
+	if (hk == NULL)
+		return (-1);
+	LONG r = RegSetValueExW(hk, ZFS_VSS_REG_STATUS, 0, REG_DWORD,
+	    (const BYTE *)&status, sizeof (status));
+	RegCloseKey(hk);
+	return (r == ERROR_SUCCESS ? 0 : -1);
+}
+
+/*
+ * vss_reg_update_string - update any named REG_SZ field.
+ */
+int
+vss_reg_update_string(const GUID *sid, const wchar_t *valuename,
+    const wchar_t *value)
+{
+	HKEY hk = open_snap_key(sid, FALSE);
+	if (hk == NULL)
+		return (-1);
+	LONG r = RegSetValueExW(hk, valuename, 0, REG_SZ,
+	    (const BYTE *)value,
+	    (DWORD)((wcslen(value) + 1) * sizeof (wchar_t)));
+	RegCloseKey(hk);
+	return (r == ERROR_SUCCESS ? 0 : -1);
+}
+
+/*
  * vss_reg_delete - remove the registry entry for a snapshot.
  */
 int

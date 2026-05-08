@@ -154,11 +154,24 @@ zfs_vss_snapshot_add(uint64_t guid, const char *snapname)
 	 * Use sizeof(mount_t) so the device extension IS the mount object;
 	 * fsDispatcher can handle file IRPs once the snapshot is lazily mounted.
 	 */
+	/*
+	 * Do NOT use FILE_DEVICE_SECURE_OPEN: that flag makes the IO Manager
+	 * enforce the device-object security descriptor for every file/directory
+	 * open within the filesystem, not just raw device opens.  The default
+	 * device SD (created by IoCreateDevice) grants access only to SYSTEM
+	 * and Administrators, so Explorer (running with the user's limited token)
+	 * would get STATUS_ACCESS_DENIED on every path open.  Standard filesystem
+	 * volumes (NTFS, ZFS live mounts) omit this flag and let the filesystem
+	 * driver handle per-file security via its own ACL checks.
+	 * FILE_READ_ONLY_DEVICE is still set to prevent write IRPs at the device
+	 * level — snapshots are always read-only.
+	 */
 	status = IoCreateDevice(WIN_DriverObject,
 	    sizeof (mount_t),
 	    &ustr,
+//	    FILE_DEVICE_DISK,
 	    FILE_DEVICE_DISK_FILE_SYSTEM,
-	    FILE_DEVICE_SECURE_OPEN | FILE_READ_ONLY_DEVICE,
+	    FILE_READ_ONLY_DEVICE,
 	    FALSE,
 	    &devobj);
 
@@ -203,15 +216,16 @@ zfs_vss_snapshot_add(uint64_t guid, const char *snapname)
 	dprintf("%s: created %s\n", __func__, devname);
 
 	/*
-	 * Intentionally skip MountMgr volume-arrival notification for
-	 * snapshot devices.  Notifying MountMgr causes the Windows System
-	 * Provider to load and probe the device with VOLSNAP IOCTLs whose
-	 * responses it passes through ichannel — producing "IOCTL Unpack
-	 * overflow" errors before our software provider can respond.
-	 * Snapshot devices do not need drive letters; the VSS software
-	 * provider already knows the full device path.
+	 * Notify MountMgr so the snapshot device obtains a stable Volume GUID
+	 * (\\?\Volume{...}).  The VSS coordinator requires this GUID to write
+	 * the snapshot to its persistent shadow catalog — without it,
+	 * "vssadmin list shadows" returns nothing even though the snapshot
+	 * exists.  The previous concern about "IOCTL Unpack overflow" from
+	 * swprv/ichannel probing is resolved: IOCTL_VOLSNAP_QUERY_DIFF_AREA_*
+	 * now returns STATUS_NOT_SUPPORTED, so the System Provider skips our
+	 * device as a diff-area candidate without overflowing its buffer.
 	 */
-	(void) devobj;
+	zfs_vss_notify_mountmgr(devobj);
 
 	return (0);
 }
@@ -1154,7 +1168,7 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	default:
 		dprintf("VSS %s: unhandled ioctl 0x%lx\n", __func__, cmd);
 		Irp->IoStatus.Information = 0;
-		status = STATUS_INVALID_DEVICE_REQUEST;
+		status = STATUS_NOT_SUPPORTED;
 		break;
 	}
 
