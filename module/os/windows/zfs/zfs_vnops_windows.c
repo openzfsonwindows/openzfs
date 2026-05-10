@@ -8687,169 +8687,40 @@ _Function_class_(DRIVER_DISPATCH)
 		case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS (alt) */
 		{
 			/*
-			 * srv2.sys queries this on the disk device before
-			 * forwarding FSCTL_SRV_ENUMERATE_SNAPSHOTS (0x144064)
-			 * to the filesystem.  If we return an empty list, srv2
-			 * returns STATUS_INSUFFICIENT_RESOURCES to the SMB
-			 * client and Previous Versions shows nothing.
+			 * Return an empty snapshot name list from the disk
+			 * device.  When this IOCTL returns @GMT- strings,
+			 * swprv (MS System Provider) constructs timewarp paths
+			 * as "<volume_nt_path>@GMT-..." and tries to open them.
+			 * For ZFS volumes the NT path resolves to just
+			 * \\?\GLOBALROOT (no device component), producing
+			 * malformed paths like \\?\GLOBALROOT@GMT-... that
+			 * fail with ERROR_FILE_NOT_FOUND.  swprv then removes
+			 * our VSS shadow from the coordinator catalog during
+			 * "Removing auto-release shadow copies" cleanup.
+			 *
+			 * SMB Previous Versions goes through fsDispatcher's
+			 * FSCTL_SRV_ENUMERATE_SNAPSHOTS handler (0x144064),
+			 * not this IOCTL, so returning empty here does not
+			 * break network Previous Versions.
 			 *
 			 * Layout: { ULONG MultiSzLength; WCHAR Names[1]; }
-			 * Enumerate ZFS snapshots and return their creation
-			 * times as @GMT-YYYY.MM.DD-HH.MM.SS multi-sz strings.
 			 */
+			const ULONG esz = sizeof (ULONG) + sizeof (WCHAR);
 			ULONG vqn_outlen =
 			    IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
 
-			mount_t *vqn_zmo = DeviceObject->DeviceExtension;
-			zfsvfs_t *vqn_zfsvfs = (vqn_zmo != NULL) ?
-			    vfs_fsprivate(vqn_zmo) : NULL;
+			dprintf("disk: IOCTL_VOLSNAP_QUERY_NAMES_OF"
+			    "_SNAPSHOTS: returning empty list\n");
 
-			if (vqn_zfsvfs == NULL || vqn_zfsvfs->z_os == NULL) {
-				/* No zfsvfs: return empty list */
-				const ULONG esz =
-				    sizeof (ULONG) + sizeof (WCHAR);
-				dprintf("disk: IOCTL_VOLSNAP_QUERY_NAMES_OF"
-				    "_SNAPSHOTS: no zfsvfs\n");
-				if (vqn_outlen < esz) {
-					Irp->IoStatus.Information = esz;
-					Status = STATUS_BUFFER_TOO_SMALL;
-				} else {
-					RtlZeroMemory(
-					    Irp->AssociatedIrp.SystemBuffer,
-					    esz);
-					Irp->IoStatus.Information = esz;
-					Status = STATUS_SUCCESS;
-				}
-				break;
-			}
-
-			/* Pass 1: count snapshots */
-			ULONG vqn_nsnaps = 0;
-			dsl_pool_t *vqn_dp =
-			    dmu_objset_pool(vqn_zfsvfs->z_os);
-			dsl_pool_config_enter(vqn_dp, FTAG);
-			uint64_t vqn_pos = 0;
-			char vqn_snapname[MAXNAMELEN];
-			uint64_t vqn_id;
-			boolean_t vqn_cc;
-			while (dmu_snapshot_list_next(vqn_zfsvfs->z_os,
-			    sizeof (vqn_snapname), vqn_snapname,
-			    &vqn_id, &vqn_pos, &vqn_cc) == 0)
-				vqn_nsnaps++;
-			dsl_pool_config_exit(vqn_dp, FTAG);
-
-			/*
-			 * VOLSNAP_NAMES layout:
-			 *   ULONG MultiSzLength  -- byte count of Names[]
-			 *   WCHAR Names[...]     -- multi-sz @GMT strings;
-			 *   each entry: 25 WCHARs (@GMT-YYYY.MM.DD-HH.MM.SS\0)
-			 *   plus one trailing NUL WCHAR
-			 */
-			ULONG vqn_msz = vqn_nsnaps * 25 * sizeof (WCHAR) +
-			    sizeof (WCHAR);
-			ULONG vqn_needed = sizeof (ULONG) + vqn_msz;
-
-			dprintf("disk: IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS:"
-			    " %lu snaps need=%lu have=%lu\n",
-			    vqn_nsnaps, vqn_needed, vqn_outlen);
-
-			if (vqn_outlen < sizeof (ULONG)) {
-				Irp->IoStatus.Information = vqn_needed;
+			if (vqn_outlen < esz) {
+				Irp->IoStatus.Information = esz;
 				Status = STATUS_BUFFER_TOO_SMALL;
-				break;
+			} else {
+				RtlZeroMemory(
+				    Irp->AssociatedIrp.SystemBuffer, esz);
+				Irp->IoStatus.Information = esz;
+				Status = STATUS_SUCCESS;
 			}
-
-			ULONG *vqn_hdr =
-			    (ULONG *)Irp->AssociatedIrp.SystemBuffer;
-			*vqn_hdr = vqn_msz; /* MultiSzLength */
-
-			if (vqn_nsnaps == 0 || vqn_outlen < vqn_needed) {
-				if (vqn_outlen >= sizeof (ULONG) +
-				    sizeof (WCHAR)) {
-					WCHAR *wp = (WCHAR *)(vqn_hdr + 1);
-					*wp = L'\0';
-				}
-				Irp->IoStatus.Information = (vqn_nsnaps == 0) ?
-				    sizeof (ULONG) + sizeof (WCHAR) : vqn_needed;
-				Status = (vqn_nsnaps == 0) ? STATUS_SUCCESS :
-				    STATUS_BUFFER_OVERFLOW;
-				break;
-			}
-
-			/* Pass 2: fill @GMT-YYYY.MM.DD-HH.MM.SS strings */
-			WCHAR *vqn_wp = (WCHAR *)(vqn_hdr + 1);
-
-			dsl_pool_config_enter(vqn_dp, FTAG);
-			vqn_pos = 0;
-			while (dmu_snapshot_list_next(vqn_zfsvfs->z_os,
-			    sizeof (vqn_snapname), vqn_snapname,
-			    &vqn_id, &vqn_pos, &vqn_cc) == 0) {
-				uint64_t vqn_creation = 0;
-				dsl_dataset_t *vqn_ds;
-				if (dsl_dataset_hold_obj(vqn_dp, vqn_id,
-				    FTAG, &vqn_ds) == 0) {
-					vqn_creation = dsl_get_creation(vqn_ds);
-					dsl_dataset_rele(vqn_ds, FTAG);
-				}
-				LARGE_INTEGER vqn_li;
-				TIME_UNIX_TO_WINDOWS_EX(vqn_creation, 0,
-				    vqn_li.QuadPart);
-				TIME_FIELDS vqn_tf;
-				RtlTimeToTimeFields(&vqn_li, &vqn_tf);
-
-				/* @GMT-YYYY.MM.DD-HH.MM.SS + NUL = 25 WCHARs */
-				vqn_wp[0]  = L'@'; vqn_wp[1]  = L'G';
-				vqn_wp[2]  = L'M'; vqn_wp[3]  = L'T';
-				vqn_wp[4]  = L'-';
-				vqn_wp[5]  = L'0' +
-				    (WCHAR)(vqn_tf.Year / 1000);
-				vqn_wp[6]  = L'0' +
-				    (WCHAR)((vqn_tf.Year / 100) % 10);
-				vqn_wp[7]  = L'0' +
-				    (WCHAR)((vqn_tf.Year / 10) % 10);
-				vqn_wp[8]  = L'0' +
-				    (WCHAR)(vqn_tf.Year % 10);
-				vqn_wp[9]  = L'.';
-				vqn_wp[10] = L'0' +
-				    (WCHAR)(vqn_tf.Month / 10);
-				vqn_wp[11] = L'0' +
-				    (WCHAR)(vqn_tf.Month % 10);
-				vqn_wp[12] = L'.';
-				vqn_wp[13] = L'0' +
-				    (WCHAR)(vqn_tf.Day / 10);
-				vqn_wp[14] = L'0' +
-				    (WCHAR)(vqn_tf.Day % 10);
-				vqn_wp[15] = L'-';
-				vqn_wp[16] = L'0' +
-				    (WCHAR)(vqn_tf.Hour / 10);
-				vqn_wp[17] = L'0' +
-				    (WCHAR)(vqn_tf.Hour % 10);
-				vqn_wp[18] = L'.';
-				vqn_wp[19] = L'0' +
-				    (WCHAR)(vqn_tf.Minute / 10);
-				vqn_wp[20] = L'0' +
-				    (WCHAR)(vqn_tf.Minute % 10);
-				vqn_wp[21] = L'.';
-				vqn_wp[22] = L'0' +
-				    (WCHAR)(vqn_tf.Second / 10);
-				vqn_wp[23] = L'0' +
-				    (WCHAR)(vqn_tf.Second % 10);
-				vqn_wp[24] = L'\0';
-
-				dprintf("disk: IOCTL_VOLSNAP_QUERY_NAMES_OF"
-				    "_SNAPSHOTS: '%s' @GMT-%04d.%02d.%02d"
-				    "-%02d.%02d.%02d\n", vqn_snapname,
-				    vqn_tf.Year, vqn_tf.Month, vqn_tf.Day,
-				    vqn_tf.Hour, vqn_tf.Minute,
-				    vqn_tf.Second);
-
-				vqn_wp += 25;
-			}
-			dsl_pool_config_exit(vqn_dp, FTAG);
-
-			*vqn_wp = L'\0'; /* multi-sz double-NUL */
-			Irp->IoStatus.Information = vqn_needed;
-			Status = STATUS_SUCCESS;
 			break;
 		}
 
@@ -9404,158 +9275,41 @@ _Function_class_(DRIVER_DISPATCH)
 		case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS (alt) */
 		{
 			/*
-			 * VSS / swprv queries every volume for snapshot names.
-			 * Return ZFS snapshots as @GMT-YYYY.MM.DD-HH.MM.SS
-			 * multi-sz strings so srv2.sys knows we have snapshots
-			 * and forwards FSCTL_SRV_ENUMERATE_SNAPSHOTS (0x144064)
-			 * to the filesystem for Previous Versions support.
+			 * Return an empty snapshot name list.
+			 *
+			 * swprv (MS System Provider) opens \\?\Volume{guid} —
+			 * which resolves to the VCB (this fsDispatcher) — and
+			 * sends this IOCTL.  When it receives @GMT- strings it
+			 * constructs timewarp paths as "<vol_nt_path>@GMT-..."
+			 * For ZFS the NT path resolves to just \\?\GLOBALROOT
+			 * (no device component), yielding malformed paths like
+			 * \\?\GLOBALROOT@GMT-... that fail with FILE_NOT_FOUND.
+			 * swprv then calls PurgeSnapshotsOnVolume and removes
+			 * our VSS shadow from the coordinator catalog, so
+			 * vssadmin list shadows returns nothing.
+			 *
+			 * SMB Previous Versions uses FSCTL_SRV_ENUMERATE_SNAPSHOTS
+			 * (0x144064), a separate control code handled below, so
+			 * returning empty here does not affect network PrevVers.
 			 *
 			 * Layout: { ULONG MultiSzLength; WCHAR Names[1]; }
 			 */
+			const ULONG esz = sizeof (ULONG) + sizeof (WCHAR);
 			ULONG vqn_outlen =
 			    IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
 
-			mount_t *vqn_zmo = DeviceObject->DeviceExtension;
-			zfsvfs_t *vqn_zfsvfs = (vqn_zmo != NULL) ?
-			    vfs_fsprivate(vqn_zmo) : NULL;
+			dprintf("IOCTL_VOLSNAP_QUERY_NAMES_OF"
+			    "_SNAPSHOTS: returning empty list\n");
 
-			if (vqn_zfsvfs == NULL || vqn_zfsvfs->z_os == NULL) {
-				const ULONG esz =
-				    sizeof (ULONG) + sizeof (WCHAR);
-				dprintf("IOCTL_VOLSNAP_QUERY_NAMES_OF"
-				    "_SNAPSHOTS: no zfsvfs\n");
-				if (vqn_outlen < esz) {
-					Irp->IoStatus.Information = esz;
-					Status = STATUS_BUFFER_TOO_SMALL;
-				} else {
-					RtlZeroMemory(
-					    Irp->AssociatedIrp.SystemBuffer,
-					    esz);
-					Irp->IoStatus.Information = esz;
-					Status = STATUS_SUCCESS;
-				}
-				break;
-			}
-
-			/* Pass 1: count snapshots */
-			ULONG vqn_nsnaps = 0;
-			dsl_pool_t *vqn_dp =
-			    dmu_objset_pool(vqn_zfsvfs->z_os);
-			dsl_pool_config_enter(vqn_dp, FTAG);
-			uint64_t vqn_pos = 0;
-			char vqn_snapname[MAXNAMELEN];
-			uint64_t vqn_id;
-			boolean_t vqn_cc;
-			while (dmu_snapshot_list_next(vqn_zfsvfs->z_os,
-			    sizeof (vqn_snapname), vqn_snapname,
-			    &vqn_id, &vqn_pos, &vqn_cc) == 0)
-				vqn_nsnaps++;
-			dsl_pool_config_exit(vqn_dp, FTAG);
-
-			ULONG vqn_msz = vqn_nsnaps * 25 * sizeof (WCHAR) +
-			    sizeof (WCHAR);
-			ULONG vqn_needed = sizeof (ULONG) + vqn_msz;
-
-			dprintf("IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS"
-			    " (0x%lx): %lu snaps need=%lu have=%lu\n",
-			    cmd, vqn_nsnaps, vqn_needed, vqn_outlen);
-
-			if (vqn_outlen < sizeof (ULONG)) {
-				Irp->IoStatus.Information = vqn_needed;
+			if (vqn_outlen < esz) {
+				Irp->IoStatus.Information = esz;
 				Status = STATUS_BUFFER_TOO_SMALL;
-				break;
+			} else {
+				RtlZeroMemory(
+				    Irp->AssociatedIrp.SystemBuffer, esz);
+				Irp->IoStatus.Information = esz;
+				Status = STATUS_SUCCESS;
 			}
-
-			ULONG *vqn_hdr =
-			    (ULONG *)Irp->AssociatedIrp.SystemBuffer;
-			*vqn_hdr = vqn_msz;
-
-			if (vqn_nsnaps == 0 || vqn_outlen < vqn_needed) {
-				if (vqn_outlen >= sizeof (ULONG) +
-				    sizeof (WCHAR)) {
-					WCHAR *wp = (WCHAR *)(vqn_hdr + 1);
-					*wp = L'\0';
-				}
-				Irp->IoStatus.Information = (vqn_nsnaps == 0) ?
-				    sizeof (ULONG) + sizeof (WCHAR) : vqn_needed;
-				Status = (vqn_nsnaps == 0) ? STATUS_SUCCESS :
-				    STATUS_BUFFER_OVERFLOW;
-				break;
-			}
-
-			/* Pass 2: fill @GMT-YYYY.MM.DD-HH.MM.SS strings */
-			WCHAR *vqn_wp = (WCHAR *)(vqn_hdr + 1);
-
-			dsl_pool_config_enter(vqn_dp, FTAG);
-			vqn_pos = 0;
-			while (dmu_snapshot_list_next(vqn_zfsvfs->z_os,
-			    sizeof (vqn_snapname), vqn_snapname,
-			    &vqn_id, &vqn_pos, &vqn_cc) == 0) {
-				uint64_t vqn_creation = 0;
-				dsl_dataset_t *vqn_ds;
-				if (dsl_dataset_hold_obj(vqn_dp, vqn_id,
-				    FTAG, &vqn_ds) == 0) {
-					vqn_creation = dsl_get_creation(vqn_ds);
-					dsl_dataset_rele(vqn_ds, FTAG);
-				}
-				LARGE_INTEGER vqn_li;
-				TIME_UNIX_TO_WINDOWS_EX(vqn_creation, 0,
-				    vqn_li.QuadPart);
-				TIME_FIELDS vqn_tf;
-				RtlTimeToTimeFields(&vqn_li, &vqn_tf);
-
-				/* @GMT-YYYY.MM.DD-HH.MM.SS + NUL = 25 WCHARs */
-				vqn_wp[0]  = L'@'; vqn_wp[1]  = L'G';
-				vqn_wp[2]  = L'M'; vqn_wp[3]  = L'T';
-				vqn_wp[4]  = L'-';
-				vqn_wp[5]  = L'0' +
-				    (WCHAR)(vqn_tf.Year / 1000);
-				vqn_wp[6]  = L'0' +
-				    (WCHAR)((vqn_tf.Year / 100) % 10);
-				vqn_wp[7]  = L'0' +
-				    (WCHAR)((vqn_tf.Year / 10) % 10);
-				vqn_wp[8]  = L'0' +
-				    (WCHAR)(vqn_tf.Year % 10);
-				vqn_wp[9]  = L'.';
-				vqn_wp[10] = L'0' +
-				    (WCHAR)(vqn_tf.Month / 10);
-				vqn_wp[11] = L'0' +
-				    (WCHAR)(vqn_tf.Month % 10);
-				vqn_wp[12] = L'.';
-				vqn_wp[13] = L'0' +
-				    (WCHAR)(vqn_tf.Day / 10);
-				vqn_wp[14] = L'0' +
-				    (WCHAR)(vqn_tf.Day % 10);
-				vqn_wp[15] = L'-';
-				vqn_wp[16] = L'0' +
-				    (WCHAR)(vqn_tf.Hour / 10);
-				vqn_wp[17] = L'0' +
-				    (WCHAR)(vqn_tf.Hour % 10);
-				vqn_wp[18] = L'.';
-				vqn_wp[19] = L'0' +
-				    (WCHAR)(vqn_tf.Minute / 10);
-				vqn_wp[20] = L'0' +
-				    (WCHAR)(vqn_tf.Minute % 10);
-				vqn_wp[21] = L'.';
-				vqn_wp[22] = L'0' +
-				    (WCHAR)(vqn_tf.Second / 10);
-				vqn_wp[23] = L'0' +
-				    (WCHAR)(vqn_tf.Second % 10);
-				vqn_wp[24] = L'\0';
-
-				dprintf("IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS"
-				    ": '%s' @GMT-%04d.%02d.%02d"
-				    "-%02d.%02d.%02d\n", vqn_snapname,
-				    vqn_tf.Year, vqn_tf.Month, vqn_tf.Day,
-				    vqn_tf.Hour, vqn_tf.Minute, vqn_tf.Second);
-
-				vqn_wp += 25;
-			}
-			dsl_pool_config_exit(vqn_dp, FTAG);
-
-			*vqn_wp = L'\0'; /* multi-sz double-NUL */
-			Irp->IoStatus.Information = vqn_needed;
-			Status = STATUS_SUCCESS;
 			break;
 		}
 

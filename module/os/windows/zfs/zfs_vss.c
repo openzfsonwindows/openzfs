@@ -169,7 +169,6 @@ zfs_vss_snapshot_add(uint64_t guid, const char *snapname)
 	status = IoCreateDevice(WIN_DriverObject,
 	    sizeof (mount_t),
 	    &ustr,
-//	    FILE_DEVICE_DISK,
 	    FILE_DEVICE_DISK_FILE_SYSTEM,
 	    FILE_READ_ONLY_DEVICE,
 	    FALSE,

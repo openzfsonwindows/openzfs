@@ -48,6 +48,7 @@
 
 #define	_CRT_SECURE_NO_WARNINGS
 #include <windows.h>
+#include <sddl.h>
 #include <objbase.h>
 #include <stdio.h>
 
@@ -186,12 +187,13 @@ reg_com_server(const wchar_t *exe_path)
 {
 	wchar_t key[256];
 	HKEY hk;
+	REGSAM flags = KEY_WRITE | KEY_WOW64_64KEY;
 
 	/* CLSID key */
 	_snwprintf(key, 256,
 	    L"SOFTWARE\\Classes\\CLSID\\%s", PROVIDER_GUID_STR);
 	if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, key, 0, NULL,
-	    REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hk, NULL)
+	    REG_OPTION_NON_VOLATILE, flags, NULL, &hk, NULL)
 	    != ERROR_SUCCESS) {
 		fwprintf(stderr, L"Cannot create CLSID key\n");
 		return (-1);
@@ -205,12 +207,12 @@ reg_com_server(const wchar_t *exe_path)
 	    (DWORD)((wcslen(PROVIDER_GUID_STR) + 1) * sizeof (wchar_t)));
 	RegCloseKey(hk);
 
-	/* LocalServer32 - used when service is not running */
+	/* LocalServer32 */
 	_snwprintf(key, 256,
 	    L"SOFTWARE\\Classes\\CLSID\\%s\\LocalServer32",
 	    PROVIDER_GUID_STR);
 	if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, key, 0, NULL,
-	    REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hk, NULL)
+	    REG_OPTION_NON_VOLATILE, flags, NULL, &hk, NULL)
 	    != ERROR_SUCCESS) {
 		fwprintf(stderr, L"Cannot create LocalServer32 key\n");
 		return (-1);
@@ -221,14 +223,15 @@ reg_com_server(const wchar_t *exe_path)
 	RegCloseKey(hk);
 
 	/*
-	 * AppID key - tells COM to start our Windows service for
-	 * activation, so the provider runs as SYSTEM (same as the
-	 * VSS coordinator) rather than as the current user.
+	 * AppID/LocalService: COM uses the SCM to start our service on
+	 * demand.  The coordinator then uses the VSS LRPC channel (not
+	 * generic DCOM) for all provider calls, which handles
+	 * VSS_OBJECT_PROP serialization (copySnapshot) correctly.
 	 */
 	_snwprintf(key, 256,
 	    L"SOFTWARE\\Classes\\AppID\\%s", PROVIDER_GUID_STR);
 	if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, key, 0, NULL,
-	    REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hk, NULL)
+	    REG_OPTION_NON_VOLATILE, flags, NULL, &hk, NULL)
 	    != ERROR_SUCCESS) {
 		fwprintf(stderr, L"Cannot create AppID key\n");
 		return (-1);
@@ -256,14 +259,15 @@ reg_vss_provider(void)
 	wchar_t key[256];
 	HKEY hk, hk_clsid;
 	DWORD type_val = VSS_PROV_SOFTWARE_TYPE;
+	DWORD ctx_val = 0xFFFFFFFF;
 
 	_snwprintf(key, 256,
 	    L"SYSTEM\\CurrentControlSet\\Services\\VSS\\Providers\\%s",
 	    PROVIDER_GUID_STR);
 
 	if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, key, 0, NULL,
-	    REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hk, NULL)
-	    != ERROR_SUCCESS) {
+	    REG_OPTION_NON_VOLATILE, KEY_WRITE | KEY_WOW64_64KEY,
+	    NULL, &hk, NULL) != ERROR_SUCCESS) {
 		fwprintf(stderr, L"Cannot create VSS provider key\n");
 		return (-1);
 	}
@@ -279,20 +283,52 @@ reg_vss_provider(void)
 	RegSetValueExW(hk, L"VersionId", 0, REG_SZ,
 	    (const BYTE *)PROVIDER_VERSION_ID,
 	    (DWORD)((wcslen(PROVIDER_VERSION_ID) + 1) * sizeof (wchar_t)));
+	RegSetValueExW(hk, L"SupportedContexts", 0, REG_DWORD,
+	    (const BYTE *)&ctx_val, sizeof (ctx_val));
 
-	/*
-	 * CLSID must be a subkey whose default value is the CLSID string,
-	 * not a value directly in the provider key.
-	 */
 	if (RegCreateKeyExW(hk, L"CLSID", 0, NULL,
-	    REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hk_clsid, NULL)
-	    == ERROR_SUCCESS) {
+	    REG_OPTION_NON_VOLATILE, KEY_WRITE | KEY_WOW64_64KEY,
+	    NULL, &hk_clsid, NULL) == ERROR_SUCCESS) {
 		RegSetValueExW(hk_clsid, NULL, 0, REG_SZ,
 		    (const BYTE *)PROVIDER_GUID_STR,
 		    (DWORD)((wcslen(PROVIDER_GUID_STR) + 1) *
 		    sizeof (wchar_t)));
 		RegCloseKey(hk_clsid);
 	}
+
+	RegCloseKey(hk);
+	return (0);
+}
+
+/*
+ * Create HKLM\SOFTWARE\OpenZFS\VSS\Snapshots and grant SYSTEM and
+ * Administrators full key access for per-snapshot metadata storage.
+ */
+static int
+reg_snapshot_store(void)
+{
+	PSECURITY_DESCRIPTOR psd = NULL;
+	ULONG sd_size = 0;
+	SECURITY_ATTRIBUTES sa;
+	HKEY hk = NULL;
+	LSTATUS r;
+
+	if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+	    L"D:(A;OICI;KA;;;SY)(A;OICI;KA;;;BA)",
+	    SDDL_REVISION_1, &psd, &sd_size))
+		return (-1);
+
+	ZeroMemory(&sa, sizeof (sa));
+	sa.nLength = sizeof (sa);
+	sa.lpSecurityDescriptor = psd;
+
+	r = RegCreateKeyExW(HKEY_LOCAL_MACHINE,
+	    L"SOFTWARE\\OpenZFS\\VSS\\Snapshots",
+	    0, NULL, REG_OPTION_NON_VOLATILE,
+	    KEY_WRITE | KEY_WOW64_64KEY, &sa, &hk, NULL);
+	LocalFree(psd);
+	if (r != ERROR_SUCCESS)
+		return (-1);
 
 	RegCloseKey(hk);
 	return (0);
@@ -308,6 +344,8 @@ install_service(const wchar_t *exe_path)
 	if (reg_com_server(exe_path) != 0)
 		return (-1);
 	if (reg_vss_provider() != 0)
+		return (-1);
+	if (reg_snapshot_store() != 0)
 		return (-1);
 
 	/* Install Windows service */

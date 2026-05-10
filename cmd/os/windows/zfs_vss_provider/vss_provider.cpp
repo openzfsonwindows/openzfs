@@ -197,6 +197,8 @@ public:
 			if (m_props[m_pos].Type == VSS_OBJECT_SNAPSHOT) {
 				VSS_SNAPSHOT_PROP &s =
 				    m_props[m_pos].Obj.Snap;
+				vss_log("magic number 123456 and count %ld\n",
+					s.m_lSnapshotsCount);
 				vss_log("Next[%lu]: device=%ls vol=%ls"
 				    " machine=%ls svc=%ls"
 				    " expname=%ls exppath=%ls"
@@ -317,7 +319,11 @@ load_snap_prop(const VSS_ID &sid, VSS_SNAPSHOT_PROP *p)
 	p->m_ProviderId         = CLSID_ZfsVssProvider;
 	p->m_tsCreationTimestamp = ts;
 	p->m_eStatus            = VSS_SS_CREATED;
-	p->m_lSnapshotAttributes = attrs;
+	p->m_lSnapshotAttributes = attrs |
+	    VSS_VOLSNAP_ATTR_PERSISTENT |
+	    VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
+	    VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE |
+	    VSS_VOLSNAP_ATTR_DIFFERENTIAL;
 
 	/* Device path that exposes the frozen ZFS snapshot */
 	wchar_t devname[128];
@@ -391,14 +397,22 @@ load_snap_prop(const VSS_ID &sid, VSS_SNAPSHOT_PROP *p)
 			    NULL, NULL, (BYTE *)exppath, &sz);
 			RegCloseKey(hk);
 		}
-		p->m_pwszExposedName = (VSS_PWSZ)CoTaskMemAlloc(
-		    (wcslen(expname) + 1) * sizeof (wchar_t));
-		if (p->m_pwszExposedName)
-			wcscpy(p->m_pwszExposedName, expname);
-		p->m_pwszExposedPath = (VSS_PWSZ)CoTaskMemAlloc(
-		    (wcslen(exppath) + 1) * sizeof (wchar_t));
-		if (p->m_pwszExposedPath)
-			wcscpy(p->m_pwszExposedPath, exppath);
+		if (wcslen(expname) > 0) {
+			p->m_pwszExposedName = (VSS_PWSZ)CoTaskMemAlloc(
+			    (wcslen(expname) + 1) * sizeof (wchar_t));
+			if (p->m_pwszExposedName)
+				wcscpy(p->m_pwszExposedName, expname);
+		} else {
+			p->m_pwszExposedName = NULL;
+		}
+		if (wcslen(exppath) > 0) {
+			p->m_pwszExposedPath = (VSS_PWSZ)CoTaskMemAlloc(
+			    (wcslen(exppath) + 1) * sizeof (wchar_t));
+			if (p->m_pwszExposedPath)
+				wcscpy(p->m_pwszExposedPath, exppath);
+		} else {
+			p->m_pwszExposedPath = NULL;
+		}
 	}
 
 	return (S_OK);
@@ -464,6 +478,7 @@ snap_prop_from_zfs(zfs_handle_t *zhp, const wchar_t *volname,
 	p->m_lSnapshotAttributes =
 	    VSS_VOLSNAP_ATTR_PERSISTENT |
 	    VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
+	    VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE |
 	    VSS_VOLSNAP_ATTR_DIFFERENTIAL;
 
 	wchar_t devname[128];
@@ -507,15 +522,8 @@ snap_prop_from_zfs(zfs_handle_t *zhp, const wchar_t *volname,
 	if (p->m_pwszServiceMachine)
 		wcscpy(p->m_pwszServiceMachine, machine);
 
-	p->m_pwszExposedName =
-	    (VSS_PWSZ)CoTaskMemAlloc(sizeof (wchar_t));
-	if (p->m_pwszExposedName)
-		p->m_pwszExposedName[0] = L'\0';
-
-	p->m_pwszExposedPath =
-	    (VSS_PWSZ)CoTaskMemAlloc(sizeof (wchar_t));
-	if (p->m_pwszExposedPath)
-		p->m_pwszExposedPath[0] = L'\0';
+	p->m_pwszExposedName = NULL;
+	p->m_pwszExposedPath = NULL;
 
 	return (S_OK);
 }
@@ -971,24 +979,25 @@ public:
 			*ppv = static_cast<IVssProviderNotifications *>(this);
 		} else if (IsEqualGUID(riid, IID_IVssExposeSnapshotMgmt)) {
 			/*
-			 * Cannot return S_OK here: AF86E2E0 has no registered
-			 * COM proxy/stub.  Returning the interface pointer causes
-			 * CoMarshalInterface to deadlock inside dllhost.exe's COM
-			 * apartment lock when the NDR stub tries to pack the
-			 * result for the cross-process LRPC response.
-			 * Expose work is done in ExposeSnapshotVolume instead.
+			 * Returning S_OK here deadlocks: the LRPC layer tries to
+			 * marshal our IVssExposeSnapshotMgmt pointer back to the
+			 * coordinator using the system-registered PSFactoryBuffer
+			 * ({00000320}), which blocks indefinitely waiting for type
+			 * library info that does not exist for this interface.
+			 * B076ED90 works because the coordinator handles it
+			 * internally (no system ProxyStubClsid32 registered for it).
+			 * TODO: provide a working in-process proxy/stub DLL for
+			 * AF86E2E0 so the coordinator can marshal it cleanly.
 			 */
 			vss_log("QueryInterface: IVssExposeSnapshotMgmt"
-			    " {AF86E2E0} -> E_NOINTERFACE (no proxy/stub)\n");
+			    " {AF86E2E0} -> E_NOINTERFACE (PSFactoryBuffer deadlock)\n");
 			*ppv = NULL;
 			return (E_NOINTERFACE);
-/*
 		} else if (IsEqualGUID(riid, IID_IVssExposeSnapshot)) {
 			vss_log("QueryInterface: IVssExposeSnapshot"
 			    " {B076ED90} -> S_OK\n");
 			*ppv = static_cast<IVssExposeSnapshot *>(this);
-*/
-			} else if (riid == IID_IMarshal && m_pUnkFTM != NULL) {
+		} else if (riid == IID_IMarshal && m_pUnkFTM != NULL) {
 			return m_pUnkFTM->QueryInterface(riid, ppv);
 		} else {
 			wchar_t guidstr[64];
@@ -1683,23 +1692,29 @@ public:
 			zfs_close(zhp);
 
 			/*
-			 * Use exactly the context the requestor set, augmented
-			 * by the minimum flags ZFS always satisfies.
+			 * Use the requestor's context augmented by the minimum
+			 * flags ZFS always satisfies.
 			 *
-			 * Do NOT force CLIENT_ACCESSIBLE (0x04): the coordinator
-			 * gatekeeps that for system providers only; returning it
-			 * from a Type=2 provider silently blocks the catalog write.
+			 * VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE (0x04): always set.
+			 * Previous Versions (Explorer right-click) filters on this
+			 * flag in Query() results.  set context clientaccessible
+			 * (context=0x1D) cannot be used directly because the
+			 * Windows System Provider (swprv) has a hard-coded blocklist
+			 * that rejects ZFS volumes for timewarp/persistent snapshots,
+			 * vetoing IsVolumeSupported before our provider is consulted.
+			 * Setting the flag in stored attrs makes snapshots created
+			 * with any working context (backup, app_rollback, etc.)
+			 * visible in Previous Versions via our Query() path.
 			 *
-			 * DO add DIFFERENTIAL (0x00020000): the coordinator
-			 * requires at least one "type" bit (DIFFERENTIAL, PLEX, or
-			 * HARDWARE_ASSISTED) before it writes the shadow set to its
-			 * persistent catalog.  Without it, DoSnapshotSet succeeds
-			 * in memory but nothing appears in "vssadmin list shadows".
-			 * ZFS uses copy-on-write, which is semantically differential.
+			 * VSS_VOLSNAP_ATTR_DIFFERENTIAL (0x00020000): the coordinator
+			 * requires at least one type bit before writing the shadow set
+			 * to its persistent catalog.  ZFS copy-on-write is
+			 * semantically differential.
 			 */
 			LONG attrs = m_pending[i].Context;
 			attrs |= VSS_VOLSNAP_ATTR_PERSISTENT |
 			    VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
+			    VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE |
 			    VSS_VOLSNAP_ATTR_DIFFERENTIAL;
 
 			vss_log("CommitSnapshots: storing attrs=0x%lx"
@@ -2159,12 +2174,12 @@ private:
 BOOL WINAPI
 DllMain(HINSTANCE hInstDll, DWORD dwReason, LPVOID lpvReserved)
 {
+	(void)hInstDll;
 	(void)lpvReserved;
 	if (dwReason == DLL_PROCESS_ATTACH)
 		vss_log("DllMain: loaded into pid %lu\n", GetCurrentProcessId());
 	else if (dwReason == DLL_PROCESS_DETACH)
 		vss_log("DllMain: unloaded from pid %lu\n", GetCurrentProcessId());
-	(void)hInstDll;
 	return (TRUE);
 }
 
@@ -2192,5 +2207,33 @@ DllCanUnloadNow(void)
 	vss_log("DllCanUnloadNow: obj=%ld locks=%ld -> %s\n",
 	    g_obj_count, g_server_locks,
 	    hr == S_OK ? "S_OK (may unload)" : "S_FALSE (keep loaded)");
+	return (hr);
+}
+
+/* ------------------------------------------------------------------ */
+/* LocalServer32 EXE registration (called from vss_service.c)         */
+/* ------------------------------------------------------------------ */
+
+static DWORD g_regtoken = 0;
+
+extern "C" HRESULT
+vss_provider_register_server(void)
+{
+	ZfsVssClassFactory *pCF = new (std::nothrow) ZfsVssClassFactory();
+	if (!pCF)
+		return (E_OUTOFMEMORY);
+	HRESULT hr = CoRegisterClassObject(CLSID_ZfsVssProvider, pCF,
+	    CLSCTX_LOCAL_SERVER, REGCLS_MULTIPLEUSE, &g_regtoken);
+	pCF->Release();
+	vss_log("register_server: hr=0x%lx token=%lu\n", hr, g_regtoken);
+	return (hr);
+}
+
+extern "C" HRESULT
+vss_provider_revoke_server(void)
+{
+	HRESULT hr = CoRevokeClassObject(g_regtoken);
+	g_regtoken = 0;
+	vss_log("revoke_server: hr=0x%lx\n", hr);
 	return (hr);
 }

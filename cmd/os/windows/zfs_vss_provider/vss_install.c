@@ -34,7 +34,7 @@ static int
 reg_com_inproc(const wchar_t *dll_path)
 {
 	wchar_t key[512];
-	HKEY hk = NULL, hk_inproc = NULL, hk_appid = NULL;
+	HKEY hk = NULL, hk_inproc = NULL;
 	LSTATUS status;
 
 	/* 1. Register CLSID */
@@ -49,9 +49,14 @@ reg_com_inproc(const wchar_t *dll_path)
 	RegSetValueExW(hk, NULL, 0, REG_SZ,
 	    (const BYTE *)ZFS_VSS_PROVIDER_NAME,
 	    (DWORD)((wcslen(ZFS_VSS_PROVIDER_NAME) + 1) * sizeof (wchar_t)));
-	RegSetValueExW(hk, L"AppID", 0, REG_SZ,
-	    (const BYTE *)ZFS_VSS_PROVIDER_GUID_STR,
-	    (DWORD)((wcslen(ZFS_VSS_PROVIDER_GUID_STR) + 1) * sizeof (wchar_t)));
+	/*
+	 * No AppID: AppID with RunAs or DllSurrogate forces COM to activate
+	 * the CLSID out-of-process (dllhost.exe) even when the caller uses
+	 * CLSCTX_INPROC_SERVER.  vssvc.exe must load the provider DLL
+	 * in-process so the VSS ichannel can call Next() directly and invoke
+	 * copySnapshot without a DCOM round-trip that cannot marshal
+	 * VSS_OBJECT_PROP (CoTaskMem pointers are not DCOM-serialisable).
+	 */
 
 	/* 2. InprocServer32 subkey */
 	status = RegCreateKeyExW(hk, L"InprocServer32", 0, NULL,
@@ -66,64 +71,6 @@ reg_com_inproc(const wchar_t *dll_path)
 		RegCloseKey(hk_inproc);
 	}
 	RegCloseKey(hk);
-
-	/*
-	 * 3. AppID key.
-	 * DllSurrogate="" is required: vssvc.exe activates the provider via
-	 * out-of-process COM, so without a surrogate entry the CLSID is
-	 * seen as unregistered (0x80040154).
-	 *
-	 * RunAs="NT AUTHORITY\\NetworkService": without an explicit RunAs,
-	 * RPCSS cannot impersonate the caller (NETWORK SERVICE) at the
-	 * level required to launch a new process, giving 0x80070005.  For
-	 * built-in service accounts RPCSS/SCM launch the surrogate directly
-	 * without a stored password.  The surrogate then runs as NETWORK
-	 * SERVICE (S-1-5-20), which the kernel maps to uid 0.
-	 *
-	 * The explicit LaunchPermission and AccessPermission ACLs grant
-	 * SYSTEM, NETWORK SERVICE, and Administrators the COM launch and
-	 * activation rights so vssvc.exe can reach the surrogate.
-	 */
-	_snwprintf(key, 512, L"Software\\Classes\\AppID\\%s",
-	    ZFS_VSS_PROVIDER_GUID_STR);
-	if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, key, 0, NULL,
-	    REG_OPTION_NON_VOLATILE, KEY_WRITE | KEY_WOW64_64KEY,
-	    NULL, &hk_appid, NULL) == ERROR_SUCCESS) {
-		RegSetValueExW(hk_appid, NULL, 0, REG_SZ,
-		    (const BYTE *)ZFS_VSS_PROVIDER_NAME,
-		    (DWORD)((wcslen(ZFS_VSS_PROVIDER_NAME) + 1) *
-		    sizeof (wchar_t)));
-		RegSetValueExW(hk_appid, L"DllSurrogate", 0, REG_SZ,
-		    (const BYTE *)L"", 2);
-		RegSetValueExW(hk_appid, L"RunAs", 0, REG_SZ,
-		    (const BYTE *)L"NT AUTHORITY\\NetworkService",
-		    (DWORD)((wcslen(L"NT AUTHORITY\\NetworkService") + 1) *
-		    sizeof (wchar_t)));
-
-		/*
-		 * COM permission bits (WinNT.h):
-		 *   0x01  COM_RIGHTS_EXECUTE
-		 *   0x02  COM_RIGHTS_EXECUTE_LOCAL
-		 *   0x04  COM_RIGHTS_EXECUTE_REMOTE
-		 *   0x08  COM_RIGHTS_ACTIVATE_LOCAL
-		 *   0x10  COM_RIGHTS_ACTIVATE_REMOTE
-		 * 0x1f = all five bits = full local+remote access.
-		 * SY=SYSTEM  NS=NetworkService  BA=BuiltinAdministrators
-		 */
-		PSECURITY_DESCRIPTOR psd = NULL;
-		ULONG sd_size = 0;
-		if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
-		    L"O:BAG:BAD:(A;;0x1f;;;SY)(A;;0x1f;;;NS)(A;;0x1f;;;BA)",
-		    SDDL_REVISION_1, &psd, &sd_size)) {
-			RegSetValueExW(hk_appid, L"LaunchPermission", 0,
-			    REG_BINARY, (const BYTE *)psd, sd_size);
-			RegSetValueExW(hk_appid, L"AccessPermission", 0,
-			    REG_BINARY, (const BYTE *)psd, sd_size);
-			LocalFree(psd);
-		}
-
-		RegCloseKey(hk_appid);
-	}
 
 	return (0);
 }

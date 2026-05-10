@@ -80,6 +80,13 @@ int vss_reg_update_status(const GUID *sid, LONG status);
 int vss_reg_update_string(const GUID *sid, const wchar_t *valuename,
     const wchar_t *value);
 
+/*
+ * LocalServer32 EXE entry points (implemented in vss_provider.cpp,
+ * called by vss_service.c to register/revoke the COM class factory).
+ */
+HRESULT vss_provider_register_server(void);
+HRESULT vss_provider_revoke_server(void);
+
 #ifdef __cplusplus
 }
 #endif
