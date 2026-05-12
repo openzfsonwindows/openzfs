@@ -256,7 +256,7 @@ param_set_arc_no_grow_shift(SYSCTL_HANDLER_ARGS)
 {
 	int err, val;
 
-	val = arc_no_grow_shift;
+	val = zfs_arc_no_grow_shift;
 	err = sysctl_handle_int(oidp, &val, 0, req);
 	if (err != 0 || req->newptr == NULL)
 		return (err);
@@ -264,7 +264,7 @@ param_set_arc_no_grow_shift(SYSCTL_HANDLER_ARGS)
 	if (val < 0 || val >= arc_shrink_shift)
 		return (EINVAL);
 
-	arc_no_grow_shift = val;
+	zfs_arc_no_grow_shift = val;
 
 	return (0);
 }

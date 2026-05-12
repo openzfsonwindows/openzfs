@@ -398,14 +398,14 @@ uint_t zfs_arc_pc_percent = 0;
 
 /*
  * log2(fraction of ARC which must be free to allow growing).
- * I.e. If there is less than arc_c >> arc_no_grow_shift free memory,
+ * I.e. If there is less than arc_c >> zfs_arc_no_grow_shift free memory,
  * when reading a new block into the ARC, we will evict an equal-sized block
  * from the ARC.
  *
  * This must be less than arc_shrink_shift, so that when we shrink the ARC,
  * we will still not allow it to grow.
  */
-uint_t		arc_no_grow_shift = 5;
+uint_t		zfs_arc_no_grow_shift = 5;
 
 
 /*
@@ -4976,7 +4976,7 @@ arc_reap_cb_check(void *arg, zthr_t *zthr)
 		 */
 		arc_growtime = gethrtime() + SEC2NSEC(arc_grow_retry);
 		return (B_TRUE);
-	} else if (free_memory < arc_c >> arc_no_grow_shift) {
+	} else if (free_memory < arc_c >> zfs_arc_no_grow_shift) {
 		arc_no_grow = B_TRUE;
 	} else if (gethrtime() >= arc_growtime) {
 		arc_no_grow = B_FALSE;
@@ -7686,7 +7686,8 @@ arc_tuning_update(boolean_t verbose)
 	/* Valid range: 1 - N */
 	if (zfs_arc_shrink_shift) {
 		arc_shrink_shift = zfs_arc_shrink_shift;
-		arc_no_grow_shift = MIN(arc_no_grow_shift, arc_shrink_shift -1);
+		zfs_arc_no_grow_shift = MIN(zfs_arc_no_grow_shift,
+		    arc_shrink_shift - 1);
 	}
 
 	/* Valid range: 1 - N ms */
@@ -11732,6 +11733,10 @@ ZFS_MODULE_PARAM_CALL(zfs_arc, zfs_arc_, grow_retry, param_set_arc_int,
 
 ZFS_MODULE_PARAM_CALL(zfs_arc, zfs_arc_, shrink_shift, param_set_arc_int,
 	param_get_uint, ZMOD_RW, "log2(fraction of ARC to reclaim)");
+
+ZFS_MODULE_PARAM_CALL(zfs_arc, zfs_arc_, no_grow_shift,
+	param_set_arc_no_grow_shift, param_get_uint, ZMOD_RW,
+	"log2(fraction of ARC which must be free to allow growing)");
 
 #ifdef _KERNEL
 ZFS_MODULE_PARAM(zfs_arc, zfs_arc_, pc_percent, UINT, ZMOD_RW,
