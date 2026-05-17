@@ -67,11 +67,11 @@
 #define	VSS_PROV_SOFTWARE_TYPE	2
 
 static SERVICE_STATUS_HANDLE g_scm = NULL;
-static SERVICE_STATUS        g_status = { 0 };
-static HANDLE                g_stop_event = NULL;
+static SERVICE_STATUS g_status = { 0 };
+static HANDLE g_stop_event = NULL;
 
 /* ------------------------------------------------------------------ */
-/* SCM helpers                                                          */
+/* SCM helpers */
 /* ------------------------------------------------------------------ */
 
 static void
@@ -81,7 +81,7 @@ set_service_status(DWORD state, DWORD exit_code, DWORD wait_hint)
 
 	g_status.dwCurrentState  = state;
 	g_status.dwWin32ExitCode = exit_code;
-	g_status.dwWaitHint      = wait_hint;
+	g_status.dwWaitHint = wait_hint;
 	g_status.dwCheckPoint    =
 	    (state == SERVICE_RUNNING || state == SERVICE_STOPPED)
 	    ? 0 : checkpoint++;
@@ -89,7 +89,7 @@ set_service_status(DWORD state, DWORD exit_code, DWORD wait_hint)
 	SetServiceStatus(g_scm, &g_status);
 }
 
-static VOID WINAPI
+static void WINAPI
 service_ctrl(DWORD ctrl)
 {
 	switch (ctrl) {
@@ -104,7 +104,7 @@ service_ctrl(DWORD ctrl)
 }
 
 /* ------------------------------------------------------------------ */
-/* COM server run loop (shared by /service and /run modes)             */
+/* COM server run loop (shared by /service and /run modes) */
 /* ------------------------------------------------------------------ */
 
 static int
@@ -135,16 +135,16 @@ run_com_server(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* ServiceMain                                                          */
+/* ServiceMain */
 /* ------------------------------------------------------------------ */
 
-static VOID WINAPI
+static void WINAPI
 ServiceMain(DWORD argc, LPWSTR *argv)
 {
-	(void)argc;
-	(void)argv;
+	(void) argc;
+	(void) argv;
 
-	g_status.dwServiceType      = SERVICE_WIN32_OWN_PROCESS;
+	g_status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
 	g_status.dwControlsAccepted = SERVICE_ACCEPT_STOP |
 	    SERVICE_ACCEPT_SHUTDOWN;
 
@@ -171,7 +171,7 @@ ServiceMain(DWORD argc, LPWSTR *argv)
 }
 
 /* ------------------------------------------------------------------ */
-/* COM and VSS registration helpers (/install, /uninstall)             */
+/* COM and VSS registration helpers (/install, /uninstall) */
 /* ------------------------------------------------------------------ */
 
 /*
@@ -432,7 +432,7 @@ uninstall_service(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Entry point                                                          */
+/* Entry point */
 /* ------------------------------------------------------------------ */
 
 int

@@ -2801,8 +2801,9 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 
 					/* Allocate REPARSE_DATA_BUFFER */
 					USHORT subst_b = 35 * sizeof (WCHAR);
-					ULONG rpb_sz =
-					    REPARSE_DATA_BUFFER_HEADER_SIZE +
+					USHORT rdb_hdr =
+					    REPARSE_DATA_BUFFER_HEADER_SIZE;
+					ULONG rpb_sz = rdb_hdr +
 					    4 * sizeof (USHORT) + subst_b;
 					REPARSE_DATA_BUFFER *rpb =
 					    ExAllocatePoolWithTag(
@@ -2811,8 +2812,7 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 						rpb->ReparseTag =
 						    IO_REPARSE_TAG_MOUNT_POINT;
 						rpb->ReparseDataLength =
-						    (USHORT)(rpb_sz -
-						    REPARSE_DATA_BUFFER_HEADER_SIZE);
+						    (USHORT)(rpb_sz - rdb_hdr);
 						rpb->Reserved = rem;
 						rpb->MountPointReparseBuffer.
 						    SubstituteNameOffset = 0;
@@ -2823,8 +2823,8 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 						    PrintNameOffset = subst_b;
 						rpb->MountPointReparseBuffer.
 						    PrintNameLength = 0;
-						RtlCopyMemory(
-						    rpb->MountPointReparseBuffer.
+						RtlCopyMemory(rpb->
+						    MountPointReparseBuffer.
 						    PathBuffer,
 						    subst, subst_b);
 
@@ -5336,7 +5336,8 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		 */
 		ULONG blksz = (ULONG)(sizeof (FILESYSTEM_STATISTICS) +
 		    sizeof (NTFS_STATISTICS));
-		ULONG ncpus = KeQueryMaximumProcessorCountEx(ALL_PROCESSOR_GROUPS);
+		ULONG ncpus =
+		    KeQueryMaximumProcessorCountEx(ALL_PROCESSOR_GROUPS);
 		ULONG outlen =
 		    IrpSp->Parameters.FileSystemControl.OutputBufferLength;
 
@@ -5349,7 +5350,8 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		ULONG fill = min(ncpus, outlen / blksz);
 
 		if (fill > 0) {
-			memset(Irp->AssociatedIrp.SystemBuffer, 0, fill * blksz);
+			memset(Irp->AssociatedIrp.SystemBuffer, 0,
+			    fill * blksz);
 			for (ULONG i = 0; i < fill; i++) {
 				FILESYSTEM_STATISTICS *fss =
 				    (FILESYSTEM_STATISTICS *)
@@ -5362,7 +5364,7 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 			}
 			Irp->IoStatus.Information = fill * blksz;
 		} else {
-			/* Buffer holds base header but not the NTFS extension. */
+			/* Buffer holds header but not NTFS extension. */
 			memset(Irp->AssociatedIrp.SystemBuffer, 0,
 			    sizeof (FILESYSTEM_STATISTICS));
 			FILESYSTEM_STATISTICS *fss =
@@ -5370,7 +5372,8 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 			fss->Version = 1;
 			fss->FileSystemType = FILESYSTEM_STATISTICS_TYPE_NTFS;
 			fss->SizeOfCompleteStructure = blksz;
-			Irp->IoStatus.Information = sizeof (FILESYSTEM_STATISTICS);
+			Irp->IoStatus.Information =
+			    sizeof (FILESYSTEM_STATISTICS);
 		}
 
 		Status = STATUS_SUCCESS;
@@ -5454,7 +5457,8 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
  * VSS providers for shadow copies.
  */
 	case FSCTL_QUERY_USN_JOURNAL: /* 0x900F4 */
-		dprintf("    FSCTL_QUERY_USN_JOURNAL: returning fake journal\n");
+		dprintf("    FSCTL_QUERY_USN_JOURNAL:"
+		    " returning fake journal\n");
 		{
 		ULONG outlen =
 		    IrpSp->Parameters.FileSystemControl.OutputBufferLength;
@@ -5466,13 +5470,13 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		USN_JOURNAL_DATA *ujd =
 		    (USN_JOURNAL_DATA *)Irp->AssociatedIrp.SystemBuffer;
 		RtlZeroMemory(ujd, sizeof (USN_JOURNAL_DATA));
-		ujd->UsnJournalID    = 1;  /* non-zero = journal active */
-		ujd->FirstUsn        = 0;
-		ujd->NextUsn         = 1;
-		ujd->LowestValidUsn  = 0;
-		ujd->MaxUsn          = MAXLONGLONG;
-		ujd->MaximumSize     = 0x2000000; /* 32 MB */
-		ujd->AllocationDelta = 0x800000;  /* 8 MB */
+		ujd->UsnJournalID = 1; /* non-zero = journal active */
+		ujd->FirstUsn = 0;
+		ujd->NextUsn = 1;
+		ujd->LowestValidUsn = 0;
+		ujd->MaxUsn = MAXLONGLONG;
+		ujd->MaximumSize = 0x2000000; /* 32 MB */
+		ujd->AllocationDelta = 0x800000; /* 8 MB */
 		Irp->IoStatus.Information = sizeof (USN_JOURNAL_DATA);
 		Status = STATUS_SUCCESS;
 		}
@@ -5556,7 +5560,7 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 			nsnaps++;
 		dsl_pool_config_exit(vss_dp, FTAG);
 
-		/* SnapshotArraySize: N * 25 WCHARs + 2 terminating NUL WCHARs */
+		/* SnapshotArraySize: N * 25 WCHARs + 2 terminating NULs */
 		ULONG arr_size =
 		    nsnaps * 25 * sizeof (WCHAR) + 2 * sizeof (WCHAR);
 		ULONG needed = 3 * sizeof (ULONG) + arr_size;
@@ -8537,9 +8541,11 @@ _Function_class_(DRIVER_DISPATCH)
 			default:
 				/*
 				 * Catch VOLSNAP IOCTLs arriving at ioctlDevice.
-				 * Return STATUS_NOT_SUPPORTED (not STATUS_NOT_IMPLEMENTED)
-				 * so swprv's ichannel sees a hard error and skips this
-				 * volume rather than treating a 0-byte STATUS_SUCCESS
+				 * Return STATUS_NOT_SUPPORTED (not
+				 * STATUS_NOT_IMPLEMENTED) so swprv's ichannel
+				 * sees a hard error and skips this
+				 * volume rather than treating a 0-byte
+				 * STATUS_SUCCESS
 				 * response from the lower device as valid data.
 				 */
 				if ((cmd >> 16) == 0x53) {
@@ -8980,13 +8986,15 @@ _Function_class_(DRIVER_DISPATCH)
 			/*
 			 * srv2.sys sends this before enumerating shadow copies.
 			 * STATUS_SUCCESS means "is clustered".
-			 * STATUS_UNSUCCESSFUL means "not clustered" (normal case).
-			 * STATUS_INVALID_DEVICE_REQUEST means "invalid disk type"
-			 * (e.g. dynamic disk) and causes srv2.sys to skip snapshot
-			 * enumeration entirely.  We must return STATUS_UNSUCCESSFUL
+			 * STATUS_UNSUCCESSFUL means "not clustered" (normal).
+			 * STATUS_INVALID_DEVICE_REQUEST means "invalid disk
+			 * type" (e.g. dynamic) and causes srv2.sys to skip
+			 * enumeration entirely.  Must return
+			 * STATUS_UNSUCCESSFUL
 			 * so srv2.sys proceeds to enumerate our ZFS snapshots.
 			 */
-			dprintf("disk: IOCTL_VOLUME_IS_CLUSTERED -> not clustered\n");
+			dprintf("disk: IOCTL_VOLUME_IS_CLUSTERED"
+			    " -> not clustered\n");
 			Irp->IoStatus.Information = 0;
 			Status = STATUS_UNSUCCESSFUL;
 			break;
@@ -9000,7 +9008,7 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 
 		case 0x530018: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS */
-		case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS (alt) */
+		case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS */
 			dprintf("disk: IOCTL_VOLSNAP_QUERY_NAMES_OF"
 			    "_SNAPSHOTS\n");
 			Status = zfs_volsnap_query_names_of_snapshots(
@@ -9064,9 +9072,9 @@ _Function_class_(DRIVER_DISPATCH)
 			 * For VOLSNAP IOCTLs (device type 0x53) that we do not
 			 * recognise, return STATUS_NOT_SUPPORTED explicitly so
 			 * the IRP is NOT passed to the lower device.  The lower
-			 * device may return STATUS_SUCCESS + 0 bytes for unknown
-			 * IOCTLs, which causes swprv's ichannel to attempt an
-			 * Unpack from an empty buffer ("IOCTL Unpack overflow").
+			 * device may return STATUS_SUCCESS + 0 bytes for
+			 * unknown IOCTLs, causing swprv's ichannel to attempt
+			 * an Unpack from an empty buffer (overflow).
 			 */
 			if ((cmd >> 16) == 0x53) {
 				dprintf("disk: unhandled VOLSNAP IOCTL 0x%lx"
@@ -9113,9 +9121,10 @@ _Function_class_(DRIVER_DISPATCH)
 		case IRP_MN_KERNEL_CALL:
 			/*
 			 * srv2.sys may issue FSCTL_SRV_ENUMERATE_SNAPSHOTS (and
-			 * other FSCTLs) as IRP_MN_KERNEL_CALL on the disk device
-			 * object.  Pass through to user_fs_request so that our
-			 * FSCTL_SRV_ENUMERATE_SNAPSHOTS handler is reached.
+			 * other FSCTLs) as IRP_MN_KERNEL_CALL on the
+			 * disk device object.  Pass through to user_fs_request
+			 * so that our FSCTL_SRV_ENUMERATE_SNAPSHOTS handler
+			 * is reached.
 			 */
 			dprintf("IRP_MN_KERNEL_CALL: FsControlCode 0x%lx\n",
 			    IrpSp->Parameters.FileSystemControl.FsControlCode);
@@ -9562,7 +9571,7 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 
 		case 0x530018: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS */
-		case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS (alt) */
+		case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS */
 			dprintf("IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS\n");
 			Status = zfs_volsnap_query_names_of_snapshots(
 			    DeviceObject, Irp, IrpSp);
@@ -9570,15 +9579,14 @@ _Function_class_(DRIVER_DISPATCH)
 
 		case 0x534058: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE */
 			/*
-			 * Returning STATUS_SUCCESS here told the System Provider
-			 * that this ZFS volume CAN host a volsnap diff-area, which
-			 * caused it to probe ZFS volumes as diff-area candidates.
-			 * The subsequent "add volume to diff-area" sequence sent
-			 * IOCTLs whose output sizes we did not match correctly,
-			 * resulting in "IOCTL Unpack overflow".  ZFS uses CoW
-			 * native snapshots and cannot host volsnap diff-areas;
-			 * return NOT_SUPPORTED so the System Provider skips ZFS
-			 * volumes and selects an NTFS volume for the diff-area.
+			 * Returning STATUS_SUCCESS here told the System
+			 * Provider this volume can host a diff-area,
+			 * causing it to probe ZFS volumes as candidates.
+			 * The "add volume to diff-area" IOCTL sequence
+			 * returned output sizes we did not match,
+			 * causing IOCTL Unpack overflow.  ZFS uses CoW;
+			 * return NOT_SUPPORTED so the System Provider
+			 * skips ZFS and picks an NTFS diff-area volume.
 			 */
 			dprintf("IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE"
 			    " -> NOT_SUPPORTED (volume)\n");
@@ -9588,9 +9596,9 @@ _Function_class_(DRIVER_DISPATCH)
 
 		case 0x53406C: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION */
 			/*
-			 * As with QUERY_DIFF_AREA_MINIMUM_SIZE above: ZFS cannot
-			 * host a volsnap diff-area, so decline rather than
-			 * returning partial data that ichannel would overflow on.
+			 * As with QUERY_DIFF_AREA_MINIMUM_SIZE: ZFS
+			 * cannot host a diff-area; decline rather than
+			 * returning partial data that would overflow.
 			 */
 			dprintf("IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION"
 			    " -> NOT_SUPPORTED (volume)\n");
@@ -9639,13 +9647,14 @@ _Function_class_(DRIVER_DISPATCH)
 		case 0x530050: /* IOCTL_VOLSNAP QUERY_EPIC - snapshot count */
 		{
 			/*
-			 * srv2.sys reads 4 bytes from EPIC and compares with a
-			 * cached value stored in the share object.  It only calls
-			 * QUERY_NAMES_OF_SNAPSHOTS when the value differs from the
-			 * cache (i.e. the snapshot set has changed).  Return the
-			 * current ZFS snapshot count so that srv2.sys detects
-			 * available snapshots on the first call (cached starts at 0)
-			 * and triggers a full QUERY_NAMES refresh.
+			 * srv2.sys reads 4 bytes from EPIC and
+			 * compares with a cached share-object value.
+			 * It calls QUERY_NAMES_OF_SNAPSHOTS only when
+			 * the value changes (i.e. snapshot set changed).
+			 * Return the ZFS snapshot count so srv2.sys
+			 * detects new snapshots on the first call
+			 * (cache starts at 0) and triggers a full
+			 * QUERY_NAMES refresh.
 			 */
 			ULONG epic_nsnaps = 0;
 			mount_t *epic_zmo = DeviceObject->DeviceExtension;
@@ -9664,8 +9673,8 @@ _Function_class_(DRIVER_DISPATCH)
 					epic_nsnaps++;
 				dsl_pool_config_exit(epic_dp, FTAG);
 			}
-			if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength >=
-			    sizeof (ULONG)) {
+			if (IrpSp->Parameters.DeviceIoControl.
+			    OutputBufferLength >= sizeof (ULONG)) {
 				*(ULONG *)Irp->AssociatedIrp.SystemBuffer =
 				    epic_nsnaps;
 				Irp->IoStatus.Information = sizeof (ULONG);
@@ -9685,12 +9694,13 @@ _Function_class_(DRIVER_DISPATCH)
 
 		default:
 			/*
-			 * For VOLSNAP IOCTLs (device type 0x53) that we do not
-			 * handle, return STATUS_NOT_SUPPORTED explicitly.  Do NOT
-			 * let these fall through to the pass-down path: if the
-			 * lower device returns STATUS_SUCCESS with 0 bytes, the VSS
-			 * ichannel will attempt to Unpack a fixed-size struct from
-			 * zero bytes and log "IOCTL Unpack overflow".
+			 * For VOLSNAP IOCTLs (device type 0x53) that we
+			 * do not handle, return STATUS_NOT_SUPPORTED
+			 * explicitly.  Do NOT let these fall through to
+			 * the pass-down path: if the lower device
+			 * returns STATUS_SUCCESS with 0 bytes, the VSS
+			 * ichannel will Unpack a fixed-size struct from
+			 * zero bytes ("IOCTL Unpack overflow").
 			 */
 			if ((cmd >> 16) == 0x53) {
 				dprintf("**** unhandled VOLSNAP IOCTL: 0x%lx"

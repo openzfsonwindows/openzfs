@@ -38,23 +38,23 @@ extern "C" {
     L"{89300202-3CAE-4584-B38F-E72F2B3A2FBF}"
 	/* Registry subtree for per-snapshot metadata */
 
-#define ZFS_VSS_PROVIDER_GUID_BINARY 0x89300202, 0x3CAE, 0x4584, \
-    { 0xB3, 0x8F, 0xE7, 0x2F, 0x2B, 0x3A, 0x2F, 0xBF }
+#define	ZFS_VSS_PROVIDER_GUID_BINARY 0x89300202, 0x3CAE, 0x4584, \
+	{ 0xB3, 0x8F, 0xE7, 0x2F, 0x2B, 0x3A, 0x2F, 0xBF }
 
 
 #define	ZFS_VSS_REG_ROOT	\
 	L"SOFTWARE\\OpenZFS\\VSS\\Snapshots"
 
 /* Per-snapshot value names */
-#define	ZFS_VSS_REG_ZFSNAME	L"ZfsName"	/* REG_SZ  pool/ds@snap  */
-#define	ZFS_VSS_REG_ZFSGUID	L"ZfsGuid"	/* REG_QWORD ds_guid     */
-#define	ZFS_VSS_REG_VOLUME	L"VolumeName"	/* REG_SZ  \\?\Volume{} */
-#define	ZFS_VSS_REG_SETID	L"SnapshotSetId" /* REG_SZ  {guid}       */
-#define	ZFS_VSS_REG_TIMESTAMP	L"Timestamp"	/* REG_QWORD FILETIME    */
-#define	ZFS_VSS_REG_ATTRS	L"Attributes"	/* REG_DWORD             */
-#define	ZFS_VSS_REG_EXPNAME	L"ExposedName"	/* REG_SZ  e.g. "S:\"   */
-#define	ZFS_VSS_REG_EXPPATH	L"ExposedPath"	/* REG_SZ  subdir or "" */
-#define	ZFS_VSS_REG_STATUS	L"Status"	/* REG_DWORD VSS_SS_*   */
+#define	ZFS_VSS_REG_ZFSNAME	L"ZfsName"	/* REG_SZ pool/ds@snap */
+#define	ZFS_VSS_REG_ZFSGUID	L"ZfsGuid"	/* REG_QWORD ds_guid */
+#define	ZFS_VSS_REG_VOLUME	L"VolumeName"	/* REG_SZ \\?\Volume{} */
+#define	ZFS_VSS_REG_SETID	L"SnapshotSetId"	/* REG_SZ {guid} */
+#define	ZFS_VSS_REG_TIMESTAMP	L"Timestamp"	/* REG_QWORD FILETIME */
+#define	ZFS_VSS_REG_ATTRS	L"Attributes"	/* REG_DWORD */
+#define	ZFS_VSS_REG_EXPNAME	L"ExposedName"	/* REG_SZ e.g. "S:\" */
+#define	ZFS_VSS_REG_EXPPATH	L"ExposedPath"	/* REG_SZ subdir or "" */
+#define	ZFS_VSS_REG_STATUS	L"Status"	/* REG_DWORD VSS_SS_* */
 
 /*
  * Registry helpers (vss_registry.c)

@@ -2147,13 +2147,13 @@ out:
 }
 
 NTSTATUS IoSetDeviceInterfacePropertyData(
-    [in]           PUNICODE_STRING  SymbolicLinkName,
-    [in]           const DEVPROPKEY *PropertyKey,
-    [in]           LCID             Lcid,
-    [in]           ULONG            Flags,
-    [in]           DEVPROPTYPE      Type,
-    [in]           ULONG            Size,
-    [in, optional] PVOID            Data
+	PUNICODE_STRING SymbolicLinkName,
+	const DEVPROPKEY *PropertyKey,
+	LCID Lcid,
+	ULONG Flags,
+	DEVPROPTYPE Type,
+	ULONG Size,
+	PVOID Data
 );
 
 void
