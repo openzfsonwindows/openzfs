@@ -323,6 +323,7 @@ load_snap_prop(const VSS_ID &sid, VSS_SNAPSHOT_PROP *p)
 	    VSS_VOLSNAP_ATTR_PERSISTENT |
 	    VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
 	    VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE |
+	    VSS_VOLSNAP_ATTR_NO_WRITERS |
 	    VSS_VOLSNAP_ATTR_DIFFERENTIAL;
 
 	/* Device path that exposes the frozen ZFS snapshot */
@@ -479,6 +480,7 @@ snap_prop_from_zfs(zfs_handle_t *zhp, const wchar_t *volname,
 	    VSS_VOLSNAP_ATTR_PERSISTENT |
 	    VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
 	    VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE |
+	    VSS_VOLSNAP_ATTR_NO_WRITERS |
 	    VSS_VOLSNAP_ATTR_DIFFERENTIAL;
 
 	wchar_t devname[128];
@@ -1715,6 +1717,7 @@ public:
 			attrs |= VSS_VOLSNAP_ATTR_PERSISTENT |
 			    VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
 			    VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE |
+			    VSS_VOLSNAP_ATTR_NO_WRITERS |
 			    VSS_VOLSNAP_ATTR_DIFFERENTIAL;
 
 			vss_log("CommitSnapshots: storing attrs=0x%lx"

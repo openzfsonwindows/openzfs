@@ -25,32 +25,220 @@
 /*
  * VSS (Volume Shadow Copy Service) snapshot device support.
  *
- * Each ZFS snapshot that exists on an imported pool gets a kernel device
- * object named:
+ * -----------------------------------------------------------------------
+ * DEVICE NAMING
+ * -----------------------------------------------------------------------
+ *
+ * Each ZFS snapshot gets a kernel device object named:
  *
  *   \Device\ZfsSnapshot<hex16>
  *
- * where <hex16> is the 16-character lowercase hex encoding of the ZFS
- * dataset GUID (dsl_dataset_phys_t::ds_guid, a uint64_t).  The name is
- * deterministic and bidirectional: given the device name you can recover
- * the GUID, and given the GUID you can find the snapshot via the MOS.
- * No extra ZAP attribute or registry entry is needed to maintain the
- * kernel-side mapping.
+ * where <hex16> is the 16-char lowercase hex of dsl_dataset_phys_t::ds_guid.
+ * The name is deterministic and bidirectional: given the device name the
+ * GUID is recoverable, and given the GUID the snapshot is findable via
+ * the MOS.  No extra ZAP attribute or registry entry is needed.
  *
- * Lifecycle:
+ * -----------------------------------------------------------------------
+ * LIFECYCLE
+ * -----------------------------------------------------------------------
+ *
  *   zfs_vss_snapshot_add()    - called after snapshot creation
  *   zfs_vss_snapshot_remove() - called before snapshot destruction
- *   zfs_vss_pool_add()        - called after pool import; iterates all
- *                               snapshots and calls zfs_vss_snapshot_add()
- *   zfs_vss_pool_remove()     - called before pool export; tears down all
- *                               snapshot devices for the pool
+ *   zfs_vss_pool_add()        - called after pool import; walks all
+ *                               snapshots and calls snapshot_add()
+ *   zfs_vss_pool_remove()     - called before pool export
  *   zfs_vss_init() / fini()   - module lifetime
  *
- * The userland VSS Provider COM service is responsible for:
- *   - responding to VSS requestor calls (BeginPrepareSnapshot etc.)
- *   - calling "zfs snapshot" and "zfs destroy" via ioctls
- *   - maintaining the small VSS-GUID -> ZFS-GUID mapping in the registry
- *   - returning \Device\ZfsSnapshot<hex16> as the shadow copy device path
+ * The userland VSS Provider COM service (cmd/os/windows/zfs_vss_provider/)
+ * handles the VSS requestor protocol (BeginPrepareSnapshot / CommitSnapshots
+ * etc.), calls "zfs snapshot"/"zfs destroy" via libzfs, maintains the
+ * VSS-GUID -> ZFS-GUID mapping in the registry, and returns the
+ * \Device\ZfsSnapshot<hex16> path as the shadow copy device object.
+ *
+ * -----------------------------------------------------------------------
+ * HOW WINDOWS "PREVIOUS VERSIONS" WORKS  (the path we spent weeks on)
+ * -----------------------------------------------------------------------
+ *
+ * The Previous Versions tab in Explorer is populated over SMB2.  srv2.sys
+ * on the server drives a multi-step VOLSNAP IOCTL chain to discover and
+ * validate each snapshot before building the @GMT timestamp list returned
+ * to the client.  The flow below is what we verified by disassembling
+ * srv2!Smb2ShareCheckForAndCreateSnapShot and watching it in WinDbg.
+ *
+ * STEP 1 — QUERY_NAMES_OF_SNAPSHOTS (0x530018) on the LIVE volume (DCB)
+ *
+ *   srv2 sends this to the live ZFS volume.  We return a VOLSNAP_NAMES
+ *   structure: a ULONG MultiSzLength followed by a MULTI_SZ of device
+ *   names, one per snapshot:
+ *
+ *     \Device\ZfsSnapshot<hex16>\0\Device\ZfsSnapshot<hex16>\0\0
+ *
+ *   CRITICAL — no trailing backslash on each entry.  srv2 appends one
+ *   internally when it stores the entry in its SHARE_SNAPSHOT list.
+ *   Inside Smb2ShareCheckForAndCreateSnapShot there is a
+ *   "cmp [buf+35*2], '\\'  /  je skip_add" guard: if the entry already
+ *   ends in '\' srv2 jumps PAST SrvSnapAddShare, so the snapshot is never
+ *   added to the list.  The entries must be exactly 35 WCHARs
+ *   (L"\\Device\\ZfsSnapshot" = 19 + 16 hex digits) with no terminating
+ *   backslash.
+ *
+ * STEP 2 — srv2 opens each \Device\ZfsSnapshot<hex> device
+ *
+ *   IRP_MJ_CREATE arrives with an empty FileName or FileName == L"\\.
+ *   This is a pure device-level open; no filesystem mount is required.
+ *   We complete it immediately with FILE_OPENED.
+ *
+ * STEP 3 — APPLICATION_INFO (0x53019C) on the snapshot device
+ *
+ *   srv2 probes with a tiny buffer (we return STATUS_BUFFER_OVERFLOW
+ *   with the required size at buf[0]), then retries with the full buffer.
+ *
+ *   The exact layout srv2!SrvSnapCheckAppInfoForTimeWarp validates
+ *   (confirmed by WinDbg disassembly):
+ *
+ *     +0   ULONG InformationLength   total bytes after this field (56)
+ *     +4   GUID  AppInfoLayoutId     MUST be VOLSNAP_APPINFO_GUID_CLIENT_ACCESSIBLE
+ *                                    {e5de7d45-49f2-40a4-817c-7dc82b72587f}
+ *     +20  GUID  SnapshotId          derived from ZFS ds_guid
+ *     +36  GUID  SnapshotSetId       derived from ZFS ds_guid
+ *     +52  ULONG SnapshotContext     VSS context flags — MUST be 0x1D (see below)
+ *     +56  ULONG SnapshotCount       1
+ *
+ *   srv2 checks [buf+0] > 0x10 (size sanity) and compares [buf+4] against
+ *   the CLIENT_ACCESSIBLE GUID.  If both pass, it clears the internal
+ *   SRV_SNAP_SHARE_NOT_FOUND flag on the SHARE_SNAPSHOT entry; that flag
+ *   controls whether the snapshot appears in the Previous Versions list.
+ *
+ *   SnapshotContext MUST include VSS_VOLSNAP_ATTR_PERSISTENT (0x01).
+ *   0x1D = PERSISTENT | CLIENT_ACCESSIBLE | NO_AUTO_RELEASE | NO_WRITERS
+ *   is the canonical VSS_CTX_CLIENT_ACCESSIBLE.  Using 0x1C (the value
+ *   without PERSISTENT) causes the Windows System Provider (swprv,
+ *   {b5946137-7b9f-4925-af80-51abd60b20d5}) to log "Invalid context 0x1c"
+ *   and return E_UNEXPECTED from its own EndPrepareSnapshots whenever it
+ *   next creates an NTFS snapshot, because it iterates all registered
+ *   shadow copies during its prepare phase and rejects unknown contexts.
+ *   Result: NTFS shadow creation fails with VSS_E_UNEXPECTED_PROVIDER_ERROR
+ *   whenever any ZFS snapshots exist.
+ *
+ * STEP 4 — REVERT_UID (0x5301E0)
+ *
+ *   Return 16 zero bytes.  A zero GUID is acceptable.
+ *
+ * STEP 5 — ORIGINAL_VOLUME_NAME (0x530190)
+ *
+ *   Must return the NT device name of the FILESYSTEM device (VCB), not
+ *   the disk device (DCB).  srv2 compares this against the device object
+ *   that IoGetRelatedDeviceObject returns for a file on the share.  For
+ *   ZFS that is \Device\ZFS{uuid} (= dcb->fs_name, which was used as the
+ *   name when the VCB device was created with IoCreateDeviceSecure).
+ *
+ *   Layout:  { USHORT NameLen; WCHAR Name[NameLen/2]; }
+ *
+ * STEP 6 — CONFIG_INFO / SNAPSHOT_TIMESTAMP (0x530194)
+ *
+ *   Despite being called SNAPSHOT_TIMESTAMP in many IOCTL tables, this
+ *   IOCTL returns a VOLSNAP_CONFIG_INFO structure, NOT a bare LARGE_INTEGER:
+ *
+ *     typedef struct {
+ *         ULONG         Attributes;            // VSS_VOLSNAP_ATTR_* flags
+ *         ULONG         Reserved;
+ *         LARGE_INTEGER SnapshotCreationTime;  // Windows FILETIME
+ *     } VOLSNAP_CONFIG_INFO;
+ *
+ *   srv2 uses SnapshotCreationTime to synthesise the @GMT-YYYY.MM.DD-HH.MM.SS
+ *   string that appears in the Previous Versions popup.  ZFS itself never
+ *   produces @GMT-style names; srv2 constructs them entirely from this
+ *   FILETIME.  Returning a bare 8-byte LARGE_INTEGER (skipping the 8-byte
+ *   Attributes+Reserved header) causes every entry to display as
+ *   "@GMT-1601.01.01-00.00.00" (Windows epoch = 0) and the popup appears
+ *   empty even though the entry count is correct.
+ *
+ * STEP 7 — srv2 builds the FSCTL_SRV_ENUMERATE_SNAPSHOTS (0x144064) reply
+ *
+ *   srv2 does NOT forward FSCTL_SRV_ENUMERATE_SNAPSHOTS to our filesystem
+ *   driver.  Instead it re-issues QUERY_NAMES_OF_SNAPSHOTS (step 1) and
+ *   runs the full IOCTL chain for each device, storing the FILETIME in its
+ *   internal SHARE_SNAPSHOT list.  The @GMT MULTI_SZ returned to the SMB
+ *   client is built from that list.  Our own FSCTL_SRV_ENUMERATE_SNAPSHOTS
+ *   handler in fsDispatcher is never called for the Previous Versions path.
+ *
+ * -----------------------------------------------------------------------
+ * DEVICE TYPE AND VPB RULES
+ * -----------------------------------------------------------------------
+ *
+ * FILE_DEVICE_DISK_FILE_SYSTEM is required (not FILE_DEVICE_DISK or
+ * FILE_DEVICE_VIRTUAL_DISK).  Disk-style types cause the I/O Manager to
+ * reject IRP_MJ_CREATE with a path component (e.g. \dir\file) with
+ * ERROR_INVALID_NAME before a single IRP is dispatched, because the I/O
+ * Manager needs either a filesystem device type or a mounted VPB to route
+ * path-bearing opens.
+ *
+ * We do NOT install a VPB on the snapshot device.  A self-referential VPB
+ * (where DeviceObject == RealDevice == our device) confuses the I/O Manager:
+ * for FILE_DIRECTORY_FILE opens with a non-root FileName it attempts a
+ * namespace sub-device lookup, fails to find one, and the IRP never reaches
+ * our dispatcher.  Without a VPB, FILE_DEVICE_DISK_FILE_SYSTEM devices
+ * receive all IRPs directly.  We substitute vfs_fsprivate(zmo) != NULL for
+ * the VPB_MOUNTED flag to test whether the snapshot is mounted.
+ *
+ * -----------------------------------------------------------------------
+ * LAZY MOUNT
+ * -----------------------------------------------------------------------
+ *
+ * Snapshot devices start unmounted.  The first IRP_MJ_CREATE with a real
+ * file path triggers a lazy mount via IoQueueWorkItem — necessary because
+ * zfs_vfs_mount cannot run safely in the IRP dispatch context.  Pure
+ * device opens (FileName == L"" or L"\") complete immediately without a
+ * mount, so the srv2 VOLSNAP IOCTL chain (steps 2-6 above) never pays the
+ * cost of a full ZFS mount.
+ *
+ * -----------------------------------------------------------------------
+ * INTERACTION WITH NTFS SNAPSHOT CREATION
+ * -----------------------------------------------------------------------
+ *
+ * The Windows System Provider iterates ALL registered shadow copies at the
+ * start of every VSS operation to clean up auto-release copies.  If any
+ * ZFS shadow copy advertises an invalid SnapshotContext (e.g. 0x1C),
+ * swprv fails its own EndPrepareSnapshots with E_UNEXPECTED and NTFS
+ * snapshot creation fails with VSS_E_UNEXPECTED_PROVIDER_ERROR.  The
+ * symptom is order-dependent: ZFS-then-NTFS fails; NTFS-then-ZFS works
+ * (because swprv scans existing shadows at prepare time, not at create time).
+ * Fix: SnapshotContext = 0x1D in APPLICATION_INFO (step 3 above).
+ *
+ * -----------------------------------------------------------------------
+ * CREATING VSS SNAPSHOTS — WHY "set context clientaccessible" FAILS
+ * -----------------------------------------------------------------------
+ *
+ * It is tempting to create Previous-Versions-visible snapshots with:
+ *
+ *   DISKSHADOW> set context clientaccessible
+ *   DISKSHADOW> add volume E:
+ *   DISKSHADOW> create
+ *
+ * This fails for ZFS with VSS_E_VOLUME_NOT_SUPPORTED.  The reason: the
+ * Windows System Provider (swprv) has a hard-coded blocklist that rejects
+ * any filesystem it does not recognise for "timewarp/persistent" contexts.
+ * swprv calls IsVolumeSupported on every registered provider; for the
+ * clientaccessible context it vetoes ZFS volumes before our provider is
+ * even consulted.
+ *
+ * The workaround is to create with a context swprv does not block:
+ *
+ *   DISKSHADOW> set context persistent
+ *   DISKSHADOW> add volume E:
+ *   DISKSHADOW> create
+ *
+ * Our VSS Provider's CommitSnapshots() unconditionally ORs the stored
+ * snapshot attributes with:
+ *
+ *   VSS_VOLSNAP_ATTR_PERSISTENT | VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
+ *   VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE | VSS_VOLSNAP_ATTR_DIFFERENTIAL
+ *
+ * regardless of the requested context.  The snapshot therefore appears in
+ * Explorer's Previous Versions tab even though it was created with a
+ * non-clientaccessible context.  The APPLICATION_INFO returned by this
+ * kernel driver (step 3 above) always advertises 0x1D so srv2 treats the
+ * snapshot as client-accessible on the network side as well.
  */
 
 #include <Ntifs.h>
@@ -1179,6 +1367,40 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    __func__);
 		Irp->IoStatus.Information = 0;
 		status = STATUS_NOT_SUPPORTED; // STATUS_TARGET_SET_NOT_VOLUME
+
+	{
+	    dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_DIFF_AREA (outlen=%lu)\n",
+		__func__, outlen);
+
+	    /* * Minimum size for an empty VOLSNAP_DIFF_AREA_INFO struct.
+	     * ULONG (4 bytes) + WCHAR alignment padding can require up to 8 bytes depending on OS alignment.
+	     * We will enforce a safe 8-byte minimum or exactly sizeof(struct).
+	     */
+	    typedef struct _MOCK_DIFF_INFO {
+		ULONG DiffAreaVolumeNameLength;
+		WCHAR ZeroTerminator;
+	    } MOCK_DIFF_INFO;
+
+	    ULONG need = sizeof(MOCK_DIFF_INFO); // 6 bytes, pads to 8
+
+	    if (outlen < need) {
+		/* If they are probing for size, tell them exactly what we need */
+		Irp->IoStatus.Information = need;
+		status = STATUS_BUFFER_OVERFLOW;
+		break;
+	    }
+
+	    MOCK_DIFF_INFO *diff_info = (MOCK_DIFF_INFO *)buf;
+	    RtlZeroMemory(diff_info, outlen);
+
+	    /* 0 length means the volume handles its own diff space natively (ZFS style) */
+	    diff_info->DiffAreaVolumeNameLength = 0;
+	    diff_info->ZeroTerminator = L'\0';
+
+	    Irp->IoStatus.Information = need;
+	    status = STATUS_SUCCESS;
+	    break;
+	}
 		break;
 
 	case IOCTL_VOLSNAP_QUERY_REVERT_UID:
@@ -1360,8 +1582,9 @@ typedef struct _VSS_APPLICATION_INFO_PAYLOAD {
 		g->Data2 = (USHORT)((zmo->vss_guid >> 32) & 0xffff);
 		g->Data3 = (USHORT)((zmo->vss_guid >> 48) & 0xffff);
 
-		/* 0x00000009 standard value for VSS_CTX_CLIENT_ACCESSIBLE context flags */
+		/* 0x1D = VSS_CTX_CLIENT_ACCESSIBLE */
 		app_info->SnapshotContext =
+		    VSS_VOLSNAP_ATTR_PERSISTENT |
 		    VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE |
 		    VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
 		    VSS_VOLSNAP_ATTR_NO_WRITERS;
