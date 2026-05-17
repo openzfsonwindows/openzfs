@@ -778,7 +778,7 @@ vqovn_find_cb(void *mp, void *arg)
  *  {0x530018, "IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS" },
  *  {0x530050, "IOCTL_VOLSNAP_QUERY_EPIC" },
  *  {0x530190, "IOCTL_VOLSNAP_QUERY_ORIGINAL_VOLUME_NAME" },
- *  {0x530194, "IOCTL_VOLSNAP_QUERY_SNAPSHOT_TIMESTAMP" },
+ *  {0x530194, IOCTL_VOLSNAP_QUERY_CONFIG_INFO -> "IOCTL_VOLSNAP_QUERY_SNAPSHOT_TIMESTAMP" },
  *  {0x53019c, "IOCTL_VOLSNAP_QUERY_CONFIG_INFO" }, // (FILE_ANY_ACCESS) IOCTL_VOLSNAP_QUERY_APPLICATION_INFO
  *  {0x5301e0, "IOCTL_VOLSNAP_QUERY_REVERT_UID" },
  *  {0x534058, "IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE" },
@@ -790,34 +790,7 @@ vqovn_find_cb(void *mp, void *arg)
  *
  *  {0x530024, "IOCTL_VOLSNAP_QUERY_DIFF_AREA" },
  * 
- *
- * 
- * IOCTL_VOLSNAP_QUERY_APPLICATION_INFO
-struct ApplicationInformation
-{
-    uint8_t length[4];                 // ULONG: Total length of this struct payload (0x44 bytes)
-    GUID    guid;                      // GUID: VOLSNAP_APPINFO_GUID_CLIENT_ACCESSIBLE 
-                                       // ({e5de7d45-49f2-40a4-817c-7dc82b72587f})
-    GUID    shadowCopyGuid;            // GUID: The unique VSS Snapshot ID
-    GUID    shadowCopySetGuid;         // GUID: The unique VSS Snapshot Set ID (the group ID)
-    uint8_t snapshotContext[4];        // LONG: The VSS Context flags (e.g., VSS_CTX_NAS_ROLLBACK)
-    uint8_t unknown1[4];               // ULONG: Internal alignment / Provider version stamp
-    VSS_VOLUME_SNAPSHOT_ATTRIBUTES attributes; // ULONG: The critical bitmask flags!
-    uint8_t unknown2[4];               // ULONG: Reserved trailing packing space
-};
-
- * IOCTL_VOLSNAP_QUERY_CONFIG_INFO
-typedef struct _VOLSNAP_CONFIG_INFO {
-    ULONG         InstanceCount;          // How many snapshots exist on the volume
-    ULONG         AllocatedSpaceInBytes;  // COW diff space size (can be 0 for ZFS)
-    ULONG         TotalSpaceInBytes;      // Max diff space size limit (can be 0 for ZFS)
-    LARGE_INTEGER SnapshotCreationTime;   // The holy grail 1601 64-bit timestamp
-}
  */
-
-#ifndef FILE_DEVICE_VOLUME
-#define FILE_DEVICE_VOLUME 0x00000056 // 'S'
-#endif
 
 #ifndef VOLSNAP_DEVICE_TYPE
 #define VOLSNAP_DEVICE_TYPE   0x00000053
@@ -1208,115 +1181,12 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		status = STATUS_NOT_SUPPORTED; // STATUS_TARGET_SET_NOT_VOLUME
 		break;
 
-	case 12345: // not used, we do not return GMT- names?
-	{
-		/*
-		 * srv2.sys (Smb2SnapCheckAppInfoForTimeWarp) calls this after
-		 * opening the snapshot device to get the @GMT timestamp it will
-		 * advertise in SRV_SNAPSHOT_ARRAY.
-		 *
-		 * Layout: { ULONG Type; ULONG Length; WCHAR bValue[Length/2]; }
-		 * We put Type=1 (time-warp capable) and bValue = the 24-WCHAR
-		 * @GMT-YYYY.MM.DD-HH.MM.SS string (no NUL in bValue itself).
-		 * 
-		 */
-		const ULONG gmt_bytes = 24 * sizeof (WCHAR);
-		const ULONG appsz = 2 * sizeof (ULONG) + gmt_bytes;
-		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_APPLICATION_INFO\n",
-		    __func__);
-		if (outlen < 2 * sizeof (ULONG)) {
-			Irp->IoStatus.Information = appsz;
-			status = STATUS_BUFFER_TOO_SMALL;
-			break;
-		}
-		ULONG *hdr = (ULONG *)buf;
-		hdr[0] = 1;          /* Type = 1 (time-warp) */
-		hdr[1] = gmt_bytes;  /* Length of bValue */
-		Irp->IoStatus.Information = 2 * sizeof (ULONG);
-
-		if (outlen >= appsz) {
-			LARGE_INTEGER vqai_li;
-			TIME_UNIX_TO_WINDOWS_EX(zmo->vss_creation, 0,
-			    vqai_li.QuadPart);
-			TIME_FIELDS vqai_tf;
-			RtlTimeToTimeFields(&vqai_li, &vqai_tf);
-
-			WCHAR *wp = (WCHAR *)(hdr + 2);
-			wp[0]  = L'@'; wp[1]  = L'G'; wp[2]  = L'M';
-			wp[3]  = L'T'; wp[4]  = L'-';
-			wp[5]  = L'0' + (WCHAR)(vqai_tf.Year / 1000);
-			wp[6]  = L'0' + (WCHAR)((vqai_tf.Year / 100) % 10);
-			wp[7]  = L'0' + (WCHAR)((vqai_tf.Year / 10) % 10);
-			wp[8]  = L'0' + (WCHAR)(vqai_tf.Year % 10);
-			wp[9]  = L'.';
-			wp[10] = L'0' + (WCHAR)(vqai_tf.Month / 10);
-			wp[11] = L'0' + (WCHAR)(vqai_tf.Month % 10);
-			wp[12] = L'.';
-			wp[13] = L'0' + (WCHAR)(vqai_tf.Day / 10);
-			wp[14] = L'0' + (WCHAR)(vqai_tf.Day % 10);
-			wp[15] = L'-';
-			wp[16] = L'0' + (WCHAR)(vqai_tf.Hour / 10);
-			wp[17] = L'0' + (WCHAR)(vqai_tf.Hour % 10);
-			wp[18] = L'.';
-			wp[19] = L'0' + (WCHAR)(vqai_tf.Minute / 10);
-			wp[20] = L'0' + (WCHAR)(vqai_tf.Minute % 10);
-			wp[21] = L'.';
-			wp[22] = L'0' + (WCHAR)(vqai_tf.Second / 10);
-			wp[23] = L'0' + (WCHAR)(vqai_tf.Second % 10);
-			Irp->IoStatus.Information = appsz;
-			dprintf("VSS %s: APPLICATION_INFO "
-			    "@GMT-%04d.%02d.%02d-%02d.%02d.%02d\n",
-			    __func__, vqai_tf.Year, vqai_tf.Month, vqai_tf.Day,
-			    vqai_tf.Hour, vqai_tf.Minute, vqai_tf.Second);
-		} else {
-			status = STATUS_BUFFER_OVERFLOW;
-			break;
-		}
-		status = STATUS_SUCCESS;
-		break;
-	}
-#if 0
-	case IOCTL_VOLSNAP_QUERY_SNAPSHOT_TIMESTAMP:
-	{
-		/*
-		 * Smb2ShareQuerySnapShotTimestamp calls this on the snapshot
-		 * device to obtain the snapshot creation time.  Returns a
-		 * LARGE_INTEGER (Windows file time: 100-ns intervals since
-		 * Jan 1, 1601).  srv2.sys converts it to the @GMT string used
-		 * in the SRV_SNAPSHOT_ARRAY / Previous Versions response.
-		 */
-		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_SNAPSHOT_TIMESTAMP\n",
-		    __func__);
-		if (outlen < sizeof (LARGE_INTEGER)) {
-			Irp->IoStatus.Information = sizeof (LARGE_INTEGER);
-			status = STATUS_BUFFER_TOO_SMALL;
-			break;
-		}
-		LARGE_INTEGER *vqst_li = (LARGE_INTEGER *)buf;
-		TIME_UNIX_TO_WINDOWS_EX(zmo->vss_creation, 0,
-		    vqst_li->QuadPart);
-		LARGE_INTEGER vqst_tf_li = *vqst_li;
-		TIME_FIELDS vqst_tf;
-		RtlTimeToTimeFields(&vqst_tf_li, &vqst_tf);
-		dprintf("VSS %s: SNAPSHOT_TIMESTAMP unix=%llu "
-		    "@GMT-%04d.%02d.%02d-%02d.%02d.%02d (0x%llx)\n",
-		    __func__, (unsigned long long)zmo->vss_creation,
-		    vqst_tf.Year, vqst_tf.Month, vqst_tf.Day,
-		    vqst_tf.Hour, vqst_tf.Minute, vqst_tf.Second,
-		    (unsigned long long)vqst_li->QuadPart);
-		Irp->IoStatus.Information = sizeof (LARGE_INTEGER);
-		status = STATUS_SUCCESS;
-		break;
-	}
-#endif
-
 	case IOCTL_VOLSNAP_QUERY_REVERT_UID:
 		/*
 		 * srv2.sys calls this after QUERY_APPLICATION_INFO.
 		 * Returns a 16-byte UID (GUID-sized) identifying this snapshot
 		 * for revert purposes.  A zero GUID is acceptable here.
 		 */
-	    _Static_assert(IOCTL_VOLSNAP_QUERY_REVERT_UID == 0x5301e0, "Macro did not match expected hex!");
 		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_REVERT_UID\n", __func__);
 		if (outlen >= 16)
 			RtlZeroMemory(buf, 16);
@@ -1450,126 +1320,80 @@ typedef struct _VSS_APPLICATION_INFO_PAYLOAD {
 		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_APPLICATION_INFO (outlen=%lu)\n",
 		    __func__, outlen);
 
-	    /* Entire payload structure footprint is exactly 60 bytes (0x3C) */
-	    ULONG need = sizeof(VSS_APPLICATION_INFO_PAYLOAD);
+		/* Entire payload structure footprint is exactly 60 bytes (0x3C) */
+		ULONG need = sizeof(VSS_APPLICATION_INFO_PAYLOAD);
 
-	    if (outlen < need) {
-		/* Stage 1 Probe: Pass required allocation payload footprint size back to srv2 */
-		if (outlen >= sizeof(ULONG)) {
-		    *(ULONG *)buf = need;
+		if (outlen < need) {
+			/* Stage 1 Probe: Pass required allocation payload footprint size back to srv2 */
+			if (outlen >= sizeof(ULONG)) {
+				*(ULONG *)buf = need;
+			}
+			Irp->IoStatus.Information = sizeof(ULONG);
+			status = STATUS_BUFFER_OVERFLOW; // Trigger the memory allocation loop
+			break;
 		}
-		Irp->IoStatus.Information = sizeof(ULONG);
-		status = STATUS_BUFFER_OVERFLOW; // Trigger the memory allocation loop
-		break;
-	    }
 
-	    /* Stage 2: Populate the target buffer memory space explicitly */
-	    VSS_APPLICATION_INFO_PAYLOAD *app_info = (VSS_APPLICATION_INFO_PAYLOAD *)buf;
-	    RtlZeroMemory(app_info, need);
+		/* Stage 2: Populate the target buffer memory space explicitly */
+		VSS_APPLICATION_INFO_PAYLOAD *app_info = (VSS_APPLICATION_INFO_PAYLOAD *)buf;
+		RtlZeroMemory(app_info, need);
 
-	    /* InformationLength is the size of everything *after* the ULONG length tracker field itself */
-	    app_info->InformationLength = need - sizeof(ULONG); // 56 bytes (0x38)
+		/* InformationLength is the size of everything *after* the ULONG length tracker field itself */
+		app_info->InformationLength = need - sizeof(ULONG); // 56 bytes (0x38)
 
-	    /* Set structural verification layout tokens */
-	    static const GUID client_accessible_guid = {
-		    0xe5de7d45, 0x49f2, 0x40a4,
-		    {0x81, 0x7c, 0x7d, 0xc8, 0x2b, 0x72, 0x58, 0x7f}
-	    };
-	    app_info->AppInfoLayoutId = client_accessible_guid;
-
-	    /* Track individual volume snapshot definitions */
-	    // app_info->SnapshotId = zmo->vss_snapshot_guid;
-	    GUID *g = (GUID *)&(app_info->SnapshotId);
-	    g->Data1 = (ULONG)(zmo->vss_guid & 0xffffffff);
-	    g->Data2 = (USHORT)((zmo->vss_guid >> 32) & 0xffff);
-	    g->Data3 = (USHORT)((zmo->vss_guid >> 48) & 0xffff);
-
-	    // app_info->SnapshotSetId = zmo->vss_set_guid;
-	    g = (GUID *)&(app_info->SnapshotSetId);
-	    g->Data1 = (ULONG)(zmo->vss_guid & 0xffffffff);
-	    g->Data2 = (USHORT)((zmo->vss_guid >> 32) & 0xffff);
-	    g->Data3 = (USHORT)((zmo->vss_guid >> 48) & 0xffff);
-
-	    /* 0x00000009 standard value for VSS_CTX_CLIENT_ACCESSIBLE context flags */
-	    app_info->SnapshotContext =
-		VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE |
-		VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
-		VSS_VOLSNAP_ATTR_NO_WRITERS;
-	    app_info->SnapshotCount = 1;
-
-	    Irp->IoStatus.Information = need;
-	    status = STATUS_SUCCESS;
-	    break;
-	}
-
-#if 0
-		/*
-		 * {E5DE7D45-49F2-40A4-817C-7DC82B72587F}
-		 * Extracted from srv2!VOLSNAP_APPINFO_GUID_CLIENT_ACCESSIBLE.
-		 */
-		static const GUID vqovn_guid = {
-		    0xe5de7d45, 0x49f2, 0x40a4,
-		    {0x81, 0x7c, 0x7d, 0xc8, 0x2b, 0x72, 0x58, 0x7f}
+		/* Set structural verification layout tokens */
+		static const GUID client_accessible_guid = {
+			0xe5de7d45, 0x49f2, 0x40a4,
+			{0x81, 0x7c, 0x7d, 0xc8, 0x2b, 0x72, 0x58, 0x7f}
 		};
+		app_info->AppInfoLayoutId = client_accessible_guid;
 
-		/* Strip @snap suffix from vss_snapname to get dataset name. */
-		char vqovn_ds[256];
-		strlcpy(vqovn_ds, zmo->vss_snapname, sizeof (vqovn_ds));
-		char *vqovn_at = strchr(vqovn_ds, '@');
-		if (vqovn_at)
-			*vqovn_at = '\0';
+		/* Track individual volume snapshot definitions */
+		// app_info->SnapshotId = zmo->vss_snapshot_guid;
+		GUID *g = (GUID *)&(app_info->SnapshotId);
+		g->Data1 = (ULONG)(zmo->vss_guid & 0xffffffff);
+		g->Data2 = (USHORT)((zmo->vss_guid >> 32) & 0xffff);
+		g->Data3 = (USHORT)((zmo->vss_guid >> 48) & 0xffff);
 
-		vqovn_ctx_t vqovn_ctx = { .dataset = vqovn_ds };
-		vfs_mount_iterate(vqovn_find_cb, &vqovn_ctx);
+		// app_info->SnapshotSetId = zmo->vss_set_guid;
+		g = (GUID *)&(app_info->SnapshotSetId);
+		g->Data1 = (ULONG)(zmo->vss_guid & 0xffffffff);
+		g->Data2 = (USHORT)((zmo->vss_guid >> 32) & 0xffff);
+		g->Data3 = (USHORT)((zmo->vss_guid >> 48) & 0xffff);
 
-		if (!vqovn_ctx.found) {
-			dprintf("VSS %s: parent DCB for '%s' not found\n",
-			    __func__, vqovn_ds);
-			status = STATUS_NOT_FOUND;
-			break;
-		}
+		/* 0x00000009 standard value for VSS_CTX_CLIENT_ACCESSIBLE context flags */
+		app_info->SnapshotContext =
+		    VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE |
+		    VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
+		    VSS_VOLSNAP_ATTR_NO_WRITERS;
+		app_info->SnapshotCount = 1;
 
-		/* cb + GUID + NameLen + Name */
-		ULONG vqovn_need = (ULONG)(sizeof (ULONG) + sizeof (GUID) +
-		    sizeof (USHORT) + vqovn_ctx.namelen);
-
-		if (outlen < vqovn_need) {
-			/*
-			 * Probe: write cb so srv2 can compute correct alloc
-			 * size ("alloc = [probe_buf_dword] + 8").
-			 */
-			if (outlen >= sizeof (ULONG))
-				*(ULONG *)buf = vqovn_need;
-			Irp->IoStatus.Information = vqovn_need;
-			status = STATUS_BUFFER_OVERFLOW;
-			break;
-		}
-
-		ULONG  *vqovn_cb  = (ULONG *)buf;
-		GUID   *vqovn_g   = (GUID *)(vqovn_cb + 1);
-		USHORT *vqovn_nl  = (USHORT *)(vqovn_g + 1);
-		*vqovn_cb = vqovn_need;
-		*vqovn_g  = vqovn_guid;
-		*vqovn_nl = vqovn_ctx.namelen;
-		RtlCopyMemory(vqovn_nl + 1, vqovn_ctx.namebuf,
-		    vqovn_ctx.namelen);
-		Irp->IoStatus.Information = vqovn_need;
-		dprintf("VSS %s: returning device name len=%u total=%u\n",
-		    __func__, vqovn_ctx.namelen, vqovn_need);
+		Irp->IoStatus.Information = need;
 		status = STATUS_SUCCESS;
 		break;
-#endif
+	}
 
 	case IOCTL_VOLSNAP_QUERY_EPIC: /* IOCTL_VOLSNAP function 0x14 - control, no output */
+	{
 		/*
 		 * VSS sends this to the snapshot device with a 0-byte (or tiny)
 		 * output buffer; it is a fire-and-forget control IOCTL with no
 		 * data returned.  STATUS_SUCCESS + Information=0 is correct.
 		 */
+		typedef struct _VOLSNAP_EPIC_INFO {
+		    ULONG EpicNumber;
+		} VOLSNAP_EPIC_INFO, *PVOLSNAP_EPIC_INFO;
+
+		// ZFS snapshot are frozen to a txg, so EPIC should never change?
 		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_EPIC no-op\n", __func__);
+
+		if (outlen >= sizeof (ULONG)) {
+			*(ULONG *)buf = 0;
+		}
+
 		Irp->IoStatus.Information = 0;
 		status = STATUS_SUCCESS;
 		break;
+	}
 
 	case IOCTL_STORAGE_QUERY_PROPERTY:
 	{
