@@ -29,8 +29,16 @@
 extern void	zfs_vss_init(void);
 extern void	zfs_vss_fini(void);
 
-extern int	zfs_vss_snapshot_add(uint64_t guid, const char *snapname);
+extern int	zfs_vss_snapshot_add(uint64_t guid, const char *snapname,
+    uint64_t creation);
 extern void	zfs_vss_snapshot_remove(uint64_t guid);
+
+/*
+ * Find the GUID of the closest snapshot of 'dataset' at or before
+ * unix_time.  Returns 0 if no snapshot qualifies.
+ */
+extern uint64_t	zfs_vss_find_by_time(uint64_t unix_time,
+    const char *dataset);
 
 /* Name-based wrappers - called from the ioctl layer after create/destroy */
 extern void	zfs_vss_snapshot_add_by_name(const char *snapname);

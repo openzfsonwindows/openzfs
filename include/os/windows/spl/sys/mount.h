@@ -144,6 +144,7 @@ struct mount
 
 	/* VSS snapshot lazy-mount fields (type == MOUNT_TYPE_VSS only) */
 	uint64_t	vss_guid;
+	uint64_t	vss_creation;      /* Unix creation timestamp */
 	char		vss_snapname[256]; /* ZFS_MAX_DATASET_NAME_LEN */
 	KMUTEX		vss_mount_lock;    /* serialise first-access mount */
 };

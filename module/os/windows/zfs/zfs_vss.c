@@ -86,6 +86,7 @@
 typedef struct zfs_vss_snap {
 	avl_node_t	zvs_node;
 	uint64_t	zvs_guid;	/* ZFS dataset GUID (key) */
+	uint64_t	zvs_creation;	/* snapshot creation (Unix seconds) */
 	PDEVICE_OBJECT	zvs_devobj;	/* \Device\ZfsSnapshot<hex> */
 } zfs_vss_snap_t;
 
@@ -110,7 +111,7 @@ static void zfs_vss_notify_mountmgr(PDEVICE_OBJECT devobj);
  * open the SPA and look up the snapshot for size queries.
  */
 int
-zfs_vss_snapshot_add(uint64_t guid, const char *snapname)
+zfs_vss_snapshot_add(uint64_t guid, const char *snapname, uint64_t creation)
 {
 	NTSTATUS status;
 	char devname[64];
@@ -186,7 +187,8 @@ zfs_vss_snapshot_add(uint64_t guid, const char *snapname)
 	RtlZeroMemory(zmo, sizeof (mount_t));
 	zmo->type = MOUNT_TYPE_VSS;
 	zmo->size = sizeof (mount_t);
-	zmo->vss_guid = guid;
+	zmo->vss_guid     = guid;
+	zmo->vss_creation = creation;
 	strlcpy(zmo->vss_snapname, snapname ? snapname : "",
 	    sizeof (zmo->vss_snapname));
 	/* ascii_name points into vss_snapname ("pool/ds@snap") */
@@ -205,8 +207,9 @@ zfs_vss_snapshot_add(uint64_t guid, const char *snapname)
 	devobj->Flags &= ~DO_DEVICE_INITIALIZING;
 
 	zfs_vss_snap_t *zvs = kmem_alloc(sizeof (*zvs), KM_SLEEP);
-	zvs->zvs_guid   = guid;
-	zvs->zvs_devobj = devobj;
+	zvs->zvs_guid     = guid;
+	zvs->zvs_creation = creation;
+	zvs->zvs_devobj   = devobj;
 
 	mutex_enter(&zfs_vss_lock);
 	avl_add(&zfs_vss_snaps, zvs);
@@ -362,7 +365,7 @@ zfs_vss_snapshot_add_by_name(const char *snapname)
 	if (dsl_dataset_hold(dp, snapname, FTAG, &ds) == 0) {
 		if (dsl_dataset_is_snapshot(ds))
 			(void) zfs_vss_snapshot_add(dsl_dataset_phys(ds)->ds_guid,
-			    snapname);
+			    snapname, dsl_get_creation(ds));
 		dsl_dataset_rele(ds, FTAG);
 	}
 	dsl_pool_config_exit(dp, FTAG);
@@ -436,7 +439,8 @@ zfs_vss_pool_add_cb(dsl_pool_t *dp, dsl_dataset_t *ds, void *arg)
 	char dsname[ZFS_MAX_DATASET_NAME_LEN];
 	dsl_dataset_name(ds, dsname);
 	uint64_t guid = dsl_dataset_phys(ds)->ds_guid;
-	(void) zfs_vss_snapshot_add(guid, dsname);
+	uint64_t ctime = dsl_get_creation(ds);
+	(void) zfs_vss_snapshot_add(guid, dsname, ctime);
 	return (0);
 }
 
@@ -501,6 +505,48 @@ zfs_vss_pool_remove(spa_t *spa)
 
 	if (guids != NULL)
 		kmem_free(guids, alloc * sizeof (uint64_t));
+}
+
+/*
+ * Find the GUID of the snapshot of 'dataset' whose creation time is
+ * the largest value that is <= unix_time.  Used by the @GMT time-warp
+ * path handler: given a UTC timestamp from a Previous Versions path
+ * (\@GMT-YYYY.MM.DD-HH.MM.SS\...), find the ZFS snapshot to open.
+ *
+ * Returns the dataset GUID, or 0 if no matching snapshot was found.
+ *
+ * 'dataset' is the live dataset name (e.g. "pool/data"); only snapshots
+ * of the form "pool/data@..." are considered.
+ */
+uint64_t
+zfs_vss_find_by_time(uint64_t unix_time, const char *dataset)
+{
+	size_t dslen = dataset ? strlen(dataset) : 0;
+	uint64_t best_guid = 0;
+	uint64_t best_ctime = 0;
+	zfs_vss_snap_t *zvs;
+
+	mutex_enter(&zfs_vss_lock);
+	for (zvs = avl_first(&zfs_vss_snaps);
+	    zvs != NULL;
+	    zvs = AVL_NEXT(&zfs_vss_snaps, zvs)) {
+		/* Filter by dataset: snapname must be "<dataset>@..." */
+		if (dslen > 0) {
+			mount_t *snzmo =
+			    (mount_t *)zvs->zvs_devobj->DeviceExtension;
+			const char *sn = snzmo->vss_snapname;
+			if (strncmp(sn, dataset, dslen) != 0 ||
+			    sn[dslen] != '@')
+				continue;
+		}
+		if (zvs->zvs_creation <= unix_time &&
+		    zvs->zvs_creation > best_ctime) {
+			best_ctime = zvs->zvs_creation;
+			best_guid  = zvs->zvs_guid;
+		}
+	}
+	mutex_exit(&zfs_vss_lock);
+	return (best_guid);
 }
 
 void
@@ -596,8 +642,10 @@ zfs_vss_do_mount(PDEVICE_OBJECT DeviceObject, mount_t *zmo)
 	}
 
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
-	if (zfsvfs != NULL)
+	if (zfsvfs != NULL) {
 		zfsvfs->z_vfs = zmo;
+		zfsvfs->z_mimic = ZFS_MIMIC_NTFS;
+	}
 
 	zmo->VolumeDeviceObject = DeviceObject;
 	zmo->FunctionalDeviceObject = DeviceObject;
@@ -674,11 +722,187 @@ zfs_vss_mount_workitem(PDEVICE_OBJECT DeviceObject, PVOID Context)
 }
 
 /*
+ * Helper for IOCTL_VOLSNAP_QUERY_ORIGINAL_VOLUME_NAME.
+ * Walks the mount list for the DCB whose ascii_name matches the parent
+ * dataset (vss_snapname with the "@snapshot" suffix stripped).
+ */
+typedef struct {
+	const char	*dataset;
+	USHORT		namelen;	/* bytes copied into namebuf */
+	WCHAR		namebuf[PATH_MAX];
+	boolean_t	found;
+} vqovn_ctx_t;
+
+static int
+vqovn_find_cb(void *mp, void *arg)
+{
+	mount_t *m = mp;
+	vqovn_ctx_t *ctx = arg;
+
+	if (m->type != MOUNT_TYPE_DCB ||
+	    m->ascii_name == NULL ||
+	    strcmp(m->ascii_name, ctx->dataset) != 0)
+		return (0);
+
+	/*
+	 * srv2.sys compares ORIGINAL_VOLUME_NAME against the filesystem
+	 * volume device (the VCB), not the disk device.  The DCB's fs_name
+	 * (\Device\ZFS{uuid}) is the name IoCreateDevice used for the VCB,
+	 * so it is what IoGetRelatedDeviceObject returns for a file on the
+	 * share.  Return fs_name; fall back to device_name if fs_name is
+	 * unset (should not happen for a mounted volume).
+	 */
+	const UNICODE_STRING *src = (m->fs_name.Length > 0 &&
+	    m->fs_name.Buffer != NULL) ? &m->fs_name : &m->device_name;
+	if (src->Length == 0 || src->Buffer == NULL)
+		return (0);
+
+	USHORT copy_len = min(src->Length,
+	    (USHORT)(sizeof (ctx->namebuf) - sizeof (WCHAR)));
+	RtlCopyMemory(ctx->namebuf, src->Buffer, copy_len);
+	ctx->namelen = copy_len;
+	ctx->found = B_TRUE;
+	dprintf("%s: returning '%.*S' for dataset '%s'\n",
+	    __func__, (int)(copy_len / sizeof (WCHAR)), ctx->namebuf,
+	    ctx->dataset);
+	return (1);
+}
+
+/*
  * IRP_MJ_DEVICE_CONTROL handler for VSS snapshot devices.
  *
  * Handles the storage/volume/mountdev IOCTLs that VSS and the
  * Mount Manager issue when discovering and characterising shadow copies.
+ *
+ * From WireShark:
+ *  {0x530018, "IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS" },
+ *  {0x530050, "IOCTL_VOLSNAP_QUERY_EPIC" },
+ *  {0x530190, "IOCTL_VOLSNAP_QUERY_ORIGINAL_VOLUME_NAME" },
+ *  {0x530194, "IOCTL_VOLSNAP_QUERY_SNAPSHOT_TIMESTAMP" },
+ *  {0x53019c, "IOCTL_VOLSNAP_QUERY_CONFIG_INFO" }, // (FILE_ANY_ACCESS) IOCTL_VOLSNAP_QUERY_APPLICATION_INFO
+ *  {0x5301e0, "IOCTL_VOLSNAP_QUERY_REVERT_UID" },
+ *  {0x534058, "IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE" },
+ *  {0x534070, "IOCTL_VOLSNAP_QUERY_APPLICATION_FLAGS" },
+ *  {0x534194, "IOCTL_VOLSNAP_QUERY_SNAPSHOT_TIMESTAMP_RO" },
+ *  {0x53419C, "IOCTL_VOLSNAP_QUERY_APPLICATION_INFO" }, //  (FILE_READ_ACCESS)
+ *  {0x53c004, "IOCTL_VOLSNAP_RELEASE_WRITES" },
+ *  {0x53c198, "IOCTL_VOLSNAP_SET_APPLICATION_INFO" },
+ *
+ *  {0x530024, "IOCTL_VOLSNAP_QUERY_DIFF_AREA" },
+ * 
+ *
+ * 
+ * IOCTL_VOLSNAP_QUERY_APPLICATION_INFO
+struct ApplicationInformation
+{
+    uint8_t length[4];                 // ULONG: Total length of this struct payload (0x44 bytes)
+    GUID    guid;                      // GUID: VOLSNAP_APPINFO_GUID_CLIENT_ACCESSIBLE 
+                                       // ({e5de7d45-49f2-40a4-817c-7dc82b72587f})
+    GUID    shadowCopyGuid;            // GUID: The unique VSS Snapshot ID
+    GUID    shadowCopySetGuid;         // GUID: The unique VSS Snapshot Set ID (the group ID)
+    uint8_t snapshotContext[4];        // LONG: The VSS Context flags (e.g., VSS_CTX_NAS_ROLLBACK)
+    uint8_t unknown1[4];               // ULONG: Internal alignment / Provider version stamp
+    VSS_VOLUME_SNAPSHOT_ATTRIBUTES attributes; // ULONG: The critical bitmask flags!
+    uint8_t unknown2[4];               // ULONG: Reserved trailing packing space
+};
+
+ * IOCTL_VOLSNAP_QUERY_CONFIG_INFO
+typedef struct _VOLSNAP_CONFIG_INFO {
+    ULONG         InstanceCount;          // How many snapshots exist on the volume
+    ULONG         AllocatedSpaceInBytes;  // COW diff space size (can be 0 for ZFS)
+    ULONG         TotalSpaceInBytes;      // Max diff space size limit (can be 0 for ZFS)
+    LARGE_INTEGER SnapshotCreationTime;   // The holy grail 1601 64-bit timestamp
+}
  */
+
+#ifndef FILE_DEVICE_VOLUME
+#define FILE_DEVICE_VOLUME 0x00000056 // 'S'
+#endif
+
+#ifndef VOLSNAP_DEVICE_TYPE
+#define VOLSNAP_DEVICE_TYPE   0x00000053
+#endif
+
+#ifndef IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS
+#define IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS CTL_CODE(VOLSNAP_DEVICE_TYPE, 6, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#endif
+
+#ifndef IOCTL_VOLSNAP_QUERY_EPIC
+#define IOCTL_VOLSNAP_QUERY_EPIC CTL_CODE(VOLSNAP_DEVICE_TYPE, 20, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#endif
+
+#ifndef IOCTL_VOLSNAP_QUERY_DIFF_AREA
+#define IOCTL_VOLSNAP_QUERY_DIFF_AREA CTL_CODE(VOLSNAP_DEVICE_TYPE, 9, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#endif
+
+#ifndef IOCTL_VOLSNAP_QUERY_ORIGINAL_VOLUME_NAME
+#define IOCTL_VOLSNAP_QUERY_ORIGINAL_VOLUME_NAME CTL_CODE(VOLSNAP_DEVICE_TYPE, 100, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#endif
+
+// IOCTL_VOLSNAP_QUERY_SNAPSHOT_TIMESTAMP
+#ifndef IOCTL_VOLSNAP_QUERY_CONFIG_INFO
+#define IOCTL_VOLSNAP_QUERY_CONFIG_INFO CTL_CODE(VOLSNAP_DEVICE_TYPE, 101, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#endif
+
+#ifndef IOCTL_VOLSNAP_QUERY_CONFIG_INFO_RO
+#define IOCTL_VOLSNAP_QUERY_CONFIG_INFO_RO CTL_CODE(VOLSNAP_DEVICE_TYPE, 101, METHOD_BUFFERED, FILE_READ_ACCESS)
+#endif
+
+#ifndef IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE
+#define IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE CTL_CODE(VOLSNAP_DEVICE_TYPE, 22, METHOD_BUFFERED, FILE_READ_ACCESS)
+#endif
+
+#ifndef IOCTL_VOLSNAP_QUERY_APPLICATION_FLAGS
+#define IOCTL_VOLSNAP_QUERY_APPLICATION_FLAGS CTL_CODE(VOLSNAP_DEVICE_TYPE, 28, METHOD_BUFFERED, FILE_READ_ACCESS)
+#endif
+
+ // Function 103 with ANY access matches your disassembly (0x53019C)
+#ifndef IOCTL_VOLSNAP_QUERY_APPLICATION_INFO
+#define IOCTL_VOLSNAP_QUERY_APPLICATION_INFO CTL_CODE(VOLSNAP_DEVICE_TYPE, 103, METHOD_BUFFERED, FILE_ANY_ACCESS) // 0x53019C
+#endif
+
+// Function 103 with READ access (0x53419C) if other modern tools probe for it
+#ifndef IOCTL_VOLSNAP_QUERY_APPLICATION_INFO_RO
+#define IOCTL_VOLSNAP_QUERY_APPLICATION_INFO_RO CTL_CODE(VOLSNAP_DEVICE_TYPE, 103, METHOD_BUFFERED, FILE_READ_ACCESS) // 0x53419C
+#endif
+
+#ifndef IOCTL_VOLSNAP_RELEASE_WRITES
+#define IOCTL_VOLSNAP_RELEASE_WRITES CTL_CODE(VOLSNAP_DEVICE_TYPE, 1, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+#endif
+
+#ifndef IOCTL_VOLSNAP_SET_APPLICATION_INFO
+#define IOCTL_VOLSNAP_SET_APPLICATION_INFO CTL_CODE(VOLSNAP_DEVICE_TYPE, 102, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+#endif
+
+#ifndef IOCTL_VOLSNAP_QUERY_REVERT_UID
+#define IOCTL_VOLSNAP_QUERY_REVERT_UID CTL_CODE(VOLSNAP_DEVICE_TYPE, 120, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#endif
+
+#ifndef IOCTL_VOLSNAP_QUERY_APPLICATION_INFO_PROPERTIES
+#define IOCTL_VOLSNAP_QUERY_APPLICATION_INFO_PROPERTIES CTL_CODE(VOLSNAP_DEVICE_TYPE, 27, METHOD_BUFFERED, FILE_READ_ACCESS)
+#endif
+
+#ifndef IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS_RO
+#define IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS_RO CTL_CODE(VOLSNAP_DEVICE_TYPE, 5, METHOD_BUFFERED, FILE_READ_ACCESS)
+#endif
+
+#ifndef VSS_VOLSNAP_ATTR_PERSISTENT
+#define VSS_VOLSNAP_ATTR_PERSISTENT 0x00000001
+#endif
+#ifndef VSS_VOLSNAP_ATTR_NO_AUTORECOVERY
+#define VSS_VOLSNAP_ATTR_NO_AUTORECOVERY 0x00000002
+#endif
+#ifndef VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE
+#define VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE 0x00000004
+#endif
+#ifndef VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE
+#define VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE 0x00000008
+#endif
+#ifndef VSS_VOLSNAP_ATTR_NO_WRITERS
+#define VSS_VOLSNAP_ATTR_NO_WRITERS 0x00000010
+#endif
+
+
 static NTSTATUS
 zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
@@ -690,6 +914,19 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
 
 	switch (cmd) {
+
+	case IOCTL_VOLUME_IS_CLUSTERED: /* 0x560030 */
+		/*
+		 * srv2.sys sends this to every volume device while scanning for
+		 * shadow copies.  STATUS_UNSUCCESSFUL = not clustered (correct
+		 * for snapshot devices).  STATUS_INVALID_DEVICE_REQUEST would
+		 * cause srv2.sys to skip this device as an invalid disk type.
+		 */
+		dprintf("VSS %s: IOCTL_VOLUME_IS_CLUSTERED -> not clustered\n",
+		    __func__);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_UNSUCCESSFUL;
+		break;
 
 	case IOCTL_DISK_IS_WRITABLE:
 		/* Snapshots are always read-only */
@@ -883,7 +1120,7 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 	}
 
-	case 0x534058: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE */
+	case IOCTL_VOLSNAP_QUERY_DIFF_AREA_MINIMUM_SIZE:
 		/*
 		 * Snapshot devices cannot host a volsnap diff-area.
 		 * Decline so the System Provider does not try to use
@@ -896,7 +1133,7 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 
 	case IOCTL_VOLSNAP_FLUSH_AND_HOLD_WRITES:
-	case 0x0053C004: /* IOCTL_VOLSNAP_RELEASE_WRITES */
+	case IOCTL_VOLSNAP_RELEASE_WRITES:
 		/*
 		 * Snapshot devices are read-only; no write hold/release needed.
 		 */
@@ -906,7 +1143,7 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		status = STATUS_SUCCESS;
 		break;
 
-	case 0x534070: /* IOCTL_VOLSNAP_QUERY_APPLICATION_FLAGS */
+	case IOCTL_VOLSNAP_QUERY_APPLICATION_FLAGS:
 	{
 		/*
 		 * Returns ApplicationInformation (68 bytes):
@@ -927,18 +1164,18 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 	}
 
-	case 0x53406C: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION */
+	case IOCTL_VOLSNAP_QUERY_APPLICATION_INFO_PROPERTIES: 
 		/*
 		 * Snapshot devices cannot host a diff-area; decline.
 		 */
-		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_DIFF_AREA_INFORMATION"
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_APPLICATION_INFO_PROPERTIES"
 		    " -> NOT_SUPPORTED\n", __func__);
 		Irp->IoStatus.Information = 0;
 		status = STATUS_NOT_SUPPORTED;
 		break;
 
-	case 0x530018: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS (primary) */
-	case 0x534014: /* IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS (alt) */
+	case IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS:
+	case IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS_RO:
 	{
 		/*
 		 * The snapshot device itself has no child snapshots.
@@ -964,34 +1201,372 @@ zfs_vss_device_control(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		break;
 	}
 
-	case 0x530024: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA */
+	case IOCTL_VOLSNAP_QUERY_DIFF_AREA: /* IOCTL_VOLSNAP_QUERY_DIFF_AREA */
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_DIFF_AREA\n",
+		    __func__);
+		Irp->IoStatus.Information = 0;
+		status = STATUS_NOT_SUPPORTED; // STATUS_TARGET_SET_NOT_VOLUME
+		break;
+
+	case 12345: // not used, we do not return GMT- names?
 	{
 		/*
-		 * VSS coordinator queries diff-area volumes for this snapshot
-		 * device.  ZFS uses CoW native snapshots; no diff-area exists.
-		 * Return SUCCESS with NumberOfVolumes=0.
-		 * Layout: { ULONG NumberOfVolumes; }
+		 * srv2.sys (Smb2SnapCheckAppInfoForTimeWarp) calls this after
+		 * opening the snapshot device to get the @GMT timestamp it will
+		 * advertise in SRV_SNAPSHOT_ARRAY.
+		 *
+		 * Layout: { ULONG Type; ULONG Length; WCHAR bValue[Length/2]; }
+		 * We put Type=1 (time-warp capable) and bValue = the 24-WCHAR
+		 * @GMT-YYYY.MM.DD-HH.MM.SS string (no NUL in bValue itself).
+		 * 
 		 */
-		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_DIFF_AREA"
-		    " -> 0 volumes\n", __func__);
-		if (outlen < sizeof (ULONG)) {
-			Irp->IoStatus.Information = sizeof (ULONG);
+		const ULONG gmt_bytes = 24 * sizeof (WCHAR);
+		const ULONG appsz = 2 * sizeof (ULONG) + gmt_bytes;
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_APPLICATION_INFO\n",
+		    __func__);
+		if (outlen < 2 * sizeof (ULONG)) {
+			Irp->IoStatus.Information = appsz;
 			status = STATUS_BUFFER_TOO_SMALL;
 			break;
 		}
-		*(ULONG *)buf = 0;
-		Irp->IoStatus.Information = sizeof (ULONG);
+		ULONG *hdr = (ULONG *)buf;
+		hdr[0] = 1;          /* Type = 1 (time-warp) */
+		hdr[1] = gmt_bytes;  /* Length of bValue */
+		Irp->IoStatus.Information = 2 * sizeof (ULONG);
+
+		if (outlen >= appsz) {
+			LARGE_INTEGER vqai_li;
+			TIME_UNIX_TO_WINDOWS_EX(zmo->vss_creation, 0,
+			    vqai_li.QuadPart);
+			TIME_FIELDS vqai_tf;
+			RtlTimeToTimeFields(&vqai_li, &vqai_tf);
+
+			WCHAR *wp = (WCHAR *)(hdr + 2);
+			wp[0]  = L'@'; wp[1]  = L'G'; wp[2]  = L'M';
+			wp[3]  = L'T'; wp[4]  = L'-';
+			wp[5]  = L'0' + (WCHAR)(vqai_tf.Year / 1000);
+			wp[6]  = L'0' + (WCHAR)((vqai_tf.Year / 100) % 10);
+			wp[7]  = L'0' + (WCHAR)((vqai_tf.Year / 10) % 10);
+			wp[8]  = L'0' + (WCHAR)(vqai_tf.Year % 10);
+			wp[9]  = L'.';
+			wp[10] = L'0' + (WCHAR)(vqai_tf.Month / 10);
+			wp[11] = L'0' + (WCHAR)(vqai_tf.Month % 10);
+			wp[12] = L'.';
+			wp[13] = L'0' + (WCHAR)(vqai_tf.Day / 10);
+			wp[14] = L'0' + (WCHAR)(vqai_tf.Day % 10);
+			wp[15] = L'-';
+			wp[16] = L'0' + (WCHAR)(vqai_tf.Hour / 10);
+			wp[17] = L'0' + (WCHAR)(vqai_tf.Hour % 10);
+			wp[18] = L'.';
+			wp[19] = L'0' + (WCHAR)(vqai_tf.Minute / 10);
+			wp[20] = L'0' + (WCHAR)(vqai_tf.Minute % 10);
+			wp[21] = L'.';
+			wp[22] = L'0' + (WCHAR)(vqai_tf.Second / 10);
+			wp[23] = L'0' + (WCHAR)(vqai_tf.Second % 10);
+			Irp->IoStatus.Information = appsz;
+			dprintf("VSS %s: APPLICATION_INFO "
+			    "@GMT-%04d.%02d.%02d-%02d.%02d.%02d\n",
+			    __func__, vqai_tf.Year, vqai_tf.Month, vqai_tf.Day,
+			    vqai_tf.Hour, vqai_tf.Minute, vqai_tf.Second);
+		} else {
+			status = STATUS_BUFFER_OVERFLOW;
+			break;
+		}
 		status = STATUS_SUCCESS;
 		break;
 	}
+#if 0
+	case IOCTL_VOLSNAP_QUERY_SNAPSHOT_TIMESTAMP:
+	{
+		/*
+		 * Smb2ShareQuerySnapShotTimestamp calls this on the snapshot
+		 * device to obtain the snapshot creation time.  Returns a
+		 * LARGE_INTEGER (Windows file time: 100-ns intervals since
+		 * Jan 1, 1601).  srv2.sys converts it to the @GMT string used
+		 * in the SRV_SNAPSHOT_ARRAY / Previous Versions response.
+		 */
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_SNAPSHOT_TIMESTAMP\n",
+		    __func__);
+		if (outlen < sizeof (LARGE_INTEGER)) {
+			Irp->IoStatus.Information = sizeof (LARGE_INTEGER);
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		LARGE_INTEGER *vqst_li = (LARGE_INTEGER *)buf;
+		TIME_UNIX_TO_WINDOWS_EX(zmo->vss_creation, 0,
+		    vqst_li->QuadPart);
+		LARGE_INTEGER vqst_tf_li = *vqst_li;
+		TIME_FIELDS vqst_tf;
+		RtlTimeToTimeFields(&vqst_tf_li, &vqst_tf);
+		dprintf("VSS %s: SNAPSHOT_TIMESTAMP unix=%llu "
+		    "@GMT-%04d.%02d.%02d-%02d.%02d.%02d (0x%llx)\n",
+		    __func__, (unsigned long long)zmo->vss_creation,
+		    vqst_tf.Year, vqst_tf.Month, vqst_tf.Day,
+		    vqst_tf.Hour, vqst_tf.Minute, vqst_tf.Second,
+		    (unsigned long long)vqst_li->QuadPart);
+		Irp->IoStatus.Information = sizeof (LARGE_INTEGER);
+		status = STATUS_SUCCESS;
+		break;
+	}
+#endif
 
-	case 0x530050: /* IOCTL_VOLSNAP function 0x14 - control, no output */
+	case IOCTL_VOLSNAP_QUERY_REVERT_UID:
+		/*
+		 * srv2.sys calls this after QUERY_APPLICATION_INFO.
+		 * Returns a 16-byte UID (GUID-sized) identifying this snapshot
+		 * for revert purposes.  A zero GUID is acceptable here.
+		 */
+	    _Static_assert(IOCTL_VOLSNAP_QUERY_REVERT_UID == 0x5301e0, "Macro did not match expected hex!");
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_REVERT_UID\n", __func__);
+		if (outlen >= 16)
+			RtlZeroMemory(buf, 16);
+		Irp->IoStatus.Information = (outlen >= 16) ? 16 : 0;
+		status = STATUS_SUCCESS;
+		break;
+
+	case IOCTL_VOLSNAP_QUERY_CONFIG_INFO:
+	case IOCTL_VOLSNAP_QUERY_CONFIG_INFO_RO:
+	{
+
+	    typedef struct _VOLSNAP_CONFIG_INFO {
+		ULONG           Attributes;
+		ULONG           Reserved;
+		LARGE_INTEGER   SnapshotCreationTime;
+	    } VOLSNAP_CONFIG_INFO, *PVOLSNAP_CONFIG_INFO;
+
+	    dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_CONFIG_INFO\n",
+		__func__);
+
+	    ULONG need = sizeof(VOLSNAP_CONFIG_INFO);
+
+	    if (outlen < need) {
+		Irp->IoStatus.Information = need;
+		status = STATUS_BUFFER_OVERFLOW;
+		break;
+	    }
+
+	    VOLSNAP_CONFIG_INFO *config = (VOLSNAP_CONFIG_INFO *)buf;
+	    RtlZeroMemory(config, sizeof(*config));
+
+	    config->Attributes =
+		VSS_VOLSNAP_ATTR_PERSISTENT |
+		VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE |
+		VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE;
+
+	    /*
+	     * SnapshotCreationTime must be a 64-bit Windows FILETIME
+	     * (100-nanosecond intervals since January 1, 1601).
+	     * Ensure zmo->creation_time (Unix epoch) is converted cleanly.
+	     */
+
+	    LARGE_INTEGER ct;
+	    TIME_UNIX_TO_WINDOWS_EX(zmo->vss_creation, 0,
+		ct.QuadPart);
+	    config->SnapshotCreationTime.QuadPart = ct.QuadPart;
+
+	    Irp->IoStatus.Information = sizeof(VOLSNAP_CONFIG_INFO);
+
+	    status = STATUS_SUCCESS;
+	    break;
+	}
+
+	case IOCTL_VOLSNAP_QUERY_ORIGINAL_VOLUME_NAME:
+	{
+	    // 2. Put your target string lookup logic here!
+	    // This is where srv2.sys / I/O Manager asks for the parent volume link string.
+	    char vqovn_ds[256];
+	    strlcpy(vqovn_ds, zmo->vss_snapname, sizeof(vqovn_ds));
+	    char *vqovn_at = strchr(vqovn_ds, '@');
+	    if (vqovn_at)
+		*vqovn_at = '\0';
+
+	    vqovn_ctx_t vqovn_ctx = { .dataset = vqovn_ds };
+	    vfs_mount_iterate(vqovn_find_cb, &vqovn_ctx);
+
+	    if (!vqovn_ctx.found) {
+		status = STATUS_NOT_FOUND;
+		break;
+	    }
+
+	    // Standard volume name structures follow a short length prefix then WCHAR array
+	    ULONG string_need = sizeof(USHORT) + vqovn_ctx.namelen;
+	    if (outlen < string_need) {
+		Irp->IoStatus.Information = string_need;
+		status = STATUS_BUFFER_OVERFLOW;
+		break;
+	    }
+
+	    USHORT *out_len_prefix = (USHORT *)buf;
+	    *out_len_prefix = vqovn_ctx.namelen;
+	    RtlCopyMemory(out_len_prefix + 1, vqovn_ctx.namebuf, vqovn_ctx.namelen);
+
+	    Irp->IoStatus.Information = string_need;
+	    status = STATUS_SUCCESS;
+	    break;
+	}
+
+	case IOCTL_VOLSNAP_QUERY_APPLICATION_INFO:
+	{
+		/*
+		 * typedef struct _VOLSNAP_APPLICATION_INFO {
+		 * ULONG   InformationLength;
+		 * UCHAR   Information[1];
+		 * //
+		 * // It is highly recommended that the first 16 bytes from the 
+		 * // Application Info should be a unique GUID indentifying the 
+		 * // unique structure layout of the subsequent Application Info.
+		 * //
+	         * } VOLSNAP_APPLICATION_INFO, *PVOLSNAP_APPLICATION_INFO;
+		 * 
+		 * srv2.sys probes with a small buffer (BUFFER_OVERFLOW),
+		 * reads [probe_buf+0] as DWORD, adds 8, allocates, retries.
+		 * After the real call it checks:
+		 *   [rdi+0] DWORD > 0x10              (total size sanity)
+		 *   [rdi+4] == VOLSNAP_APPINFO_GUID_CLIENT_ACCESSIBLE (16 B)
+		 *
+		 * Wire format (inferred from srv2.sys disassembly):
+		 *   ULONG  cb;       // +0:  total struct size, must be > 16
+		 *   GUID   guid;     // +4:  VOLSNAP_APPINFO_GUID_CLIENT_ACCESSIBLE
+		 *   USHORT NameLen;  // +20: byte count of VolumeName
+		 *   WCHAR  Name[];   // +22: NT device name of original volume
+		 *
+		 * Reply structure should be:
+		 *
+		 */
+#pragma pack(push, 4)
+typedef struct _VSS_APPLICATION_INFO_PAYLOAD {
+    /* The outer VOLSNAP_APPLICATION_INFO wrapper header */
+	    ULONG   InformationLength;   // Total size of subsequent fields (0x38 or 56 bytes)
+
+	    /* The serialized stream fields packed by VSS channel */
+	    GUID    AppInfoLayoutId;     // VOLSNAP_APPINFO_GUID_CLIENT_ACCESSIBLE ({e5de7d45-49f2-40a4-817c-7dc82b72587f})
+	    GUID    SnapshotId;          // The unique VSS Snapshot ID tracking this dataset snapshot
+	    GUID    SnapshotSetId;       // The unique VSS Snapshot Set/Group ID
+	    ULONG   SnapshotContext;     // The VSS Context flags (e.g., VSS_CTX_NAS_ROLLBACK / VSS_CTX_CLIENT_ACCESSIBLE)
+	    ULONG   SnapshotCount;       // Number of snapshots included in this frozen set
+	} VSS_APPLICATION_INFO_PAYLOAD, *PVSS_APPLICATION_INFO_PAYLOAD;
+#pragma pack(pop)
+
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_APPLICATION_INFO (outlen=%lu)\n",
+		    __func__, outlen);
+
+	    /* Entire payload structure footprint is exactly 60 bytes (0x3C) */
+	    ULONG need = sizeof(VSS_APPLICATION_INFO_PAYLOAD);
+
+	    if (outlen < need) {
+		/* Stage 1 Probe: Pass required allocation payload footprint size back to srv2 */
+		if (outlen >= sizeof(ULONG)) {
+		    *(ULONG *)buf = need;
+		}
+		Irp->IoStatus.Information = sizeof(ULONG);
+		status = STATUS_BUFFER_OVERFLOW; // Trigger the memory allocation loop
+		break;
+	    }
+
+	    /* Stage 2: Populate the target buffer memory space explicitly */
+	    VSS_APPLICATION_INFO_PAYLOAD *app_info = (VSS_APPLICATION_INFO_PAYLOAD *)buf;
+	    RtlZeroMemory(app_info, need);
+
+	    /* InformationLength is the size of everything *after* the ULONG length tracker field itself */
+	    app_info->InformationLength = need - sizeof(ULONG); // 56 bytes (0x38)
+
+	    /* Set structural verification layout tokens */
+	    static const GUID client_accessible_guid = {
+		    0xe5de7d45, 0x49f2, 0x40a4,
+		    {0x81, 0x7c, 0x7d, 0xc8, 0x2b, 0x72, 0x58, 0x7f}
+	    };
+	    app_info->AppInfoLayoutId = client_accessible_guid;
+
+	    /* Track individual volume snapshot definitions */
+	    // app_info->SnapshotId = zmo->vss_snapshot_guid;
+	    GUID *g = (GUID *)&(app_info->SnapshotId);
+	    g->Data1 = (ULONG)(zmo->vss_guid & 0xffffffff);
+	    g->Data2 = (USHORT)((zmo->vss_guid >> 32) & 0xffff);
+	    g->Data3 = (USHORT)((zmo->vss_guid >> 48) & 0xffff);
+
+	    // app_info->SnapshotSetId = zmo->vss_set_guid;
+	    g = (GUID *)&(app_info->SnapshotSetId);
+	    g->Data1 = (ULONG)(zmo->vss_guid & 0xffffffff);
+	    g->Data2 = (USHORT)((zmo->vss_guid >> 32) & 0xffff);
+	    g->Data3 = (USHORT)((zmo->vss_guid >> 48) & 0xffff);
+
+	    /* 0x00000009 standard value for VSS_CTX_CLIENT_ACCESSIBLE context flags */
+	    app_info->SnapshotContext =
+		VSS_VOLSNAP_ATTR_CLIENT_ACCESSIBLE |
+		VSS_VOLSNAP_ATTR_NO_AUTO_RELEASE |
+		VSS_VOLSNAP_ATTR_NO_WRITERS;
+	    app_info->SnapshotCount = 1;
+
+	    Irp->IoStatus.Information = need;
+	    status = STATUS_SUCCESS;
+	    break;
+	}
+
+#if 0
+		/*
+		 * {E5DE7D45-49F2-40A4-817C-7DC82B72587F}
+		 * Extracted from srv2!VOLSNAP_APPINFO_GUID_CLIENT_ACCESSIBLE.
+		 */
+		static const GUID vqovn_guid = {
+		    0xe5de7d45, 0x49f2, 0x40a4,
+		    {0x81, 0x7c, 0x7d, 0xc8, 0x2b, 0x72, 0x58, 0x7f}
+		};
+
+		/* Strip @snap suffix from vss_snapname to get dataset name. */
+		char vqovn_ds[256];
+		strlcpy(vqovn_ds, zmo->vss_snapname, sizeof (vqovn_ds));
+		char *vqovn_at = strchr(vqovn_ds, '@');
+		if (vqovn_at)
+			*vqovn_at = '\0';
+
+		vqovn_ctx_t vqovn_ctx = { .dataset = vqovn_ds };
+		vfs_mount_iterate(vqovn_find_cb, &vqovn_ctx);
+
+		if (!vqovn_ctx.found) {
+			dprintf("VSS %s: parent DCB for '%s' not found\n",
+			    __func__, vqovn_ds);
+			status = STATUS_NOT_FOUND;
+			break;
+		}
+
+		/* cb + GUID + NameLen + Name */
+		ULONG vqovn_need = (ULONG)(sizeof (ULONG) + sizeof (GUID) +
+		    sizeof (USHORT) + vqovn_ctx.namelen);
+
+		if (outlen < vqovn_need) {
+			/*
+			 * Probe: write cb so srv2 can compute correct alloc
+			 * size ("alloc = [probe_buf_dword] + 8").
+			 */
+			if (outlen >= sizeof (ULONG))
+				*(ULONG *)buf = vqovn_need;
+			Irp->IoStatus.Information = vqovn_need;
+			status = STATUS_BUFFER_OVERFLOW;
+			break;
+		}
+
+		ULONG  *vqovn_cb  = (ULONG *)buf;
+		GUID   *vqovn_g   = (GUID *)(vqovn_cb + 1);
+		USHORT *vqovn_nl  = (USHORT *)(vqovn_g + 1);
+		*vqovn_cb = vqovn_need;
+		*vqovn_g  = vqovn_guid;
+		*vqovn_nl = vqovn_ctx.namelen;
+		RtlCopyMemory(vqovn_nl + 1, vqovn_ctx.namebuf,
+		    vqovn_ctx.namelen);
+		Irp->IoStatus.Information = vqovn_need;
+		dprintf("VSS %s: returning device name len=%u total=%u\n",
+		    __func__, vqovn_ctx.namelen, vqovn_need);
+		status = STATUS_SUCCESS;
+		break;
+#endif
+
+	case IOCTL_VOLSNAP_QUERY_EPIC: /* IOCTL_VOLSNAP function 0x14 - control, no output */
 		/*
 		 * VSS sends this to the snapshot device with a 0-byte (or tiny)
 		 * output buffer; it is a fire-and-forget control IOCTL with no
 		 * data returned.  STATUS_SUCCESS + Information=0 is correct.
 		 */
-		dprintf("VSS %s: VOLSNAP 0x530050 no-op\n", __func__);
+		dprintf("VSS %s: IOCTL_VOLSNAP_QUERY_EPIC no-op\n", __func__);
 		Irp->IoStatus.Information = 0;
 		status = STATUS_SUCCESS;
 		break;
@@ -1202,10 +1777,32 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 		}
 
 		/*
-		 * Snapshot not yet mounted.  Pend the IRP and schedule a work
-		 * item to mount, then replay via fsDispatcher.  This covers
-		 * both plain volume-opens (FileName.Length==0, root '\') and
-		 * file-path opens — fsDispatcher/zfs_vnop_lookup handles both.
+		 * Snapshot not yet mounted.
+		 *
+		 * If this is a pure device open (srv2.sys probing for AppInfo
+		 * via NtOpenFile + IOCTL_VOLSNAP_QUERY_APPLICATION_INFO), the
+		 * FileName is empty or just "\".  Succeed immediately without
+		 * triggering a full ZFS mount.
+		 */
+		{
+			PUNICODE_STRING fn = &IrpSp->FileObject->FileName;
+			boolean_t is_dev_open = (fn->Length == 0 ||
+			    (fn->Length == sizeof (WCHAR) &&
+			    fn->Buffer[0] == L'\\'));
+			if (is_dev_open) {
+				dprintf("VSS %s: IRP_MJ_CREATE device open"
+				    " (no mount)\n", __func__);
+				Irp->IoStatus.Status = STATUS_SUCCESS;
+				Irp->IoStatus.Information = FILE_OPENED;
+				IoCompleteRequest(Irp, IO_NO_INCREMENT);
+				*pIrp = NULL;
+				return (STATUS_SUCCESS);
+			}
+		}
+
+		/*
+		 * File-path open — pend and schedule a work item to mount,
+		 * then replay via fsDispatcher.
 		 */
 		dprintf("VSS %s: IRP_MJ_CREATE -> lazy mount\n", __func__);
 		zfs_vss_mount_wi_t *wi =
@@ -1287,7 +1884,6 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 		break;
 
 	case IRP_MJ_WRITE:
-	case IRP_MJ_QUERY_INFORMATION:
 	case IRP_MJ_SET_INFORMATION:
 	case IRP_MJ_QUERY_EA:
 	case IRP_MJ_SET_EA:
@@ -1308,6 +1904,75 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 		    __func__, IrpSp->MajorFunction);
 		Irp->IoStatus.Information = 0;
 		status = STATUS_INVALID_DEVICE_REQUEST;
+		break;
+
+	case IRP_MJ_QUERY_INFORMATION:
+		if (vfs_fsprivate(zmo) != NULL) {
+			dprintf("VSS %s: IRP_MJ_QUERY_INFORMATION -> fsDispatcher\n",
+			    __func__);
+			return (fsDispatcher(DeviceObject, pIrp, IrpSp));
+		}
+		/*
+		 * Unmounted: answer creation-time queries used by srv2.sys
+		 * when it probes the snapshot device for AppInfo.
+		 */
+		{
+			ULONG cls =
+			    IrpSp->Parameters.QueryFile.FileInformationClass;
+			void *ibuf = Irp->AssociatedIrp.SystemBuffer;
+			LARGE_INTEGER ct;
+			TIME_UNIX_TO_WINDOWS_EX(zmo->vss_creation, 0,
+			    ct.QuadPart);
+
+			if (cls == FileBasicInformation) {
+				if (IrpSp->Parameters.QueryFile.Length <
+				    sizeof (FILE_BASIC_INFORMATION)) {
+					Irp->IoStatus.Information =
+					    sizeof (FILE_BASIC_INFORMATION);
+					status = STATUS_BUFFER_TOO_SMALL;
+				} else {
+					FILE_BASIC_INFORMATION *fbi = ibuf;
+					RtlZeroMemory(fbi, sizeof (*fbi));
+					fbi->CreationTime = ct;
+					fbi->LastAccessTime = ct;
+					fbi->LastWriteTime  = ct;
+					fbi->ChangeTime     = ct;
+					fbi->FileAttributes =
+					    FILE_ATTRIBUTE_READONLY;
+					Irp->IoStatus.Information =
+					    sizeof (FILE_BASIC_INFORMATION);
+					status = STATUS_SUCCESS;
+				}
+			} else if (cls == FileNetworkOpenInformation) {
+				if (IrpSp->Parameters.QueryFile.Length <
+				    sizeof (FILE_NETWORK_OPEN_INFORMATION)) {
+					Irp->IoStatus.Information =
+					    sizeof (FILE_NETWORK_OPEN_INFORMATION);
+					status = STATUS_BUFFER_TOO_SMALL;
+				} else {
+					FILE_NETWORK_OPEN_INFORMATION *fnoi = ibuf;
+					RtlZeroMemory(fnoi, sizeof (*fnoi));
+					fnoi->CreationTime = ct;
+					fnoi->LastAccessTime = ct;
+					fnoi->LastWriteTime  = ct;
+					fnoi->ChangeTime     = ct;
+					fnoi->AllocationSize.QuadPart =
+					    (LONGLONG)zfs_vss_snap_refbytes(zmo);
+					fnoi->EndOfFile =
+					    fnoi->AllocationSize;
+					fnoi->FileAttributes =
+					    FILE_ATTRIBUTE_READONLY;
+					Irp->IoStatus.Information =
+					    sizeof (FILE_NETWORK_OPEN_INFORMATION);
+					status = STATUS_SUCCESS;
+				}
+			} else {
+				dprintf("VSS %s: QUERY_INFO unmounted"
+				    " cls=%lu\n", __func__, cls);
+				Irp->IoStatus.Information = 0;
+				status = STATUS_INVALID_DEVICE_REQUEST;
+			}
+		}
 		break;
 
 	default:
