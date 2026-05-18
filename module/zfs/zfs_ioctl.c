@@ -4068,6 +4068,9 @@ zfs_ioc_destroy_snaps(const char *poolname, nvlist_t *innvl, nvlist_t *outnvl)
 			return (SET_ERROR(EXDEV));
 
 		zfs_unmount_snap(nvpair_name(pair));
+#if defined(_WIN32) && defined(_KERNEL)
+		zfs_vss_snapshot_remove_by_name(nvpair_name(pair));
+#endif
 		if (spa_open(name, &spa, FTAG) == 0) {
 			zvol_remove_minors(spa, name, B_TRUE);
 			spa_close(spa, FTAG);

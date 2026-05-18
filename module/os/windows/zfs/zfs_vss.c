@@ -296,6 +296,21 @@ extern PDRIVER_OBJECT WIN_DriverObject;
 static void zfs_vss_notify_mountmgr(PDEVICE_OBJECT devobj);
 
 /*
+ * Return B_TRUE if a kernel device object exists for this snapshot GUID.
+ * Used by QUERY_NAMES_OF_SNAPSHOTS to skip stale ZFS snapshots whose
+ * device was removed (e.g. between remove_by_name and destroy).
+ */
+boolean_t
+zfs_vss_has_device(uint64_t guid)
+{
+	zfs_vss_snap_t key = { .zvs_guid = guid };
+	mutex_enter(&zfs_vss_lock);
+	boolean_t found = (avl_find(&zfs_vss_snaps, &key, NULL) != NULL);
+	mutex_exit(&zfs_vss_lock);
+	return (found);
+}
+
+/*
  * Create \Device\ZfsSnapshot<hex16> for the given ZFS dataset GUID.
  * poolname is stored in the device extension so IOCTL handlers can
  * open the SPA and look up the snapshot for size queries.

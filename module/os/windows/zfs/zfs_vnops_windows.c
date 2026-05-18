@@ -1621,6 +1621,10 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			}
 			// Related set, return it as opened.
 			dvp = FileObject->RelatedFileObject->FsContext;
+			if (dvp == NULL) {
+				/* RelatedFileObject is a raw device, not ZFS */
+				return (STATUS_INVALID_PARAMETER);
+			}
 			zp = VTOZ(dvp);
 			dprintf("%s: Relative null-name open\n",
 			    __func__);
@@ -8670,7 +8674,7 @@ zfs_volsnap_query_names_of_snapshots(PDEVICE_OBJECT DeviceObject,
 		return (STATUS_SUCCESS);
 	}
 
-	/* Pass 1: count snapshots */
+	/* Pass 1: count snapshots that have live kernel device objects */
 	dsl_pool_t *vqn_dp = dmu_objset_pool(zfsvfs->z_os);
 	ULONG nsnaps = 0;
 
@@ -8682,8 +8686,17 @@ zfs_volsnap_query_names_of_snapshots(PDEVICE_OBJECT DeviceObject,
 		boolean_t vqn_cc;
 		while (dmu_snapshot_list_next(zfsvfs->z_os,
 		    sizeof (vqn_snapname), vqn_snapname,
-		    &vqn_id, &vqn_pos, &vqn_cc) == 0)
-			nsnaps++;
+		    &vqn_id, &vqn_pos, &vqn_cc) == 0) {
+			dsl_dataset_t *vqn_ds;
+			if (dsl_dataset_hold_obj(vqn_dp, vqn_id,
+			    FTAG, &vqn_ds) == 0) {
+				uint64_t g =
+				    dsl_dataset_phys(vqn_ds)->ds_guid;
+				dsl_dataset_rele(vqn_ds, FTAG);
+				if (zfs_vss_has_device(g))
+					nsnaps++;
+			}
+		}
 	}
 	dsl_pool_config_exit(vqn_dp, FTAG);
 
@@ -8710,11 +8723,11 @@ zfs_volsnap_query_names_of_snapshots(PDEVICE_OBJECT DeviceObject,
 	*(ULONG *)buf = msz;
 
 	if (nsnaps == 0) {
-		if (outlen >= sizeof (ULONG) + 2 * sizeof (WCHAR)) {
-			WCHAR *wz = (WCHAR *)((UCHAR *)buf + sizeof (ULONG));
-			wz[0] = L'\0';
-			wz[1] = L'\0';
-		}
+		if (outlen < needed)
+			return (STATUS_BUFFER_TOO_SMALL);
+		WCHAR *wz = (WCHAR *)((UCHAR *)buf + sizeof (ULONG));
+		wz[0] = L'\0';
+		wz[1] = L'\0';
 		dprintf("IOCTL_VOLSNAP_QUERY_NAMES_OF_SNAPSHOTS: 0 snaps\n");
 		return (STATUS_SUCCESS);
 	}
@@ -8743,6 +8756,10 @@ zfs_volsnap_query_names_of_snapshots(PDEVICE_OBJECT DeviceObject,
 				vqn_guid = dsl_dataset_phys(vqn_ds)->ds_guid;
 				dsl_dataset_rele(vqn_ds, FTAG);
 			}
+
+			/* Skip if the kernel device was removed */
+			if (!zfs_vss_has_device(vqn_guid))
+				continue;
 
 			/* "\Device\ZfsSnapshot" prefix (19 WCHARs) */
 			for (int vqn_j = 0; vqn_j < 19; vqn_j++)
