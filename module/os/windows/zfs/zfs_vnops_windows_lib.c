@@ -3463,8 +3463,49 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp, boolean_t deleteonclose)
 
 	int error = 0;
 
-	if (dzp != NULL)
-		error = zfs_zaccess_delete(dzp, zp, 0, NULL);
+	if (dzp != NULL) {
+		/*
+		 * Use Windows SeAccessCheck as the authoritative delete check,
+		 * mirroring the mkdir path. If the Windows SD grants DELETE on
+		 * the file itself or FILE_DELETE_CHILD on the parent, pass an
+		 * elevated cred (uid=0) so the ZFS POSIX ACL is bypassed.
+		 * This handles pools whose root is uid=0/0755, where a regular
+		 * user owns a subdirectory but the POSIX parent write-bit check
+		 * would otherwise deny deletion.
+		 */
+		cred_t elevated_delete_cr = { .cr_uid = 0, .cr_gid = 0 };
+		cred_t *delete_cr = NULL;
+		PSECURITY_DESCRIPTOR fileSD = vnode_security(vp);
+		PSECURITY_DESCRIPTOR parentSD = vnode_security(dvp);
+		if (fileSD != NULL || parentSD != NULL) {
+			SECURITY_SUBJECT_CONTEXT subject;
+			SeCaptureSubjectContext(&subject);
+			ACCESS_MASK grantedAccess;
+			NTSTATUS accessStatus;
+			BOOLEAN winOK = FALSE;
+			KPROCESSOR_MODE mode = ExGetPreviousMode();
+			if (fileSD != NULL) {
+				SeLockSubjectContext(&subject);
+				winOK = SeAccessCheck(fileSD, &subject, TRUE,
+				    DELETE, 0, NULL,
+				    IoGetFileObjectGenericMapping(),
+				    mode, &grantedAccess, &accessStatus);
+				SeUnlockSubjectContext(&subject);
+			}
+			if (!winOK && parentSD != NULL) {
+				SeLockSubjectContext(&subject);
+				winOK = SeAccessCheck(parentSD, &subject, TRUE,
+				    FILE_DELETE_CHILD, 0, NULL,
+				    IoGetFileObjectGenericMapping(),
+				    mode, &grantedAccess, &accessStatus);
+				SeUnlockSubjectContext(&subject);
+			}
+			SeReleaseSubjectContext(&subject);
+			if (winOK)
+				delete_cr = &elevated_delete_cr;
+		}
+		error = zfs_zaccess_delete(dzp, zp, delete_cr, NULL);
+	}
 
 	if (error == 0) {
 		ASSERT3P(zccb, !=, NULL);
