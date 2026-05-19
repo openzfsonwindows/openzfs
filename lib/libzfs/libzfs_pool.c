@@ -2582,6 +2582,10 @@ xlate_init_err(int err)
 	return (err);
 }
 
+/*
+ * Start (or cancel/suspend/uninit) the initialize operation on every
+ * leaf vdev of the pool.
+ */
 int
 zpool_initialize_one(zpool_handle_t *zhp, void *data)
 {
@@ -2761,6 +2765,10 @@ zpool_collect_leaves(zpool_handle_t *zhp, nvlist_t *nvroot, nvlist_t *res)
 	}
 }
 
+/*
+ * Start (or cancel/suspend) the trim operation on every leaf vdev of
+ * the pool.
+ */
 int
 zpool_trim_one(zpool_handle_t *zhp, void *data)
 {
@@ -3408,6 +3416,11 @@ __zpool_find_vdev(zpool_handle_t *zhp, const char *path, boolean_t *avail_spare,
 	return (ret);
 }
 
+/*
+ * Look up a vdev in the pool by path, name, or guid.  Returns the
+ * vdev's configuration nvlist, or NULL on no match.  Also, fills
+ * in avail_spare, l2cache, and log if they are non-NULL.
+ */
 nvlist_t *
 zpool_find_vdev(zpool_handle_t *zhp, const char *path, boolean_t *avail_spare,
     boolean_t *l2cache, boolean_t *log)
@@ -4652,7 +4665,10 @@ zpool_reopen_one(zpool_handle_t *zhp, void *data)
 	return (0);
 }
 
-/* call into libzfs_core to execute the sync IOCTL per pool */
+/*
+ * Block until every buffered write for the pool has reached the
+ * underlying disks.
+ */
 int
 zpool_sync_one(zpool_handle_t *zhp, void *data)
 {
@@ -4928,6 +4944,10 @@ zpool_upgrade(zpool_handle_t *zhp, uint64_t new_version)
 	return (0);
 }
 
+/*
+ * Format the program name and its command-line arguments into a single
+ * space-separated string.
+ */
 void
 zfs_save_arguments(int argc, char **argv, char *string, int len)
 {
@@ -4940,6 +4960,10 @@ zfs_save_arguments(int argc, char **argv, char *string, int len)
 	}
 }
 
+/*
+ * Append a message to the pool's command-history log, retrievable via
+ * "zpool history".
+ */
 int
 zpool_log_history(libzfs_handle_t *hdl, const char *message)
 {
@@ -5235,6 +5259,11 @@ zpool_obj_to_path_impl(zpool_handle_t *zhp, uint64_t dsobj, uint64_t obj,
 	free(mntpnt);
 }
 
+/*
+ * Translate a (dataset object id, file object id) pair into a readable
+ * path.  If the dataset is mounted the result is an absolute filesystem
+ * path; otherwise it is `dataset:path`.
+ */
 void
 zpool_obj_to_path(zpool_handle_t *zhp, uint64_t dsobj, uint64_t obj,
     char *pathname, size_t len)
@@ -5242,6 +5271,10 @@ zpool_obj_to_path(zpool_handle_t *zhp, uint64_t dsobj, uint64_t obj,
 	zpool_obj_to_path_impl(zhp, dsobj, obj, pathname, len, B_FALSE);
 }
 
+/*
+ * Translate a (dataset object id, file object id) pair into a
+ * `dataset:path` string.
+ */
 void
 zpool_obj_to_path_ds(zpool_handle_t *zhp, uint64_t dsobj, uint64_t obj,
     char *pathname, size_t len)
@@ -5296,6 +5329,10 @@ zpool_wait_status(zpool_handle_t *zhp, zpool_wait_activity_t activity,
 	return (error);
 }
 
+/*
+ * Store a boot configuration map in the bootenv area of each leaf
+ * vdev's labels.
+ */
 int
 zpool_set_bootenv(zpool_handle_t *zhp, const nvlist_t *envmap)
 {
@@ -5309,6 +5346,9 @@ zpool_set_bootenv(zpool_handle_t *zhp, const nvlist_t *envmap)
 	return (error);
 }
 
+/*
+ * Read the boot configuration map from each leaf vdev's bootenv area.
+ */
 int
 zpool_get_bootenv(zpool_handle_t *zhp, nvlist_t **nvlp)
 {
