@@ -5450,14 +5450,18 @@ file_name_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	struct vnode *vp = FileObject->FsContext;
 	zfs_ccb_t *zccb = FileObject->FsContext2;
-	znode_t *zp = VTOZ(vp);
 	char strname[MAXPATHLEN + 2];
 	int error = 0;
 	uint64_t parent = 0;
 
-	ASSERT(zp != NULL);
+	mount_t *mp = VTOM(vp);
+	zfsvfs_t *zfsvfs = vfs_fsprivate(mp);
+	if (zfsvfs->z_unmounted || (vfs_flags(mp) & MNT_UNMOUNTING))
+		return (STATUS_VOLUME_DISMOUNTED);
 
-	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	znode_t *zp = VTOZ(vp);
+	if (zp == NULL)
+		return (STATUS_VOLUME_DISMOUNTED);
 	NTSTATUS Status = STATUS_SUCCESS;
 
 	VN_HOLD(vp);

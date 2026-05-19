@@ -7314,8 +7314,12 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp,
 	}
 
 	vp = IrpSp->FileObject->FsContext;
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+	if (zfsvfs->z_unmounted || (vfs_flags(zmo) & MNT_UNMOUNTING))
+		return (STATUS_VOLUME_DISMOUNTED);
 	zp = VTOZ(vp);
-	ASSERT(zp != NULL);
+	if (zp == NULL)
+		return (STATUS_VOLUME_DISMOUNTED);
 
 	if (zp->z_is_ctldir)
 		return (STATUS_SUCCESS);
