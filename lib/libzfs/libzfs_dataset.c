@@ -3027,6 +3027,43 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 		zcp_check(zhp, prop, val, NULL);
 		break;
 
+#ifdef _WIN32
+	case ZFS_PROP_DRIVELETTER:
+		/*
+		 * Read the stored property first.  Then dynamically check
+		 * the mount table: if the dataset is currently mounted on a
+		 * drive letter that differs from the stored value (or the
+		 * stored value is the auto-assign default "-"), report the
+		 * actual live letter with source=temporary.  This way
+		 * "zfs get driveletter" is always useful without permanently
+		 * changing the property.
+		 */
+		str = getprop_string(zhp, prop, &source);
+		if (str == NULL)
+			return (-1);
+		(void) strlcpy(propbuf, str, proplen);
+		zcp_check(zhp, prop, 0, str);
+		{
+			struct mnttab mntent;
+			if (libzfs_mnttab_find(zhp->zfs_hdl, zhp->zfs_name,
+			    &mntent) == 0 && mntent.mnt_mountp[1] == ':') {
+				char actual = (char)tolower(
+				    (unsigned char)mntent.mnt_mountp[0]);
+				char stored = (char)tolower(
+				    (unsigned char)propbuf[0]);
+				if (stored == '-' || actual != stored) {
+					propbuf[0] = actual;
+					propbuf[1] = ':';
+					propbuf[2] = '\0';
+					if (src)
+						*src = ZPROP_SRC_TEMPORARY;
+					return (0);
+				}
+			}
+		}
+		break;
+#endif /* _WIN32 */
+
 	default:
 		switch (zfs_prop_get_type(prop)) {
 		case PROP_TYPE_NUMBER:
