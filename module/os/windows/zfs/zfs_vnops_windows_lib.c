@@ -6346,6 +6346,7 @@ ioctl_disk_get_drive_geometry(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	DISK_GEOMETRY *diskGeometry = Irp->AssociatedIrp.SystemBuffer;
+	RtlZeroMemory(diskGeometry, sizeof (*diskGeometry));
 	unsigned long TracksPerCylinder = 255;
 	unsigned long SectorsPerTrack = 63;
 	unsigned long BytesPerSector = 512;
@@ -6420,6 +6421,8 @@ ioctl_disk_get_drive_geometry_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	// DISK_GEOMETRY_EX_INTERNAL *geom = Irp->AssociatedIrp.SystemBuffer;
 	DISK_GEOMETRY_EX *geom = Irp->AssociatedIrp.SystemBuffer;
+	RtlZeroMemory(geom,
+	    IrpSp->Parameters.DeviceIoControl.OutputBufferLength);
 
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	if (zfsvfs == NULL) {
@@ -6492,6 +6495,7 @@ ioctl_disk_get_partition_info(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    &refdbytes, &availbytes, &usedobjs, &availobjs);
 
 	PARTITION_INFORMATION *part = Irp->AssociatedIrp.SystemBuffer;
+	RtlZeroMemory(part, sizeof (*part));
 
 	part->PartitionLength.QuadPart = availbytes + refdbytes;
 	part->StartingOffset.QuadPart = 0;
@@ -6541,6 +6545,7 @@ ioctl_disk_get_partition_info_ex(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    &refdbytes, &availbytes, &usedobjs, &availobjs);
 
 	PARTITION_INFORMATION_EX *part = Irp->AssociatedIrp.SystemBuffer;
+	RtlZeroMemory(part, sizeof (*part));
 
 	part->PartitionStyle = PARTITION_STYLE_MBR;
 	part->RewritePartition = FALSE;
@@ -6591,6 +6596,7 @@ ioctl_disk_get_length_info(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    &refdbytes, &availbytes, &usedobjs, &availobjs);
 
 	GET_LENGTH_INFORMATION *gli = Irp->AssociatedIrp.SystemBuffer;
+	RtlZeroMemory(gli, sizeof (*gli));
 	gli->Length.QuadPart = availbytes + refdbytes;
 
 	zfs_exit(zfsvfs, FTAG);

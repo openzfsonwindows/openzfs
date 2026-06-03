@@ -7638,7 +7638,7 @@ ioctl_volume_get_volume_disk_extents(PDEVICE_OBJECT DeviceObject,
 			dmu_objset_space(zfsvfs->z_os,
 			    &refdbytes, &availbytes, &usedobjs, &availobjs);
 			vde->Extents[0].ExtentLength.QuadPart =
-			    refdbytes * availbytes;
+			    refdbytes + availbytes;
 			zfs_exit(zfsvfs, FTAG);
 		}
 	}
