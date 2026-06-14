@@ -404,7 +404,7 @@ zfs_vss_snapshot_add(uint64_t guid, const char *snapname, uint64_t creation)
 	/* ascii_name points into vss_snapname ("pool/ds@snap") */
 	zmo->ascii_name = (const unsigned char *)zmo->vss_snapname;
 	zmo->mountflags = MNT_RDONLY;
-	KeInitializeMutex(&zmo->vss_mount_lock, 0);
+	mutex_init(&zmo->vss_mount_lock, NULL, MUTEX_DEFAULT, NULL);
 	InitializeListHead(&zmo->DirNotifyList);
 	FsRtlNotifyInitializeSync(&zmo->NotifySync);
 	devobj->SectorSize = 512;
@@ -547,6 +547,7 @@ zfs_vss_snapshot_remove(uint64_t guid)
 		vfs_mount_remove(zmo);
 	}
 	FsRtlNotifyUninitializeSync(&zmo->NotifySync);
+	mutex_destroy(&zmo->vss_mount_lock);
 
 	IoDeleteDevice(zvs->zvs_devobj);
 	kmem_free(zvs, sizeof (*zvs));
@@ -778,6 +779,8 @@ zfs_vss_fini(void)
 	zfs_vss_snap_t *zvs;
 	void *cookie = NULL;
 	while ((zvs = avl_destroy_nodes(&zfs_vss_snaps, &cookie)) != NULL) {
+		mount_t *zmo_fini = zvs->zvs_devobj->DeviceExtension;
+		mutex_destroy(&zmo_fini->vss_mount_lock);
 		IoDeleteDevice(zvs->zvs_devobj);
 		kmem_free(zvs, sizeof (*zvs));
 	}
@@ -903,13 +906,12 @@ zfs_vss_mount_workitem(PDEVICE_OBJECT DeviceObject, PVOID Context)
 	 * Serialise: only one thread mounts; others wait on the mutex and
 	 * then fall through to fsDispatcher with the snapshot already live.
 	 */
-	KeWaitForMutexObject(&zmo->vss_mount_lock, Executive,
-	    KernelMode, FALSE, NULL);
+	mutex_enter(&zmo->vss_mount_lock);
 
 	if (vfs_fsprivate(zmo) == NULL)
 		(void) zfs_vss_do_mount(DeviceObject, zmo);
 
-	KeReleaseMutex(&zmo->vss_mount_lock, FALSE);
+	mutex_exit(&zmo->vss_mount_lock);
 
 	if (vfs_fsprivate(zmo) == NULL) {
 		/* Mount failed; reject the create. */
@@ -1807,7 +1809,17 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 
 	case IRP_MJ_CREATE:
 	{
-		if (vfs_fsprivate(zmo) != NULL) {
+		/*
+		 * Check fsprivate under vss_mount_lock.  zfs_domount sets
+		 * fsprivate early (before completing setup) while holding the
+		 * lock, so a bare check here without the lock would let a
+		 * concurrent IRP reach fsDispatcher with a half-initialised
+		 * zfsvfs — creating znodes that outlive the failed mount.
+		 */
+		mutex_enter(&zmo->vss_mount_lock);
+		boolean_t vss_mounted = (vfs_fsprivate(zmo) != NULL);
+		mutex_exit(&zmo->vss_mount_lock);
+		if (vss_mounted) {
 			/* Snapshot mounted; fsDispatcher handles all. */
 			dprintf("VSS %s: IRP_MJ_CREATE -> fsDispatcher"
 			    " (mounted)\n", __func__);

@@ -950,6 +950,18 @@ zfsvfs_free(zfsvfs_t *zfsvfs)
 	mutex_destroy(&zfsvfs->z_drain_lock);
 	mutex_destroy(&zfsvfs->z_znodes_lock);
 	mutex_destroy(&zfsvfs->z_lock);
+	/*
+	 * Drain any znodes that raced in via a concurrent IRP hitting a
+	 * partially-initialised zfsvfs (e.g. IRP_MJ_CREATE arriving while
+	 * zfs_domount holds vss_mount_lock but has not yet completed setup).
+	 * list_destroy asserts the list is empty; drain first to avoid a
+	 * BSOD in paths that call us without going through zfs_vfs_unmount.
+	 */
+	znode_t *zz_leaked;
+	while ((zz_leaked = list_head(&zfsvfs->z_all_znodes)) != NULL) {
+		list_remove(&zfsvfs->z_all_znodes, zz_leaked);
+		dprintf("zfsvfs_free: leaked znode %p\n", zz_leaked);
+	}
 	list_destroy(&zfsvfs->z_all_znodes);
 	ZFS_TEARDOWN_DESTROY(zfsvfs);
 	rw_destroy(&zfsvfs->z_teardown_inactive_lock);
@@ -1730,15 +1742,6 @@ zfs_vfs_unmount(struct mount *mp, int mntflags, vfs_context_t context)
 			// remove that before it is freed.
 			vfs_setfsprivate(mp_dcb, NULL);
 		}
-	}
-
-	// Until we can fix it for real, if z_all_znodes has entries, we panic
-	// in zfs_freevfs(), so let's leak instead of crash.
-	// This has no leaks since 2024/10/02 but leaving it until we trust it.
-	znode_t *zz;
-	while (zz = list_head(&zfsvfs->z_all_znodes)) {
-		list_remove(&zfsvfs->z_all_znodes, zz);
-		dprintf("Leaked znode %p :( \n", zz);
 	}
 
 	zfs_freevfs(zfsvfs->z_vfs);

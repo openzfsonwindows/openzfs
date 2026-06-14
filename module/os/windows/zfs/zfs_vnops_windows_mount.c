@@ -1927,6 +1927,7 @@ matched_mount(PIRP Irp, PDEVICE_OBJECT DeviceToMount,
 		IoDeleteSymbolicLink(&dcb->arc_name);
 		if (dcb->AttachedDevice)
 			IoDetachDevice(dcb->AttachedDevice);
+		vfs_mount_remove(dcb);
 		zfs_release_mount(dcb);
 		IoDeleteDevice(dcb->FunctionalDeviceObject);
 		return (STATUS_UNRECOGNIZED_VOLUME);

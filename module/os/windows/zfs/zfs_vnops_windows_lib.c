@@ -5497,7 +5497,8 @@ file_name_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	mount_t *mp = VTOM(vp);
 	zfsvfs_t *zfsvfs = vfs_fsprivate(mp);
-	if (zfsvfs->z_unmounted || (vfs_flags(mp) & MNT_UNMOUNTING))
+	if (zfsvfs == NULL || zfsvfs->z_unmounted ||
+	    (vfs_flags(mp) & MNT_UNMOUNTING))
 		return (STATUS_VOLUME_DISMOUNTED);
 
 	znode_t *zp = VTOZ(vp);
