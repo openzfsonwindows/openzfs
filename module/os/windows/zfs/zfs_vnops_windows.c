@@ -5210,6 +5210,295 @@ exit:
 	return (Status);
 }
 
+/*
+ * FSCTL_OFFLOAD_READ / FSCTL_OFFLOAD_WRITE
+ *
+ * Encode source-file identity in the 512-byte opaque token Windows passes
+ * between the two calls.  On OFFLOAD_WRITE we first attempt a ZFS block
+ * clone (zero-copy reflink); if the pool feature is inactive we fall back
+ * to a kernel read/write loop so that applications that do not fall back
+ * to regular ReadFile/WriteFile (cmd.exe, older copy utilities) still work.
+ */
+
+#ifndef FSCTL_OFFLOAD_READ
+#define	FSCTL_OFFLOAD_READ \
+    CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 153, METHOD_BUFFERED, FILE_READ_ACCESS)
+#define	FSCTL_OFFLOAD_WRITE \
+    CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 154, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+
+typedef struct _FSCTL_OFFLOAD_READ_INPUT {
+	ULONG Size;
+	ULONG Flags;
+	ULONG TokenTimeToLive;
+	ULONG Reserved;
+	ULONGLONG FileOffset;
+	ULONGLONG CopyLength;
+} FSCTL_OFFLOAD_READ_INPUT, *PFSCTL_OFFLOAD_READ_INPUT;
+
+typedef struct _FSCTL_OFFLOAD_READ_OUTPUT {
+	ULONG Size;
+	ULONG Flags;
+	ULONGLONG TransferLength;
+	UCHAR Token[512];
+} FSCTL_OFFLOAD_READ_OUTPUT, *PFSCTL_OFFLOAD_READ_OUTPUT;
+
+typedef struct _FSCTL_OFFLOAD_WRITE_INPUT {
+	ULONG Size;
+	ULONG Flags;
+	ULONGLONG FileOffset;
+	ULONGLONG CopyLength;
+	ULONGLONG TransferOffset;
+	UCHAR Token[512];
+} FSCTL_OFFLOAD_WRITE_INPUT, *PFSCTL_OFFLOAD_WRITE_INPUT;
+
+typedef struct _FSCTL_OFFLOAD_WRITE_OUTPUT {
+	ULONG Size;
+	ULONG Flags;
+	ULONGLONG LengthWritten;
+} FSCTL_OFFLOAD_WRITE_OUTPUT, *PFSCTL_OFFLOAD_WRITE_OUTPUT;
+
+#endif /* FSCTL_OFFLOAD_READ */
+
+#define	ZFS_OFFLOAD_TOKEN_MAGIC	0x5A46534F46464C44ULL	/* "ZFSOFFLD" */
+#define	ZFS_OFFLOAD_COPY_CHUNK	(256 * 1024)
+
+typedef struct {
+	uint64_t magic;
+	uint64_t spa_guid;
+	uint64_t objset_id;
+	uint64_t z_id;		/* source znode object ID */
+	uint64_t src_offset;
+	uint64_t src_length;
+} zfs_offload_token_t;
+
+static NTSTATUS
+fsctl_offload_read(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	PFILE_OBJECT FileObject = IrpSp->FileObject;
+	ULONG inlen = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+	ULONG outlen = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+	void *buf = Irp->AssociatedIrp.SystemBuffer;
+	FSCTL_OFFLOAD_READ_INPUT in;
+	FSCTL_OFFLOAD_READ_OUTPUT *out;
+	zfs_offload_token_t *tok;
+	vnode_t *vp;
+	znode_t *zp;
+	zfsvfs_t *zfsvfs;
+	uint64_t xfer_len;
+
+	if (!FileObject || !buf)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (inlen < sizeof (FSCTL_OFFLOAD_READ_INPUT) ||
+	    outlen < sizeof (FSCTL_OFFLOAD_READ_OUTPUT))
+		return (STATUS_BUFFER_TOO_SMALL);
+
+	/* Copy input before we overwrite the shared SystemBuffer */
+	RtlCopyMemory(&in, buf, sizeof (in));
+
+	if (in.Size != sizeof (FSCTL_OFFLOAD_READ_INPUT))
+		return (STATUS_INVALID_PARAMETER);
+
+	vp = FileObject->FsContext;
+	if (!vp || !vnode_isreg(vp))
+		return (STATUS_INVALID_PARAMETER);
+
+	zp = VTOZ(vp);
+	if (!zp)
+		return (STATUS_INVALID_PARAMETER);
+
+	zfsvfs = zp->z_zfsvfs;
+
+	if (in.FileOffset >= zp->z_size)
+		return (STATUS_END_OF_FILE);
+
+	xfer_len = in.CopyLength;
+	if (in.FileOffset + xfer_len > zp->z_size)
+		xfer_len = zp->z_size - in.FileOffset;
+
+	out = (FSCTL_OFFLOAD_READ_OUTPUT *)buf;
+	RtlZeroMemory(out, sizeof (*out));
+	out->Size = sizeof (FSCTL_OFFLOAD_READ_OUTPUT);
+	out->TransferLength = xfer_len;
+
+	tok = (zfs_offload_token_t *)out->Token;
+	tok->magic = ZFS_OFFLOAD_TOKEN_MAGIC;
+	tok->spa_guid = spa_guid(dmu_objset_spa(zfsvfs->z_os));
+	tok->objset_id = dmu_objset_id(zfsvfs->z_os);
+	tok->z_id = zp->z_id;
+	tok->src_offset = in.FileOffset;
+	tok->src_length = xfer_len;
+
+	Irp->IoStatus.Information = sizeof (FSCTL_OFFLOAD_READ_OUTPUT);
+	return (STATUS_SUCCESS);
+}
+
+static NTSTATUS
+fsctl_offload_write(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	PFILE_OBJECT FileObject = IrpSp->FileObject;
+	ULONG inlen = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+	ULONG outlen = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+	void *buf = Irp->AssociatedIrp.SystemBuffer;
+	FSCTL_OFFLOAD_WRITE_INPUT in;
+	FSCTL_OFFLOAD_WRITE_OUTPUT *out;
+	zfs_offload_token_t tok;
+	vnode_t *dst_vp;
+	znode_t *dst_zp, *src_zp = NULL;
+	zfsvfs_t *zfsvfs;
+	uint64_t src_offset, dst_offset, copy_len, done = 0;
+	NTSTATUS Status = STATUS_SUCCESS;
+	IO_STATUS_BLOCK iosb;
+	int err;
+
+	if (!FileObject || !buf)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (inlen < sizeof (FSCTL_OFFLOAD_WRITE_INPUT) ||
+	    outlen < sizeof (FSCTL_OFFLOAD_WRITE_OUTPUT))
+		return (STATUS_BUFFER_TOO_SMALL);
+
+	/* Copy input before we overwrite the shared SystemBuffer */
+	RtlCopyMemory(&in, buf, sizeof (in));
+	RtlCopyMemory(&tok, in.Token, sizeof (tok));
+
+	if (in.Size != sizeof (FSCTL_OFFLOAD_WRITE_INPUT))
+		return (STATUS_INVALID_PARAMETER);
+
+	/* Not our token — tell the caller to fall back to regular copy */
+	if (tok.magic != ZFS_OFFLOAD_TOKEN_MAGIC)
+		return (STATUS_NOT_SUPPORTED);
+
+	dst_vp = FileObject->FsContext;
+	if (!dst_vp || !vnode_isreg(dst_vp))
+		return (STATUS_INVALID_PARAMETER);
+
+	dst_zp = VTOZ(dst_vp);
+	if (!dst_zp)
+		return (STATUS_INVALID_PARAMETER);
+
+	zfsvfs = dst_zp->z_zfsvfs;
+
+	/* Cross-volume: token is not serviceable here */
+	if (tok.spa_guid != spa_guid(dmu_objset_spa(zfsvfs->z_os)) ||
+	    tok.objset_id != dmu_objset_id(zfsvfs->z_os))
+		return (STATUS_NOT_SUPPORTED);
+
+	if (vfs_isrdonly(zfsvfs->z_vfs))
+		return (STATUS_MEDIA_WRITE_PROTECTED);
+
+	if (in.CopyLength == 0)
+		goto fill_output;
+
+	if (in.TransferOffset > tok.src_length)
+		return (STATUS_INVALID_PARAMETER);
+
+	src_offset = tok.src_offset + in.TransferOffset;
+	dst_offset = in.FileOffset;
+	copy_len = in.CopyLength;
+	if (in.TransferOffset + copy_len > tok.src_length)
+		copy_len = tok.src_length - in.TransferOffset;
+
+	err = zfs_zget(zfsvfs, tok.z_id, &src_zp);
+	if (err != 0)
+		return (STATUS_INVALID_PARAMETER);
+
+	/* Flush destination cache before we write beneath it */
+	ExAcquireResourceExclusiveLite(dst_vp->FileHeader.Resource, TRUE);
+
+	CcFlushCache(FileObject->SectionObjectPointer, NULL, 0, &iosb);
+
+	/* Attempt zero-copy block clone first */
+	{
+		uint64_t inoff = src_offset, outoff = dst_offset;
+		uint64_t clone_len = copy_len;
+		err = zfs_clone_range(src_zp, &inoff, dst_zp,
+		    &outoff, &clone_len, NULL);
+		if (err == 0)
+			done = clone_len;
+	}
+
+	if (done == 0) {
+		/* Block clone unavailable: kernel read/write loop */
+		uint8_t *kbuf = kmem_alloc(ZFS_OFFLOAD_COPY_CHUNK, KM_SLEEP);
+
+		while (done < copy_len) {
+			uint64_t chunk = MIN(ZFS_OFFLOAD_COPY_CHUNK,
+			    copy_len - done);
+			struct iovec iov;
+			zfs_uio_t uio;
+			uint64_t xferred;
+
+			iov.iov_base = kbuf;
+			iov.iov_len = (size_t)chunk;
+			zfs_uio_iovec_init(&uio, &iov, 1,
+			    src_offset + done, UIO_SYSSPACE, chunk, 0);
+			Status = zfs_read(src_zp, &uio, 0, NULL);
+			if (Status != STATUS_SUCCESS)
+				break;
+			xferred = chunk - zfs_uio_resid(&uio);
+			if (xferred == 0)
+				break;
+
+			iov.iov_base = kbuf;
+			iov.iov_len = (size_t)xferred;
+			zfs_uio_iovec_init(&uio, &iov, 1,
+			    dst_offset + done, UIO_SYSSPACE, xferred, 0);
+			Status = zfs_write(dst_zp, &uio, 0, NULL);
+			if (Status != STATUS_SUCCESS)
+				break;
+			if (zfs_uio_resid(&uio) != 0) {
+				done += xferred - zfs_uio_resid(&uio);
+				break;
+			}
+			done += xferred;
+		}
+
+		kmem_free(kbuf, ZFS_OFFLOAD_COPY_CHUNK);
+	}
+
+	/* Update Windows header if the destination was extended */
+	if (NT_SUCCESS(Status) &&
+	    (LONGLONG)(dst_offset + done) >
+	    dst_vp->FileHeader.FileSize.QuadPart) {
+		dst_vp->FileHeader.FileSize.QuadPart =
+		    (LONGLONG)(dst_offset + done);
+		dst_vp->FileHeader.ValidDataLength =
+		    dst_vp->FileHeader.FileSize;
+		if (FileObject->SectionObjectPointer &&
+		    CcIsFileCached(FileObject)) {
+			CcSetFileSizes(FileObject,
+			    (PCC_FILE_SIZES)
+			    &dst_vp->FileHeader.AllocationSize);
+		}
+	}
+
+	if (FileObject->SectionObjectPointer &&
+	    FileObject->SectionObjectPointer->DataSectionObject) {
+		LARGE_INTEGER dst_li;
+		dst_li.QuadPart = (LONGLONG)dst_offset;
+		CcPurgeCacheSection(FileObject->SectionObjectPointer,
+		    &dst_li, (ULONG)MIN(done, MAXULONG), FALSE);
+	}
+
+	ExReleaseResourceLite(dst_vp->FileHeader.Resource);
+
+	zrele(src_zp);
+
+	if (!NT_SUCCESS(Status))
+		return (Status);
+
+fill_output:
+	out = (FSCTL_OFFLOAD_WRITE_OUTPUT *)buf;
+	out->Size = sizeof (FSCTL_OFFLOAD_WRITE_OUTPUT);
+	out->Flags = 0;
+	out->LengthWritten = done;
+	Irp->IoStatus.Information = sizeof (FSCTL_OFFLOAD_WRITE_OUTPUT);
+	return (STATUS_SUCCESS);
+}
+
 NTSTATUS
 user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
     PIO_STACK_LOCATION IrpSp)
@@ -5715,6 +6004,16 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 	case FSCTL_SET_ZERO_DATA:
 		dprintf("    FSCTL_SET_ZERO_DATA\n");
 		Status = fsctl_set_zero_data(DeviceObject, Irp, IrpSp);
+		break;
+
+	case FSCTL_OFFLOAD_READ:
+		dprintf("    FSCTL_OFFLOAD_READ\n");
+		Status = fsctl_offload_read(DeviceObject, Irp, IrpSp);
+		break;
+
+	case FSCTL_OFFLOAD_WRITE:
+		dprintf("    FSCTL_OFFLOAD_WRITE\n");
+		Status = fsctl_offload_write(DeviceObject, Irp, IrpSp);
 		break;
 
 	default:
