@@ -6990,6 +6990,24 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zp->z_unlinked)
 		newlength = 0;
 
+	/*
+	 * For paging I/O from CcFlushCache, FsRtlCopyWrite/CcFastCopyWrite
+	 * may have extended the file in cache without updating zp->z_size.
+	 * Use ValidDataLength as the authoritative upper bound so dirty cache
+	 * pages written beyond the stale zp->z_size are not silently dropped.
+	 */
+	if (paging_io && !zp->z_unlinked) {
+		uint64_t vdl =
+		    (uint64_t)vp->FileHeader.ValidDataLength.QuadPart;
+		if (vdl > newlength)
+			newlength = vdl;
+	}
+
+	if (paging_io)
+		dprintf("paging_io write: off %I64x len %lu zp_sz %I64x "
+		    "newlen %I64x\n", off64, *length,
+		    (uint64_t)zp->z_size, newlength);
+
 	if (off64 + *length > newlength) {
 		if (paging_io) {
 			if (off64 >= newlength) {
@@ -7043,7 +7061,14 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    vp->FileHeader.ValidDataLength.QuadPart);
 	}
 
-	if (!no_cache) {
+	/*
+	 * Paging I/O (IRP_PAGING_IO) is how CcFlushCache pushes dirty pages
+	 * from the Cache Manager to ZFS.  It does NOT have IRP_NOCACHE set,
+	 * but it must bypass the cache and write to ZFS directly.  Routing
+	 * it back through CcCopyWriteEx would re-dirty the same pages and
+	 * prevent the data from ever reaching ZFS.
+	 */
+	if (!no_cache && !paging_io) {
 		Status = STATUS_SUCCESS;
 
 		try {
@@ -7706,13 +7731,26 @@ delete_entry(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp,
 	VN_RELE(vp);
 	vp = NULL;
 
+	/*
+	 * Use a kernel credential (uid=0) for the ZFS-level delete.  Windows
+	 * already verified that the opener had DELETE access on this handle
+	 * (via SeAccessCheck at IRP_MJ_CREATE time and again when
+	 * FileDispositionInformation(Ex) was processed), so the ZFS POSIX ACL
+	 * re-check here is redundant.  Without a kernel cred, callers running
+	 * as non-root uid (e.g. git at uid 1000) hit secpolicy_vnode_access2()
+	 * which only permits uid==0, causing delete_entry to return EACCES and
+	 * leaving the file in the directory with z_unlinked set — the root
+	 * cause of "config.lock: File exists" errors in git clone on ZFS.
+	 */
+	cred_t kcr = { .cr_uid = 0, .cr_gid = 0 };
+
 	if (isdir) {
 
-		error = zfs_rmdir(VTOZ(dvp), finalname, NULL, NULL, 0);
+		error = zfs_rmdir(VTOZ(dvp), finalname, NULL, &kcr, 0);
 
 	} else {
 
-		error = zfs_remove(VTOZ(dvp), finalname, NULL, 0);
+		error = zfs_remove(VTOZ(dvp), finalname, &kcr, 0);
 
 	}
 
@@ -7731,11 +7769,20 @@ flush_buffers(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 {
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
 	NTSTATUS Status = 0;
+	IO_STATUS_BLOCK iosb = {0};
 
 	dprintf("%s: \n", __func__);
 
 	if (FileObject == NULL || FileObject->FsContext == NULL)
 		return (STATUS_INVALID_PARAMETER);
+
+	/*
+	 * Push Cache Manager dirty pages into ZFS before calling fsync.
+	 * Without this, lazy-written data may not yet be in ZFS when
+	 * the caller (e.g. git's FlushFileBuffers) reads back the file.
+	 */
+	if (CcIsFileCached(FileObject))
+		CcFlushCache(FileObject->SectionObjectPointer, NULL, 0, &iosb);
 
 	struct vnode *vp = FileObject->FsContext;
 	if (VN_HOLD(vp) == 0) {
@@ -8140,14 +8187,19 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (fzmo && zccb && fzmo->NotifySync)
 		need_notify_cleanup = B_TRUE;
 
-	if ((FileObject->Flags & FO_CACHE_SUPPORTED) &&
-	    FileObject->SectionObjectPointer &&
-	    FileObject->SectionObjectPointer->DataSectionObject) {
-		need_flush = B_TRUE;
-	}
-
 	if (zccb && zccb->cacheinit && FileObject->PrivateCacheMap)
 		need_cache_uninit = B_TRUE;
+
+	/*
+	 * Flush dirty CM pages before uninitialising the cache.
+	 * DataSectionObject is only set for memory-mapped files; files written
+	 * via WriteFile (FastIO) only have SharedCacheMap set.  CcIsFileCached
+	 * checks SharedCacheMap, so it covers both cases.  Always flush when
+	 * we are about to call CcUninitializeCacheMap to avoid losing dirty
+	 * pages that the lazy writer has not yet written to ZFS.
+	 */
+	if (need_cache_uninit || CcIsFileCached(FileObject))
+		need_flush = B_TRUE;
 
 	/*
 	 * Release long-term open hold for this FILE_OBJECT.
@@ -8209,12 +8261,18 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    FileObject->SectionObjectPointer->DataSectionObject);
 
 	if (need_flush) {
-		IO_STATUS_BLOCK iosb;
+		IO_STATUS_BLOCK iosb = {0};
 
+		dprintf("CcFlushCache: %s cacheinit %llu PrivCM %p "
+		    "zp_sz %I64x VDL %I64x\n",
+		    zccb && zccb->z_name_cache ? zccb->z_name_cache : "?",
+		    zccb ? zccb->cacheinit : 0,
+		    FileObject->PrivateCacheMap,
+		    zp ? (uint64_t)zp->z_size : 0,
+		    vp->FileHeader.ValidDataLength.QuadPart);
 		CcFlushCache(FileObject->SectionObjectPointer, NULL, 0, &iosb);
-
-		if (!NT_SUCCESS(iosb.Status))
-			dprintf("CcFlushCache returned %08lx\n", iosb.Status);
+		dprintf("CcFlushCache done: status %08lx info %Iu\n",
+		    iosb.Status, iosb.Information);
 	}
 
 	if (need_purge) {
@@ -10724,6 +10782,23 @@ fastio_write(PFILE_OBJECT FileObject, PLARGE_INTEGER FileOffset,
 	// treelock
 	ret = FsRtlCopyWrite(FileObject, FileOffset, Length,
 	    Wait, LockKey, Buffer, IoStatus, DeviceObject);
+
+	/*
+	 * FsRtlCopyWrite extends the file in the Cache Manager but does not
+	 * update zp->z_size.  If it did extend the file, sync zp->z_size now
+	 * so that paging I/O from CcFlushCache is not treated as "beyond EOF"
+	 * and silently dropped in zfs_write_wrap.
+	 */
+	if (ret && FileObject->FsContext) {
+		vnode_t *vp = (vnode_t *)FileObject->FsContext;
+		znode_t *zp = VTOZ(vp);
+		if (zp) {
+			uint64_t new_end =
+			    (uint64_t)FileOffset->QuadPart + Length;
+			if (new_end > zp->z_size)
+				zp->z_size = new_end;
+		}
+	}
 
 	return (ret);
 }

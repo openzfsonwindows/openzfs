@@ -652,9 +652,7 @@ FreeUnicodeString(PUNICODE_STRING s)
 int
 zfs_vnop_ioctl_fullfsync(struct vnode *vp, vfs_context_t *ct, zfsvfs_t *zfsvfs)
 {
-	int error = 0;
-
-	// error = zfs_fsync(VTOZ(vp), /* syncflag */ 0, NULL);
+	int error = zfs_fsync(VTOZ(vp), /* syncflag */ 0, NULL);
 	return (error);
 }
 
@@ -3424,11 +3422,41 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp, boolean_t deleteonclose)
 		goto out;
 	}
 
-	// Cannot delete a user mapped image.
+	/*
+	 * Purge Cache Manager data pages first.  A DataSectionObject can
+	 * be left behind when a caching write handle is closed without an
+	 * explicit flush; purging lets MmFlushImageSection succeed in the
+	 * common case (no image section either).
+	 */
+	if (vp->SectionObjectPointers.DataSectionObject != NULL)
+		CcPurgeCacheSection(&vp->SectionObjectPointers, NULL, 0,
+		    FALSE);
+
+	/*
+	 * Block deletion only when a true IMAGE section exists (the file
+	 * is loaded as an executable by some process).  When
+	 * MmFlushImageSection returns FALSE but ImageSectionObject is
+	 * NULL, the refusal comes from a user-mode DATA mapping (e.g.
+	 * Windows Defender or Windows Search has the file open via
+	 * CreateFileMapping).  Apply POSIX unlink() semantics: mark the
+	 * file delete-pending now so new opens fail immediately, but
+	 * defer the actual directory removal to IRP_MJ_CLEANUP /
+	 * delete_entry() when the last handle closes.  This lets git
+	 * unlink() the old .idx while it still holds a read mapping on
+	 * it, then rename the new .idx into place.
+	 */
 	if (!MmFlushImageSection(&vp->SectionObjectPointers,
 	    MmFlushForDelete)) {
-		Status = STATUS_CANNOT_DELETE;
-		goto out;
+		if (vp->SectionObjectPointers.ImageSectionObject != NULL) {
+			dprintf("%s: cannot delete image-mapped '%wZ'\n",
+			    __func__, &fo->FileName);
+			Status = STATUS_CANNOT_DELETE;
+			goto out;
+		}
+		dprintf("%s: data-mapped '%wZ' - allowing POSIX-style "
+		    "delete-pending (DataSectionObject=%p)\n", __func__,
+		    &fo->FileName,
+		    vp->SectionObjectPointers.DataSectionObject);
 	}
 
 	// Call out_unlock from now on,
@@ -3504,6 +3532,17 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp, boolean_t deleteonclose)
 			if (winOK)
 				delete_cr = &elevated_delete_cr;
 		}
+		/*
+		 * If no Windows SD was available for SeAccessCheck, the
+		 * handle was still opened with DELETE access (the I/O
+		 * Manager enforces this before dispatching
+		 * FileDispositionInformation).  Fall back to uid=0 so
+		 * secpolicy_vnode_access2() does not deny non-root callers
+		 * who legitimately own the file — the same approach used in
+		 * delete_entry() / zfs_fileobject_cleanup().
+		 */
+		if (delete_cr == NULL)
+			delete_cr = &elevated_delete_cr;
 		error = zfs_zaccess_delete(dzp, zp, delete_cr, NULL);
 	}
 
