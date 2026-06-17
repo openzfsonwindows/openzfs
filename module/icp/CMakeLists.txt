@@ -47,6 +47,7 @@ elseif (CMAKE_C_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
 	  asm-x86_64/modes/gcm_pclmulqdq.S
 	  asm-x86_64/modes/ghash-x86_64.S
 	  asm-x86_64/modes/aesni-gcm-x86_64.S
+	  asm-x86_64/modes/aesni-gcm-avx2-vaes.S
 	  asm-x86_64/blake3/blake3_avx2.S
 	  asm-x86_64/blake3/blake3_avx512.S
 	  asm-x86_64/blake3/blake3_sse2.S
