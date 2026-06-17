@@ -1148,6 +1148,17 @@ wosix_open(const char *inpath, int oflag, ...)
 	while ((r = strchr(r, '/')) != NULL)
 		*r = '\\';
 
+	/*
+	 * Strip a trailing backslash: CreateFile rejects paths like
+	 * "\\.\C:\dir\" and "\\server\share\" with ERROR_INVALID_NAME.
+	 * Preserve drive roots ("C:\", length == 3).
+	 */
+	{
+		size_t cplen = strlen(copy_path);
+		if (cplen > 3 && copy_path[cplen - 1] == '\\')
+			copy_path[cplen - 1] = '\0';
+	}
+
 	// This is wrong, not all bitfields
 	if (oflag&O_WRONLY) mode = GENERIC_WRITE;
 	if (oflag&O_RDWR)   mode = GENERIC_READ | GENERIC_WRITE;
