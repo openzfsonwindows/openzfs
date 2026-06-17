@@ -6841,18 +6841,49 @@ ioctl_storage_query_property(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		status = STATUS_SUCCESS;
 		break;
 
+	case StorageDeviceLBProvisioningProperty:
+		dprintf("    StorageDeviceLBProvisioningProperty\n");
+		if (spq->QueryType == PropertyExistsQuery)
+			return (STATUS_SUCCESS);
+
+		hdrsize = sizeof (DEVICE_LB_PROVISIONING_DESCRIPTOR);
+		if (outputLength == sizeof (STORAGE_DESCRIPTOR_HEADER) &&
+		    Header) {
+			Header->Size = hdrsize;
+			Header->Version = hdrsize;
+			Irp->IoStatus.Information =
+			    sizeof (STORAGE_DESCRIPTOR_HEADER);
+			return (STATUS_SUCCESS);
+		}
+
+		Irp->IoStatus.Information = hdrsize;
+		if (outputLength < hdrsize)
+			return (STATUS_BUFFER_TOO_SMALL);
+
+		DEVICE_LB_PROVISIONING_DESCRIPTOR *lbpd;
+		lbpd = Irp->AssociatedIrp.SystemBuffer;
+		RtlZeroMemory(lbpd, hdrsize);
+		lbpd->Version = hdrsize;
+		lbpd->Size = hdrsize;
+		/* ZFS on Windows: not thinly provisioned */
+		lbpd->ThinProvisioningEnabled = 0;
+		lbpd->ThinProvisioningReadZeros = 0;
+		lbpd->AnchorSupported = 0;
+		status = STATUS_SUCCESS;
+		break;
+
 	default:
-		// StorageDeviceLBProvisioningProperty
-		// StorageDeviceResiliencyProperty
+		// StorageDeviceResiliencyProperty etc.
 		if (spq->QueryType == PropertyExistsQuery) {
 			dprintf("PropertyExistsQuery not "
 			    "supported: %d / 0x%x\n",
 			    spq->PropertyId, spq->PropertyId);
 			return (STATUS_NOT_SUPPORTED);
 		}
-		dprintf("PropertyStandardQuery failing: %d / 0x%x\n",
+		dprintf("PropertyStandardQuery not "
+		    "supported: %d / 0x%x\n",
 		    spq->PropertyId, spq->PropertyId);
-		return (STATUS_INVALID_DEVICE_REQUEST);
+		return (STATUS_NOT_SUPPORTED);
 	}
 
 	return (status);

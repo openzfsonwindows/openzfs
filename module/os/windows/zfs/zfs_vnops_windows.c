@@ -9271,6 +9271,12 @@ _Function_class_(DRIVER_DISPATCH)
 			Status = ioctl_storage_query_property(DeviceObject, Irp,
 			    IrpSp);
 			break;
+		case 0x002D281C: /* unknown storage IOCTL (fn 0xA07) */
+			dprintf("unknown storage IOCTL 0x002D281C"
+			    " -> NOT_SUPPORTED\n");
+			Irp->IoStatus.Information = 0;
+			Status = STATUS_NOT_SUPPORTED;
+			break;
 		case IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS:
 			dprintf("IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS\n");
 			Status = ioctl_volume_get_volume_disk_extents(
@@ -9912,6 +9918,12 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 		case 0x002D148C: /* unknown storage IOCTL (fn 0x523) */
 			dprintf("unknown storage IOCTL 0x002D148C"
+			    " -> NOT_SUPPORTED\n");
+			Irp->IoStatus.Information = 0;
+			Status = STATUS_NOT_SUPPORTED;
+			break;
+		case 0x002D281C: /* unknown storage IOCTL (fn 0xA07) */
+			dprintf("unknown storage IOCTL 0x002D281C"
 			    " -> NOT_SUPPORTED\n");
 			Irp->IoStatus.Information = 0;
 			Status = STATUS_NOT_SUPPORTED;
