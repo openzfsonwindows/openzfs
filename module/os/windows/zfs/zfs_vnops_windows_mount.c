@@ -2333,11 +2333,14 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 			zfs_remove_driveletter(zmo_dcb);
 
 		} else {
-			// If mount uses reparsepoint (not driveletter)
-			// To let delete reparse point to succeed, the
-			// vfs_is_mountpoint() need to fail, so free the
-			// root mountpoint it uses.
+			/*
+			 * If mount uses reparsepoint (not driveletter):
+			 * clear mounted_on on both VCB and DCB so that
+			 * vfs_has_mount() returns NULL and
+			 * delete_reparse_point() does not deny the FSCTL.
+			 */
 			vfs_set_mountedon(zmo, NULL);
+			vfs_set_mountedon(zmo_dcb, NULL);
 
 			OBJECT_ATTRIBUTES poa;
 
