@@ -5051,29 +5051,39 @@ file_standard_information_impl(PDEVICE_OBJECT DeviceObject,
 	int error = 0;
 
 	if (zp != NULL) {
+		boolean_t is_ads = (zp->z_pflags & ZFS_XATTR) != 0;
 
-		// If we are a steam, we need to grab the parent,
-		// either way, we hold iocount.
-		if (zccb && (zp->z_pflags & ZFS_XATTR) &&
-		    (zccb->real_file_id > 0)) {
-			error = zfs_zget(zp->z_zfsvfs, zccb->real_file_id, &zp);
-			if (!error)
-				vp = ZTOV(zp);
-			else
-				VN_HOLD(vp); // ah well, fallback
-		} else {
-			VN_HOLD(vp);
-		}
+		VN_HOLD(vp);
 
-		// Set it again, in case zget fails, and zp = NULL.
-		zp = VTOZ(vp);
-
-		fsi->Directory = vnode_isdir(vp) ? TRUE : FALSE;
-
+		/*
+		 * For ADS (xattr) nodes, EndOfFile and AllocationSize must
+		 * reflect the stream's own size, not the parent file's size.
+		 * Only look up the parent for link-count and delete-pending,
+		 * which are properties of the parent file object.
+		 */
 		fsi->AllocationSize.QuadPart = allocationsize(zp);
 		fsi->EndOfFile.QuadPart = vnode_isdir(vp) ? 0 : zp->z_size;
-		fsi->NumberOfLinks = vnode_unlink(vp) ? 0 : DIR_LINKS(zp);
-		fsi->DeletePending = vnode_unlink(vp) ? TRUE : FALSE;
+		fsi->Directory = vnode_isdir(vp) ? TRUE : FALSE;
+
+		if (is_ads && zccb && zccb->real_file_id > 0) {
+			znode_t *pzp = NULL;
+			if (zfs_zget(zp->z_zfsvfs, zccb->real_file_id,
+			    &pzp) == 0) {
+				fsi->NumberOfLinks =
+				    vnode_unlink(ZTOV(pzp)) ? 0 :
+				    DIR_LINKS(pzp);
+				fsi->DeletePending =
+				    vnode_unlink(ZTOV(pzp)) ? TRUE : FALSE;
+				zrele(pzp);
+			} else {
+				fsi->NumberOfLinks = 1;
+				fsi->DeletePending = FALSE;
+			}
+		} else {
+			fsi->NumberOfLinks =
+			    vnode_unlink(vp) ? 0 : DIR_LINKS(zp);
+			fsi->DeletePending = vnode_unlink(vp) ? TRUE : FALSE;
+		}
 
 		IoStatus->Information = sizeof (FILE_STANDARD_INFORMATION);
 
@@ -5088,11 +5098,10 @@ file_standard_information_impl(PDEVICE_OBJECT DeviceObject,
 		    BOOLEAN MetadataAttribute;
 		} FILE_STANDARD_INFORMATION_EX, *PFILE_STANDARD_INFORMATION_EX;
 #endif
-		if (length >=
-		    sizeof (FILE_STANDARD_INFORMATION_EX)) {
+		if (length >= sizeof (FILE_STANDARD_INFORMATION_EX)) {
 			FILE_STANDARD_INFORMATION_EX *estandard;
 			estandard = (FILE_STANDARD_INFORMATION_EX *)fsi;
-			estandard->AlternateStream = zp->z_pflags & ZFS_XATTR;
+			estandard->AlternateStream = is_ads;
 			estandard->MetadataAttribute = FALSE;
 			IoStatus->Information =
 			    sizeof (FILE_STANDARD_INFORMATION_EX);
