@@ -4031,7 +4031,11 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	 */
 
 	FILE_LINK_INFORMATION *link = Irp->AssociatedIrp.SystemBuffer;
-	dprintf("* FileLinkInformation: %.*S\n",
+	boolean_t ExVariant =
+	    IrpSp->Parameters.SetFile.FileInformationClass ==
+	    FileLinkInformationEx;
+	dprintf("* FileLinkInformation%s: %.*S\n",
+	    ExVariant ? "Ex" : "",
 	    (int)link->FileNameLength / sizeof (WCHAR), link->FileName);
 
 	// So, use FileObject to get VP.
@@ -4148,10 +4152,17 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		goto out;
 	}
 
-	// What about link->ReplaceIfExist ?
+	boolean_t replace;
+#if defined(FILE_LINK_REPLACE_IF_EXISTS)
+	if (ExVariant)
+		replace = ((FILE_LINK_INFORMATION_EX *)link)->Flags &
+		    FILE_LINK_REPLACE_IF_EXISTS;
+	else
+#endif
+		replace = link->ReplaceIfExists;
 	error = zfs_link(VTOZ(tdvp), VTOZ(fvp),
 	    remainder ? remainder : filename, NULL,
-	    link->ReplaceIfExists ? FLINKREPLACE : 0);
+	    replace ? FLINKREPLACE : 0);
 
 	if (error == 0) {
 

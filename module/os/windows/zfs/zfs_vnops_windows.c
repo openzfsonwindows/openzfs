@@ -6420,7 +6420,8 @@ set_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		Status = set_file_endoffile_information(DeviceObject, Irp,
 		    IrpSp, IrpSp->Parameters.SetFile.AdvanceOnly, B_FALSE);
 		break;
-	case FileLinkInformation: // symlink
+	case FileLinkInformation: // hardlink
+	case FileLinkInformationEx:
 		Status = set_file_link_information(DeviceObject, Irp, IrpSp);
 		break;
 	case FilePositionInformation: // seek
