@@ -293,16 +293,31 @@ strsep(char **stringp, const char *delim)
 char *
 realpath(const char *file_name, char *resolved_name)
 {
-	DWORD ret;
-	// If resolved_name is NULL, we allocate space. Otherwise we assume
-	// PATH_MAX - but pretty sure this style isn't used in ZFS
+	wchar_t wfile[PATH_MAX], wresolved[PATH_MAX];
+
 	if (resolved_name == NULL)
 		resolved_name = malloc(PATH_MAX);
 	if (resolved_name == NULL)
 		return (NULL);
-	ret = GetFullPathName(file_name, PATH_MAX, resolved_name, NULL);
-	if (ret == 0)
+
+	if (MultiByteToWideChar(CP_UTF8, 0, file_name, -1,
+	    wfile, PATH_MAX) == 0)
 		return (NULL);
+	if (GetFullPathNameW(wfile, PATH_MAX, wresolved, NULL) == 0)
+		return (NULL);
+	if (WideCharToMultiByte(CP_UTF8, 0, wresolved, -1,
+	    resolved_name, PATH_MAX, NULL, NULL) == 0)
+		return (NULL);
+
+	/*
+	 * GetFullPathNameW returns a trailing backslash for UNC share roots
+	 * (e.g. \\server\share\).  Strip it so callers that concatenate a
+	 * separator don't produce a double backslash.  Preserve drive roots
+	 * (C:\, length == 3).
+	 */
+	size_t rlen = strlen(resolved_name);
+	if (rlen > 3 && resolved_name[rlen - 1] == '\\')
+		resolved_name[rlen - 1] = '\0';
 
 	return (resolved_name);
 }
@@ -1193,6 +1208,32 @@ wosix_open(const char *inpath, int oflag, ...)
 		path = otherpath;
 	}
 
+	/*
+	 * Relative path (e.g. ".") with a UNC CWD causes CreateFile to
+	 * return ERROR_INVALID_NAME (123) instead of ERROR_ACCESS_DENIED,
+	 * bypassing the backup-semantics retry below.  Expand to absolute
+	 * using the wide-char API, which resolves correctly against a UNC CWD.
+	 */
+	if (path[0] != '\\' &&
+	    !(isalpha((unsigned char)path[0]) && path[1] == ':')) {
+		wchar_t wrel[MAXPATHLEN], wabs[MAXPATHLEN];
+		if (MultiByteToWideChar(CP_UTF8, 0, path, -1, wrel,
+		    MAXPATHLEN) > 0 &&
+		    GetFullPathNameW(wrel, MAXPATHLEN, wabs, NULL) > 0) {
+			WideCharToMultiByte(CP_UTF8, 0, wabs, -1,
+			    otherpath, sizeof (otherpath), NULL, NULL);
+			/*
+			 * GetFullPathNameW appends a trailing backslash to UNC
+			 * share roots (\\server\share\).  CreateFile rejects
+			 * such paths with ERROR_INVALID_NAME; strip it, but
+			 * preserve drive roots like "C:\".
+			 */
+			size_t olen = strlen(otherpath);
+			if (olen > 3 && otherpath[olen - 1] == '\\')
+				otherpath[olen - 1] = '\0';
+			path = otherpath;
+		}
+	}
 
 	// Try to open verbatim, but if that fail, check if it is the
 	// "#offset#length#name" style, and try again. We let it fail first
@@ -1202,8 +1243,14 @@ wosix_open(const char *inpath, int oflag, ...)
 	    dwFlagsAndAttributes,
 	    NULL);
 
-	// Could be a directory (but we come from stat so no O_DIRECTORY)
-	if (h == INVALID_HANDLE_VALUE && GetLastError() == ERROR_ACCESS_DENIED)
+	/*
+	 * Directories require FILE_FLAG_BACKUP_SEMANTICS.  For UNC paths,
+	 * Windows may also return ERROR_INVALID_NAME instead of
+	 * ERROR_ACCESS_DENIED when BACKUP_SEMANTICS is missing.
+	 */
+	if (h == INVALID_HANDLE_VALUE &&
+	    (GetLastError() == ERROR_ACCESS_DENIED ||
+	    GetLastError() == ERROR_INVALID_NAME))
 		h = CreateFile(path, mode, share, NULL, how,
 		    FILE_FLAG_BACKUP_SEMANTICS,
 		    NULL);

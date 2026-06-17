@@ -979,13 +979,29 @@ update_vdev_config_dev_strsXXXX(nvlist_t *nv)
 		char *vdev_path;
 
 		if (path[0] != '/') {
-			asprintf(&vdev_path, "\\??\\%s", path);
-			zfs_backslashes(vdev_path);
-			if (nvlist_add_string(nv, ZPOOL_CONFIG_PHYS_PATH,
-			    vdev_path) != 0)
-				return;
-
-			asprintf(&vdev_path, "//./%s", path);
+			if (path[0] == '\\' && path[1] == '\\') {
+				asprintf(&vdev_path, "\\??\\UNC%s", path + 1);
+				zfs_backslashes(vdev_path);
+				if (nvlist_add_string(nv,
+				    ZPOOL_CONFIG_PHYS_PATH,
+				    vdev_path) != 0)
+					return;
+				/*
+				 * zfs_file_open converts "//./X" -> "\??\X"
+				 * (replaces [1][2] with '?', then '/' -> '\').
+				 * For UNC: "//./UNC\server\share\file"
+				 *         -> "\??\UNC\server\share\file"
+				 */
+				asprintf(&vdev_path, "//./UNC%s", path + 1);
+			} else {
+				asprintf(&vdev_path, "\\??\\%s", path);
+				zfs_backslashes(vdev_path);
+				if (nvlist_add_string(nv,
+				    ZPOOL_CONFIG_PHYS_PATH,
+				    vdev_path) != 0)
+					return;
+				asprintf(&vdev_path, "//./%s", path);
+			}
 			zfs_slashes(vdev_path);
 			fprintf(stderr, "correcting path: '%s' \r\n",
 			    vdev_path);
@@ -1128,18 +1144,30 @@ update_vdev_config_dev_strs(nvlist_t *nv)
 		char *vdev_path;
 
 		if (path[0] != '/') {
-			asprintf(&vdev_path, "\\??\\%s", path);
-			zfs_backslashes(vdev_path);
-			if (nvlist_add_string(nv, ZPOOL_CONFIG_PHYS_PATH, \
+			if (path[0] == '\\' && path[1] == '\\') {
+				asprintf(&vdev_path, "\\??\\UNC%s", path + 1);
+				zfs_backslashes(vdev_path);
+				if (nvlist_add_string(nv,
+				    ZPOOL_CONFIG_PHYS_PATH,
+				    vdev_path) != 0)
+					return;
+				asprintf(&vdev_path, "//./UNC%s", path + 1);
+			} else {
+				asprintf(&vdev_path, "\\??\\%s", path);
+				zfs_backslashes(vdev_path);
+				if (nvlist_add_string(nv,
+				    ZPOOL_CONFIG_PHYS_PATH,
+				    vdev_path) != 0)
+					return;
+				asprintf(&vdev_path, "//./%s", path);
+			}
+			zfs_slashes(vdev_path);
+			fprintf(stderr,
+			    "correcting path: '%s' \r\n", vdev_path);
+			fflush(stderr);
+			if (nvlist_add_string(nv, ZPOOL_CONFIG_PATH,
 			    vdev_path) != 0)
-			return;
-
-		asprintf(&vdev_path, "//./%s", path);
-		zfs_slashes(vdev_path);
-		fprintf(stderr, "correcting path: '%s' \r\n", vdev_path);
-		fflush(stderr);
-		if (nvlist_add_string(nv, ZPOOL_CONFIG_PATH, vdev_path) != 0)
-			return;
+				return;
 
 		}
 	}
