@@ -2351,8 +2351,37 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 			    &zmo_dcb->mountpoint);
 			DeleteReparsePoint(&poa);
 
-			// Remove directory, only for !driveletter
-			ZwDeleteFile(&poa);
+			/* Remove directory left by the reparse point. */
+			{
+				HANDLE hdir;
+				IO_STATUS_BLOCK rmiosb;
+				NTSTATUS rmst;
+
+				rmst = ZwCreateFile(&hdir,
+				    DELETE | SYNCHRONIZE,
+				    &poa, &rmiosb, NULL, 0,
+				    FILE_SHARE_DELETE,
+				    FILE_OPEN,
+				    FILE_DIRECTORY_FILE |
+				    FILE_SYNCHRONOUS_IO_NONALERT |
+				    FILE_OPEN_FOR_BACKUP_INTENT,
+				    NULL, 0);
+				if (NT_SUCCESS(rmst)) {
+					FILE_DISPOSITION_INFORMATION fdi;
+					fdi.DeleteFile = TRUE;
+					rmst = ZwSetInformationFile(hdir,
+					    &rmiosb, &fdi, sizeof (fdi),
+					    FileDispositionInformation);
+					dprintf("%s: rmdir '%wZ' status 0x%x\n",
+					    __func__, &zmo_dcb->mountpoint,
+					    rmst);
+					ZwClose(hdir);
+				} else {
+					dprintf("%s: open for rmdir '%wZ' "
+					    "failed 0x%x\n", __func__,
+					    &zmo_dcb->mountpoint, rmst);
+				}
+			}
 
 			status = NotifyMountMgr(
 			    &zmo_dcb->mountpoint,
