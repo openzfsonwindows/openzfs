@@ -5846,17 +5846,17 @@ file_stream_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		VN_HOLD(vp);
 	}
 
-	// Add a record for this name, if there is room. Keep a
-	// count of how much space would need.
-	// insert_xattrname adds first ":" and ":$DATA"
-	if (vnode_isdir(vp))
-		overflow = zfswin_insert_streamname("", outbuffer,
-		    &previous_stream, availablebytes, &spaceused,
-		    vnode_isdir(vp) ? 0 : zp->z_size);
-	else
+	/*
+	 * For regular files, insert the default "::$DATA" stream entry.
+	 * Directories have no default data stream (matches NTFS behaviour:
+	 * "dir /r" shows no streams for directories).  The empty-name ""
+	 * that was previously passed here also caused a buffer-underrun in
+	 * zfswin_insert_streamname (strlen("") == 0, index -6 access).
+	 */
+	if (!vnode_isdir(vp))
 		overflow = zfswin_insert_streamname(":$DATA", outbuffer,
 		    &previous_stream, availablebytes, &spaceused,
-		    vnode_isdir(vp) ? 0 : zp->z_size);
+		    zp->z_size);
 
 	/* Grab the hidden attribute directory vnode. */
 	if (zfs_get_xattrdir(zp, &xdzp, cr, 0) != 0) {
