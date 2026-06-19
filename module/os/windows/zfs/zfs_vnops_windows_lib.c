@@ -6201,18 +6201,27 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 			mount_t *mount;
 			mount = DeviceRelations->Objects[i];
 			DeviceRelations->Objects[i] = NULL;
-			if (mount != NULL && mount->FunctionalDeviceObject) {
-				dprintf("mount %p : FDO %p\n",
-				    mount, mount->FunctionalDeviceObject);
-				DeviceRelations->Objects[
-				    DeviceRelations->Count] =
-				    mount->FunctionalDeviceObject;
-//				    mount->PhysicalDeviceObject;
-				ObReferenceObject(
-				    DeviceRelations->Objects[
-				    DeviceRelations->Count]);
-				DeviceRelations->Count++;
-			}
+			if (mount == NULL || !mount->FunctionalDeviceObject)
+				continue;
+			/*
+			 * Snapshot mounts (both VSS and ctldir) must not
+			 * appear in BusRelations: they are not proper PnP
+			 * devices and PnP will crash trying to remove them
+			 * during pool export.
+			 */
+			if (mount->type == MOUNT_TYPE_VSS)
+				continue;
+			zfsvfs_t *zfsvfs = vfs_fsprivate(mount);
+			if (zfsvfs != NULL && zfsvfs->z_issnap)
+				continue;
+			dprintf("mount %p : FDO %p\n",
+			    mount, mount->FunctionalDeviceObject);
+			DeviceRelations->Objects[DeviceRelations->Count] =
+			    mount->FunctionalDeviceObject;
+//			    mount->PhysicalDeviceObject;
+			ObReferenceObject(
+			    DeviceRelations->Objects[DeviceRelations->Count]);
+			DeviceRelations->Count++;
 		}
 
 out:
