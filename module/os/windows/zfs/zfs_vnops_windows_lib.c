@@ -6214,6 +6214,13 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 			zfsvfs_t *zfsvfs = vfs_fsprivate(mount);
 			if (zfsvfs != NULL && zfsvfs->z_issnap)
 				continue;
+			/*
+			 * Snapshot DCBs are created before fsprivate is set,
+			 * so fall back to checking the dataset name for '@'.
+			 */
+			if (mount->ascii_name != NULL &&
+			    strchr(mount->ascii_name, '@') != NULL)
+				continue;
 			dprintf("mount %p : FDO %p\n",
 			    mount, mount->FunctionalDeviceObject);
 			DeviceRelations->Objects[DeviceRelations->Count] =
