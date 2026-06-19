@@ -670,10 +670,6 @@ zfs_vss_pool_add_cb(dsl_pool_t *dp, dsl_dataset_t *ds, void *arg)
 void
 zfs_vss_pool_remove(spa_t *spa)
 {
-	dsl_pool_t *dp = spa_get_dsl(spa);
-	if (dp == NULL)
-		return;
-
 	/*
 	 * Collect GUIDs to remove (can't remove while iterating AVL, and
 	 * can't sleep while holding the mutex).  Pre-allocate based on the
@@ -690,28 +686,27 @@ zfs_vss_pool_remove(spa_t *spa)
 	uint64_t *guids = kmem_alloc(alloc * sizeof (uint64_t), KM_SLEEP);
 	uint_t nsnaps = 0;
 
+	/*
+	 * Collect GUIDs for snapshots belonging to this pool.
+	 * Match by snapshot name prefix: "poolname@" or "poolname/".
+	 * Note: zvs_guid is the ZFS dataset GUID (a random 64-bit value),
+	 * NOT the DMU object number, so dsl_dataset_hold_obj() cannot be
+	 * used to filter — it would always fail.
+	 */
+	const char *poolname = spa_name(spa);
+	size_t poolname_len = strlen(poolname);
+
 	mutex_enter(&zfs_vss_lock);
 	zfs_vss_snap_t *zvs;
 	for (zvs = avl_first(&zfs_vss_snaps); zvs != NULL &&
-	    nsnaps < alloc; zvs = AVL_NEXT(&zfs_vss_snaps, zvs))
-		guids[nsnaps++] = zvs->zvs_guid;
-	mutex_exit(&zfs_vss_lock);
-
-	/*
-	 * Second pass: filter to only GUIDs belonging to this pool.
-	 * dsl_dataset_hold_obj may sleep so it must run outside the mutex.
-	 */
-	dsl_pool_config_enter(dp, FTAG);
-	uint_t npool = 0;
-	for (uint_t i = 0; i < nsnaps; i++) {
-		dsl_dataset_t *ds = NULL;
-		if (dsl_dataset_hold_obj(dp, guids[i], FTAG, &ds) == 0) {
-			dsl_dataset_rele(ds, FTAG);
-			guids[npool++] = guids[i];
-		}
+	    nsnaps < alloc; zvs = AVL_NEXT(&zfs_vss_snaps, zvs)) {
+		mount_t *zmo = zvs->zvs_devobj->DeviceExtension;
+		const char *sname = zmo->vss_snapname;
+		if (strncmp(sname, poolname, poolname_len) == 0 &&
+		    (sname[poolname_len] == '@' || sname[poolname_len] == '/'))
+			guids[nsnaps++] = zvs->zvs_guid;
 	}
-	dsl_pool_config_exit(dp, FTAG);
-	nsnaps = npool;
+	mutex_exit(&zfs_vss_lock);
 
 	for (uint_t i = 0; i < nsnaps; i++)
 		zfs_vss_snapshot_remove(guids[i]);

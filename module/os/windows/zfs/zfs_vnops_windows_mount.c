@@ -67,6 +67,8 @@ ZFS_MODULE_RAW(zfs, disable_removablemedia, zfs_disable_removablemedia,
 
 extern kmem_cache_t *znode_cache;
 
+static int zfs_windows_unmount_impl(zfs_cmd_t *zc);
+
 /*
  * Give permissions to the volume, in particular
  * DELETE so regular users can delete items on the volume,
@@ -2260,8 +2262,83 @@ zfs_windows_unmount_free(PUNICODE_STRING symlink_name)
 	vfs_mount_iterate(unmount_find_volume, symlink_name);
 }
 
+/*
+ * Force-unmount any VCBs whose ascii_name matches "<parent_name>@*".
+ * Called before unmounting the parent dataset so that PnP does not
+ * surprise-remove snapshot device objects during pool export.
+ *
+ * Must be called WITHOUT holding vfs_main_lock (i.e., before getzfsvfs).
+ */
+static void
+zfs_unmount_snap_children(const char *parent_name)
+{
+	int i, count, nsnaps = 0;
+	void **array;
+	char **snap_names;
+	size_t plen = strlen(parent_name);
+
+	dprintf("%s: %s\n", __func__, parent_name);
+
+	count = vfs_mount_count();
+	if (count == 0)
+		return;
+
+	array = kmem_zalloc(count * sizeof (void *), KM_SLEEP);
+	snap_names = kmem_zalloc(count * sizeof (char *), KM_SLEEP);
+
+	vfs_mount_setarray(array, count);
+
+	for (i = 0; i < count; i++) {
+		mount_t *m = array[i];
+		const unsigned char *aname;
+		zfsvfs_t *z;
+
+		if (m == NULL)
+			break;
+		if (m->type != MOUNT_TYPE_VCB)
+			continue;
+		z = vfs_fsprivate(m);
+		if (z == NULL || !z->z_issnap)
+			continue;
+		aname = m->ascii_name;
+		if (aname == NULL)
+			continue;
+		if (strlen((const char *)aname) <= plen ||
+		    strncmp((const char *)aname, parent_name, plen) != 0 ||
+		    aname[plen] != '@')
+			continue;
+		snap_names[nsnaps++] = kmem_strdup((const char *)aname);
+	}
+
+	kmem_free(array, count * sizeof (void *));
+
+	for (i = 0; i < nsnaps; i++) {
+		zfs_cmd_t zc = {"\0"};
+		dprintf("%s: preflight-unmounting snapshot '%s'\n",
+		    __func__, snap_names[i]);
+		strlcpy(zc.zc_name, snap_names[i], sizeof (zc.zc_name));
+		(void) zfs_windows_unmount_impl(&zc);
+		kmem_strfree(snap_names[i]);
+	}
+
+	kmem_free(snap_names, count * sizeof (char *));
+}
+
 int
 zfs_windows_unmount(zfs_cmd_t *zc)
+{
+	/*
+	 * Preflight: if this is a non-snapshot dataset, force-unmount any
+	 * snapshot children first.  PnP will crash (surprise-remove) if a
+	 * snapshot device object disappears while its parent is being torn
+	 * down.  Do this BEFORE getzfsvfs so we hold no vfs_main_lock.
+	 */
+	zfs_unmount_snap_children(zc->zc_name);
+	return (zfs_windows_unmount_impl(zc));
+}
+
+static int
+zfs_windows_unmount_impl(zfs_cmd_t *zc)
 {
 	mount_t *zmo;
 	mount_t *zmo_dcb = NULL;
