@@ -423,6 +423,30 @@ zfsctl_root_lookup(struct vnode *dvp, char *name, znode_t **zpp,
 		error = dmu_snapshot_lookup(zfsvfs->z_os, name, &id);
 		if (error != 0)
 			goto out;
+
+		/*
+		 * If the snapshot is already mounted, return its real root
+		 * vnode so that directory listing goes through zfs_readdir
+		 * rather than the ctldir stub which only emits . and ..
+		 */
+		char snapname[ZFS_MAX_DATASET_NAME_LEN];
+		dmu_objset_name(zfsvfs->z_os, snapname);
+		strlcat(snapname, "@", sizeof (snapname));
+		strlcat(snapname, name, sizeof (snapname));
+
+		zfsvfs_t *snap_zfsvfs = NULL;
+		znode_t *rootzp = NULL;
+		if (getzfsvfs(snapname, &snap_zfsvfs) == 0) {
+			if (zfs_zget(snap_zfsvfs, snap_zfsvfs->z_root,
+			    &rootzp) == 0) {
+				vfs_unbusy(snap_zfsvfs->z_vfs);
+				*zpp = rootzp;
+				zfs_exit(zfsvfs, FTAG);
+				return (0);
+			}
+			vfs_unbusy(snap_zfsvfs->z_vfs);
+		}
+
 		vp = zfsctl_vnode_lookup(zfsvfs, ZFSCTL_INO_SNAPDIRS - id,
 		    name);
 	}
