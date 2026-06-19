@@ -87,7 +87,7 @@
 #define	HAVE_USLEEP 1
 
 /* These control which assembler files to use */
-#if defined(__i386) || defined(__amd64)
+#if defined(__i386) || defined(__amd64) || defined(__x86_64__)
 #define	HAVE_SSE2 1
 #define	HAVE_SSSE3 1
 #define	HAVE_SSE4_1

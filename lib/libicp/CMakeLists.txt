@@ -46,6 +46,7 @@ elseif (CMAKE_C_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
     "${ICP_MODULE_DIR}/asm-x86_64/aes/aes_aesni.S"
     "${ICP_MODULE_DIR}/asm-x86_64/aes/aes_amd64.S"
     "${ICP_MODULE_DIR}/asm-x86_64/modes/aesni-gcm-x86_64.S"
+    "${ICP_MODULE_DIR}/asm-x86_64/modes/aesni-gcm-avx2-vaes.S"
     "${ICP_MODULE_DIR}/asm-x86_64/modes/gcm_pclmulqdq.S"
     "${ICP_MODULE_DIR}/asm-x86_64/modes/ghash-x86_64.S"
     "${ICP_MODULE_DIR}/asm-x86_64/blake3/blake3_avx2.S"

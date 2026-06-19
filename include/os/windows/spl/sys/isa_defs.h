@@ -222,14 +222,26 @@ extern "C" {
  * The following set of definitions characterize Solaris on AMD's
  * 64-bit systems.
  */
-#if defined(__x86_64) || defined(__amd64)
+#if defined(__x86_64) || defined(__x86_64__)
+
+#if !defined(__x86_64)
+#define	__x86_64
+#endif
 
 #if !defined(__amd64)
-#define	__amd64		/* preferred guard */
+#define	__amd64
 #endif
 
 #if !defined(__x86)
 #define	__x86
+#endif
+
+#if defined(_ILP32)
+/* x32-specific defines; careful to *not* define _LP64 here */
+#else
+#if !defined(_LP64)
+#define	_LP64
+#endif
 #endif
 
 /*

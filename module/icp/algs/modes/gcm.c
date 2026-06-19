@@ -786,6 +786,7 @@ gcm_impl_get_ops(void)
 /*
  * Initialize all supported implementations.
  */
+
 void
 gcm_impl_init(void)
 {
@@ -805,6 +806,7 @@ gcm_impl_init(void)
 	 * Set the fastest implementation given the assumption that the
 	 * hardware accelerated version is the fastest.
 	 */
+
 #if defined(__x86_64) && defined(HAVE_PCLMULQDQ)
 	if (gcm_pclmulqdq_impl.is_supported()) {
 		memcpy(&gcm_fastest_impl, &gcm_pclmulqdq_impl,
@@ -1027,6 +1029,7 @@ MODULE_PARM_DESC(icp_gcm_impl, "Select gcm implementation.");
 
 #ifdef CAN_USE_GCM_ASM
 #define	GCM_BLOCK_LEN 16
+
 /*
  * The openssl asm routines are 6x aggregated and need that many bytes
  * at minimum.
@@ -1089,7 +1092,6 @@ static inline void GHASH_AVX(gcm_ctx_t *ctx, const uint8_t *in, size_t len)
 			    (const uint64_t *)ctx->gcm_Htable, in, len);
 			break;
 #endif
-
 		case GCM_IMPL_AVX:
 			gcm_ghash_avx(ctx->gcm_ghash,
 			    (const uint64_t *)ctx->gcm_Htable, in, len);
@@ -1100,7 +1102,7 @@ static inline void GHASH_AVX(gcm_ctx_t *ctx, const uint8_t *in, size_t len)
 	}
 }
 
-typedef size_t ASMABI aesni_gcm_encrypt_impl(const uint8_t *, uint8_t *,
+typedef size_t aesni_gcm_encrypt_impl(const uint8_t *, uint8_t *,
     size_t, const void *, uint64_t *, const uint64_t *Htable, uint64_t *);
 extern size_t ASMABI aesni_gcm_encrypt(const uint8_t *, uint8_t *,
     size_t, const void *, uint64_t *, uint64_t *);
@@ -1110,7 +1112,7 @@ extern void ASMABI aes_gcm_enc_update_vaes_avx2(const uint8_t *in,
     const uint128_t Htable[16], uint8_t Xi[16]);
 #endif
 
-typedef size_t ASMABI aesni_gcm_decrypt_impl(const uint8_t *, uint8_t *,
+typedef size_t aesni_gcm_decrypt_impl(const uint8_t *, uint8_t *,
     size_t, const void *, uint64_t *, const uint64_t *Htable, uint64_t *);
 extern size_t ASMABI aesni_gcm_decrypt(const uint8_t *, uint8_t *,
     size_t, const void *, uint64_t *, uint64_t *);
@@ -1131,6 +1133,7 @@ gcm_avx2_will_work(void)
 static inline boolean_t
 gcm_avx_will_work(void)
 {
+
 	/* Avx should imply aes-ni and pclmulqdq, but make sure anyhow. */
 	return (kfpu_allowed() &&
 	    zfs_avx_available() && zfs_aes_available() &&

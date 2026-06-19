@@ -110,6 +110,9 @@ else()
 	message(FATAL_ERROR "Unsupported architecture: ${CMAKE_SYSTEM_PROCESSOR}")
 endif()
 
+# Force-include zfs_config.h in all WDK kernel builds (mirrors /FI in use_clang for userland)
+list(APPEND WDK_COMPILE_FLAGS "/FI${CMAKE_SOURCE_DIR}/include/os/windows/zfs/zfs_config.h")
+
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_definitions(-DDBG -DZFS_DEBUG)
 endif()
