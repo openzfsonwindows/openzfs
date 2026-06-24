@@ -913,7 +913,9 @@ out:
  * outputs:
  * return code
  */
-int zfs_windows_mount(zfs_cmd_t *zc);  // move me to headers
+int zfs_windows_mount(zfs_cmd_t *zc);  /* move me to headers */
+int zfs_windows_mount_impl(const char *name, char *value, size_t valuelen,
+    uint64_t mountflags);  /* move me to headers */
 
 static int
 zfs_ioc_mount(zfs_cmd_t *zc)

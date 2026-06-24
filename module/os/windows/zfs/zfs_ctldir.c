@@ -436,7 +436,17 @@ zfsctl_root_lookup(struct vnode *dvp, char *name, znode_t **zpp,
 
 		zfsvfs_t *snap_zfsvfs = NULL;
 		znode_t *rootzp = NULL;
-		if (getzfsvfs(snapname, &snap_zfsvfs) == 0) {
+		/*
+		 * Skip getzfsvfs when vfs_main_lock is already write-held by
+		 * this thread (e.g. during unmount via LK_UPGRADE). getzfsvfs
+		 * calls vfs_busy(LK_NOWAIT) which takes a reader on the same
+		 * ERESOURCE, but ERESOURCE allows a writer thread to re-enter
+		 * as reader, incrementing rw_readers to 1.  The subsequent
+		 * vfs_unbusy → rw_exit then hits the writer path and asserts
+		 * rw_readers == 0.
+		 */
+		if (!vfs_main_lock_write_held() &&
+		    getzfsvfs(snapname, &snap_zfsvfs) == 0) {
 			if (zfs_zget(snap_zfsvfs, snap_zfsvfs->z_root,
 			    &rootzp) == 0) {
 				vfs_unbusy(snap_zfsvfs->z_vfs);

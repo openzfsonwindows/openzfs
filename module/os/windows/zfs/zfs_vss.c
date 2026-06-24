@@ -539,15 +539,70 @@ zfs_vss_snapshot_remove(uint64_t guid)
 
 	mount_t *zmo = zvs->zvs_devobj->DeviceExtension;
 
-	/* Unmount the snapshot filesystem if it was lazily mounted. */
+	/*
+	 * Unmount the snapshot filesystem if it was lazily mounted.
+	 * zfs_vss_remove_by_prefix() may have already cleared fsprivate
+	 * (pre-flight unmount during pool export), in which case we skip
+	 * the unmount but still remove from the mount list if present.
+	 */
 	if (vfs_fsprivate(zmo) != NULL) {
 		dprintf("%s: unmounting snapshot %016llx\n",
 		    __func__, (unsigned long long)guid);
-		(void) zfs_vfs_unmount(zmo, MNT_FORCE, NULL);
-		vfs_mount_remove(zmo);
+		vfs_setfsprivate(zmo, NULL);
+		(void) zfs_windows_unmount_impl(zmo->vss_snapname);
 	}
+	if (vfs_mount_member(zmo))
+		vfs_mount_remove(zmo);
 	FsRtlNotifyUninitializeSync(&zmo->NotifySync);
+
+	/*
+	 * Signal IRP_MJ_CREATE to reject new opens before we call
+	 * IoDeleteDevice.  After IoDeleteDevice the device is removed from
+	 * the driver's linked list; any PnP open that arrives afterward
+	 * (via a cached PDEVICE_OBJECT pointer) and is then closed would
+	 * trigger IopCompleteUnloadOrDelete -> IopInsertRemoveDevice a
+	 * second time on an already-removed device, BSODing at
+	 * IopInsertRemoveDevice+0x5d (NULL->NextDevice).
+	 */
+	mutex_enter(&zmo->vss_mount_lock);
+	zmo->vss_del_pending = B_TRUE;
+	mutex_exit(&zmo->vss_mount_lock);
 	mutex_destroy(&zmo->vss_mount_lock);
+
+	/*
+	 * Windows's IopInvalidateVolumesForDevice (called from
+	 * IopRemoveDevice when the parent disk is removed) may have opened
+	 * a file on our VSS device before vss_del_pending blocked new
+	 * opens.  If DeviceObject->ReferenceCount is still > 0,
+	 * IoDeleteDevice would remove the device from the driver's linked
+	 * list immediately (Windows does NOT defer this even when
+	 * ReferenceCount > 0, despite what MSDN implies).  Then when PnP
+	 * closes its handle, IopDecrementDeviceObjectRef fires
+	 * IopCompleteUnloadOrDelete -> IopInsertRemoveDevice a second time
+	 * on a device already gone from the list, crashing at
+	 * NULL->NextDevice.
+	 *
+	 * Since del_pending now prevents new opens, the count can only
+	 * decrease.  Yield briefly so the PnP worker thread can complete
+	 * its NtClose and let IopDecrementDeviceObjectRef drain the count
+	 * to 0.  1 ms per tick, up to 100 ticks (100 ms total).
+	 */
+	if (zvs->zvs_devobj->ReferenceCount > 0) {
+		LARGE_INTEGER delay;
+		int poll;
+
+		/* 1 ms (relative, 100-ns units) */
+		delay.QuadPart = -10000LL;
+		dprintf("%s: ReferenceCount > 0, waiting for PnP to drain\n",
+		    __func__);
+		for (poll = 0;
+		    poll < 100 && zvs->zvs_devobj->ReferenceCount > 0;
+		    poll++) {
+			KeDelayExecutionThread(KernelMode, FALSE, &delay);
+		}
+		dprintf("%s: waited %d ms, ReferenceCount now %d\n", __func__,
+		    poll, (int)zvs->zvs_devobj->ReferenceCount);
+	}
 
 	IoDeleteDevice(zvs->zvs_devobj);
 	kmem_free(zvs, sizeof (*zvs));
@@ -655,6 +710,71 @@ zfs_vss_pool_add_cb(dsl_pool_t *dp, dsl_dataset_t *ds, void *arg)
 	uint64_t ctime = dsl_get_creation(ds);
 	(void) zfs_vss_snapshot_add(guid, dsname, ctime);
 	return (0);
+}
+
+/*
+ * Unmount the ZFS filesystem from each VSS snapshot device whose
+ * vss_snapname begins with "<prefix>@" or "<prefix>/", WITHOUT deleting
+ * the device objects.  This is the pre-flight step called from
+ * zfs_unmount_snap_children: it clears fsprivate before the parent
+ * dataset teardown so that IRP_MN_SURPRISE_REMOVAL cannot race with a
+ * live VCB inside the VSS device.
+ *
+ * The device objects remain alive (still in the AVL tree and driver device
+ * list).  zfs_vss_pool_remove() → zfs_vss_snapshot_remove() is called
+ * later from spa_export_os() to do the full cleanup including IoDeleteDevice,
+ * at which point the pool teardown is complete and it is safe to do so.
+ */
+void
+zfs_vss_remove_by_prefix(const char *prefix)
+{
+	size_t plen = strlen(prefix);
+	uint_t alloc, nsnaps = 0;
+	uint64_t *guids;
+	zfs_vss_snap_t *zvs;
+
+	mutex_enter(&zfs_vss_lock);
+	alloc = (uint_t)avl_numnodes(&zfs_vss_snaps);
+	mutex_exit(&zfs_vss_lock);
+
+	if (alloc == 0)
+		return;
+
+	guids = kmem_alloc(alloc * sizeof (uint64_t), KM_SLEEP);
+
+	mutex_enter(&zfs_vss_lock);
+	for (zvs = avl_first(&zfs_vss_snaps); zvs != NULL && nsnaps < alloc;
+	    zvs = AVL_NEXT(&zfs_vss_snaps, zvs)) {
+		mount_t *zmo = zvs->zvs_devobj->DeviceExtension;
+		const char *sname = zmo->vss_snapname;
+		if (strncmp(sname, prefix, plen) == 0 &&
+		    (sname[plen] == '@' || sname[plen] == '/'))
+			guids[nsnaps++] = zvs->zvs_guid;
+	}
+	mutex_exit(&zfs_vss_lock);
+
+	for (uint_t i = 0; i < nsnaps; i++) {
+		zfs_vss_snap_t key = { .zvs_guid = guids[i] };
+		mount_t *zmo;
+
+		mutex_enter(&zfs_vss_lock);
+		zvs = avl_find(&zfs_vss_snaps, &key, NULL);
+		zmo = (zvs != NULL) ? zvs->zvs_devobj->DeviceExtension : NULL;
+		mutex_exit(&zfs_vss_lock);
+
+		if (zmo == NULL)
+			continue;
+
+		if (vfs_fsprivate(zmo) != NULL) {
+			dprintf("%s: suspending VSS snap guid %016llx "
+			    "(prefix '%s')\n", __func__,
+			    (unsigned long long)guids[i], prefix);
+			vfs_setfsprivate(zmo, NULL);
+			(void) zfs_windows_unmount_impl(zmo->vss_snapname);
+		}
+	}
+
+	kmem_free(guids, alloc * sizeof (uint64_t));
 }
 
 /*
@@ -775,6 +895,9 @@ zfs_vss_fini(void)
 	void *cookie = NULL;
 	while ((zvs = avl_destroy_nodes(&zfs_vss_snaps, &cookie)) != NULL) {
 		mount_t *zmo_fini = zvs->zvs_devobj->DeviceExtension;
+		mutex_enter(&zmo_fini->vss_mount_lock);
+		zmo_fini->vss_del_pending = B_TRUE;
+		mutex_exit(&zmo_fini->vss_mount_lock);
 		mutex_destroy(&zmo_fini->vss_mount_lock);
 		IoDeleteDevice(zvs->zvs_devobj);
 		kmem_free(zvs, sizeof (*zvs));
@@ -826,54 +949,107 @@ zfs_vss_snap_refbytes(mount_t *zmo)
 }
 
 /*
- * Mount the ZFS snapshot named by zmo->vss_snapname onto zmo (which is the
- * device extension of the \Device\ZfsSnapshot<guid> device object).
- * After this returns 0, vfs_fsprivate(zmo) is a live zfsvfs_t and
- * fsDispatcher can handle file IRPs on the snapshot device.
+ * Return the VCB device object for a VSS stub that has been fully mounted.
+ * The stub's fsprivate is borrowed from the VCB after zfs_vss_do_mount();
+ * zfsvfs->z_vfs is the VCB mount_t.  Returns NULL if not yet mounted.
+ */
+static PDEVICE_OBJECT
+zfs_vss_vcb_devobj(mount_t *zmo)
+{
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+	if (zfsvfs == NULL)
+		return (NULL);
+	mount_t *vcb = zfsvfs->z_vfs;
+	return (vcb ? vcb->VolumeDeviceObject : NULL);
+}
+
+/*
+ * Do a full Windows mount of the snapshot onto the standard
+ * $parent_mountpoint\.zfs\snapshot\$name path, exactly as "zfs mount"
+ * would.  After this returns 0 a DCB+VCB pair exists for the snapshot
+ * and file IRPs are routed to the VCB.  The stub's fsprivate is set to
+ * the VCB's zfsvfs (borrowed, not owned) so that the dispatcher's
+ * vfs_fsprivate guards and IRP forwarding work without a separate flag.
  */
 static int
 zfs_vss_do_mount(PDEVICE_OBJECT DeviceObject, mount_t *zmo)
 {
-	struct zfs_mount_args mnt_args;
+	char parent_name[ZFS_MAX_DATASET_NAME_LEN];
+	char parent_mpt[PATH_MAX];
+	char value[PATH_MAX];
 	int err;
 
 	ASSERT(vfs_fsprivate(zmo) == NULL);
 
-	mnt_args.struct_size = sizeof (mnt_args);
-	mnt_args.optlen = 0;
-	mnt_args.mflag = MNT_RDONLY;
-	mnt_args.fspec = (char *)zmo->vss_snapname;
+	/* Split "pool/data@snap" → parent "pool/data" and snap component */
+	const char *at = strchr(zmo->vss_snapname, '@');
+	if (at == NULL)
+		return (EINVAL);
+	size_t plen = (size_t)(at - zmo->vss_snapname);
+	if (plen == 0 || plen >= sizeof (parent_name))
+		return (EINVAL);
+	strlcpy(parent_name, zmo->vss_snapname, plen + 1);
 
-	dprintf("%s: mounting snapshot '%s'\n", __func__, zmo->vss_snapname);
-	err = zfs_vfs_mount(zmo, NULL, (user_addr_t)&mnt_args, NULL);
+	/*
+	 * Find the parent's Windows mountpoint via its VCB (getzfsvfs acquires
+	 * a reader lock).  The DCB carries the \??\ mountpoint string.
+	 */
+	zfsvfs_t *parent_zfsvfs;
+	if (getzfsvfs(parent_name, &parent_zfsvfs) != 0) {
+		dprintf("%s: parent dataset '%s' not mounted\n",
+		    __func__, parent_name);
+		return (ENOENT);
+	}
+	mount_t *parent_vcb = parent_zfsvfs->z_vfs;
+	mount_t *parent_dcb = parent_vcb->parent_device;
+
+	ANSI_STRING ansi;
+	ansi.Buffer = parent_mpt;
+	ansi.MaximumLength = sizeof (parent_mpt) - 1;
+	NTSTATUS ns = RtlUnicodeStringToAnsiString(&ansi,
+	    &parent_dcb->mountpoint, FALSE);
+	vfs_unbusy(parent_vcb);
+
+	if (!NT_SUCCESS(ns)) {
+		dprintf("%s: mountpoint conversion failed 0x%lx\n",
+		    __func__, ns);
+		return (EINVAL);
+	}
+	parent_mpt[ansi.Length] = '\0';
+
+	/* Strip trailing backslash */
+	size_t mptlen = strlen(parent_mpt);
+	if (mptlen > 0 && parent_mpt[mptlen - 1] == '\\')
+		parent_mpt[--mptlen] = '\0';
+
+	/* Construct \??\X:\.zfs\snapshot\<snap_component> */
+	snprintf(value, sizeof (value), "%s\\.zfs\\snapshot\\%s",
+	    parent_mpt, at + 1);
+
+	dprintf("%s: mounting snapshot '%s' at '%s'\n",
+	    __func__, zmo->vss_snapname, value);
+
+	err = zfs_windows_mount_impl(zmo->vss_snapname, value, sizeof (value),
+	    MNT_RDONLY);
 	if (err != 0) {
-		dprintf("%s: zfs_vfs_mount failed %d\n", __func__, err);
+		dprintf("%s: zfs_windows_mount_impl failed %d\n",
+		    __func__, err);
 		return (err);
 	}
 
-	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
-	if (zfsvfs != NULL) {
-		zfsvfs->z_vfs = zmo;
+	/*
+	 * Borrow the VCB's zfsvfs into the stub's fsprivate.  This lets all
+	 * the existing vfs_fsprivate(zmo) != NULL guards in the dispatcher
+	 * work unchanged, and lets zfs_vss_vcb_devobj() find the VCB device
+	 * for IRP forwarding.  We do NOT call zfs_vfs_mount() on the stub.
+	 */
+	zfsvfs_t *zfsvfs;
+	if (getzfsvfs(zmo->vss_snapname, &zfsvfs) == 0) {
 		zfsvfs->z_mimic = ZFS_MIMIC_NTFS;
+		vfs_setfsprivate(zmo, zfsvfs);
+		vfs_unbusy(zfsvfs->z_vfs);
 	}
 
-	zmo->VolumeDeviceObject = DeviceObject;
-	zmo->FunctionalDeviceObject = DeviceObject;
-
-	/*
-	 * Do NOT install a VPB on this device.  A self-referential VPB
-	 * (DeviceObject == RealDevice == our device) confuses the IO Manager:
-	 * for FILE_DIRECTORY_FILE opens with a non-root FileName (e.g.
-	 * \HelloWorld) the IO Manager attempts a namespace sub-device lookup
-	 * for the path component, fails to find one, and the IRP never reaches
-	 * our dispatcher.  Without a VPB, FILE_DEVICE_DISK_FILE_SYSTEM devices
-	 * receive all IRPs — including sub-directory opens — directly.
-	 *
-	 * The mount-check in zfs_vnop_lookup_impl is updated to use
-	 * vfs_fsprivate(zmo) instead of the VPB_MOUNTED flag.
-	 */
-
-	vfs_mount_add(zmo);
 	dprintf("%s: snapshot '%s' mounted\n", __func__, zmo->vss_snapname);
 	return (0);
 }
@@ -918,8 +1094,12 @@ zfs_vss_mount_workitem(PDEVICE_OBJECT DeviceObject, PVOID Context)
 		 * Snapshot is live; let fsDispatcher handle the create.
 		 * fsDispatcher returns without completing the IRP (the main
 		 * dispatcher() loop normally does that); we must complete it.
+		 * Forward to the VCB device, not the stub, so fsDispatcher
+		 * sees a fully initialised MOUNT_TYPE_VCB mount_t.
 		 */
-		NTSTATUS st = fsDispatcher(DeviceObject, &Irp, IrpSp);
+		PDEVICE_OBJECT vcb_devobj = zfs_vss_vcb_devobj(zmo);
+		NTSTATUS st = fsDispatcher(
+		    vcb_devobj ? vcb_devobj : DeviceObject, &Irp, IrpSp);
 		if (Irp != NULL) {
 			Irp->IoStatus.Status = st;
 			IoCompleteRequest(Irp, IO_NO_INCREMENT);
@@ -1799,26 +1979,57 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 	NTSTATUS status;
 
 	mount_t *zmo = DeviceObject->DeviceExtension;
+	/*
+	 * vcb_devobj: the real VCB device object after lazy mount.
+	 * May be NULL if the snapshot has not been mounted yet.
+	 * Use it in fsDispatcher calls so that it sees a fully-initialised
+	 * MOUNT_TYPE_VCB mount_t; fall back to DeviceObject (MOUNT_TYPE_VSS)
+	 * if not yet available.
+	 */
+	PDEVICE_OBJECT vcb_devobj = zfs_vss_vcb_devobj(zmo);
 
 	switch (IrpSp->MajorFunction) {
 
 	case IRP_MJ_CREATE:
 	{
 		/*
-		 * Check fsprivate under vss_mount_lock.  zfs_domount sets
-		 * fsprivate early (before completing setup) while holding the
-		 * lock, so a bare check here without the lock would let a
-		 * concurrent IRP reach fsDispatcher with a half-initialised
-		 * zfsvfs — creating znodes that outlive the failed mount.
+		 * Read del_pending and fsprivate together under
+		 * vss_mount_lock.
+		 *
+		 * vss_del_pending: set by zfs_vss_snapshot_remove before
+		 * IoDeleteDevice.  We must reject new opens here to avoid the
+		 * IopDecrementDeviceObjectRef -> IopCompleteUnloadOrDelete ->
+		 * IopInsertRemoveDevice double-removal BSOD: IoDeleteDevice
+		 * removes the device from the driver list immediately when
+		 * DeviceObject->ReferenceCount is 0; if PnP then opens a
+		 * file via a cached PDEVICE_OBJECT pointer and closes it,
+		 * the ref decrement to 0 fires IopInsertRemoveDevice a
+		 * second time on a device no longer in the list, crashing
+		 * at NULL->NextDevice.
+		 *
+		 * fsprivate: zfs_domount sets it early while holding the
+		 * lock, so reading without the lock could race with a
+		 * half-initialised zfsvfs and create znodes that outlive
+		 * the failed mount.
 		 */
 		mutex_enter(&zmo->vss_mount_lock);
+		boolean_t del_pending = zmo->vss_del_pending;
 		boolean_t vss_mounted = (vfs_fsprivate(zmo) != NULL);
 		mutex_exit(&zmo->vss_mount_lock);
+		if (del_pending) {
+			dprintf("VSS %s: IRP_MJ_CREATE rejected"
+			    " (delete pending)\n", __func__);
+			Irp->IoStatus.Information = 0;
+			status = STATUS_DELETE_PENDING;
+			break;
+		}
 		if (vss_mounted) {
-			/* Snapshot mounted; fsDispatcher handles all. */
+			/* Snapshot mounted; forward to VCB device. */
+			PDEVICE_OBJECT fwd = zfs_vss_vcb_devobj(zmo);
 			dprintf("VSS %s: IRP_MJ_CREATE -> fsDispatcher"
 			    " (mounted)\n", __func__);
-			return (fsDispatcher(DeviceObject, pIrp, IrpSp));
+			return (fsDispatcher(fwd ? fwd : DeviceObject,
+			    pIrp, IrpSp));
 		}
 
 		/*
@@ -1875,7 +2086,8 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 		if (vfs_fsprivate(zmo) != NULL &&
 		    IrpSp->FileObject != NULL &&
 		    IrpSp->FileObject->FsContext != NULL) {
-			return (fsDispatcher(DeviceObject, pIrp, IrpSp));
+			return (fsDispatcher(vcb_devobj ?
+			    vcb_devobj : DeviceObject, pIrp, IrpSp));
 		}
 		dprintf("VSS %s: IRP_MJ_CLEANUP\n", __func__);
 		Irp->IoStatus.Information = 0;
@@ -1886,7 +2098,8 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 		if (vfs_fsprivate(zmo) != NULL &&
 		    IrpSp->FileObject != NULL &&
 		    IrpSp->FileObject->FsContext != NULL) {
-			return (fsDispatcher(DeviceObject, pIrp, IrpSp));
+			return (fsDispatcher(vcb_devobj ?
+			    vcb_devobj : DeviceObject, pIrp, IrpSp));
 		}
 		dprintf("VSS %s: IRP_MJ_CLOSE\n", __func__);
 		Irp->IoStatus.Information = 0;
@@ -1906,7 +2119,8 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 		if (vfs_fsprivate(zmo) != NULL &&
 		    IrpSp->FileObject != NULL &&
 		    IrpSp->FileObject->FsContext != NULL) {
-			return (fsDispatcher(DeviceObject, pIrp, IrpSp));
+			return (fsDispatcher(vcb_devobj ?
+			    vcb_devobj : DeviceObject, pIrp, IrpSp));
 		}
 		{
 			ULONG rdlen = IrpSp->Parameters.Read.Length;
@@ -1943,7 +2157,8 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 		if (vfs_fsprivate(zmo) != NULL) {
 			dprintf("VSS %s: major 0x%x -> fsDispatcher\n",
 			    __func__, IrpSp->MajorFunction);
-			return (fsDispatcher(DeviceObject, pIrp, IrpSp));
+			return (fsDispatcher(vcb_devobj ?
+			    vcb_devobj : DeviceObject, pIrp, IrpSp));
 		}
 		dprintf("VSS %s: major 0x%x unmounted\n",
 		    __func__, IrpSp->MajorFunction);
@@ -1955,7 +2170,8 @@ zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
 		if (vfs_fsprivate(zmo) != NULL) {
 			dprintf("VSS %s: IRP_MJ_QUERY_INFORMATION"
 			    " -> fsDispatcher\n", __func__);
-			return (fsDispatcher(DeviceObject, pIrp, IrpSp));
+			return (fsDispatcher(vcb_devobj ?
+			    vcb_devobj : DeviceObject, pIrp, IrpSp));
 		}
 		/*
 		 * Unmounted: answer creation-time queries used by srv2.sys

@@ -187,6 +187,12 @@ vfs_unbusy(mount_t *mp)
 }
 
 int
+vfs_main_lock_write_held(void)
+{
+	return (rw_write_held(&vfs_main_lock));
+}
+
+int
 vfs_isrdonly(mount_t *mp)
 {
 	return (mp->mountflags & MNT_RDONLY);

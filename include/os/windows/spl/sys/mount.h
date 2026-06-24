@@ -147,6 +147,16 @@ struct mount
 	uint64_t	vss_creation;	/* Unix creation timestamp */
 	char		vss_snapname[256]; /* ZFS_MAX_DATASET_NAME_LEN */
 	kmutex_t	vss_mount_lock;    /* serialise first-access mount */
+	/*
+	 * Set by zfs_vss_snapshot_remove before IoDeleteDevice.
+	 * IRP_MJ_CREATE checks this under vss_mount_lock and rejects with
+	 * STATUS_DELETE_PENDING, preventing PnP from opening a new file
+	 * object on the device after it has been removed from the driver's
+	 * device list.  Without this guard, IopDecrementDeviceObjectRef
+	 * from PnP's close would trigger IopCompleteUnloadOrDelete ->
+	 * IopInsertRemoveDevice on an already-removed device, BSODing.
+	 */
+	boolean_t	vss_del_pending;
 };
 typedef struct mount mount_t;
 typedef struct mount vfsp_t;
@@ -158,6 +168,7 @@ void spl_vfs_fini(void);
 
 int   vfs_busy(mount_t *mp, int flags);
 void  vfs_unbusy(mount_t *mp);
+int   vfs_main_lock_write_held(void);
 int   vfs_isrdonly(mount_t *mp);
 void  vfs_setrdonly(mount_t *mp);
 void  vfs_clearrdonly(mount_t *mp);

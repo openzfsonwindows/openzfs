@@ -113,7 +113,10 @@ extern NTSTATUS fsDispatcher(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
     PIO_STACK_LOCATION IrpSp);
 
 extern int zfs_windows_mount(zfs_cmd_t *zc);
+extern int zfs_windows_mount_impl(const char *name, char *value,
+    size_t valuelen, uint64_t mountflags);
 extern int zfs_windows_unmount(zfs_cmd_t *zc);
+extern int zfs_windows_unmount_impl(const char *datasetname);
 extern NTSTATUS zfsdev_ioctl(PDEVICE_OBJECT DeviceObject, PIRP Irp, int flag);
 extern void zfs_windows_vnops_callback(PDEVICE_OBJECT deviceObject);
 extern void zfs_send_notify(zfsvfs_t *zfsvfs, char *name, int,

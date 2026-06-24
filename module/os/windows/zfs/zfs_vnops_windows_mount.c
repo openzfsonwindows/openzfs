@@ -50,6 +50,7 @@
 
 #include <sys/zfs_windows.h>
 #include <sys/driver_extension.h>
+#include <sys/zfs_vss.h>
 
 #undef _NTDDK_
 
@@ -67,7 +68,7 @@ ZFS_MODULE_RAW(zfs, disable_removablemedia, zfs_disable_removablemedia,
 
 extern kmem_cache_t *znode_cache;
 
-static int zfs_windows_unmount_impl(zfs_cmd_t *zc);
+int zfs_windows_unmount_impl(const char *datasetname);
 
 /*
  * Give permissions to the volume, in particular
@@ -859,6 +860,23 @@ CreateReparsePoint(POBJECT_ATTRIBUTES poa, PCUNICODE_STRING SubstituteName,
 	    0, 0);
 	dprintf("ZwCreateFile 0x%lx\n", status);
 
+	if (status == STATUS_OBJECT_NAME_COLLISION) {
+		/*
+		 * The directory already exists — typically a ctldir virtual
+		 * node (e.g. .zfs/snapshot/<name>) that can't be deleted and
+		 * recreated.  Open it in-place and set the reparse point on
+		 * the existing node so MountManager learns the mount path.
+		 */
+		status = ZwCreateFile(&hFile, FILE_ALL_ACCESS, poa, &iosb,
+		    NULL, 0,
+		    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+		    FILE_OPEN,
+		    FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT |
+		    FILE_SYNCHRONOUS_IO_NONALERT,
+		    NULL, 0);
+		dprintf("ZwCreateFile fallback open 0x%lx\n", status);
+	}
+
 	if (!NT_SUCCESS(status))
 		return (status);
 
@@ -1228,9 +1246,10 @@ out:
 }
 
 int
-zfs_windows_mount(zfs_cmd_t *zc)
+zfs_windows_mount_impl(const char *name, char *value, size_t valuelen,
+    uint64_t mountflags)
 {
-	dprintf("%s: '%s' '%s'\n", __func__, zc->zc_name, zc->zc_value);
+	dprintf("%s: '%s' '%s'\n", __func__, name, value);
 	NTSTATUS status;
 	uuid_t uuid;
 	char uuid_a[UUID_PRINTABLE_STRING_LENGTH];
@@ -1246,15 +1265,15 @@ zfs_windows_mount(zfs_cmd_t *zc)
 	 * "\\??\\?:"  mount as first available drive letter
 	 * "\\??\\c:\\BOOM"  mount as drive letter C:\BOOM
 	 */
-	int mplen = strlen(zc->zc_value);
+	int mplen = strlen(value);
 	if ((mplen < 6) ||
-	    strncmp("\\??\\", zc->zc_value, 4)) {
+	    strncmp("\\??\\", value, 4)) {
 		dprintf("%s: mountpoint '%s' does not start with \\??\\x:",
-		    __func__, zc->zc_value);
+		    __func__, value);
 		return (EINVAL);
 	}
 
-	zfs_vfs_uuid_gen(zc->zc_name, uuid);
+	zfs_vfs_uuid_gen(name, uuid);
 	zfs_vfs_uuid_unparse(uuid, uuid_a);
 
 	char buf[PATH_MAX];
@@ -1329,7 +1348,7 @@ zfs_windows_mount(zfs_cmd_t *zc)
 		KeInitializeEvent((PRKEVENT)&zmo_dcb->volume_mounted_event,
 		    SynchronizationEvent, FALSE);
 
-		zfs_vfs_uuid_gen(zc->zc_name, zmo_dcb->rawuuid);
+		zfs_vfs_uuid_gen(name, zmo_dcb->rawuuid);
 
 		vfs_setfsprivate(zmo_dcb, NULL);
 		dprintf("%s: created dcb at %p asked for size %llu\n",
@@ -1338,10 +1357,10 @@ zfs_windows_mount(zfs_cmd_t *zc)
 		// Should we keep the name with slashes like "BOOM/lower" or
 		// just "lower". Turns out the name in Explorer only
 		// works for 4 chars or lower. Why?
-		AsciiStringToUnicodeStringNP(zc->zc_name, &zmo_dcb->name);
+		AsciiStringToUnicodeStringNP(name, &zmo_dcb->name);
 		RtlDuplicateUnicodeString(0, &diskDeviceName,
 		    &zmo_dcb->device_name);
-		zmo_dcb->ascii_name = kmem_strdup(zc->zc_name);
+		zmo_dcb->ascii_name = kmem_strdup(name);
 
 		// strlcpy(zc->zc_value, buf, sizeof (zc->zc_value));
 		zmo_dcb->FunctionalDeviceObject = diskDeviceObject;
@@ -1404,28 +1423,27 @@ zfs_windows_mount(zfs_cmd_t *zc)
 
 		// zmo->VolumeDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 
-		// zc_cleanup_fd carrier mount flags for now.
-		if (zc->zc_cleanup_fd & MNT_RDONLY)
+		if (mountflags & MNT_RDONLY)
 			vfs_setrdonly(zmo_dcb);
 	// mount was here
 		// Check if we are to mount with driveletter, or path
 		// We already check that path is "\\??\\" above, and
 		// at least 6 chars. Seventh char can be zero, or "/"
 		// then zero, for drive only mount.
-		if ((zc->zc_value[6] == 0) ||
-		    ((zc->zc_value[6] == '/') &&
-		    (zc->zc_value[7] == 0))) {
+		if ((value[6] == 0) ||
+		    ((value[6] == '/') &&
+		    (value[7] == 0))) {
 			zmo_dcb->justDriveLetter = B_TRUE;
 		} else {
 			zmo_dcb->justDriveLetter = B_FALSE;
 		}
 
 		// mountpoint is "\??\D:\path"
-		AsciiStringToUnicodeString(zc->zc_value, &zmo_dcb->mountpoint);
+		AsciiStringToUnicodeString(value, &zmo_dcb->mountpoint);
 
 		// dosdevices_mountpoint is "\DosDevices\D:\path"
 		snprintf(buf, sizeof (buf), "\\DosDevices\\%s",
-		    &zc->zc_value[4]);
+		    &value[4]);
 		AsciiStringToUnicodeString(buf,
 		    &zmo_dcb->dosdevices_mountpoint);
 
@@ -1462,7 +1480,7 @@ zfs_windows_mount(zfs_cmd_t *zc)
 
 		// Set the mountpoint, might be "/" for driveletters or
 		// a subdirectory for lower mounts.
-		char *rootpath = &zc->zc_value[6]; // Above checks for \\??\\x:
+		char *rootpath = &value[6]; // Above checks for \\??\\x:
 		while (rootpath[0] == '\\' &&
 		    rootpath[1] == '\\')
 			rootpath++;
@@ -1515,8 +1533,8 @@ zfs_windows_mount(zfs_cmd_t *zc)
 
 	} while (1);
 
-	// Return volume name to userland
-	snprintf(zc->zc_value, sizeof (zc->zc_value),
+	/* Return volume name to caller */
+	snprintf(value, valuelen,
 	    "\\DosDevices\\Global\\Volume{%s}", uuid_a);
 
 	dprintf("Finished AddDevice retry %d\n", retry);
@@ -1526,6 +1544,13 @@ zfs_windows_mount(zfs_cmd_t *zc)
 
 	status = STATUS_SUCCESS;
 	return (status);
+}
+
+int
+zfs_windows_mount(zfs_cmd_t *zc)
+{
+	return (zfs_windows_mount_impl(zc->zc_name, zc->zc_value,
+	    sizeof (zc->zc_value), zc->zc_cleanup_fd));
 }
 
 static NTSTATUS
@@ -1910,7 +1935,7 @@ matched_mount(PIRP Irp, PDEVICE_OBJECT DeviceToMount,
 	struct zfs_mount_args mnt_args;
 	mnt_args.struct_size = sizeof (struct zfs_mount_args);
 	mnt_args.optlen = 0;
-	mnt_args.mflag = 0; // Set flags
+	mnt_args.mflag = vfs_isrdonly(dcb) ? MNT_RDONLY : 0;
 	mnt_args.fspec = dcb->ascii_name;
 
 	dprintf("Calling ZFS mount\n");
@@ -2279,6 +2304,16 @@ zfs_unmount_snap_children(const char *parent_name)
 
 	dprintf("%s: %s\n", __func__, parent_name);
 
+	/*
+	 * Remove VSS snapshot devices for "<parent_name>@*" before touching
+	 * the VCB mounts.  VSS devices are not in the global mount list
+	 * until lazily mounted, so we iterate the AVL tree via
+	 * zfs_vss_remove_by_prefix.  This must happen before the VCB
+	 * snapshot unmounts and before the parent VCB tears down, otherwise
+	 * IRP_MN_SURPRISE_REMOVAL races with the live VSS device object.
+	 */
+	zfs_vss_remove_by_prefix(parent_name);
+
 	count = vfs_mount_count();
 	if (count == 0)
 		return;
@@ -2334,11 +2369,11 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 	 * down.  Do this BEFORE getzfsvfs so we hold no vfs_main_lock.
 	 */
 	zfs_unmount_snap_children(zc->zc_name);
-	return (zfs_windows_unmount_impl(zc));
+	return (zfs_windows_unmount_impl(zc->zc_name));
 }
 
-static int
-zfs_windows_unmount_impl(zfs_cmd_t *zc)
+int
+zfs_windows_unmount_impl(const char *datasetname)
 {
 	mount_t *zmo;
 	mount_t *zmo_dcb = NULL;
@@ -2347,7 +2382,7 @@ zfs_windows_unmount_impl(zfs_cmd_t *zc)
 	int error = EBUSY;
 	ZFS_DRIVER_EXTENSION(WIN_DriverObject, DriverExtension);
 
-	if (getzfsvfs(zc->zc_name, &zfsvfs) == 0) {
+	if (getzfsvfs(datasetname, &zfsvfs) == 0) {
 
 		zmo = zfsvfs->z_vfs;
 		NTSTATUS ntstatus;

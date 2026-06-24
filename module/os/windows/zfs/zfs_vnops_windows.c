@@ -451,10 +451,15 @@ zfs_couplefileobject(vnode_t *vp, vnode_t *dvp, FILE_OBJECT *fileobject,
 		 * Streams are excluded: stream opens use a synthesised name
 		 * and the caller-supplied FileObject->FileName includes the
 		 * ":stream:$DATA" suffix, which needs separate handling.
+		 *
+		 * FILE_OPEN_BY_FILE_ID opens are excluded: FileName.Buffer
+		 * contains raw inode bytes, not a path.  The leading-backslash
+		 * check catches this since real paths always start with L'\\'.
 		 */
 		if (zp != NULL && zp->z_links > 1 && stream == NULL &&
 		    fileobject->FileName.Buffer != NULL &&
-		    fileobject->FileName.Length > 0) {
+		    fileobject->FileName.Length >= sizeof (WCHAR) &&
+		    fileobject->FileName.Buffer[0] == L'\\') {
 			ULONG bytes_needed =
 			    (fileobject->FileName.Length / sizeof (WCHAR))
 			    * 4 + 1;
@@ -1567,12 +1572,20 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			    (zfsvfs->z_case != ZFS_CASE_SENSITIVE))
 				flags |= FIGNORECASE;
 
-#if 0
-			if (strcmp(
-			    "\\System Volume Information\\WPSettings.dat",
-			    filename) == 0)
-				return (STATUS_OBJECT_NAME_INVALID);
-#endif
+			/*
+			 * Block MountManager from probing System Volume
+			 * Information on snapshots.  MountManager reads
+			 * MountPointManagerRemoteDatabase from the snapshot,
+			 * gets confused by stale data, and truncates the live
+			 * volume's copy, losing all junction mount points.
+			 * Snapshots are read-only and have no valid mount
+			 * database of their own, so deny early.
+			 */
+			if (zfsvfs->z_issnap &&
+			    _strnicmp(filename,
+			    "\\System Volume Information",
+			    sizeof ("\\System Volume Information") - 1) == 0)
+				return (STATUS_OBJECT_NAME_NOT_FOUND);
 
 			if (Irp->Overlay.AllocationSize.QuadPart > 0)
 				dprintf("AllocationSize requested %llu\n",
@@ -1580,7 +1593,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 			// Check if we are called as VFS_ROOT();
 			OpenRoot = (strncmp("\\", filename, PATH_MAX) == 0 ||
-			    strncmp("\\*", filename, PATH_MAX) == 0);
+			    strncmp("\\*", filename, PATH_MAX) == 0 ||
+			    strncmp("\\\\", filename, PATH_MAX) == 0);
 
 			if (OpenRoot) {
 
@@ -1662,6 +1676,31 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			dvp_no_rele = 1;
 		}
 
+		/*
+		 * Redirect the NTFS reparse-point index to our root.
+		 * MountManager opens \$Extend\$Reparse:$R:$INDEX_ALLOCATION
+		 * to enumerate volume mount-point junctions.  We return root
+		 * so DIRECTORY_CONTROL(FileReparsePointInformation) can answer
+		 * correctly; otherwise MountManager truncates
+		 * MountPointManagerRemoteDatabase when the open fails.
+		 */
+		if (_strnicmp(filename, "\\$Extend\\$Reparse", 17) == 0 &&
+		    (filename[17] == '\0' || filename[17] == ':')) {
+			error = zfs_zget(zfsvfs, zfsvfs->z_root, &zp);
+			if (error == 0) {
+				vp = ZTOV(zp);
+				zfs_couplefileobject(vp, NULL, FileObject,
+				    zp->z_size, &zccb,
+				    Irp->Overlay.AllocationSize.QuadPart,
+				    DesiredAccess, NULL, Irp);
+				VN_RELE(vp);
+				Irp->IoStatus.Information = FILE_OPENED;
+				return (STATUS_SUCCESS);
+			}
+			Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
+			return (STATUS_OBJECT_NAME_NOT_FOUND);
+		}
+
 /*
  * Here, we want to check for Streams, which come in the syntax
  * filename.ext:Stream:Type
@@ -1672,8 +1711,15 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
  */
 		error = stream_parse(filename, &stream_name);
 		if (error) {
-			Irp->IoStatus.Information = 0;
-			return (error);
+			/*
+			 * stream_parse returns a UNIX errno, not NTSTATUS.
+			 * NT_SUCCESS(errno) can be TRUE, so the I/O manager
+			 * would treat the CREATE as success with a NULL
+			 * FsContext, then panic or corrupt
+			 * MountPointManagerRemoteDatabase on the next IRP.
+			 */
+			Irp->IoStatus.Information = FILE_DOES_NOT_EXIST;
+			return (STATUS_OBJECT_NAME_INVALID);
 		}
 		if (stream_name != NULL)
 			dprintf("%s: Parsed out streamname '%s'\n",
@@ -4341,6 +4387,50 @@ get_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_INVALID_PARAMETER);
 
 	znode_t *zp = VTOZ(vp);
+	zfsvfs_t *zfsvfs = (zp != NULL) ? zp->z_zfsvfs : NULL;
+
+	/*
+	 * Snapshot root: return a synthetic volume mount-point reparse buffer
+	 * so MountManager can verify the junction it recorded for the snapshot.
+	 * The substitute name is "\??\Volume{guid}\" from the snapshot DCB.
+	 */
+	if (zfsvfs != NULL && zfsvfs->z_issnap && zp->z_id == zfsvfs->z_root) {
+		mount_t *zmo = DeviceObject->DeviceExtension;
+		mount_t *dcb = (zmo != NULL) ? zmo->parent_device : NULL;
+		if (dcb == NULL || dcb->MountMgr_name.Length == 0) {
+			Status = STATUS_NOT_A_REPARSE_POINT;
+			goto end;
+		}
+		/* SubstituteName = dcb->MountMgr_name + L"\\" */
+		USHORT sub_len = dcb->MountMgr_name.Length + sizeof (WCHAR);
+		USHORT data_len = (USHORT)(
+		    FIELD_OFFSET(REPARSE_DATA_BUFFER,
+		    MountPointReparseBuffer.PathBuffer) -
+		    REPARSE_DATA_BUFFER_HEADER_SIZE +
+		    sub_len + sizeof (WCHAR)); /* +2: null after PrintName */
+		USHORT total_len = REPARSE_DATA_BUFFER_HEADER_SIZE + data_len;
+		if (outlen < total_len) {
+			Irp->IoStatus.Information = total_len;
+			Status = STATUS_BUFFER_OVERFLOW;
+			goto end;
+		}
+		RtlZeroMemory(rdb, total_len);
+		rdb->ReparseTag = IO_REPARSE_TAG_MOUNT_POINT;
+		rdb->ReparseDataLength = data_len;
+		rdb->MountPointReparseBuffer.SubstituteNameOffset = 0;
+		rdb->MountPointReparseBuffer.SubstituteNameLength = sub_len;
+		rdb->MountPointReparseBuffer.PrintNameOffset =
+		    sub_len + sizeof (WCHAR);
+		rdb->MountPointReparseBuffer.PrintNameLength = 0;
+		RtlCopyMemory(rdb->MountPointReparseBuffer.PathBuffer,
+		    dcb->MountMgr_name.Buffer,
+		    dcb->MountMgr_name.Length);
+		rdb->MountPointReparseBuffer.PathBuffer[
+		    dcb->MountMgr_name.Length / sizeof (WCHAR)] = L'\\';
+		Irp->IoStatus.Information = total_len;
+		Status = STATUS_SUCCESS;
+		goto end;
+	}
 
 	if (vnode_islnk(vp)) {
 		reqlen = offsetof(REPARSE_DATA_BUFFER,
@@ -4427,6 +4517,15 @@ set_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	if (zfsvfs == NULL)
 		return (STATUS_INVALID_PARAMETER);
+
+	/*
+	 * Snapshot root accessed via .zfs\snapshot\<name>: MountManager
+	 * is registering the junction mount point.  Accept without writing
+	 * (the snapshot VCB is read-only; our ctldir already handles path
+	 * redirection so the stored reparse point is not needed).
+	 */
+	if (zfsvfs->z_issnap && zp->z_id == zfsvfs->z_root)
+		return (STATUS_SUCCESS);
 
 	if (zfsvfs->z_rdonly)
 		return (STATUS_MEDIA_WRITE_PROTECTED);
@@ -4545,6 +4644,20 @@ delete_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	znode_t *zp = VTOZ(vp);
 	zfs_ccb_t *zccb = FileObject->FsContext2;
+	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+
+	if (vfs_isrdonly(zfsvfs->z_vfs)) {
+		/*
+		 * Snapshot root: MountManager cleans up the junction at
+		 * unmount.  Accept so the cleanup path completes without error.
+		 */
+		if (zfsvfs->z_issnap && zp->z_id == zfsvfs->z_root) {
+			VN_RELE(vp);
+			return (STATUS_SUCCESS);
+		}
+		VN_RELE(vp);
+		return (STATUS_MEDIA_WRITE_PROTECTED);
+	}
 
 	// Is something mounted on here? We deny it, so that
 	// it has to be unmounted by us first. We will remove
@@ -4571,8 +4684,6 @@ delete_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	// Like zfs_symlink, write the data as SA attribute.
-	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
-
 	znode_t *dzp = NULL;
 	uint64_t parent;
 	int error;
@@ -6249,6 +6360,171 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 }
 
 
+/*
+ * Enumerate volume mount-point reparse entries for MountManager.
+ *
+ * MountManager queries NtQueryDirectoryFile(FileReparsePointInformation) on
+ * the volume root to discover all IO_REPARSE_TAG_MOUNT_POINT junctions.
+ * We scan our mount list for child datasets/snapshots whose mounted_on path
+ * is a single component (direct child of the root), look up the corresponding
+ * ZFS inode, and return FILE_REPARSE_POINT_INFORMATION entries for each one
+ * that has ZFS_REPARSE set.
+ */
+
+#define	FRPI_MAX_MOUNTS	32
+
+typedef struct {
+	const char	*vcb_name;
+	char		paths[FRPI_MAX_MOUNTS][MAXNAMELEN];
+	int		count;
+} frpi_collect_ctx_t;
+
+static int
+frpi_collect_cb(void *mp, void *arg)
+{
+	mount_t *m = mp;
+	frpi_collect_ctx_t *ctx = arg;
+
+	if (m->type != MOUNT_TYPE_DCB || m->ascii_name == NULL)
+		return (0);
+	const char *mo = m->mounted_on;
+	if (mo == NULL || mo[0] != '\\')
+		return (0);
+
+	/* Only direct children of root: no additional '\' after first */
+	if (strchr(mo + 1, '\\') != NULL)
+		return (0);
+
+	/* ascii_name must start with vcb_name followed by '/' or '@' */
+	size_t vlen = strlen(ctx->vcb_name);
+	if (strncmp(m->ascii_name, ctx->vcb_name, vlen) != 0)
+		return (0);
+	char sep = m->ascii_name[vlen];
+	if (sep != '/' && sep != '@')
+		return (0);
+
+	if (ctx->count < FRPI_MAX_MOUNTS) {
+		strlcpy(ctx->paths[ctx->count], mo + 1, MAXNAMELEN);
+		ctx->count++;
+	}
+	return (0);
+}
+
+static NTSTATUS
+query_directory_FileReparsePointInformation(PDEVICE_OBJECT DeviceObject,
+    PIRP Irp, PIO_STACK_LOCATION IrpSp)
+{
+	mount_t *zmo = DeviceObject->DeviceExtension;
+	if (zmo == NULL ||
+	    (zmo->type != MOUNT_TYPE_VCB && zmo->type != MOUNT_TYPE_VSS))
+		return (STATUS_NO_MORE_FILES);
+
+	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+	if (zfsvfs == NULL)
+		return (STATUS_NO_MORE_FILES);
+
+	const char *vcb_name = zmo->ascii_name;
+	if (vcb_name == NULL)
+		return (STATUS_NO_MORE_FILES);
+
+	if (IrpSp->FileObject == NULL || IrpSp->FileObject->FsContext == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	struct vnode *dvp = IrpSp->FileObject->FsContext;
+	zfs_ccb_t *zccb = IrpSp->FileObject->FsContext2;
+
+	int flag_restart_scan = (IrpSp->Flags & SL_RESTART_SCAN) ? 1 : 0;
+	if (zccb != NULL) {
+		if (flag_restart_scan)
+			zccb->dir_eof = 0;
+		if (zccb->dir_eof)
+			return (STATUS_NO_MORE_FILES);
+	}
+
+	znode_t *dzp = VTOZ(dvp);
+
+	/* Only enumerate from the volume root directory */
+	if (dzp == NULL || dzp->z_id != zfsvfs->z_root)
+		return (STATUS_NO_MORE_FILES);
+
+	/* Collect mounted_on paths for child DCBs (direct root children) */
+	frpi_collect_ctx_t coll;
+	coll.vcb_name = vcb_name;
+	coll.count = 0;
+	vfs_mount_iterate(frpi_collect_cb, &coll);
+
+	if (zccb != NULL)
+		zccb->dir_eof = 1;
+
+	if (coll.count == 0)
+		return (STATUS_NO_MORE_FILES);
+
+	PMDL mdl = NULL;
+	void *SystemBuffer = MapUserBuffer(Irp,
+	    IrpSp->Parameters.QueryDirectory.Length, IoWriteAccess, &mdl);
+	if (SystemBuffer == NULL) {
+		UnMapUserBuffer(mdl);
+		return (STATUS_INSUFFICIENT_RESOURCES);
+	}
+
+	FILE_REPARSE_POINT_INFORMATION *out = SystemBuffer;
+	ULONG bufsize = IrpSp->Parameters.QueryDirectory.Length;
+	ULONG used = 0;
+	int emitted = 0;
+
+	if (zfs_enter(zfsvfs, FTAG) != 0) {
+		UnMapUserBuffer(mdl);
+		return (STATUS_NO_MORE_FILES);
+	}
+
+	for (int i = 0; i < coll.count; i++) {
+		if (used + sizeof (FILE_REPARSE_POINT_INFORMATION) > bufsize)
+			break;
+
+		znode_t *root_zp = NULL;
+		if (zfs_zget(zfsvfs, zfsvfs->z_root, &root_zp) != 0)
+			continue;
+
+		char namebuf[MAXNAMELEN];
+		struct componentname cn;
+		strlcpy(namebuf, coll.paths[i], sizeof (namebuf));
+		cn.cn_nameiop = LOOKUP;
+		cn.cn_flags = ISLASTCN;
+		cn.cn_namelen = strlen(namebuf);
+		cn.cn_nameptr = namebuf;
+		cn.cn_pnlen = MAXNAMELEN;
+		cn.cn_pnbuf = namebuf;
+
+		cred_t cr = { .cr_uid = 0, .cr_gid = 0 };
+		int direntflags = 0;
+		znode_t *zp = NULL;
+		int err = zfs_lookup(root_zp, namebuf, &zp, 0, &cr,
+		    &direntflags, &cn);
+		VN_RELE(ZTOV(root_zp));
+
+		if (err != 0 || zp == NULL)
+			continue;
+
+		if (zp->z_pflags & ZFS_REPARSE) {
+			out->FileReference = (LONGLONG)zp->z_id;
+			out->Tag = IO_REPARSE_TAG_MOUNT_POINT;
+			out++;
+			used += sizeof (FILE_REPARSE_POINT_INFORMATION);
+			emitted++;
+		}
+		VN_RELE(ZTOV(zp));
+	}
+
+	zfs_exit(zfsvfs, FTAG);
+	UnMapUserBuffer(mdl);
+
+	if (emitted == 0)
+		return (STATUS_NO_MORE_FILES);
+
+	Irp->IoStatus.Information = used;
+	return (STATUS_SUCCESS);
+}
+
 NTSTATUS
 query_directory(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
@@ -6277,9 +6553,9 @@ query_directory(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    __func__);
 		break;
 	case FileReparsePointInformation:
-		dprintf("   %s FileReparsePointInformation *NotImplemented\n",
-		    __func__);
-		Status = STATUS_INVALID_INFO_CLASS;
+		Status =
+		    query_directory_FileReparsePointInformation(DeviceObject,
+		    Irp, IrpSp);
 		break;
 	default:
 		dprintf("   %s unknown 0x%x *NotImplemented\n",

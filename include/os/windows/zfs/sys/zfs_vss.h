@@ -46,6 +46,11 @@ extern void	zfs_vss_snapshot_remove_by_name(const char *snapname);
 
 extern void	zfs_vss_pool_add(spa_t *spa);
 extern void	zfs_vss_pool_remove(spa_t *spa);
+/*
+ * Pre-flight: unmount VCBs from VSS devices matching prefix, without
+ * deleting the device objects.  Full cleanup happens via zfs_vss_pool_remove.
+ */
+extern void	zfs_vss_remove_by_prefix(const char *prefix);
 
 /* dmu_objset_find_dp callback - not for external callers */
 extern int	zfs_vss_pool_add_cb(dsl_pool_t *dp, dsl_dataset_t *ds,

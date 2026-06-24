@@ -6203,17 +6203,6 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 			DeviceRelations->Objects[i] = NULL;
 			if (mount == NULL || !mount->FunctionalDeviceObject)
 				continue;
-			/*
-			 * Snapshot mounts (both VSS and ctldir) must not
-			 * appear in BusRelations: they are not proper PnP
-			 * devices and PnP will crash trying to remove them
-			 * during pool export.
-			 */
-			if (mount->type == MOUNT_TYPE_VSS)
-				continue;
-			zfsvfs_t *zfsvfs = vfs_fsprivate(mount);
-			if (zfsvfs != NULL && zfsvfs->z_issnap)
-				continue;
 			dprintf("mount %p : FDO %p\n",
 			    mount, mount->FunctionalDeviceObject);
 			DeviceRelations->Objects[DeviceRelations->Count] =
@@ -7034,9 +7023,15 @@ ioctl_mountdev_query_suggested_link_name(PDEVICE_OBJECT DeviceObject,
 		return (STATUS_BUFFER_TOO_SMALL);
 	}
 
-	// We only reply to strict driveletter mounts, not paths...
-//	if (!zmo->justDriveLetter)
-//		return (STATUS_NOT_FOUND);
+	/*
+	 * Only suggest a drive letter for drive-letter-only mounts. Junction
+	 * mounts (e.g. BOOM/lower at E:\lower\, snapshots at
+	 * \.zfs\snapshot\*) must not suggest E: -- doing so confuses
+	 * MountManager into trying to assign the same letter to multiple
+	 * volumes.
+	 */
+	if (!zmo->justDriveLetter)
+		return (STATUS_NOT_FOUND);
 	Irp->IoStatus.Information = 0;
 
 	if (zmo->mountpoint.Buffer == NULL)
