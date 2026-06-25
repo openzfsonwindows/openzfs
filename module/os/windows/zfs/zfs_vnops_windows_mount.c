@@ -957,10 +957,12 @@ NotifyMountMgr_impl(void *arg)
 	// 36(uuid) + 6 (punct) + 6 (Volume)
 	DECLARE_UNICODE_STRING_SIZE(volStr,
 	    ZFS_MAX_DATASET_NAME_LEN);
-	// "\??\Volume{0b1bb601-af0b-32e8-a1d2-54c167af6277}"
+	/* Volume junctions always use an empty PrintName. */
+	DECLARE_UNICODE_STRING_SIZE(emptyStr, 1);
+	emptyStr.Length = 0;
 	xprintf("%s: start\n", __func__);
 
-	// Annoyingly, the reparsepoints need trailing backslash
+	/* Reparse points need trailing backslash on the substitute name. */
 	RtlUnicodeStringPrintf(&volStr,
 	    L"%wZ\\",
 	    &dcb->MountMgr_name);
@@ -972,14 +974,15 @@ NotifyMountMgr_impl(void *arg)
 	InitializeObjectAttributes(&poa,
 	    &dcb->mountpoint, OBJ_KERNEL_HANDLE, NULL, NULL);
 
-	// We need to "temporarily" remove the vfs_has_mountpoint() check
-	// so we can delete the reparsepoint (if it needs to)
-	// A bit hacky
+	/*
+	 * Temporarily remove from mount list so the reparse-point
+	 * delete/create path does not hit the has_mountpoint() guard.
+	 */
 	boolean_t is = vfs_mount_member(dcb);
 	if (is)
 		vfs_mount_remove(dcb);
 	status = CreateReparsePoint(&poa, &volStr,
-	    &volStr);
+	    &emptyStr);
 	if (is)
 		vfs_mount_add(dcb);
 
