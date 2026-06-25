@@ -1172,6 +1172,7 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		if (zfsvfs->z_replay && zfsvfs->z_replay_eof != 0)
 			zp->z_size = zfsvfs->z_replay_eof;
 
+		ASSERT3S(count, <=, ARRAY_SIZE(bulk));
 		error1 = sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
 		if (error1 != 0)
 			/* Avoid clobbering EFAULT. */
@@ -2149,6 +2150,7 @@ zfs_clone_range(znode_t *inzp, uint64_t *inoffp, znode_t *outzp,
 			    outoff + size);
 		}
 
+		ASSERT3S(count, <=, ARRAY_SIZE(bulk));
 		error = sa_bulk_update(outzp->z_sa_hdl, bulk, count, tx);
 
 		zfs_log_clone_range(zilog, tx, TX_CLONE_RANGE, outzp, outoff,
@@ -2277,6 +2279,7 @@ zfs_clone_range_replay(znode_t *zp, uint64_t off, uint64_t len, uint64_t blksz,
 	if (zp->z_size < off + len)
 		zp->z_size = off + len;
 
+	ASSERT3S(count, <=, ARRAY_SIZE(bulk));
 	error = sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
 
 	/*
