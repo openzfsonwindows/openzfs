@@ -1238,13 +1238,15 @@ zfsctl_set_reparse_point(znode_t *zp, REPARSE_DATA_BUFFER *rdb, size_t size)
 	if (!zfsctl_is_leafnode(zp))
 		return (STATUS_INVALID_PARAMETER);
 
-	vnode_t *vp = ZTOV(zp);
-	vnode_t *dvp = NULL;
-	dvp = zfsctl_vnode_lookup(zp->z_zfsvfs, ZFSCTL_INO_SNAPDIR,
-	    ZFS_SNAPDIR_NAME);
-	zp->z_pflags |= ZFS_REPARSE;
-	vnode_set_reparse(vp, rdb, size);
-	VN_RELE(dvp);
+	/*
+	 * Accept without storing. MountManager records the junction in its
+	 * own database. Ctldir path resolution handles snapshot navigation
+	 * without the Windows junction-following mechanism, so storing the
+	 * blob is not needed. Storing it would set FILE_ATTRIBUTE_REPARSE_POINT
+	 * on the ctldir node, causing Explorer (via the Previous Versions COM
+	 * shell extension) to call BasepGetVolumeNameFromReparsePoint, which
+	 * overflows its local stack buffer with our 49-WCHAR substitute name.
+	 */
 	return (STATUS_SUCCESS);
 }
 
