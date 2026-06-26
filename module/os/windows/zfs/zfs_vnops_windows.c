@@ -4390,47 +4390,15 @@ get_reparse_point(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	zfsvfs_t *zfsvfs = (zp != NULL) ? zp->z_zfsvfs : NULL;
 
 	/*
-	 * Snapshot root: return a synthetic volume mount-point reparse buffer
-	 * so MountManager can verify the junction it recorded for the snapshot.
-	 * The substitute name is "\??\Volume{guid}\" from the snapshot DCB.
+	 * Snapshot root: do not return reparse data. Ctldir path resolution
+	 * handles snapshot navigation without the Windows junction-following
+	 * mechanism. Synthesizing a reparse buffer here causes Explorer, via
+	 * the Previous Versions COM shell extension, to call
+	 * BasepGetVolumeNameFromReparsePoint, which overflows its stack buffer
+	 * and crashes with a GS cookie failure (c0000409).
 	 */
-	if (zfsvfs != NULL && zfsvfs->z_issnap && zp->z_id == zfsvfs->z_root) {
-		mount_t *zmo = DeviceObject->DeviceExtension;
-		mount_t *dcb = (zmo != NULL) ? zmo->parent_device : NULL;
-		if (dcb == NULL || dcb->MountMgr_name.Length == 0) {
-			Status = STATUS_NOT_A_REPARSE_POINT;
-			goto end;
-		}
-		/* SubstituteName = dcb->MountMgr_name + L"\\" */
-		USHORT sub_len = dcb->MountMgr_name.Length + sizeof (WCHAR);
-		USHORT data_len = (USHORT)(
-		    FIELD_OFFSET(REPARSE_DATA_BUFFER,
-		    MountPointReparseBuffer.PathBuffer) -
-		    REPARSE_DATA_BUFFER_HEADER_SIZE +
-		    sub_len + sizeof (WCHAR)); /* +2: null after PrintName */
-		USHORT total_len = REPARSE_DATA_BUFFER_HEADER_SIZE + data_len;
-		if (outlen < total_len) {
-			Irp->IoStatus.Information = total_len;
-			Status = STATUS_BUFFER_OVERFLOW;
-			goto end;
-		}
-		RtlZeroMemory(rdb, total_len);
-		rdb->ReparseTag = IO_REPARSE_TAG_MOUNT_POINT;
-		rdb->ReparseDataLength = data_len;
-		rdb->MountPointReparseBuffer.SubstituteNameOffset = 0;
-		rdb->MountPointReparseBuffer.SubstituteNameLength = sub_len;
-		rdb->MountPointReparseBuffer.PrintNameOffset =
-		    sub_len + sizeof (WCHAR);
-		rdb->MountPointReparseBuffer.PrintNameLength = 0;
-		RtlCopyMemory(rdb->MountPointReparseBuffer.PathBuffer,
-		    dcb->MountMgr_name.Buffer,
-		    dcb->MountMgr_name.Length);
-		rdb->MountPointReparseBuffer.PathBuffer[
-		    dcb->MountMgr_name.Length / sizeof (WCHAR)] = L'\\';
-		Irp->IoStatus.Information = total_len;
-		Status = STATUS_SUCCESS;
+	if (zfsvfs != NULL && zfsvfs->z_issnap && zp->z_id == zfsvfs->z_root)
 		goto end;
-	}
 
 	if (vnode_islnk(vp)) {
 		reqlen = offsetof(REPARSE_DATA_BUFFER,
