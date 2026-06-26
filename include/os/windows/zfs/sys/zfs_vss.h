@@ -63,4 +63,12 @@ extern boolean_t zfs_vss_has_device(uint64_t guid);
 extern NTSTATUS	zfs_vss_dispatcher(PDEVICE_OBJECT DeviceObject, PIRP *pIrp,
     PIO_STACK_LOCATION IrpSp);
 
+/*
+ * Mount snapshot fullname ("pool/data@snap") onto the standard ctldir path
+ * $parent_mountpoint\.zfs\snapshot\$snap_component.  Called from both the
+ * VSS lazy-mount path and ctldir auto-mount (zfsctl_root_lookup).
+ */
+extern int	zfs_vss_snapshot_mount(const char *parent_name,
+    const char *fullname, const char *snap_component);
+
 #endif /* _ZFS_VSS_H */

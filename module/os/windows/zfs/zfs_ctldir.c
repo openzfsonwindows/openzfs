@@ -91,6 +91,7 @@
 #include <sys/zpl.h>
 #include <sys/mntent.h>
 #include <sys/fm/fs/zfs.h>
+#include <sys/zfs_vss.h>
 #include "zfs_namecheck.h"
 
 extern kmem_cache_t *znode_cache;
@@ -455,6 +456,34 @@ zfsctl_root_lookup(struct vnode *dvp, char *name, znode_t **zpp,
 				return (0);
 			}
 			vfs_unbusy(snap_zfsvfs->z_vfs);
+		} else if (zfs_auto_snapshot &&
+		    !vfs_main_lock_write_held()) {
+			/*
+			 * Snapshot is not mounted: trigger an in-kernel mount
+			 * using the same path that VSS lazy-mount uses.
+			 * Release the teardown lock around the mount call,
+			 * then retry getzfsvfs to get the new root vnode.
+			 */
+			char parent_name[ZFS_MAX_DATASET_NAME_LEN];
+			dmu_objset_name(zfsvfs->z_os, parent_name);
+
+			zfs_exit(zfsvfs, FTAG);
+			(void) zfs_vss_snapshot_mount(parent_name,
+			    snapname, name);
+			if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
+				return (error);
+
+			if (!vfs_main_lock_write_held() &&
+			    getzfsvfs(snapname, &snap_zfsvfs) == 0) {
+				if (zfs_zget(snap_zfsvfs,
+				    snap_zfsvfs->z_root, &rootzp) == 0) {
+					vfs_unbusy(snap_zfsvfs->z_vfs);
+					*zpp = rootzp;
+					zfs_exit(zfsvfs, FTAG);
+					return (0);
+				}
+				vfs_unbusy(snap_zfsvfs->z_vfs);
+			}
 		}
 
 		vp = zfsctl_vnode_lookup(zfsvfs, ZFSCTL_INO_SNAPDIRS - id,

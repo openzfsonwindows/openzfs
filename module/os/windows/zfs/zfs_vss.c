@@ -964,35 +964,25 @@ zfs_vss_vcb_devobj(mount_t *zmo)
 }
 
 /*
- * Do a full Windows mount of the snapshot onto the standard
- * $parent_mountpoint\.zfs\snapshot\$name path, exactly as "zfs mount"
- * would.  After this returns 0 a DCB+VCB pair exists for the snapshot
- * and file IRPs are routed to the VCB.  The stub's fsprivate is set to
- * the VCB's zfsvfs (borrowed, not owned) so that the dispatcher's
- * vfs_fsprivate guards and IRP forwarding work without a separate flag.
+ * Mount snapshot fullname ("pool/data@snap") onto the standard ctldir path
+ * $parent_mountpoint\.zfs\snapshot\$snap_component.  After this returns 0 a
+ * DCB+VCB pair exists for the snapshot and file IRPs are routed to the VCB.
+ *
+ * Called from both the VSS lazy-mount path (zfs_vss_do_mount) and the ctldir
+ * auto-mount path (zfsctl_root_lookup) so the logic lives in one place.
  */
-static int
-zfs_vss_do_mount(PDEVICE_OBJECT DeviceObject, mount_t *zmo)
+int
+zfs_vss_snapshot_mount(const char *parent_name, const char *fullname,
+    const char *snap_component)
 {
-	char parent_name[ZFS_MAX_DATASET_NAME_LEN];
 	char parent_mpt[PATH_MAX];
 	char value[PATH_MAX];
 	int err;
 
-	ASSERT(vfs_fsprivate(zmo) == NULL);
-
-	/* Split "pool/data@snap" → parent "pool/data" and snap component */
-	const char *at = strchr(zmo->vss_snapname, '@');
-	if (at == NULL)
-		return (EINVAL);
-	size_t plen = (size_t)(at - zmo->vss_snapname);
-	if (plen == 0 || plen >= sizeof (parent_name))
-		return (EINVAL);
-	strlcpy(parent_name, zmo->vss_snapname, plen + 1);
-
 	/*
 	 * Find the parent's Windows mountpoint via its VCB (getzfsvfs acquires
 	 * a reader lock).  The DCB carries the \??\ mountpoint string.
+	 * Release the busy lock before calling zfs_windows_mount_impl.
 	 */
 	zfsvfs_t *parent_zfsvfs;
 	if (getzfsvfs(parent_name, &parent_zfsvfs) != 0) {
@@ -1024,18 +1014,40 @@ zfs_vss_do_mount(PDEVICE_OBJECT DeviceObject, mount_t *zmo)
 
 	/* Construct \??\X:\.zfs\snapshot\<snap_component> */
 	snprintf(value, sizeof (value), "%s\\.zfs\\snapshot\\%s",
-	    parent_mpt, at + 1);
+	    parent_mpt, snap_component);
 
-	dprintf("%s: mounting snapshot '%s' at '%s'\n",
-	    __func__, zmo->vss_snapname, value);
+	dprintf("%s: mounting '%s' at '%s'\n", __func__, fullname, value);
 
-	err = zfs_windows_mount_impl(zmo->vss_snapname, value, sizeof (value),
+	err = zfs_windows_mount_impl(fullname, value, sizeof (value),
 	    MNT_RDONLY);
-	if (err != 0) {
-		dprintf("%s: zfs_windows_mount_impl failed %d\n",
-		    __func__, err);
+	if (err != 0)
+		dprintf("%s: mount failed %d\n", __func__, err);
+	return (err);
+}
+
+/*
+ * VSS stub lazy-mount: mount the snapshot and wire up the stub's fsprivate
+ * so the VSS dispatcher can forward IRPs to the real VCB.
+ */
+static int
+zfs_vss_do_mount(PDEVICE_OBJECT DeviceObject, mount_t *zmo)
+{
+	ASSERT(vfs_fsprivate(zmo) == NULL);
+
+	/* Split "pool/data@snap" into parent name and snap component */
+	const char *at = strchr(zmo->vss_snapname, '@');
+	if (at == NULL)
+		return (EINVAL);
+	size_t plen = (size_t)(at - zmo->vss_snapname);
+	char parent_name[ZFS_MAX_DATASET_NAME_LEN];
+	if (plen == 0 || plen >= sizeof (parent_name))
+		return (EINVAL);
+	strlcpy(parent_name, zmo->vss_snapname, plen + 1);
+
+	int err = zfs_vss_snapshot_mount(parent_name, zmo->vss_snapname,
+	    at + 1);
+	if (err != 0)
 		return (err);
-	}
 
 	/*
 	 * Borrow the VCB's zfsvfs into the stub's fsprivate.  This lets all
