@@ -12,6 +12,16 @@
 	  "ctestCommandArgs": "",
 	  "variables": [
 		{
+		  "name": "CMAKE_C_COMPILER",
+		  "value": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe",
+		  "type": "FILEPATH"
+		},
+		{
+		  "name": "CMAKE_CXX_COMPILER",
+		  "value": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe",
+		  "type": "FILEPATH"
+		},
+		{
 		  "name": "OPENZFS_SIGNTOOL_SHA1",
 		  "value": "20564273046A323E710BFDC5C9CC22E7392F8049",
 		  "type": "STRING"
