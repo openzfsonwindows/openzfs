@@ -1034,7 +1034,8 @@ wzvol_QueueServiceIrp(
 
 	dprintf("MpQueueServiceIrp entered\n");
 
-	pOldIrp = InterlockedExchangePointer((void *volatile *)&pHBAExt->pReverseCallIrp, pIrp);
+	pOldIrp = InterlockedExchangePointer(
+	    (void *volatile *)&pHBAExt->pReverseCallIrp, pIrp);
 	if (NULL != pOldIrp) {
 		wzvol_CompleteIrp(pHBAExt, pOldIrp);
 }

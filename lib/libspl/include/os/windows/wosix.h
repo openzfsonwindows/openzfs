@@ -141,9 +141,11 @@ extern int wosix_access(const char *name, int mode);
 #undef  fstat
 #define	fstat(fd, st)		wosix_fstat(fd, (struct _stat64 *)(st))
 #undef  lstat
-#define	lstat(path, st)		wosix_lstat((char *)(path), (struct _stat64 *)(st))
+#define	lstat(path, st)		wosix_lstat((char *)(path), \
+	    (struct _stat64 *)(st))
 #undef  lstat64
-#define	lstat64(path, st)	wosix_lstat((char *)(path), (struct _stat64 *)(st))
+#define	lstat64(path, st)	wosix_lstat((char *)(path), \
+	    (struct _stat64 *)(st))
 #undef  _fstat64
 #define	_fstat64(fd, st)	wosix_fstat(fd, (struct _stat64 *)(st))
 #undef  fstat64
@@ -153,9 +155,11 @@ extern int wosix_access(const char *name, int mode);
 #undef  fstat64_blk
 #define	fstat64_blk(fd, st)	wosix_fstat_blk(fd, (struct _stat64 *)(st))
 #undef  stat
-#define	stat(path, st)		wosix_stat((char *)(path), (struct _stat64 *)(st))
+#define	stat(path, st)		wosix_stat((char *)(path), \
+	    (struct _stat64 *)(st))
 #undef  stat64
-#define	stat64(path, st)	wosix_stat((char *)(path), (struct _stat64 *)(st))
+#define	stat64(path, st)	wosix_stat((char *)(path), \
+	    (struct _stat64 *)(st))
 #undef  fdatasync
 #define	fdatasync	wosix_fdatasync
 #undef  ftruncate

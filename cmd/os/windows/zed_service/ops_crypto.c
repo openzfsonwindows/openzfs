@@ -67,7 +67,8 @@ get_num_prop(zfs_handle_t *zhp, zfs_prop_t prop, uint64_t *out)
 {
 	nvlist_t *user = NULL;
 	char buf[ZFS_MAXPROPLEN];
-	if (zfs_prop_get_numeric(zhp, prop, out, (zprop_source_t *)buf, NULL, 0) == 0)
+	if (zfs_prop_get_numeric(zhp, prop, out,
+	    (zprop_source_t *)buf, NULL, 0) == 0)
 		return (0);
 	return (-1);
 }

@@ -778,7 +778,8 @@ param_hostid(ZFS_MODULE_PARAM_ARGS)
 	if (set == B_FALSE) {
 
 		if (spl_hostid == 0)
-			random_get_bytes((uint8_t *)&spl_hostid, sizeof (spl_hostid));
+			random_get_bytes((uint8_t *)&spl_hostid,
+			    sizeof (spl_hostid));
 
 		*ptr = &spl_hostid;
 		*len = sizeof (spl_hostid);
