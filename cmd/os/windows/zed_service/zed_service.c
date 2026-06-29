@@ -23,7 +23,7 @@
  * Copyright (c) 2025 Jorgen Lundman <lundman@lundman.net>.
  */
 
-// zed_service.c — shared service/foreground runner
+// zed_service.c ï¿½ shared service/foreground runner
 #define	_CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <sddl.h>
@@ -176,7 +176,7 @@ run_console(int argc, wchar_t **argv)
 			fputs("libzfs_init failed\n", stderr);
 			return (2);
 		}
-		zpool_iter(g, (zpool_iter_f *)get_names_cb, NULL);
+		zpool_iter(g, get_names_cb, NULL);
 		libzfs_fini(g);
 		return (0);
 	} else {

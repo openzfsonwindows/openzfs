@@ -139,23 +139,23 @@ extern int wosix_access(const char *name, int mode);
 #define	pwrite	wosix_pwrite
 #define	pwrite64	wosix_pwrite
 #undef  fstat
-#define	fstat	wosix_fstat
+#define	fstat(fd, st)		wosix_fstat(fd, (struct _stat64 *)(st))
 #undef  lstat
-#define	lstat	wosix_lstat
+#define	lstat(path, st)		wosix_lstat((char *)(path), (struct _stat64 *)(st))
 #undef  lstat64
-#define	lstat64	wosix_lstat
+#define	lstat64(path, st)	wosix_lstat((char *)(path), (struct _stat64 *)(st))
 #undef  _fstat64
-#define	_fstat64	wosix_fstat
+#define	_fstat64(fd, st)	wosix_fstat(fd, (struct _stat64 *)(st))
 #undef  fstat64
-#define	fstat64	wosix_fstat
+#define	fstat64(fd, st)		wosix_fstat(fd, (struct _stat64 *)(st))
 #undef  fstat_blk
-#define	fstat_blk	wosix_fstat_blk
+#define	fstat_blk(fd, st)	wosix_fstat_blk(fd, (struct _stat64 *)(st))
 #undef  fstat64_blk
-#define	fstat64_blk	wosix_fstat_blk
+#define	fstat64_blk(fd, st)	wosix_fstat_blk(fd, (struct _stat64 *)(st))
 #undef  stat
-#define	stat	wosix_stat
+#define	stat(path, st)		wosix_stat((char *)(path), (struct _stat64 *)(st))
 #undef  stat64
-#define	stat64	wosix_stat
+#define	stat64(path, st)	wosix_stat((char *)(path), (struct _stat64 *)(st))
 #undef  fdatasync
 #define	fdatasync	wosix_fdatasync
 #undef  ftruncate

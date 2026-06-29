@@ -1787,7 +1787,7 @@ taskq_resume(taskq_t *tq)
 }
 
 int
-taskq_member(taskq_t *tq, struct kthread *thread)
+taskq_member(taskq_t *tq, kthread_t *thread)
 {
 	return (tq == (taskq_t *)tsd_get_by_thread(taskq_tsd, thread));
 }
@@ -1953,7 +1953,7 @@ taskq_thread_set_cpulimit(taskq_t *tq)
  */
 
 static void
-set_taskq_thread_attributes(struct kthread *thread, taskq_t *tq)
+set_taskq_thread_attributes(kthread_t *thread, taskq_t *tq)
 {
 }
 

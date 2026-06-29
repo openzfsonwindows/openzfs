@@ -55,9 +55,8 @@ extern int optind;
 
 #include <ctime>
 #include <string>
-#define	_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING 1
-#include <experimental\filesystem>
-namespace fs = std::experimental::filesystem;
+#include <filesystem>
+namespace fs = std::filesystem;
 
 #include <devguid.h>
 

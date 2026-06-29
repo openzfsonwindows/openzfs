@@ -1147,8 +1147,8 @@ generateVolumeNameMountpoint(wchar_t *vol_mpt)
 {
 	char GUID[50];
 	wchar_t wc_guid[50];
-	generateGUID(&GUID);
-	mbstowcs(&wc_guid, GUID, 50);
+	generateGUID((char *)&GUID);
+	mbstowcs((wchar_t *)&wc_guid, GUID, 50);
 	_snwprintf(vol_mpt, 50, L"\\??\\Volume{%s}\\", wc_guid);
 }
 
@@ -1774,7 +1774,7 @@ mount_volume_impl(void *arg1)
 				// the device
 				UNICODE_STRING vol_mpt;
 				wchar_t buf[50];
-				generateVolumeNameMountpoint(&buf);
+				generateVolumeNameMountpoint((wchar_t *)&buf);
 				RtlInitUnicodeString(&vol_mpt, buf);
 				status = SendVolumeCreatePoint(
 				    &dcb->device_name, &vol_mpt);
@@ -2351,11 +2351,9 @@ zfs_unmount_snap_children(const char *parent_name)
 	kmem_free(array, count * sizeof (void *));
 
 	for (i = 0; i < nsnaps; i++) {
-		zfs_cmd_t zc = {"\0"};
 		dprintf("%s: preflight-unmounting snapshot '%s'\n",
 		    __func__, snap_names[i]);
-		strlcpy(zc.zc_name, snap_names[i], sizeof (zc.zc_name));
-		(void) zfs_windows_unmount_impl(&zc);
+		(void) zfs_windows_unmount_impl(snap_names[i]);
 		kmem_strfree(snap_names[i]);
 	}
 

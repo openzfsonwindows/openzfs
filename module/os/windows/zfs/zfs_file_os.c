@@ -94,9 +94,9 @@ zfs_file_open(const char *path, int flags, int mode, zfs_file_t **fpp)
 		uint8_t *end;
 		end = &vdev_path[0];
 		while (end && end[0] == '#') end++;
-		ddi_strtoull(end, &end, 10, &vdev_win_offset);
+		ddi_strtoull(end, (char **)&end, 10, &vdev_win_offset);
 		while (end && end[0] == '#') end++;
-		ddi_strtoull(end, &end, 10, &vdev_win_length);
+		ddi_strtoull(end, (char **)&end, 10, &vdev_win_length);
 		while (end && end[0] == '#') end++;
 
 		FileName = end;
@@ -165,7 +165,7 @@ zfs_file_open(const char *path, int flags, int mode, zfs_file_t **fpp)
 	    0,
 	    *IoFileObjectType,
 	    KernelMode,
-	    &FileObject,
+	    (void *)&FileObject,
 	    NULL);
 	if (status != STATUS_SUCCESS) {
 		ZwClose(handle);

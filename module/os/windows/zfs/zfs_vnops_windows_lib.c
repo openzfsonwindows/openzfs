@@ -2545,7 +2545,7 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 	UNICODE_STRING ustr;
 	UNICODE_STRING ustream;
 	int wideoffset = nameoffset / sizeof (WCHAR);
-	int allocateBytes = 0;
+	ULONG allocateBytes = 0;
 	int length;
 	NTSTATUS status;
 
@@ -2574,8 +2574,10 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 	RtlInitEmptyUnicodeString(&ustr, widepath, (USHORT)allocateBytes);
 
 	// Convert UTF-8 to Unicode.
+	ULONG byteCount;
 	status = RtlUTF8ToUnicodeN(ustr.Buffer, ustr.MaximumLength,
-	    &ustr.Length, name, length);
+	    &byteCount, name, length);
+	ustr.Length = (USHORT)byteCount;
 	if (!NT_SUCCESS(status)) {
 		ExFreePoolWithTag(widepath, 'znot');
 		return;
@@ -2616,10 +2618,12 @@ zfs_send_notify_stream(zfsvfs_t *zfsvfs, char *name, int nameoffset,
 			if (widepath != NULL) {
 				RtlInitEmptyUnicodeString(&ustream, widepath,
 				    (USHORT)allocateBytes);
+				ULONG bytes;
 				status = RtlUTF8ToUnicodeN(ustream.Buffer,
-				    ustream.MaximumLength, &ustream.Length,
+				    ustream.MaximumLength, &bytes,
 				    stream, length);
 				if (NT_SUCCESS(status)) {
+					ustream.Length = bytes;
 					dprintf("%s: with stream '%wZ'\n",
 					    __func__, &ustream);
 					widepath[ustream.Length /
@@ -2963,15 +2967,13 @@ zfs_attach_security_root(struct vnode *vp)
 	if (Status != STATUS_SUCCESS)
 		goto err;
 
-	acl = def_dacls;
-
 	zfs_uid2sid(zp->z_uid, &usersid);
 	zfs_gid2sid(zp->z_gid, &groupsid);
 
 	RtlSetOwnerSecurityDescriptor(&sd, usersid, FALSE);
 	RtlSetGroupSecurityDescriptor(&sd, groupsid, FALSE);
 
-	acl = zfs_set_acl(acl);
+	acl = zfs_set_acl(def_dacls);
 
 	if (acl)
 		Status = RtlSetDaclSecurityDescriptor(&sd, TRUE, acl, FALSE);
@@ -3014,7 +3016,7 @@ zfs_attach_security(struct vnode *vp, struct vnode *dvp,
 	NTSTATUS Status = STATUS_INVALID_PARAMETER;
 	SID *usersid = NULL, *groupsid = NULL;
 	int error = 0;
-	boolean_t defaulted;
+	BOOLEAN defaulted;
 	uint8_t *buf = NULL;
 	boolean_t allocated_usersid = B_FALSE;
 	boolean_t allocated_groupsid = B_FALSE;
@@ -3087,7 +3089,7 @@ zfs_attach_security(struct vnode *vp, struct vnode *dvp,
 
 	// what OwnerID did we get?
 	Status = RtlGetOwnerSecurityDescriptor(sd,
-	    &usersid, &defaulted);
+	    (PSID *)&usersid, &defaulted);
 	if (!NT_SUCCESS(Status)) {
 		dprintf("RtlGetOwnerSecurityDescriptor returned %08lx\n",
 		    Status);
@@ -3097,7 +3099,7 @@ zfs_attach_security(struct vnode *vp, struct vnode *dvp,
 
 	// what GroupID did we get?
 	Status = RtlGetGroupSecurityDescriptor(sd,
-	    &groupsid, &defaulted);
+	    (PSID *)&groupsid, &defaulted);
 	if (!NT_SUCCESS(Status)) {
 		dprintf("RtlGetGroupSecurityDescriptor returned %08lx\n",
 		    Status);
@@ -4074,7 +4076,7 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (link->RootDirectory != 0) {
 		if (ObReferenceObjectByHandle(link->RootDirectory,
 		    GENERIC_READ, *IoFileObjectType, KernelMode,
-		    &RootFileObject, NULL) != STATUS_SUCCESS) {
+		    (void *)&RootFileObject, NULL) != STATUS_SUCCESS) {
 			return (STATUS_INVALID_PARAMETER);
 		}
 		tdvp = RootFileObject->FsContext;
@@ -4390,7 +4392,7 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    STANDARD_RIGHTS_REQUIRED,
 		    *IoFileObjectType,
 		    KernelMode,
-		    &dFileObject,
+		    (void *)&dFileObject,
 		    NULL);
 		if (!NT_SUCCESS(Status)) {
 			ZwClose(destParentHandle);
@@ -6190,7 +6192,7 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		if (count == 0)
 			goto out;
 
-		vfs_mount_setarray(DeviceRelations->Objects, count);
+		vfs_mount_setarray((void **)DeviceRelations->Objects, count);
 
 		// Loop array, and grab reference and increment if valid.
 		// linked list will only leave NULL at end, not start/middle.
@@ -6199,7 +6201,7 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		// get AddDevice() to be called if I do. Returning FDO works.
 		for (int i = 0; i < count; i++) {
 			mount_t *mount;
-			mount = DeviceRelations->Objects[i];
+			mount = (mount_t *)DeviceRelations->Objects[i];
 			DeviceRelations->Objects[i] = NULL;
 			if (mount == NULL || !mount->FunctionalDeviceObject)
 				continue;

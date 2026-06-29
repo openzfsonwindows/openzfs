@@ -64,7 +64,7 @@ struct vnop_readdir_args {
 
 struct vnop_getattr_args {
 	struct vnode *a_vp;
-	struct vnode_vattr *a_vap;
+	struct vnode_attr *a_vap;
 };
 
 struct vnop_open_args {
@@ -93,7 +93,7 @@ struct vnop_mkdir_args {
 	struct vnode	*a_dvp;
 	struct vnode	**a_vpp;
 	struct componentname *a_cnp;
-	struct vnode_vattr *a_vap;
+	struct vnode_attr *a_vap;
 };
 
 struct vnop_rmdir_args {

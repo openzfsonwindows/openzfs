@@ -1561,7 +1561,7 @@ efi_writeX(int fd, struct dk_gpt *vtoc)
 		    sizeof (struct uuid_to_ptag); j++) {
 
 			if (kp->p_tag == j) {
-				struct uuid *dest = &pi->Gpt.PartitionType;
+				struct uuid *dest = (struct uuid *)&pi->Gpt.PartitionType;
 				UUID_LE_CONVERT(
 				    *dest,
 				    conversion_array[j].uuid);

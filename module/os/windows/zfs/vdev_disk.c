@@ -264,9 +264,9 @@ vdev_disk_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 		uint8_t *end;
 		end = &vdev_path[0];
 		while (end && end[0] == '#') end++;
-		ddi_strtoull(end, &end, 10, &dvd->vdev_win_offset);
+		ddi_strtoull(end, (char **)&end, 10, &dvd->vdev_win_offset);
 		while (end && end[0] == '#') end++;
-		ddi_strtoull(end, &end, 10, &dvd->vdev_win_length);
+		ddi_strtoull(end, (char **)&end, 10, &dvd->vdev_win_length);
 		while (end && end[0] == '#') end++;
 
 		FileName = end;
@@ -381,7 +381,7 @@ vdev_disk_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	    0,
 	    *IoFileObjectType,
 	    KernelMode,
-	    &FileObject,
+	    (void *)&FileObject,
 	    NULL);
 	if (status != STATUS_SUCCESS) {
 		ZwClose(dvd->vd_lh);

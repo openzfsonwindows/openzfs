@@ -357,7 +357,7 @@ kstat_resize_raw(kstat_t *ksp)
 
 	SBFREE(ksp->ks_raw_buf);
 	ksp->ks_raw_bufsize = MIN(ksp->ks_raw_bufsize * 2, KSTAT_RAW_MAX);
-	ksp->ks_raw_buf = SBMALLOC(ksp->ks_raw_bufsize);
+	ksp->ks_raw_buf = (char *)SBMALLOC(ksp->ks_raw_bufsize);
 
 	return (0);
 }

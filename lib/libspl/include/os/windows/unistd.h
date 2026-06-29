@@ -87,6 +87,10 @@ extern pid_t getpid(void);
 struct zfs_cmd;
 extern int mkstemp(char *tmpl);
 extern int64_t gethrtime(void);
+#if !defined(_WINSOCKAPI_) && !defined(_WINSOCK2API_)
+#include <winsock2.h>
+#pragma comment(lib, "Ws2_32.lib")
+#endif
 struct timezone;
 extern int gettimeofday(struct timeval *tp, struct timezone *tzp);
 extern void flockfile(FILE *file);

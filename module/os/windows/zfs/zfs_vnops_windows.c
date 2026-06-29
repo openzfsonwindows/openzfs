@@ -2074,7 +2074,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		}
 
 		zfs_setwinflags_xva(NULL,
-		    IrpSp->Parameters.Create.FileAttributes, vap);
+		    IrpSp->Parameters.Create.FileAttributes, xvap);
 		vap->va_type = VDIR;
 
 		// Set default 777 if something else wasn't passed in
@@ -2413,7 +2413,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		}
 
 		zfs_setwinflags_xva(NULL,
-		    IrpSp->Parameters.Create.FileAttributes, vap);
+		    IrpSp->Parameters.Create.FileAttributes, xvap);
 		vap->va_type = VREG;
 
 		if (!(vap->va_mask & ATTR_MODE))

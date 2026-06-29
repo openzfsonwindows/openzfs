@@ -62,16 +62,16 @@ zfs_zfree(void *opaque, void *addr)
  * function return Z_OK on success, or another error code on failure.
  */
 static inline int
-    z_uncompress(void *dst, uint32_t *dstlen, const void *src, uint32_t srclen)
+    z_uncompress(void *dst, size_t *dstlen, const void *src, size_t srclen)
 {
 	z_stream zs;
 	int err;
 
 	memset(&zs, 0, sizeof (zs));
 	zs.next_in = (uchar_t *)src;
-	zs.avail_in = srclen;
+	zs.avail_in = (uInt)srclen;
 	zs.next_out = dst;
-	zs.avail_out = *dstlen;
+	zs.avail_out = (uInt)*dstlen;
 	zs.zalloc = zfs_zalloc;
 	zs.zfree = zfs_zfree;
 	if ((err = inflateInit(&zs)) != Z_OK)
@@ -85,16 +85,16 @@ static inline int
 }
 
 static inline int
-z_compress_level(void *dst, uint32_t *dstlen, const void *src, uint32_t srclen,
+z_compress_level(void *dst, size_t *dstlen, const void *src, size_t srclen,
     int level)
 {
 	z_stream zs;
 	int err;
 	memset(&zs, 0, sizeof (zs));
 	zs.next_in = (uchar_t *)src;
-	zs.avail_in = srclen;
+	zs.avail_in = (uInt)srclen;
 	zs.next_out = dst;
-	zs.avail_out = *dstlen;
+	zs.avail_out = (uInt)*dstlen;
 	zs.zalloc = zfs_zalloc;
 	zs.zfree = zfs_zfree;
 	if ((err = deflateInit(&zs, level)) != Z_OK)
@@ -108,7 +108,7 @@ z_compress_level(void *dst, uint32_t *dstlen, const void *src, uint32_t srclen,
 }
 
 static inline int
-z_compress(void *dst, uint32_t *dstlen, const void *src, uint32_t srclen)
+z_compress(void *dst, size_t *dstlen, const void *src, size_t srclen)
 {
 	return (z_compress_level(dst, dstlen, src, srclen,
 	    Z_DEFAULT_COMPRESSION));

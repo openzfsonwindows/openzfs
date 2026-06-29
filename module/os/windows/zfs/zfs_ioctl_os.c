@@ -57,6 +57,7 @@
 #include <zfs_gitrev.h>
 
 #include <Wdmsec.h>
+#include <Trace.h>
 
 
 
@@ -805,7 +806,6 @@ zfsdev_open(dev_t dev, PIRP Irp)
 	int error;
 	int flags = 0;
 	int devtype = 0;
-	struct proc *p = current_proc();
 	PAGED_CODE();
 
 	mutex_enter(&zfsdev_state_lock);

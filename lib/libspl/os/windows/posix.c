@@ -2313,7 +2313,7 @@ strptime(const char *s,
     struct tm *tm)
 {
 	/* This desperately needs implementing */
-	localtime(tm);
+	(void) tm;
 	return (s);
 }
 

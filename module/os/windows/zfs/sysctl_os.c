@@ -404,8 +404,9 @@ sysctl_os_registry_change(DEVICE_OBJECT *DeviceObject, PVOID Parameter)
 
 	IO_STATUS_BLOCK iosb;
 
+	/* TODO: migrate to ExAllocatePool2 / IoAllocateWorkItem + IoQueueWorkItem */
 	if (wqi != NULL) {
-		IoFreeWorkItem(wqi);
+		ExFreePoolWithTag(wqi, '!SFZ');
 		wqi = NULL;
 	}
 
@@ -416,7 +417,7 @@ sysctl_os_registry_change(DEVICE_OBJECT *DeviceObject, PVOID Parameter)
 	sysctl_os_all(&sysctl_os_RegistryPath);
 
 
-	wqi = IoAllocateWorkItem(DeviceObject);
+	wqi = ExAllocatePoolWithTag(PagedPool, sizeof (WORK_QUEUE_ITEM), '!SFZ');
 	if (wqi != NULL) {
 		ExInitializeWorkItem(wqi, (PVOID)sysctl_os_registry_change,
 		    &sysctl_os_RegistryPath);

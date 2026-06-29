@@ -175,8 +175,8 @@ snprintf(char *buffer, size_t bufSize, const char *fmt, ...)
 struct mount;
 typedef struct mount mount_t;
 
-struct kauth_cred;
-typedef struct kauth_cred kauth_cred_t;
+struct cred;
+typedef struct cred kauth_cred_t;
 struct kauth_acl;
 typedef struct kauth_acl kauth_acl_t;
 #define	KAUTH_FILESEC_NONE ((kauth_filesec_t)0)
