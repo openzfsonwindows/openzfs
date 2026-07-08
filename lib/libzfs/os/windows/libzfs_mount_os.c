@@ -509,8 +509,16 @@ zfs_snapshot_mountpoint(zfs_handle_t *zhp)
 
 	zfs_close(parent);
 
+	/* Strip trailing slashes so path becomes "E:/.zfs/snapshot/snap" */
+	{
+		size_t mplen = strlen(parent_mountpoint);
+		while (mplen > 1 && (parent_mountpoint[mplen - 1] == '/' ||
+		    parent_mountpoint[mplen - 1] == '\\'))
+			parent_mountpoint[--mplen] = '\0';
+	}
+
 	snapshot_mountpoint =
-	    zfs_asprintf(hdl, "%s/.zfs/snapshot/%s/",
+	    zfs_asprintf(hdl, "%s/.zfs/snapshot/%s",
 	    parent_mountpoint, &r[1]);
 
 	free(dataset_name);

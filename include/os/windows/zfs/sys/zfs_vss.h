@@ -52,6 +52,13 @@ extern void	zfs_vss_pool_remove(spa_t *spa);
  */
 extern void	zfs_vss_remove_by_prefix(const char *prefix);
 
+/*
+ * Clear fsprivate on any VSS stub whose vss_snapname matches snapname.
+ * Must be called before zfs_windows_unmount_impl() tears down the VCB so
+ * that the VSS dispatcher cannot dereference the stale zfsvfs pointer.
+ */
+extern void	zfs_vss_clear_fsprivate(const char *snapname);
+
 /* dmu_objset_find_dp callback - not for external callers */
 extern int	zfs_vss_pool_add_cb(dsl_pool_t *dp, dsl_dataset_t *ds,
     void *arg);

@@ -157,6 +157,15 @@ struct mount
 	 * IopInsertRemoveDevice on an already-removed device, BSODing.
 	 */
 	boolean_t	vss_del_pending;
+	/*
+	 * Set to B_TRUE once IOCTL_MOUNTDEV_QUERY_UNIQUE_ID is processed.
+	 * While this remains B_FALSE (the normal case — MountMgr is never
+	 * notified about VSS stub devices), is_dev_open is always true and
+	 * IRP_MJ_CREATE on the stub never triggers a lazy mount.  Lazy mount
+	 * happens via the ctldir path when the parent volume's .zfs/snapshot
+	 * directory is accessed.
+	 */
+	boolean_t	vss_mountmgr_probed;
 };
 typedef struct mount mount_t;
 typedef struct mount vfsp_t;

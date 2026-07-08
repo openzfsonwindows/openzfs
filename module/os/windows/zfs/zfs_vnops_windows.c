@@ -1748,6 +1748,17 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 		} else {
 
+			/*
+			 * Suppress ctldir auto-mount for attribute-only opens
+			 * (Explorer stat/thumbnail queries).  A genuine read or
+			 * write access has rights beyond FILE_READ_ATTRIBUTES
+			 * and SYNCHRONIZE, so those still trigger the mount.
+			 */
+			if ((DesiredAccess & ~(FILE_READ_ATTRIBUTES |
+			    SYNCHRONIZE | READ_CONTROL |
+			    FILE_TRAVERSE | ACCESS_SYSTEM_SECURITY)) == 0)
+				flags |= LOOKUP_NO_AUTOMOUNT;
+
 			// If we have dvp, it is HELD
 			error = zfs_find_dvp_vp(zfsvfs, filename,
 			    (CreateFile || OpenTargetDirectory),

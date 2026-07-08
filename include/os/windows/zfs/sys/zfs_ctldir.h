@@ -141,6 +141,7 @@ extern int zfsctl_snapdir_mkdir(struct vnode *dip, char *dirname, vattr_t *vap,
     struct vnode **ipp, cred_t *cr, int flags);
 extern int zfsctl_snapshot_mount(struct vnode *, int flags);
 extern int zfsctl_snapshot_unmount(const char *, int flags);
+extern void zfsctl_snapshot_touch(const char *snapname);
 extern int zfsctl_snapshot_unmount_node(struct vnode *, const char *,
     int flags);
 extern int zfsctl_snapshot_unmount_delay(spa_t *spa, uint64_t objsetid,

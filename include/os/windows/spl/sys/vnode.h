@@ -521,7 +521,9 @@ int vnode_get_reparse_point(struct vnode *vp, REPARSE_DATA_BUFFER **rpp,
 #define	VNODELOCKED	0x0100 /* vflush: vnode already called to recycle */
 #define	NULLVP 		NULL
 
-#define	LOOKUP_XATTR 0x2
+#define	LOOKUP_XATTR		0x2
+/* suppress ctldir snapshot auto-mount for attribute-only opens */
+#define	LOOKUP_NO_AUTOMOUNT	0x4
 
 int vflush(struct mount *mp, struct vnode *skipvp, int flags);
 int vnode_fileobject_add(vnode_t *vp, void *fo);

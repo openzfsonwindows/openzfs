@@ -1335,6 +1335,17 @@ zfs_windows_mount_impl(const char *name, char *value, size_t valuelen,
 		if (status != STATUS_SUCCESS) {
 			dprintf("IoCreateDeviceSecure returned %08lx\n",
 			    status);
+			if (status == STATUS_OBJECT_NAME_COLLISION) {
+				/*
+				 * Device already exists:
+				 * snapshot already mounted.
+				 */
+				dprintf("%s: '%s' already mounted\n",
+				    __func__, name);
+				snprintf(value, valuelen,
+				    "\\DosDevices\\Global\\Volume{%s}", uuid_a);
+				return (0);
+			}
 			return (status);
 		}
 

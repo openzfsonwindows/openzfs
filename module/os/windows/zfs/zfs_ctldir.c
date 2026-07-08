@@ -149,6 +149,8 @@ static struct vnode *
 zfsctl_vnode_lookup(zfsvfs_t *zfsvfs, uint64_t id,
     char *name);
 
+void zfsctl_snapshot_touch(const char *snapname);
+
 /*
  * Check if the given vnode is a part of the virtual .zfs directory.
  */
@@ -451,16 +453,21 @@ zfsctl_root_lookup(struct vnode *dvp, char *name, znode_t **zpp,
 			if (zfs_zget(snap_zfsvfs, snap_zfsvfs->z_root,
 			    &rootzp) == 0) {
 				vfs_unbusy(snap_zfsvfs->z_vfs);
+				zfsctl_snapshot_touch(snapname);
 				*zpp = rootzp;
 				zfs_exit(zfsvfs, FTAG);
 				return (0);
 			}
 			vfs_unbusy(snap_zfsvfs->z_vfs);
 		} else if (zfs_auto_snapshot &&
+		    !(flags & LOOKUP_NO_AUTOMOUNT) &&
 		    !vfs_main_lock_write_held()) {
 			/*
 			 * Snapshot is not mounted: trigger an in-kernel mount
 			 * using the same path that VSS lazy-mount uses.
+			 * Suppressed when LOOKUP_NO_AUTOMOUNT is set (e.g.
+			 * attribute-only queries from Explorer that should not
+			 * cause a full mount of every snapshot they stat).
 			 * Release the teardown lock around the mount call,
 			 * then retry getzfsvfs to get the new root vnode.
 			 */
@@ -1221,31 +1228,49 @@ zfsctl_snapshot_unmount_node(struct vnode *vp, const char *full_name,
 	return (ret);
 }
 
+void
+zfsctl_snapshot_touch(const char *snapname)
+{
+	zfsctl_unmount_delay_t *zcu;
+	mutex_enter(&zfsctl_unmount_list_lock);
+	for (zcu = list_head(&zfsctl_unmount_list); zcu != NULL;
+	    zcu = list_next(&zfsctl_unmount_list, zcu)) {
+		if (strcmp(snapname, zcu->se_name) == 0) {
+			zcu->se_time = gethrestime_sec();
+			break;
+		}
+	}
+	mutex_exit(&zfsctl_unmount_list_lock);
+}
+
 int
 zfsctl_snapshot_unmount(const char *snapname, int flags)
 {
-	znode_t *rootzp;
 	zfsvfs_t *zfsvfs = NULL;
 
-	dprintf("%s\n", __func__);
+	dprintf("%s: '%s'\n", __func__, snapname);
 
 	if (strchr(snapname, '@') == NULL)
 		return (0);
 
-	int err = getzfsvfs(snapname, &zfsvfs);
-	if (err != 0) {
-		ASSERT3P(zfsvfs, ==, NULL);
+	/*
+	 * Verify the snapshot is mounted, then release the busy reference
+	 * before calling zfs_windows_unmount_impl(), which re-acquires it
+	 * exclusively.  If vnode_umount_preflight() finds open handles it
+	 * returns EBUSY and the idle-unmount thread will retry later.
+	 */
+	if (getzfsvfs(snapname, &zfsvfs) != 0)
 		return (0);
-	}
-	ASSERT(!dsl_pool_config_held(dmu_objset_pool(zfsvfs->z_os)));
-
-	err = zfs_zget(zfsvfs, zfsvfs->z_root, &rootzp);
-	if (err == 0) {
-		zfsctl_snapshot_unmount_node(ZTOV(rootzp), snapname, flags);
-		VN_RELE(ZTOV(rootzp));
-	}
-
 	vfs_unbusy(zfsvfs->z_vfs);
+
+	/*
+	 * Clear fsprivate on any VSS stub that still points at this zfsvfs
+	 * before tearing down the VCB.  Without this, the next IRP on the
+	 * VSS stub dereferences the destroyed zfsvfs (MUTEX_DESTROYED panic).
+	 */
+	zfs_vss_clear_fsprivate(snapname);
+
+	(void) zfs_windows_unmount_impl(snapname);
 	return (0);
 }
 
@@ -1453,24 +1478,38 @@ zfsctl_unmount_thread(void *notused)
 
 		if (!zfsctl_unmount_thread_exit) {
 			/*
-			 * Loop all active mounts, if any are older
-			 * than ZFSCTL_EXPIRE_SNAPSHOT, then we update
-			 * their timestamp and attempt unmount.
+			 * Loop all active mounts, if any are older than
+			 * zfs_expire_snapshot seconds.  Collect names while
+			 * holding the list lock, then release before calling
+			 * zfsctl_snapshot_unmount — the unmount path calls
+			 * zfs_vfs_unmount → zfsctl_mount_signal which also
+			 * acquires zfsctl_unmount_list_lock, causing a deadlock
+			 * if we hold it across the unmount call.
 			 */
 			now = gethrestime_sec();
+#define	ZFSCTL_UNMOUNT_BATCH	16
+			char *to_unmount[ZFSCTL_UNMOUNT_BATCH];
+			int n_unmount = 0;
+
 			mutex_enter(&zfsctl_unmount_list_lock);
 			for (zcu = list_head(&zfsctl_unmount_list);
-			    zcu != NULL;
+			    zcu != NULL && n_unmount < ZFSCTL_UNMOUNT_BATCH;
 			    zcu = list_next(&zfsctl_unmount_list, zcu)) {
 				if ((now > zcu->se_time) &&
 				    ((now - zcu->se_time) >
 				    zfs_expire_snapshot)) {
-					zcu->se_time = now;
-					zfsctl_snapshot_unmount(zcu->se_name,
-					    0);
+					zcu->se_time = now; /* debounce */
+					to_unmount[n_unmount++] =
+					    kmem_strdup(zcu->se_name);
 				}
 			}
 			mutex_exit(&zfsctl_unmount_list_lock);
+
+			for (int i = 0; i < n_unmount; i++) {
+				zfsctl_snapshot_unmount(to_unmount[i], 0);
+				kmem_strfree(to_unmount[i]);
+			}
+#undef	ZFSCTL_UNMOUNT_BATCH
 		}
 	}
 
