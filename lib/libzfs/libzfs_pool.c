@@ -5273,12 +5273,9 @@ zpool_load_compat(const char *compat, boolean_t *features, char *report,
 			source = Z_DATA;
 		}
 #endif
-
 		/* File readable and correct size? */
-		if (featfd < 0 ||
-		    fstat(featfd, &fs) < 0 ||
-		    fs.st_size < 1 ||
-		    fs.st_size > ZPOOL_COMPAT_MAXSIZE) {
+		if (featfd < 0 || fstat(featfd, &fs) < 0 ||
+		    fs.st_size < 1 || fs.st_size > ZPOOL_COMPAT_MAXSIZE) {
 			(void) close(featfd);
 			strlcat(err_badfile, file, ZFS_MAXPROPLEN);
 			strlcat(err_badfile, " ", ZFS_MAXPROPLEN);

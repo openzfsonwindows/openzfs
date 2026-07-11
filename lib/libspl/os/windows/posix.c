@@ -2270,8 +2270,9 @@ wosix_openat(int fd, const char *path, int oflag, ...)
 	 * Another option is using NTCreateFile with RootDirectory=handle
 	 */
 
-	if (GetFinalPathNameByHandleA(h, fullpath,
-	    MAXPATHLEN, FILE_NAME_NORMALIZED) > 0) {
+	DWORD gplen = GetFinalPathNameByHandleA(h, fullpath,
+	    MAXPATHLEN, FILE_NAME_NORMALIZED);
+	if (gplen > 0) {
 		strlcat(fullpath, "\\", MAXPATHLEN);
 		strlcat(fullpath, path, MAXPATHLEN);
 		return (wosix_open(fullpath, oflag));

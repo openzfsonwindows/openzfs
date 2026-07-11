@@ -155,7 +155,9 @@ extern int wosix_access(const char *name, int mode);
 #undef  fstat64_blk
 #define	fstat64_blk(fd, st)	wosix_fstat_blk(fd, (struct _stat64 *)(st))
 #undef  stat
-#define	stat(path, st)		wosix_stat((char *)(path), \
+#define	stat	_stat64	/* struct stat = struct _stat64 (64-bit st_size) */
+#undef  _stat64
+#define	_stat64(path, st)	wosix_stat((char *)(path), \
 	    (struct _stat64 *)(st))
 #undef  stat64
 #define	stat64(path, st)	wosix_stat((char *)(path), \
