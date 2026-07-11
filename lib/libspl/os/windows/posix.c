@@ -1984,6 +1984,32 @@ wosix_mmap(void *addr, size_t len, int prot, int flags,
 
 	file_mapping = CreateFileMapping(h, NULL, winprot,
 	    0, 0, NULL);
+
+	/*
+	 * PAGE_WRITECOPY requires the file handle to have been opened
+	 * with GENERIC_WRITE, which read-only files (e.g. compatibility.d
+	 * entries) don't have.  Fall back to VirtualAlloc + ReadFile so
+	 * that MAP_PRIVATE | PROT_WRITE works on read-only file handles,
+	 * matching POSIX semantics.  wosix_munmap detects which kind of
+	 * region this is via VirtualQuery.
+	 */
+	if (file_mapping == NULL && winprot == PAGE_WRITECOPY) {
+		DWORD bread = 0;
+		LARGE_INTEGER lioff;
+		lioff.QuadPart = off;
+		mapaddr = VirtualAlloc((LPVOID)addr, len,
+		    MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		if (mapaddr == NULL)
+			return (MAP_FAILED);
+		if (!SetFilePointerEx(h, lioff, NULL, FILE_BEGIN) ||
+		    !ReadFile(h, mapaddr, (DWORD)len, &bread, NULL) ||
+		    (size_t)bread != len) {
+			VirtualFree(mapaddr, 0, MEM_RELEASE);
+			return (MAP_FAILED);
+		}
+		return (mapaddr);
+	}
+
 	if (file_mapping == NULL)
 		return (MAP_FAILED);
 
@@ -2000,7 +2026,16 @@ wosix_mmap(void *addr, size_t len, int prot, int flags,
 int
 wosix_munmap(void *addr, size_t len)
 {
-	return (int)(UnmapViewOfFile((LPVOID) addr));
+	MEMORY_BASIC_INFORMATION mbi;
+
+	if (addr == NULL || addr == MAP_FAILED)
+		return (0);
+
+	if (VirtualQuery(addr, &mbi, sizeof (mbi)) &&
+	    mbi.Type == MEM_PRIVATE)
+		return (VirtualFree(addr, 0, MEM_RELEASE) ? 0 : -1);
+
+	return (UnmapViewOfFile((LPVOID)addr) ? 0 : -1);
 }
 
 
@@ -2237,7 +2272,7 @@ wosix_openat(int fd, const char *path, int oflag, ...)
 
 	if (GetFinalPathNameByHandleA(h, fullpath,
 	    MAXPATHLEN, FILE_NAME_NORMALIZED) > 0) {
-		strlcat(fullpath, "/", MAXPATHLEN);
+		strlcat(fullpath, "\\", MAXPATHLEN);
 		strlcat(fullpath, path, MAXPATHLEN);
 		return (wosix_open(fullpath, oflag));
 	}
