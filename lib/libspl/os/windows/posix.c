@@ -2226,6 +2226,10 @@ wosix_openat(int fd, const char *path, int oflag, ...)
 	if (fd == AT_FDCWD)
 		return (wosix_open(path, oflag));
 
+	/* Absolute path: ignore dirfd, same as POSIX */
+	if (path[0] == '/' || (path[0] != '\0' && path[1] == ':'))
+		return (wosix_open(path, oflag));
+
 	/*
 	 * Fetch the directory name, and stitch the name together.
 	 * Another option is using NTCreateFile with RootDirectory=handle
