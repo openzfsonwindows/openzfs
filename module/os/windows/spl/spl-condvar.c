@@ -100,26 +100,26 @@ spl_cv_broadcast(kcondvar_t *cvp)
 		panic("%s: not cv_initialised", __func__);
 
 	/*
-	 * Always set the event even when cv_waiters_count == 0.  The classic
-	 * missed-wakeup scenario:
+	 * Only set the broadcast event when there are registered waiters.
 	 *
-	 *   txg_sync_thread (holds tx_sync_lock):
-	 *     cv_broadcast(&tx->tx_quiesce_more_cv)   // cv_waiters_count == 0
-	 *     → spl_cv_broadcast skips KeSetEvent      // < BUG: signal lost
-	 *     cv_wait(tx_quiesce_done_cv, ...)         // releases lock, sleeps
+	 * CV_BROADCAST is a NotificationEvent (manual-reset): once set it
+	 * stays set until KeClearEvent is called by the last exiting waiter.
+	 * If we set it with zero waiters it remains set indefinitely, causing
+	 * the next unrelated cv_wait call to return immediately as a spurious
+	 * wakeup.  Callers such as dnode_special_close use "if" rather than
+	 * "while" before cv_wait and will ASSERT if cv_wait returns while the
+	 * condition is still false.
 	 *
-	 *   txg_quiesce_thread (acquires tx_sync_lock):
-	 *     cv_wait(tx_quiesce_more_cv, ...)   // increments count, sleeps
-	 *     → broadcast event never set → hangs forever
-	 *
-	 * CV_BROADCAST is a NotificationEvent (manual-reset): it remains set
-	 * until KeClearEvent is called by the last exiting waiter (which holds
-	 * the same mutex as the broadcaster), so there is no accumulation of
-	 * stale signals across unrelated wait cycles.  All callers already wrap
-	 * cv_wait in a while loop that re-checks the condition, so a spurious
-	 * wakeup from a stale broadcast is always handled correctly.
+	 * This is safe against missed wakeups: cv_waiters_count is incremented
+	 * inside cv_wait *before* the caller's mutex is released, and the
+	 * broadcaster always holds that same mutex.  Therefore cv_waiters_count
+	 * == 0 at broadcast time means no thread is yet registered as a waiter.
+	 * Any thread that will later call cv_wait must first acquire the mutex,
+	 * at which point it will observe the already-updated condition (set by
+	 * the broadcaster under the same lock) and will skip the wait.
 	 */
-	KeSetEvent(&cvp->cv_kevent[CV_BROADCAST], 0, FALSE);
+	if (cvp->cv_waiters_count > 0)
+		KeSetEvent(&cvp->cv_kevent[CV_BROADCAST], 0, FALSE);
 }
 
 /*
