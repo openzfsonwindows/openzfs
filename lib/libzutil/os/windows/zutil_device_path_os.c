@@ -33,6 +33,10 @@
 
 #include <libzutil.h>
 
+#define	_WIN32_MEAN_AND_LEAN
+#include <Windows.h>
+#include <winioctl.h>
+
 #include <wosix.h>
 
 /*
@@ -166,38 +170,43 @@ zfs_dev_is_whole_disk(const char *dev_name)
 }
 
 /*
- * Wait up to timeout_ms for udev to set up the device node.  The device is
- * considered ready when libudev determines it has been initialized, all of
- * the device links have been verified to exist, and it has been allowed to
- * settle.  At this point the device the device can be accessed reliably.
- * Depending on the complexity of the udev rules this process could take
- * several seconds.
+ * Wait up to timeout_ms for the disk to become accessible after OnlineDisk().
+ *
+ * On Windows the semantic is different from Linux: we are not waiting for a
+ * udev-created partition device node.  Instead we wait for the physical disk
+ * handle to be openable, which means OnlineDisk() has completed.  Windows
+ * GPT partition enumeration (IOCTL_DISK_GET_DRIVE_LAYOUT_EX) is NOT required
+ * — ZFS accesses partitions via the "#offset#size#device" encoding, which
+ * works directly against the physical disk handle regardless of whether
+ * Windows has created separate partition device objects.
+ *
+ * For "#offset#size#device" paths the parent disk is always accessible, so
+ * we return success immediately.
  */
 int
 zpool_label_disk_wait(const char *path, int timeout_ms)
 {
-	int settle_ms = 50;
-	long sleep_ms = 10;
-	hrtime_t start, settle;
-	struct stat statbuf;
+	const char *devpath = path;
+	hrtime_t start;
 
-	return (0);
+	/*
+	 * An encoded "#offset#size#device" path accesses the partition via
+	 * the parent disk handle; no separate Windows partition object needed.
+	 */
+	if (devpath[0] == '#')
+		return (0);
 
 	start = gethrtime();
-	settle = 0;
 
 	do {
-		errno = 0;
-		if ((stat(path, &statbuf) == 0) && (errno == 0)) {
-			if (settle == 0)
-				settle = gethrtime();
-			else if (NSEC2MSEC(gethrtime() - settle) >= settle_ms)
-				return (0);
-		} else if (errno != ENOENT) {
-			return (errno);
+		HANDLE h = CreateFile(devpath, GENERIC_READ,
+		    FILE_SHARE_READ | FILE_SHARE_WRITE,
+		    NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (h != INVALID_HANDLE_VALUE) {
+			CloseHandle(h);
+			return (0);
 		}
-
-		usleep(sleep_ms * MILLISEC);
+		usleep(50 * MILLISEC);
 	} while (NSEC2MSEC(gethrtime() - start) < timeout_ms);
 
 	return (ENODEV);

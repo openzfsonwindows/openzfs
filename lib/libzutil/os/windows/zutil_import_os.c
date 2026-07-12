@@ -155,10 +155,13 @@ zpool_read_label_win(HANDLE h, off_t offset, uint64_t len,
 
 	for (l = 0; l < VDEV_LABELS; l++) {
 		uint64_t state, guid, txg;
+		int red;
 
-		if (pread_win(h, label, sizeof (vdev_label_t),
-		    label_offset(size, l) + offset) != sizeof (vdev_label_t))
+		red = pread_win(h, label, sizeof (vdev_label_t),
+		    label_offset(size, l) + offset);
+		if (red != sizeof (vdev_label_t)) {
 			continue;
+		}
 
 		if (nvlist_unpack(label->vl_vdev_phys.vp_nvlist,
 		    sizeof (label->vl_vdev_phys.vp_nvlist), config, 0) != 0)
@@ -251,15 +254,13 @@ zpool_open_func(void *arg)
 		while (end && *end == '#') end++;
 		h = CreateFile(end,
 		    GENERIC_READ,
-		    FILE_SHARE_READ /* | FILE_SHARE_WRITE */,
+		    FILE_SHARE_READ | FILE_SHARE_WRITE,
 		    NULL,
 		    OPEN_EXISTING,
-		    FILE_ATTRIBUTE_NORMAL /* | FILE_FLAG_OVERLAPPED */,
+		    FILE_ATTRIBUTE_NORMAL,
 		    NULL);
-		if (h == INVALID_HANDLE_VALUE) {
-			int error = GetLastError();
+		if (h == INVALID_HANDLE_VALUE)
 			return;
-		}
 		LARGE_INTEGER place;
 		place.QuadPart = offset;
 		// If it fails, we cant read label
@@ -274,15 +275,13 @@ zpool_open_func(void *arg)
 		zfs_backslashes(rn->rn_name);
 		h = CreateFile(rn->rn_name,
 		    GENERIC_READ,
-		    FILE_SHARE_READ /* | FILE_SHARE_WRITE */,
+		    FILE_SHARE_READ | FILE_SHARE_WRITE,
 		    NULL,
 		    OPEN_EXISTING,
-		    FILE_ATTRIBUTE_NORMAL /* | FILE_FLAG_OVERLAPPED */,
+		    FILE_ATTRIBUTE_NORMAL,
 		    NULL);
-		if (h == INVALID_HANDLE_VALUE) {
-			int error = GetLastError();
+		if (h == INVALID_HANDLE_VALUE)
 			return;
-		}
 
 		drive_len = GetFileDriveSize(h);
 	}
@@ -530,10 +529,6 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 		    &bytesReturned,
 		    NULL);
 
-		fprintf(stderr, "path '%s'\n and '\\\\?\\PhysicalDrive%d'\n",
-		    deviceInterfaceDetailData->DevicePath,
-		    diskNumber.DeviceNumber);
-		fflush(stderr);
 		snprintf(rdsk, MAXPATHLEN, "\\\\.\\PHYSICALDRIVE%d",
 		    diskNumber.DeviceNumber);
 
@@ -555,33 +550,12 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 		    (PDRIVE_LAYOUT_INFORMATION_EX)malloc(partitionsSize);
 		if (DeviceIoControl(disk, IOCTL_DISK_GET_DRIVE_LAYOUT_EX,
 		    NULL, 0, partitions, partitionsSize, &ior, NULL)) {
-			fprintf(stderr, "read partitions ok %d\n",
-			    partitions->PartitionCount);
-			fflush(stderr);
 
 			for (int i = 0; i < partitions->PartitionCount; i++) {
 				int add = 0;
 		switch (partitions->PartitionEntry[i].PartitionStyle) {
 		case PARTITION_STYLE_MBR:
-			fprintf(stderr,
-			    "    mbr %d: type %x off 0x%llx len 0x%llx\n", i,
-			    partitions->PartitionEntry[i].Mbr.PartitionType,
-			    partitions->PartitionEntry[i].
-			    StartingOffset.QuadPart,
-			    partitions->PartitionEntry[i].
-			    PartitionLength.QuadPart);
-			fflush(stderr);
-			add = 1;
-			break;
 		case PARTITION_STYLE_GPT:
-			fprintf(stderr,
-			    "    gpt %d: type %llx off 0x%llx len 0x%llx\n", i,
-			    partitions->PartitionEntry[i].Gpt.PartitionType,
-			    partitions->PartitionEntry[i].
-			    StartingOffset.QuadPart,
-			    partitions->PartitionEntry[i].PartitionLength.
-			    QuadPart);
-			fflush(stderr);
 			add = 1;
 			break;
 		}
@@ -656,9 +630,6 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 			}
 
 			free(partitions);
-		} else {
-			fprintf(stderr, "read partitions ng\n");
-			fflush(stderr);
 		}
 
 		CloseHandle(disk);
@@ -686,9 +657,6 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 	// Read Primary, and Backup labels
 	for (int backup = 0; backup <= 1; backup++) {
 
-		fprintf(stderr, "asking libefi to read %s label\n",
-		    backup ? "backup" : "primary");
-		fflush(stderr);
 		int error;
 		struct dk_gpt *vtoc;
 
@@ -696,10 +664,6 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 		    &vtoc,
 		    backup ? EFI_GPT_PRIMARY_SKIP : 0);
 		if (error >= 0) {
-			fprintf(stderr,
-			    "EFI read OK, max partitions %d\n",
-			    vtoc->efi_nparts);
-			fflush(stderr);
 
 			if (!backup)
 				primary_num_partitions = vtoc->efi_nparts;
@@ -710,14 +674,6 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 			    vtoc->efi_parts[i].p_size == 0)
 				continue;
 
-			fprintf(stderr,
-			    "    part %d:  offset %llx:    len %llx:"
-			    "    tag: %x    name: '%s'\n",
-			    i, vtoc->efi_parts[i].p_start,
-			    vtoc->efi_parts[i].p_size,
-			    vtoc->efi_parts[i].p_tag,
-			    vtoc->efi_parts[i].p_name);
-			fflush(stderr);
 			if (vtoc->efi_parts[i].p_start != 0 &&
 			    vtoc->efi_parts[i].p_size != 0) {
 		// Lets invent a naming scheme with start,
@@ -757,20 +713,6 @@ zpool_find_import_blkid(libpc_handle_t *hdl, pthread_mutex_t *lock,
 				pthread_mutex_unlock(lock);
 			} // if !empty partition
 		} // for partitions
-
-			fprintf(stderr,
-			    "backup %d, efi_nparts %u, and primarynum %u\r\n",
-			    backup, vtoc->efi_nparts, primary_num_partitions);
-
-			if (backup && vtoc && vtoc->efi_nparts == 9 &&
-			    primary_num_partitions == 128) {
-				fprintf(stderr,
-				    "Windows corrupted Primary EFI/GPT "
-				    "label detected\r\n");
-				fflush(stderr);
-				// vtoc->efi_nparts = 128;
-				// efi_write(disk, vtoc);
-			}
 
 			efi_free(vtoc);
 		} // if !error
@@ -1056,8 +998,6 @@ update_vdev_config_dev_strs(nvlist_t *nv)
 		return;
 	nvlist_lookup_uint64(nv, ZPOOL_CONFIG_WHOLE_DISK, &wholedisk);
 
-	fprintf(stderr, "working on dev '%s'\n", path); fflush(stderr);
-
 	devid = strdup(path);
 
 	HANDLE h;
@@ -1069,10 +1009,6 @@ update_vdev_config_dev_strs(nvlist_t *nv)
 		if (h >= 0) {
 			struct dk_gpt *vtoc;
 			if ((efi_alloc_and_read(HTOI(h), &vtoc)) == 0) {
-				// Slice 1 should be ZFS
-				fprintf(stderr,
-				"this code assumes ZFS is on partition 1\n");
-				fflush(stderr);
 				snprintf(udevpath, MAXPATHLEN, "#%llu#%llu#%s",
 				    vtoc->efi_parts[0].p_start * (uint64_t)
 				    vtoc->efi_lbasize,
@@ -1127,10 +1063,6 @@ update_vdev_config_dev_strs(nvlist_t *nv)
 				    deviceNumber.PartitionNumber);
 		}
 
-		fprintf(stderr, "setting path here '%s'\r\n", vdev_path);
-		fflush(stderr);
-		fprintf(stderr, "setting physpath here '%s'\r\n", path);
-		fflush(stderr);
 		nvlist_remove_all(nv, ZPOOL_CONFIG_PHYS_PATH);
 		if (nvlist_add_string(nv, ZPOOL_CONFIG_PHYS_PATH, path) != 0)
 			return;
@@ -1162,9 +1094,6 @@ update_vdev_config_dev_strs(nvlist_t *nv)
 				asprintf(&vdev_path, "//./%s", path);
 			}
 			zfs_slashes(vdev_path);
-			fprintf(stderr,
-			    "correcting path: '%s' \r\n", vdev_path);
-			fflush(stderr);
 			if (nvlist_add_string(nv, ZPOOL_CONFIG_PATH,
 			    vdev_path) != 0)
 				return;

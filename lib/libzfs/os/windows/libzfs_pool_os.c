@@ -507,12 +507,16 @@ zpool_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp, const char *name)
 	(void) snprintf(path, sizeof (path), "%s%s", DISK_ROOT, name);
 	(void) zfs_append_partition(path, MAXPATHLEN);
 
-	/* Wait to udev to signal use the device has settled. */
+	/*
+	 * Wait for Windows to enumerate GPT partition objects.  On Windows
+	 * this is best-effort: if partition enumeration times out, the pool
+	 * can still be used and imported via the #offset#size# EFI path.
+	 * The EFI label is verified by zpool_label_disk_check() below.
+	 */
 	rval = zpool_label_disk_wait(path, DISK_LABEL_WAIT);
 	if (rval) {
-		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "failed to "
-		    "detect device partitions on '%s': %d"), path, rval);
-		return (zfs_error(hdl, EZFS_LABELFAILED, errbuf));
+		fprintf(stderr, "%s: partition enumeration timed out for "
+		    "'%s', continuing anyway\n", __func__, path);
 	}
 
 	/* We can't be to paranoid.  Read the label back and verify it. */

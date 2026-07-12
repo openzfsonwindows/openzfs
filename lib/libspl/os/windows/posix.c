@@ -1224,8 +1224,13 @@ wosix_open(const char *inpath, int oflag, ...)
 	 * return ERROR_INVALID_NAME (123) instead of ERROR_ACCESS_DENIED,
 	 * bypassing the backup-semantics retry below.  Expand to absolute
 	 * using the wide-char API, which resolves correctly against a UNC CWD.
+	 *
+	 * Skip '#'-prefixed paths — those are the "#offset#size#device" form
+	 * used for EFI partition access.  GetFullPathNameW would prepend the
+	 * CWD and corrupt the encoding before the special-case handler below
+	 * gets a chance to parse it.
 	 */
-	if (path[0] != '\\' &&
+	if (path[0] != '\\' && path[0] != '#' &&
 	    !(isalpha((unsigned char)path[0]) && path[1] == ':')) {
 		wchar_t wrel[MAXPATHLEN], wabs[MAXPATHLEN];
 		if (MultiByteToWideChar(CP_UTF8, 0, path, -1, wrel,
