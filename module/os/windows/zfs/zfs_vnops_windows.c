@@ -8447,14 +8447,26 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		need_cache_uninit = B_TRUE;
 
 	/*
-	 * Flush dirty CM pages before uninitialising the cache.
-	 * DataSectionObject is only set for memory-mapped files; files written
-	 * via WriteFile (FastIO) only have SharedCacheMap set.  CcIsFileCached
-	 * checks SharedCacheMap, so it covers both cases.  Always flush when
-	 * we are about to call CcUninitializeCacheMap to avoid losing dirty
-	 * pages that the lazy writer has not yet written to ZFS.
+	 * Flush dirty CM pages before uninitialising the cache, but ONLY
+	 * when this specific file object owns the cache (has a PrivateCacheMap).
+	 *
+	 * CcIsFileCached() checks SharedCacheMap, which is shared across all
+	 * file objects for the same vnode.  Using it here would trigger
+	 * CcFlushCache for read-only or attribute-query file objects (e.g.
+	 * from NtQueryAttributesFile) whenever another handle has dirty cached
+	 * writes.  CcFlushCache then calls MiWaitForPageWriteCompletion which
+	 * blocks until the Lazy Writer finishes its paging I/O.  If those
+	 * paging IRPs get ERESTART from dmu_tx_assign and enter dmu_tx_wait
+	 * while holding PagingIoResource, other paging writes to the same
+	 * file are serialised, and if txg_quiesce is simultaneously waiting
+	 * for tc_count to drop to 0 (held by a concurrent write to a second
+	 * file), the result is a permanent livelock.
+	 *
+	 * The correct guard is FileObject->PrivateCacheMap: it is non-NULL
+	 * only when *this* file object called CcInitializeCacheMap, i.e. it
+	 * was opened for cached writes.  Only that file object should flush.
 	 */
-	if (need_cache_uninit || CcIsFileCached(FileObject))
+	if (need_cache_uninit || FileObject->PrivateCacheMap != NULL)
 		need_flush = B_TRUE;
 
 	/*

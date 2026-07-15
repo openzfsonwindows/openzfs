@@ -807,6 +807,7 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	 * in a separate transaction; this keeps the intent log records small
 	 * and allows us to do more fine-grained space accounting.
 	 */
+	boolean_t tx_waited = B_FALSE;
 	while (n > 0) {
 		woff = zfs_uio_offset(uio);
 
@@ -884,8 +885,45 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		dmu_tx_hold_write_by_dnode(tx, DB_DNODE(db), woff, nbytes);
 		DB_DNODE_EXIT(db);
 		zfs_sa_upgrade_txholds(tx, zp);
-		error = dmu_tx_assign(tx, DMU_TX_WAIT);
-		if (error) {
+		dmu_tx_flag_t tx_flags = DMU_TX_NOWAIT;
+		if (tx_waited)
+			tx_flags |= DMU_TX_NOTHROTTLE;
+		error = dmu_tx_assign(tx, tx_flags);
+		if (error == ERESTART) {
+			/*
+			 * TXG is quiescing; we must not block while holding
+			 * the range lock or the MPW (Modified Page Writer)
+			 * will deadlock waiting for the same lock while
+			 * txg_quiesce waits for MPW's tc_count to drop.
+			 * Drop the range lock, wait for the next open TXG,
+			 * then re-acquire and retry.
+			 *
+			 * After dmu_tx_wait() the dirty-delay penalty has
+			 * already been paid; use DMU_TX_NOTHROTTLE on the
+			 * next attempt so we do not re-enter the delay path
+			 * on a new tx whose tx_dirty_delayed is reset to
+			 * FALSE.
+			 */
+			if (abuf != NULL)
+				dmu_return_arcbuf(abuf);
+			zfs_rangelock_exit(lr);
+			dmu_tx_wait(tx);
+			dmu_tx_abort(tx);
+			tx_waited = B_TRUE;
+			if (ioflag & O_APPEND) {
+				lr = zfs_rangelock_enter(&zp->z_rangelock,
+				    0, n, RL_APPEND);
+				woff = lr->lr_offset;
+				if (lr->lr_length == UINT64_MAX)
+					woff = zp->z_size;
+				zfs_uio_setoffset(uio, woff);
+				zfs_uio_setsoffset(uio, woff);
+			} else {
+				lr = zfs_rangelock_enter(&zp->z_rangelock,
+				    woff, n, RL_WRITER);
+			}
+			continue;
+		} else if (error) {
 			dmu_tx_abort(tx);
 			if (abuf != NULL)
 				dmu_return_arcbuf(abuf);
