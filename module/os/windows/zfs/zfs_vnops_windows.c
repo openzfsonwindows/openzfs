@@ -122,6 +122,8 @@ ZFS_MODULE_RAW(zfs, disable_wincache, zfs_disable_wincache,
 #endif
 
 extern void UnlockAndFreeMdl(PMDL);
+/* arc_wait_for_eviction() is exported from arc.c but not in arc.h */
+extern void arc_wait_for_eviction(uint64_t, boolean_t, boolean_t);
 void CcSetAdditionalCacheAttributesEx(
 	[in] PFILE_OBJECT FileObject,
 	[in] ULONG Flags
@@ -5533,6 +5535,17 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		ExReleaseResourceLite(vp->FileHeader.Resource);
 		acquired_vp_lock = FALSE;
 	}
+
+	/*
+	 * Pre-evict ARC headroom before entering zfs_write.
+	 * dmu_buf_hold_array() inside dmu_write() is called after
+	 * dmu_tx_assign() (tc_count > 0, range lock held) and may call
+	 * arc_alloc_buf() → arc_wait_for_eviction().  If the ARC is
+	 * saturated with dirty buffers they cannot be evicted because
+	 * txg_quiesce() waits for our tc_count — deadlock.
+	 * Waiting here (tc_count = 0, outside the tx) is always safe.
+	 */
+	arc_wait_for_eviction((uint64_t)*length, B_FALSE, B_TRUE);
 
 	try {
 		Status = zfs_write(zp, &uio, 0, NULL);
