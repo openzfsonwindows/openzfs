@@ -5379,8 +5379,18 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	if (changed_length) {
 		if (newlength >
-		    (uint64_t)vp->FileHeader.AllocationSize.QuadPart) {
-
+		    (uint64_t)vp->FileHeader.AllocationSize.QuadPart ||
+		    zp->z_blksz == 0) {
+			/*
+			 * Call zfs_freesp when either growing past the
+			 * current allocation, or when z_blksz is still 0
+			 * (file created but never written via ZFS).  The
+			 * latter ensures zfs_grow_blocksize() runs and sets
+			 * an appropriate block size before any paging write
+			 * arrives; without it dmu_buf_hold_array uses 512-byte
+			 * default blocks, causing excessive arc_alloc_buf()
+			 * calls inside the write tx.
+			 */
 			Status = zfs_freesp(zp,
 			    newlength, 0, FWRITE, B_FALSE);
 			if (!NT_SUCCESS(Status)) {
@@ -5536,21 +5546,51 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		acquired_vp_lock = FALSE;
 	}
 
-	/*
-	 * Pre-evict ARC headroom before entering zfs_write.
-	 * dmu_buf_hold_array() inside dmu_write() is called after
-	 * dmu_tx_assign() (tc_count > 0, range lock held) and may call
-	 * arc_alloc_buf() → arc_wait_for_eviction().  If the ARC is
-	 * saturated with dirty buffers they cannot be evicted because
-	 * txg_quiesce() waits for our tc_count — deadlock.
-	 * Waiting here (tc_count = 0, outside the tx) is always safe.
-	 */
-	arc_wait_for_eviction((uint64_t)*length, B_FALSE, B_TRUE);
+	if (paging_io) {
+		/*
+		 * Paging I/O (CcWorkerThread write-behind): data was written
+		 * via CcCopyWrite into the Windows Cache Manager, NOT into the
+		 * ZFS ARC.  The underlying ZFS blocks are almost certainly not
+		 * in ARC.  If we let dmu_buf_hold_array() allocate ARC buffers
+		 * inside the write tx (tc_count > 0, range lock held) and ARC
+		 * is saturated with dirty data, arc_wait_for_eviction() will
+		 * block indefinitely: dirty buffers cannot be evicted because
+		 * txg_quiesce() waits for our tc_count — deadlock.
+		 *
+		 * Fix: pre-hold all needed buffers into ARC here, outside the
+		 * tx (tc_count = 0).  Any ARC eviction that occurs during the
+		 * hold is safe.  Buffers with refcount > 0 cannot be evicted,
+		 * so dmu_buf_hold_array() inside zfs_write() finds them already
+		 * present and just increments the refcount — no arc_alloc_buf().
+		 */
+		dmu_buf_t **prehold = NULL;
+		int prehold_cnt = 0;
+		(void) dmu_buf_hold_array(zp->z_zfsvfs->z_os, zp->z_id,
+		    off64, (uint64_t)*length, B_TRUE, FTAG,
+		    &prehold_cnt, &prehold, DMU_READ_NO_PREFETCH);
 
-	try {
-		Status = zfs_write(zp, &uio, 0, NULL);
-	} except(EXCEPTION_EXECUTE_HANDLER) {
-		Status = GetExceptionCode();
+		try {
+			Status = zfs_write(zp, &uio, 0, NULL);
+		} except(EXCEPTION_EXECUTE_HANDLER) {
+			Status = GetExceptionCode();
+		}
+
+		if (prehold != NULL)
+			dmu_buf_rele_array(prehold, prehold_cnt, FTAG);
+	} else {
+		/*
+		 * NOCACHE direct write: data is fresh from the caller, nearby
+		 * blocks may still be hot in ARC.  Pre-evict headroom as a
+		 * lighter-weight guard against arc_alloc_buf() blocking inside
+		 * the tx if ARC happens to be under pressure.
+		 */
+		arc_wait_for_eviction((uint64_t)*length, B_FALSE, B_TRUE);
+
+		try {
+			Status = zfs_write(zp, &uio, 0, NULL);
+		} except(EXCEPTION_EXECUTE_HANDLER) {
+			Status = GetExceptionCode();
+		}
 	}
 
 	if (!locked)
