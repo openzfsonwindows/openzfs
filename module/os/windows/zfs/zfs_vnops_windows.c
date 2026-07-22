@@ -5561,7 +5561,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		 * tx (tc_count = 0).  Any ARC eviction that occurs during the
 		 * hold is safe.  Buffers with refcount > 0 cannot be evicted,
 		 * so dmu_buf_hold_array() inside zfs_write() finds them already
-		 * present and just increments the refcount — no arc_alloc_buf().
+		 * present and increments the refcount; no arc_alloc_buf().
 		 */
 		dmu_buf_t **prehold = NULL;
 		int prehold_cnt = 0;
