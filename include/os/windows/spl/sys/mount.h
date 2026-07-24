@@ -166,6 +166,17 @@ struct mount
 	 * directory is accessed.
 	 */
 	boolean_t	vss_mountmgr_probed;
+	/*
+	 * Set in IRP_MN_SURPRISE_REMOVAL for MOUNT_TYPE_DCB disk devices.
+	 * IRP_MJ_CREATE checks this and rejects with STATUS_DEVICE_REMOVED,
+	 * preventing IopInvalidateVolumesForDevice (called from IopRemoveDevice
+	 * after PnP internally deletes the device node) from opening a new file
+	 * object on the already-deleted device.  Without this guard the close
+	 * of that file object triggers a second IopCompleteUnloadOrDelete ->
+	 * ObDereferenceSecurityDescriptor on an SD whose refcount is already 0,
+	 * BSODing with INVALID_REFERENCE_COUNT (0x139).
+	 */
+	boolean_t	dcb_del_pending;
 };
 typedef struct mount mount_t;
 typedef struct mount vfsp_t;

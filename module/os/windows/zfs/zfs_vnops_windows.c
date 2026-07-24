@@ -9447,6 +9447,11 @@ _Function_class_(DRIVER_DISPATCH)
 		    IrpSp->FileObject->RelatedFileObject : NULL,
 		    &IrpSp->FileObject->FileName, IrpSp->Flags);
 
+		if (zmo->dcb_del_pending) {
+			dprintf("IRP_MJ_CREATE rejected (dcb_del_pending)\n");
+			Status = STATUS_DEVICE_REMOVED;
+			break;
+		}
 		Status = volume_create(DeviceObject, IrpSp->FileObject,
 		    IrpSp->Parameters.Create.ShareAccess,
 		    Irp->Overlay.AllocationSize.QuadPart,
@@ -9811,6 +9816,17 @@ _Function_class_(DRIVER_DISPATCH)
 			break;
 		case IRP_MN_SURPRISE_REMOVAL:
 			dprintf("IRP_MN_SURPRISE_REMOVAL\n");
+			/*
+			 * Block new IRP_MJ_CREATE opens so that
+			 * IopInvalidateVolumesForDevice (called later in
+			 * IopRemoveDevice on the same thread) cannot open a
+			 * file object on this device after PnP has internally
+			 * deleted the device node.  If it could, the subsequent
+			 * close would fire a second IopCompleteUnloadOrDelete ->
+			 * ObDereferenceSecurityDescriptor on an SD with refcount
+			 * already 0, BSODing (INVALID_REFERENCE_COUNT, 0x139).
+			 */
+			zmo->dcb_del_pending = B_TRUE;
 			Status = STATUS_SUCCESS;
 			break;
 		case IRP_MN_START_DEVICE:
