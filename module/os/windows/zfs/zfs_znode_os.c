@@ -1590,35 +1590,58 @@ zfs_extend(znode_t *zp, uint64_t end)
 		return (0);
 	}
 
-	tx = dmu_tx_create(zfsvfs->z_os);
-	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
-	zfs_sa_upgrade_txholds(tx, zp);
-	if (end > zp->z_blksz &&
-	    (!ISP2(zp->z_blksz) || zp->z_blksz < zfsvfs->z_max_blksz)) {
-		/*
-		 * We are growing the file past the current block size.
-		 */
-		if (zp->z_blksz > zp->z_zfsvfs->z_max_blksz) {
+	for (;;) {
+		tx = dmu_tx_create(zfsvfs->z_os);
+		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
+		zfs_sa_upgrade_txholds(tx, zp);
+		if (end > zp->z_blksz &&
+		    (!ISP2(zp->z_blksz) || zp->z_blksz < zfsvfs->z_max_blksz)) {
 			/*
-			 * File's blocksize is already larger than the
-			 * "recordsize" property.  Only let it grow to
-			 * the next power of 2.
+			 * We are growing the file past the current block size.
 			 */
-			ASSERT(!ISP2(zp->z_blksz));
-			newblksz = MIN(end, 1 << highbit64(zp->z_blksz));
+			if (zp->z_blksz > zp->z_zfsvfs->z_max_blksz) {
+				/*
+				 * File's blocksize is already larger than the
+				 * "recordsize" property.  Only let it grow to
+				 * the next power of 2.
+				 */
+				ASSERT(!ISP2(zp->z_blksz));
+				newblksz = MIN(end,
+				    1 << highbit64(zp->z_blksz));
+			} else {
+				newblksz = MIN(end, zp->z_zfsvfs->z_max_blksz);
+			}
+			dmu_tx_hold_write(tx, zp->z_id, 0, newblksz);
 		} else {
-			newblksz = MIN(end, zp->z_zfsvfs->z_max_blksz);
+			newblksz = 0;
 		}
-		dmu_tx_hold_write(tx, zp->z_id, 0, newblksz);
-	} else {
-		newblksz = 0;
-	}
 
-	error = dmu_tx_assign(tx, DMU_TX_WAIT);
-	if (error) {
-		dmu_tx_abort(tx);
-		zfs_rangelock_exit(lr);
-		return (error);
+		/*
+		 * Use NOWAIT so we do not block with the range lock held
+		 * while the TXG is quiescing.  If the MPW (CcWorkerThread)
+		 * tries to write this file, it will block on the range lock;
+		 * with DMU_TX_WAIT we would deadlock: MPW waits on range lock,
+		 * txg_quiesce waits for MPW's tc_count to drop.
+		 */
+		error = dmu_tx_assign(tx, DMU_TX_NOWAIT);
+		if (error == ERESTART) {
+			zfs_rangelock_exit(lr);
+			dmu_tx_wait(tx);
+			dmu_tx_abort(tx);
+			lr = zfs_rangelock_enter(&zp->z_rangelock,
+			    0, UINT64_MAX, RL_WRITER);
+			if (end <= zp->z_size) {
+				zfs_rangelock_exit(lr);
+				return (0);
+			}
+			continue;
+		}
+		if (error) {
+			dmu_tx_abort(tx);
+			zfs_rangelock_exit(lr);
+			return (error);
+		}
+		break;
 	}
 
 	if (newblksz)
@@ -1719,22 +1742,53 @@ zfs_trunc(znode_t *zp, uint64_t end)
 		return (0);
 	}
 
+	/*
+	 * dmu_free_long_range() uses DMU_TX_WAIT internally and can block
+	 * for a long time while holding the range lock.  Release the range
+	 * lock first; re-check z_size after re-acquire in case a concurrent
+	 * extend raced with us.
+	 */
+	zfs_rangelock_exit(lr);
 	error = dmu_free_long_range(zfsvfs->z_os, zp->z_id, end,
 	    DMU_OBJECT_END);
-	if (error) {
-		zfs_rangelock_exit(lr);
+	if (error)
 		return (error);
+	lr = zfs_rangelock_enter(&zp->z_rangelock, 0, UINT64_MAX, RL_WRITER);
+	if (end >= zp->z_size) {
+		zfs_rangelock_exit(lr);
+		return (0);
 	}
 
-	tx = dmu_tx_create(zfsvfs->z_os);
-	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
-	zfs_sa_upgrade_txholds(tx, zp);
-	dmu_tx_mark_netfree(tx);
-	error = dmu_tx_assign(tx, DMU_TX_WAIT);
-	if (error) {
-		dmu_tx_abort(tx);
-		zfs_rangelock_exit(lr);
-		return (error);
+	for (;;) {
+		tx = dmu_tx_create(zfsvfs->z_os);
+		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
+		zfs_sa_upgrade_txholds(tx, zp);
+		dmu_tx_mark_netfree(tx);
+
+		/*
+		 * Use NOWAIT so we do not block with the range lock held.
+		 * Same MPW deadlock risk as zfs_extend(): the range lock blocks
+		 * the CcWorkerThread while txg_quiesce waits for its tc_count.
+		 */
+		error = dmu_tx_assign(tx, DMU_TX_NOWAIT);
+		if (error == ERESTART) {
+			zfs_rangelock_exit(lr);
+			dmu_tx_wait(tx);
+			dmu_tx_abort(tx);
+			lr = zfs_rangelock_enter(&zp->z_rangelock,
+			    0, UINT64_MAX, RL_WRITER);
+			if (end >= zp->z_size) {
+				zfs_rangelock_exit(lr);
+				return (0);
+			}
+			continue;
+		}
+		if (error) {
+			dmu_tx_abort(tx);
+			zfs_rangelock_exit(lr);
+			return (error);
+		}
+		break;
 	}
 
 	zp->z_size = end;

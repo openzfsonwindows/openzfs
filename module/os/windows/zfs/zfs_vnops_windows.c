@@ -174,12 +174,18 @@ zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 	}
 	zfs_exit(zfsvfs, FTAG);
 
-	if (!ExAcquireResourceExclusiveLite(
-	    vp->FileHeader.Resource, Wait)) {
-		dprintf("Failed\n");
-		goto out;
-	}
-
+	/*
+	 * POSIX semantics: rename and delete are non-destructive to
+	 * concurrent writers (the inode outlives the directory entry).
+	 * The write synchronisation we need — serialising against
+	 * truncations — is already provided by PagingIoResource, which
+	 * zfs_write_wrap acquires EXCLUSIVE for every paging write.
+	 * Holding MainResource SHARED here would cause every IRP_MJ_CREATE
+	 * oplock preflight (which needs MainResource EXCLUSIVE per FsRtl
+	 * protocol) to block for the full duration of the lazy write,
+	 * including any range-lock or ARC wait inside it.  Vnode lifetime
+	 * is protected by vnode_ref below, not by MainResource.
+	 */
 	vnode_ref(vp);
 	result = TRUE;
 	IoSetTopLevelIrp((PIRP)FSRTL_CACHE_TOP_LEVEL_IRP);
@@ -211,7 +217,6 @@ zfs_ReleaseFromLazyWrite(void *Context)
 	    zmo && zmo->vpb ? zmo->vpb->ReferenceCount : -1);
 
 	if (vp != NULL && VN_HOLD(vp) == 0) {
-		ExReleaseResourceLite(vp->FileHeader.Resource);
 		vnode_rele(vp);
 		VN_RELE(vp);
 		if (IoGetTopLevelIrp() ==
@@ -264,12 +269,7 @@ zfs_AcquireForReadAhead(void *Context, BOOLEAN Wait)
 	}
 	zfs_exit(zfsvfs, FTAG);
 
-	if (!ExAcquireResourceSharedLite(vp->FileHeader.Resource,
-	    Wait)) {
-		dprintf("Failed\n");
-		goto out;
-	}
-
+	/* Same reasoning as AcquireForLazyWrite: no MainResource needed. */
 	vnode_ref(vp);
 	IoSetTopLevelIrp((PIRP)FSRTL_CACHE_TOP_LEVEL_IRP);
 	result = TRUE;
@@ -297,7 +297,6 @@ zfs_ReleaseFromReadAhead(void *Context)
 	struct vnode *vp = fo->FsContext;
 
 	if (vp != NULL && VN_HOLD(vp) == 0) {
-		ExReleaseResourceLite(vp->FileHeader.Resource);
 		vnode_rele(vp);
 		VN_RELE(vp);
 		if (IoGetTopLevelIrp() ==
@@ -7198,9 +7197,9 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 #endif
 
-	// 1) if pagefile - grab MainResource, then PagingIoResource
-	// 2) elif pagingio - grab only PagingIoResource
-	// 3) elif normal io - grab only MainResource
+	// 1) if pagefile - grab MainResource EXCLUSIVE, then PagingIoResource EXCLUSIVE
+	// 2) elif pagingio - grab only PagingIoResource EXCLUSIVE
+	// 3) elif normal io - grab MainResource SHARED (ZFS range locks handle ordering)
 
 	if (paging_io) {
 
@@ -7227,10 +7226,18 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			paging_lock = TRUE;
 		}
 	} else {
+		/*
+		 * Non-paging (user-initiated) write: acquire MainResource SHARED.
+		 * EXCLUSIVE is unnecessary — ZFS range locks serialise concurrent
+		 * writers.  EXCLUSIVE here would also prevent CREATE oplock
+		 * preflight (which needs EXCLUSIVE) from overlapping with writes,
+		 * increasing open latency with no correctness benefit.
+		 * Skip the acquire if the caller already holds EXCLUSIVE (stronger).
+		 */
 		if (!ExIsResourceAcquiredExclusiveLite(
 		    vp->FileHeader.Resource)) {
 
-			if (!ExAcquireResourceExclusiveLite(
+			if (!ExAcquireResourceSharedLite(
 			    vp->FileHeader.Resource, wait)) {
 				Status = STATUS_PENDING;
 				IoMarkIrpPending(Irp);
@@ -7445,12 +7452,6 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			uio.uio_extflg |= SKIP_CHANGE_TIME;
 		if (ccb->user_set_write_time)
 			uio.uio_extflg |= SKIP_WRITE_TIME;
-	}
-
-	// Can hold lock, in case dmu_tx() stalls
-	if (acquired_vp_lock) {
-		ExReleaseResourceLite(vp->FileHeader.Resource);
-		acquired_vp_lock = FALSE;
 	}
 
 	try {
