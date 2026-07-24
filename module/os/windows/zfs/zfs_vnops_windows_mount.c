@@ -2162,6 +2162,7 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		dcb = currentDevice->DeviceExtension;
 
 		if (dcb != NULL && dcb->type == MOUNT_TYPE_DCB &&
+		    dcb->ascii_name != NULL &&
 		    !vfs_isunmount(dcb)) {
 
 			status = matched_mount(Irp,

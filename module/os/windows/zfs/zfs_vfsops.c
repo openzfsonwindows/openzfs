@@ -1289,6 +1289,10 @@ zfs_vfs_mount(struct mount *vfsp, vnode_t *mvp /* devvp */,
 		// Allocate string area
 		osname = kmem_alloc(MAXPATHLEN, KM_SLEEP);
 
+		if (mnt_args->fspec == NULL) {
+			kmem_free(osname, MAXPATHLEN);
+			return (SET_ERROR(EINVAL));
+		}
 		strlcpy(osname, mnt_args->fspec, MAXPATHLEN);
 
 	}
