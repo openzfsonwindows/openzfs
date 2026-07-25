@@ -20,18 +20,35 @@
  */
 
 /*
- *
  * Copyright (C) 2017 Jorgen Lundman <lundman@lundman.net>
  *
- * Following the guide at http://www.cs.wustl.edu/~schmidt/win32-cv-1.html
- * and implementing the second-to-last suggestion, albeit in kernel mode,
- * and replacing CriticalSection with Atomics. At some point, we should
- * perhaps look at the final "SignalObjectAndWait" solution, presumably
- * by using the Wait argument to Mutex, and call WaitForObject.
+ * Per-waiter list condvar implementation.
+ *
+ * Each cv_wait() call registers a stack-allocated cv_waiter_t on the
+ * condvar's internal list (protected by a KSPIN_LOCK) before releasing
+ * the caller's mutex.  cv_signal() dequeues the head entry and sets its
+ * event; cv_broadcast() dequeues and sets all entries.
+ *
+ * Because the list is protected independently of the caller's mutex,
+ * cv_signal/cv_broadcast are safe to call with or without holding that
+ * mutex (POSIX pthread_cond_broadcast semantics).  The caller's mutex
+ * still serializes the condition check and the list registration, so
+ * there is no missed-wakeup window:
+ *
+ *   - If the broadcaster changes the condition and fires BEFORE the waiter
+ *     acquires the caller's mutex: waiter sees the updated condition and
+ *     does not sleep.
+ *   - If the waiter acquires the mutex first, finds the condition unsatisfied,
+ *     and registers on the list BEFORE the broadcaster fires: broadcaster
+ *     finds the entry on the list and sets its event.
+ *
+ * The two cases are mutually exclusive because both sides hold the same
+ * caller's mutex when touching the condition.
  */
 
 #include <sys/atomic.h>
 #include <sys/condvar.h>
+#include <sys/thread.h>
 #include <spl-debug.h>
 #include <sys/callb.h>
 
@@ -41,16 +58,23 @@ void spl_wdlist_settime(void *mpleak, uint64_t value);
 
 #define	CONDVAR_INIT 0x12345678
 
+/*
+ * One entry per in-flight cv_wait call, allocated on the sleeping thread's
+ * stack.  Registered on kcondvar_t.cv_waiters while the thread sleeps.
+ */
+typedef struct cv_waiter {
+	KEVENT		event;	/* personal auto-reset event */
+	LIST_ENTRY	link;	/* chained into kcondvar_t.cv_waiters */
+	boolean_t	taken;	/* TRUE once signal/broadcast dequeues this */
+} cv_waiter_t;
+
 void
 spl_cv_init(kcondvar_t *cvp, char *name, kcv_type_t type, void *arg)
 {
-	(void) cvp;	(void) name; (void) type; (void) arg;
+	(void) name; (void) type; (void) arg;
 
-	KeInitializeEvent(&cvp->cv_kevent[CV_SIGNAL], SynchronizationEvent,
-	    FALSE);
-	KeInitializeEvent(&cvp->cv_kevent[CV_BROADCAST], NotificationEvent,
-	    FALSE);
-
+	KeInitializeSpinLock(&cvp->cv_lock);
+	InitializeListHead(&cvp->cv_waiters);
 	cvp->cv_waiters_count = 0;
 	cvp->cv_initialised = CONDVAR_INIT;
 }
@@ -60,66 +84,59 @@ spl_cv_destroy(kcondvar_t *cvp)
 {
 	if (cvp->cv_initialised != CONDVAR_INIT)
 		panic("%s: not cv_initialised", __func__);
-	// We have probably already signalled the waiters, but we need to
-	// kick around long enough for them to wake.
+
+	/*
+	 * Spin until every thread that entered cv_wait has fully exited
+	 * (decremented cv_waiters_count).  Callers must broadcast before
+	 * cv_destroy so all waiters have been dequeued and their events set;
+	 * by the time we reach here the list is empty.  Calling
+	 * spl_cv_broadcast() in this loop would acquire the spinlock at
+	 * DISPATCH_LEVEL on every iteration — expensive and unnecessary
+	 * since there is nothing left to dequeue.  A plain spin with a CPU
+	 * yield hint is enough; the waiter merely has to return from
+	 * KeWaitForSingleObject and re-acquire its mutex before decrementing.
+	 */
 	while (cvp->cv_waiters_count > 0)
-		cv_broadcast(cvp);
+		kpreempt(KPREEMPT_SYNC);
 	ASSERT0(cvp->cv_waiters_count);
+
 	cvp->cv_initialised = 0;
 }
 
 void
 spl_cv_signal(kcondvar_t *cvp)
 {
+	KIRQL irql;
+
 	if (cvp->cv_initialised != CONDVAR_INIT)
 		panic("%s: not cv_initialised", __func__);
 
-	/*
-	 * Always set the event even when cv_waiters_count == 0.  A thread may
-	 * be about to call spl_cv_wait() but hasn't incremented the counter
-	 * yet (it increments before releasing the mutex).  Because the caller
-	 * holds the same mutex, the signal cannot arrive between the counter
-	 * increment and the KeWaitForMultipleObjects call — but it CAN arrive
-	 * before the counter increment if the signaller holds the mutex while
-	 * calling us and the waiter hasn't acquired it yet.  Skipping
-	 * KeSetEvent in that window causes a missed wakeup.
-	 *
-	 * CV_SIGNAL is a SynchronizationEvent (auto-reset): it auto-clears
-	 * after waking one waiter, so there is no spurious-wakeup accumulation
-	 * risk from always setting it.
-	 */
-	KeSetEvent(&cvp->cv_kevent[CV_SIGNAL], 0, FALSE);
+	KeAcquireSpinLock(&cvp->cv_lock, &irql);
+	if (!IsListEmpty(&cvp->cv_waiters)) {
+		cv_waiter_t *w = CONTAINING_RECORD(
+		    RemoveHeadList(&cvp->cv_waiters), cv_waiter_t, link);
+		w->taken = TRUE;
+		KeSetEvent(&w->event, 0, FALSE);
+	}
+	KeReleaseSpinLock(&cvp->cv_lock, irql);
 }
-
-/* WakeConditionVariable or WakeAllConditionVariable function. */
 
 void
 spl_cv_broadcast(kcondvar_t *cvp)
 {
+	KIRQL irql;
+
 	if (cvp->cv_initialised != CONDVAR_INIT)
 		panic("%s: not cv_initialised", __func__);
 
-	/*
-	 * Only set the broadcast event when there are registered waiters.
-	 *
-	 * CV_BROADCAST is a NotificationEvent (manual-reset): once set it
-	 * stays set until KeClearEvent is called by the last exiting waiter.
-	 * If we set it with zero waiters it remains set indefinitely, causing
-	 * the next unrelated cv_wait call to return immediately as a spurious
-	 * wakeup.  Callers such as dnode_special_close use "if" rather than
-	 * "while" before cv_wait and will ASSERT if cv_wait returns while the
-	 * condition is still false.
-	 *
-	 * This is safe against missed wakeups: cv_waiters_count is incremented
-	 * inside cv_wait *before* the caller's mutex is released, and the
-	 * broadcaster always holds that same mutex.  Therefore cv_waiters_count
-	 * == 0 at broadcast time means no thread is yet registered as a waiter.
-	 * Any thread that will later call cv_wait must first acquire the mutex,
-	 * at which point it will observe the already-updated condition (set by
-	 * the broadcaster under the same lock) and will skip the wait.
-	 */
-	if (cvp->cv_waiters_count > 0)
-		KeSetEvent(&cvp->cv_kevent[CV_BROADCAST], 0, FALSE);
+	KeAcquireSpinLock(&cvp->cv_lock, &irql);
+	while (!IsListEmpty(&cvp->cv_waiters)) {
+		cv_waiter_t *w = CONTAINING_RECORD(
+		    RemoveHeadList(&cvp->cv_waiters), cv_waiter_t, link);
+		w->taken = TRUE;
+		KeSetEvent(&w->event, 0, FALSE);
+	}
+	KeReleaseSpinLock(&cvp->cv_lock, irql);
 }
 
 /*
@@ -129,7 +146,9 @@ spl_cv_broadcast(kcondvar_t *cvp)
 int
 spl_cv_wait(kcondvar_t *cvp, kmutex_t *mp, int flags, const char *msg)
 {
+	KIRQL irql;
 	int result;
+
 	if (cvp->cv_initialised != CONDVAR_INIT)
 		panic("%s: not cv_initialised", __func__);
 
@@ -139,46 +158,52 @@ spl_cv_wait(kcondvar_t *cvp, kmutex_t *mp, int flags, const char *msg)
 	spl_wdlist_settime(mp->leak, 0);
 #endif
 
-	atomic_inc_32(&cvp->cv_waiters_count);
-	mutex_exit(mp);
-
-	void *locks[CV_MAX_EVENTS] =
-		{ &cvp->cv_kevent[CV_SIGNAL], &cvp->cv_kevent[CV_BROADCAST] };
-
-	LARGE_INTEGER timeout;
-	timeout.QuadPart = -10000000LL;  // 1s
+	cv_waiter_t w;
+	KeInitializeEvent(&w.event, SynchronizationEvent, FALSE);
+	w.taken = FALSE;
 
 	/*
-	 * This variant blocks forever, unless PCATCH is supplied
-	 * (the cv_wait_sig() variant, then we need to periodically
-	 * surface to see if the process has been told to terminate
+	 * Count this thread as in-flight before registering on the list.
+	 * cv_destroy spins on this count to ensure no thread is still
+	 * accessing cvp fields when the struct is freed.
+	 */
+	atomic_inc_32(&cvp->cv_waiters_count);
+
+	/* Register before releasing the mutex so no broadcast can be missed. */
+	KeAcquireSpinLock(&cvp->cv_lock, &irql);
+	InsertTailList(&cvp->cv_waiters, &w.link);
+	KeReleaseSpinLock(&cvp->cv_lock, irql);
+
+	mutex_exit(mp);
+
+	LARGE_INTEGER timeout;
+	timeout.QuadPart = -10000000LL;  /* 1 second */
+
+	/*
+	 * Loop on 1-second timeouts when PCATCH is set so that a pending
+	 * thread-termination signal can be observed.  Without PCATCH we pass
+	 * NULL and block indefinitely.
 	 */
 	do {
-
-		result = KeWaitForMultipleObjects(CV_MAX_EVENTS,
-		    locks, WaitAny, Executive, KernelMode, FALSE,
-		    (flags & PCATCH) ? &timeout : NULL, NULL);
-
+		result = KeWaitForSingleObject(&w.event, Executive, KernelMode,
+		    FALSE, (flags & PCATCH) ? &timeout : NULL);
 		if (PsIsThreadTerminating(PsGetCurrentThread()))
 			result = STATUS_ALERTED;
-
 	} while (result == STATUS_TIMEOUT);
 
 	mutex_enter(mp);
 
-	atomic_dec_32(&cvp->cv_waiters_count);
-
 	/*
-	 * If we were the last waiter and we woke on the broadcast event,
-	 * clear it so stale signals don't cause spurious wakeups for the
-	 * next unrelated wait cycle.  We do this after decrementing the
-	 * counter (and while still holding mp) so that a concurrent
-	 * cv_broadcast() — which also runs under mp — cannot have its
-	 * KeSetEvent silently undone by our KeClearEvent.
+	 * Remove ourselves from the list if signal/broadcast hasn't already
+	 * done so (e.g. STATUS_ALERTED exit path).
 	 */
-	if (result == STATUS_WAIT_0 + CV_BROADCAST &&
-	    cvp->cv_waiters_count == 0)
-		KeClearEvent(&cvp->cv_kevent[CV_BROADCAST]);
+	KeAcquireSpinLock(&cvp->cv_lock, &irql);
+	if (!w.taken)
+		RemoveEntryList(&w.link);
+	KeReleaseSpinLock(&cvp->cv_lock, irql);
+
+	/* All condvar accesses complete; signal cv_destroy that we are done. */
+	atomic_dec_32(&cvp->cv_waiters_count);
 
 #ifdef SPL_DEBUG_MUTEX
 	spl_wdlist_settime(mp->leak, gethrestime_sec());
@@ -201,10 +226,11 @@ int
 spl_cv_timedwait(kcondvar_t *cvp, kmutex_t *mp, clock_t tim, int flags,
     const char *msg)
 {
+	KIRQL irql;
 	int result;
 	clock_t timenow;
 	LARGE_INTEGER timeout;
-	(void) cvp;	(void) flags;
+	(void) flags;
 
 	if (cvp->cv_initialised != CONDVAR_INIT)
 		panic("%s: not cv_initialised", __func__);
@@ -214,17 +240,9 @@ spl_cv_timedwait(kcondvar_t *cvp, kmutex_t *mp, clock_t tim, int flags,
 
 	timenow = zfs_lbolt();
 
-	// Check for events already in the past
 	if (tim < timenow)
 		tim = timenow;
 
-	/*
-	 * Pointer to a time-out value that specifies the absolute or
-	 * relative time, in 100-nanosecond units, at which the wait is to
-	 * be completed.  A positive value specifies an absolute time,
-	 * relative to January 1, 1601. A negative value specifies an
-	 * interval relative to the current time.
-	 */
 	timeout.QuadPart = -100000 * MAX(1, (tim - timenow) / hz);
 
 #ifdef SPL_DEBUG_MUTEX
@@ -232,26 +250,28 @@ spl_cv_timedwait(kcondvar_t *cvp, kmutex_t *mp, clock_t tim, int flags,
 #endif
 
 	atomic_inc_32(&cvp->cv_waiters_count);
+
+	cv_waiter_t w;
+	KeInitializeEvent(&w.event, SynchronizationEvent, FALSE);
+	w.taken = FALSE;
+
+	KeAcquireSpinLock(&cvp->cv_lock, &irql);
+	InsertTailList(&cvp->cv_waiters, &w.link);
+	KeReleaseSpinLock(&cvp->cv_lock, irql);
+
 	mutex_exit(mp);
 
-	void *locks[CV_MAX_EVENTS] =
-		{ &cvp->cv_kevent[CV_SIGNAL], &cvp->cv_kevent[CV_BROADCAST] };
-
-	result = KeWaitForMultipleObjects(CV_MAX_EVENTS, locks, WaitAny,
-	    Executive, KernelMode, FALSE, &timeout, NULL);
-
-	atomic_dec_32(&cvp->cv_waiters_count);
+	result = KeWaitForSingleObject(&w.event, Executive, KernelMode,
+	    FALSE, &timeout);
 
 	mutex_enter(mp);
 
-	/*
-	 * Clear the broadcast event only after reacquiring the mutex so that
-	 * a concurrent cv_broadcast() (which also runs under that mutex) cannot
-	 * race with KeClearEvent and have its KeSetEvent silently undone.
-	 */
-	if (result == STATUS_WAIT_0 + CV_BROADCAST &&
-	    cvp->cv_waiters_count == 0)
-		KeClearEvent(&cvp->cv_kevent[CV_BROADCAST]);
+	KeAcquireSpinLock(&cvp->cv_lock, &irql);
+	if (!w.taken)
+		RemoveEntryList(&w.link);
+	KeReleaseSpinLock(&cvp->cv_lock, irql);
+
+	atomic_dec_32(&cvp->cv_waiters_count);
 
 #ifdef SPL_DEBUG_MUTEX
 	spl_wdlist_settime(mp->leak, gethrestime_sec());
@@ -278,6 +298,7 @@ int
 cv_timedwait_hires(kcondvar_t *cvp, kmutex_t *mp, hrtime_t tim,
     hrtime_t res, int flag)
 {
+	KIRQL irql;
 	int result;
 	LARGE_INTEGER timeout;
 
@@ -295,11 +316,9 @@ cv_timedwait_hires(kcondvar_t *cvp, kmutex_t *mp, hrtime_t tim,
 	}
 
 	if (flag & CALLOUT_FLAG_ABSOLUTE) {
-		// 'tim' here is absolute UNIX time (from gethrtime()) so
-		// convert it to absolute Windows time
+		/* 'tim' is absolute UNIX time; convert to relative sleep */
 		hrtime_t now = gethrtime();
-
-		tim -= now; // Remove the ticks, what remains is "sleep" amount.
+		tim -= now;
 	}
 	timeout.QuadPart = -tim / 100;
 
@@ -308,26 +327,28 @@ cv_timedwait_hires(kcondvar_t *cvp, kmutex_t *mp, hrtime_t tim,
 #endif
 
 	atomic_inc_32(&cvp->cv_waiters_count);
+
+	cv_waiter_t w;
+	KeInitializeEvent(&w.event, SynchronizationEvent, FALSE);
+	w.taken = FALSE;
+
+	KeAcquireSpinLock(&cvp->cv_lock, &irql);
+	InsertTailList(&cvp->cv_waiters, &w.link);
+	KeReleaseSpinLock(&cvp->cv_lock, irql);
+
 	mutex_exit(mp);
 
-	void *locks[CV_MAX_EVENTS] =
-	    { &cvp->cv_kevent[CV_SIGNAL], &cvp->cv_kevent[CV_BROADCAST] };
-
-	result = KeWaitForMultipleObjects(CV_MAX_EVENTS, locks, WaitAny,
-	    Executive, KernelMode, FALSE, &timeout, NULL);
-
-	atomic_dec_32(&cvp->cv_waiters_count);
+	result = KeWaitForSingleObject(&w.event, Executive, KernelMode,
+	    FALSE, &timeout);
 
 	mutex_enter(mp);
 
-	/*
-	 * Clear the broadcast event only after reacquiring the mutex so that
-	 * a concurrent cv_broadcast() (which also runs under that mutex) cannot
-	 * race with KeClearEvent and have its KeSetEvent silently undone.
-	 */
-	if (result == STATUS_WAIT_0 + CV_BROADCAST &&
-	    cvp->cv_waiters_count == 0)
-		KeClearEvent(&cvp->cv_kevent[CV_BROADCAST]);
+	KeAcquireSpinLock(&cvp->cv_lock, &irql);
+	if (!w.taken)
+		RemoveEntryList(&w.link);
+	KeReleaseSpinLock(&cvp->cv_lock, irql);
+
+	atomic_dec_32(&cvp->cv_waiters_count);
 
 #ifdef SPL_DEBUG_MUTEX
 	spl_wdlist_settime(mp->leak, gethrestime_sec());

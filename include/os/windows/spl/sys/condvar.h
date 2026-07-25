@@ -37,16 +37,17 @@ typedef enum {
 	CV_DRIVER
 } kcv_type_t;
 
-enum {
-	CV_SIGNAL = 0,
-	CV_BROADCAST = 1,
-	CV_MAX_EVENTS = 2
-};
-
+/*
+ * Per-waiter list condvar: each cv_wait() registers a stack-allocated entry
+ * on the condvar's internal list.  cv_signal/cv_broadcast dequeue entries
+ * and set their individual events.  This makes broadcast safe to call
+ * without holding the associated mutex (POSIX-compatible semantics).
+ */
 struct cv {
-	KEVENT cv_kevent[CV_MAX_EVENTS]; // signal event, broadcast event
-	uint32_t cv_waiters_count;
-	uint32_t cv_initialised; // Just used as sanity
+	KSPIN_LOCK		cv_lock;	/* protects cv_waiters list */
+	LIST_ENTRY		cv_waiters;	/* in-flight cv_wait list */
+	volatile uint32_t	cv_waiters_count; /* #threads inside cv_wait */
+	uint32_t		cv_initialised;
 };
 
 typedef struct cv  kcondvar_t;
