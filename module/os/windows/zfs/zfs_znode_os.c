@@ -1695,18 +1695,16 @@ zfs_free_range(znode_t *zp, uint64_t off, uint64_t len)
 	if (off + len > zp->z_size)
 		len = zp->z_size - off;
 
-	error = dmu_free_long_range(zfsvfs->z_os, zp->z_id, off, len);
-
-	if (error == 0) {
-		/*
-		 * In FreeBSD we cannot free block in the middle of a file,
-		 * but only at the end of a file, so this code path should
-		 * never happen.
-		 */
-		vnode_pager_setsize(NULL, ZTOV(zp), off, TRUE);
-	}
-
+	/*
+	 * dmu_free_long_range() uses DMU_TX_WAIT internally and can block
+	 * waiting for a TXG to open.  Holding the range lock across it
+	 * deadlocks CcWorkerThread (blocked on the range lock for its paging
+	 * write) against txg_quiesce (blocked waiting for that write's
+	 * tc_count to drop).  Release before calling, same as zfs_trunc().
+	 */
 	zfs_rangelock_exit(lr);
+
+	error = dmu_free_long_range(zfsvfs->z_os, zp->z_id, off, len);
 
 	return (error);
 }
