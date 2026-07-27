@@ -1197,11 +1197,6 @@ vnode_recycle_int(vnode_t *vp, int flags)
 			// Call sync? If vnode_write
 			// zfs_fsync(vp, 0, NULL, NULL);
 
-		// Call reclaim and Tell FS to release node.
-		if (vp->v_data != NULL)
-			if (zfs_vnop_reclaim(vp))
-				panic("vnode_recycle: cannot reclaim\n");
-
 			mutex_enter(&vp->v_mutex);
 		}
 	}
@@ -1218,6 +1213,24 @@ vnode_recycle_int(vnode_t *vp, int flags)
 		return (-1);
 	}
 #endif
+
+	/*
+	 * CcMgr is fully gone.  Only now is it safe to free the ZFS layer.
+	 *
+	 * Calling zfs_vnop_reclaim before the SharedCacheMap check sets
+	 * vp->v_data = NULL while dirty pages still exist.
+	 * AcquireForLazyWrite checks VTOZ(vp): if NULL it returns FALSE,
+	 * so dirty pages can never be flushed and SharedCacheMap is never
+	 * torn down — a permanent livelock.
+	 * zfs_inactive above does not touch v_data or z_sa_hdl in this port,
+	 * so deferring the reclaim here is safe.
+	 */
+	if (vp->v_data != NULL) {
+		mutex_exit(&vp->v_mutex);
+		if (zfs_vnop_reclaim(vp))
+			panic("vnode_recycle: cannot reclaim\n");
+		mutex_enter(&vp->v_mutex);
+	}
 
 	// We will only reclaim idle nodes, and not mountpoints(ROOT)
 	// lets try letting zfs reclaim, then linger nodes.
