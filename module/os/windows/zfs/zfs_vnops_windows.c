@@ -327,23 +327,32 @@ zfs_init_cache(FILE_OBJECT *fo, struct vnode *vp, CC_FILE_SIZES *ccfs)
 
 	try {
 		if (fo->PrivateCacheMap == NULL) {
-
-			VERIFY3U(zccb->cacheinit, ==, 0);
-			atomic_inc_64(&zccb->cacheinit);
-
-			CcInitializeCacheMap(fo,
-			    ccfs,
-			    FALSE,
-			    &CacheManagerCallbacks, fo);
-			dprintf("CcInitializeCacheMap called on vp %p\n", vp);
-			// CcSetAdditionalCacheAttributes(fo, FALSE, FALSE);
-			// must be FALSE (Disk IO only)
-			// CcSetReadAheadGranularity(fo, READ_AHEAD_GRAN);
-			// fo->Flags |= FO_CACHE_SUPPORTED;
-			CcSetAdditionalCacheAttributesEx(fo,
-			    CC_ENABLE_DISK_IO_ACCOUNTING);
-
-			dprintf("%s: CcInitializeCacheMap\n", __func__);
+			if (atomic_cas_64(&zccb->cacheinit, 0, 1) == 0) {
+				/*
+				 * We won the race: MainResource is held SHARED
+				 * by all concurrent writers so multiple threads
+				 * can reach here simultaneously.  Only one must
+				 * call CcInitializeCacheMap.
+				 */
+				CcInitializeCacheMap(fo,
+				    ccfs,
+				    FALSE,
+				    &CacheManagerCallbacks, fo);
+				dprintf("CcInitializeCacheMap called on vp"
+				    " %p\n", vp);
+				CcSetAdditionalCacheAttributesEx(fo,
+				    CC_ENABLE_DISK_IO_ACCOUNTING);
+				dprintf("%s: CcInitializeCacheMap\n", __func__);
+			} else {
+				/*
+				 * Another thread is initializing the cache.
+				 * Spin until CcInitializeCacheMap completes
+				 * and PrivateCacheMap is set; CcCopyWrite
+				 * requires it to be non-NULL.
+				 */
+				while (fo->PrivateCacheMap == NULL)
+					kpreempt(KPREEMPT_SYNC);
+			}
 		}
 	} except(EXCEPTION_EXECUTE_HANDLER) {
 		return (GetExceptionCode());
