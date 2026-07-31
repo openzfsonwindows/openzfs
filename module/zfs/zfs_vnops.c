@@ -391,6 +391,10 @@ zfs_read(struct znode *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	zfs_locked_range_t *lr = zfs_rangelock_enter(&zp->z_rangelock,
 	    zfs_uio_offset(uio), zfs_uio_resid(uio), RL_READER);
 
+#ifdef _WIN32
+	try {
+#endif
+
 	/*
 	 * If we are reading past end-of-file we can skip
 	 * to the end; but we might still need to set atime.
@@ -534,6 +538,9 @@ zfs_read(struct znode *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	dataset_kstats_update_read_kstats(&zfsvfs->z_kstat, nread);
 out:
 	zfs_rangelock_exit(lr);
+#ifdef _WIN32
+	lr = NULL; /* prevent double-release in outer except handler */
+#endif
 
 	if (dio_checksum_failure == B_TRUE)
 		uio->uio_extflg |= UIO_DIRECT;
@@ -547,6 +554,15 @@ out:
 	ZFS_ACCESSTIME_STAMP(zfsvfs, zp);
 	zfs_exit(zfsvfs, FTAG);
 	return (error);
+
+#ifdef _WIN32
+	} except (EXCEPTION_EXECUTE_HANDLER) {
+		if (lr != NULL)
+			zfs_rangelock_exit(lr);
+		zfs_exit(zfsvfs, FTAG);
+		return (GetExceptionCode());
+	}
+#endif
 }
 
 static void
@@ -750,6 +766,18 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		lr = zfs_rangelock_enter(&zp->z_rangelock, woff, n, RL_WRITER);
 	}
 
+#ifdef _WIN32
+	/*
+	 * Guard the entire range-lock-held section against SEH exceptions.
+	 * If an exception escapes the inner try{dmu_write_uio_dbuf} block
+	 * (e.g. from sa_bulk_update, zfs_log_write, or dmu_tx_commit), the
+	 * normal unwinding skips zfs_rangelock_exit(lr) at line ~1165, leaving
+	 * the lock permanently in the AVL tree and blocking every subsequent
+	 * writer on this file (CcWorkerThread deadlock).
+	 */
+	try {
+#endif
+
 	if (zn_rlimit_fsize_uio(zp, uio)) {
 		zfs_rangelock_exit(lr);
 		zfs_exit(zfsvfs, FTAG);
@@ -904,11 +932,43 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 			 * next attempt so we do not re-enter the delay path
 			 * on a new tx whose tx_dirty_delayed is reset to
 			 * FALSE.
+			 *
+			 * On Windows, the paging-write dispatch path holds
+			 * PagingIoResource EXCLUSIVE for the lifetime of the
+			 * write IRP.  Blocking in dmu_tx_wait() while that
+			 * resource is held serialises all paging writes for
+			 * this file: if another paging write (e.g. from
+			 * CcFlushCache cleanup on a second handle to the same
+			 * file) arrives while we wait, it blocks at
+			 * MiWaitForPageWriteCompletion.  If simultaneously a
+			 * concurrent write to a different file holds tc_count
+			 * in the TXG being quiesced, txg_quiesce cannot
+			 * complete, dmu_tx_wait() never returns, and the
+			 * result is a permanent livelock.
+			 * Release PagingIoResource before the wait (range
+			 * lock is already dropped) and re-acquire after.
 			 */
 			if (abuf != NULL)
 				dmu_return_arcbuf(abuf);
 			zfs_rangelock_exit(lr);
+#ifdef _WIN32
+			lr = NULL; /* prevent double-release in outer except handler */
+			{
+			vnode_t *__vp = ZTOV(zp);
+			boolean_t __had_pagingio =
+			    ExIsResourceAcquiredExclusiveLite(
+			    __vp->FileHeader.PagingIoResource) != 0;
+			if (__had_pagingio)
+				ExReleaseResourceLite(
+				    __vp->FileHeader.PagingIoResource);
 			dmu_tx_wait(tx);
+			if (__had_pagingio)
+				ExAcquireResourceExclusiveLite(
+				    __vp->FileHeader.PagingIoResource, TRUE);
+			}
+#else
+			dmu_tx_wait(tx);
+#endif
 			dmu_tx_abort(tx);
 			tx_waited = B_TRUE;
 			if (ioflag & O_APPEND) {
@@ -1132,6 +1192,9 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 
 	zfs_znode_update_vfs(zp);
 	zfs_rangelock_exit(lr);
+#ifdef _WIN32
+	lr = NULL; /* prevent double-release in outer except handler */
+#endif
 
 	/*
 	 * Cleanup for Direct I/O if requested.
@@ -1163,6 +1226,21 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 
 	zfs_exit(zfsvfs, FTAG);
 	return (0);
+
+#ifdef _WIN32
+	} except (EXCEPTION_EXECUTE_HANDLER) {
+		/*
+		 * An SEH exception escaped the inner try{dmu_write_uio_dbuf}
+		 * block.  Release the range lock so that concurrent writers on
+		 * this file (e.g. CcWorkerThread) are not blocked indefinitely.
+		 * The IRP will complete with an error status.
+		 */
+		if (lr != NULL)
+			zfs_rangelock_exit(lr);
+		zfs_exit(zfsvfs, FTAG);
+		return (GetExceptionCode());
+	}
+#endif
 }
 
 /*

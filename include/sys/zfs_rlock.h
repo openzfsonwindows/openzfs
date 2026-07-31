@@ -65,6 +65,10 @@ typedef struct zfs_locked_range {
 	uint8_t lr_proxy;	/* acting for original range */
 	uint8_t lr_write_wanted; /* writer wants to lock this range */
 	uint8_t lr_read_wanted;	/* reader wants to lock this range */
+#ifdef _WIN32
+	void		*lr_holder;	/* PETHREAD that acquired this lock */
+	uintptr_t	lr_stack[8];	/* call stack at acquisition */
+#endif
 } zfs_locked_range_t;
 
 void zfs_rangelock_init(zfs_rangelock_t *, zfs_rangelock_cb_t *, void *);
