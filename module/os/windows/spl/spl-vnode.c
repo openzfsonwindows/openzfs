@@ -1687,6 +1687,77 @@ print_reclaim_stats(boolean_t init, int reclaims)
  * the mount's list, onto a deadlist. Only stop module unload
  * until deadlist is empty.
  */
+
+/*
+ * Force-flush and purge the Windows Cache Manager for any vnodes on mount
+ * mp that are stuck in MARKTERM (pending reclaim) with a live SharedCacheMap.
+ *
+ * Called during unmount, BEFORE zfsvfs_teardown() sets z_unmounted = TRUE.
+ * After that point AcquireForLazyWrite returns FALSE, so dirty pages can
+ * never be flushed and SharedCacheMap is never torn down — permanent hang.
+ *
+ * We must NOT hold vnode_all_list_lock while calling CcFlushCache /
+ * CcPurgeCacheSection (they may re-enter vnode creation paths).
+ * Instead: scan under the lock to find one candidate, take a brief
+ * iocount reference, drop the lock, flush+purge, then repeat.
+ */
+void
+vnode_purge_ccmgr_vnodes(struct mount *mp)
+{
+	struct vnode *vp;
+	boolean_t found;
+	int max_passes = 200;
+
+	do {
+		found = B_FALSE;
+		mutex_enter(&vnode_all_list_lock);
+		for (vp = list_head(&vnode_all_list); vp;
+		    vp = list_next(&vnode_all_list, vp)) {
+			if (mp != NULL && vp->v_mount != mp)
+				continue;
+			if (!(vp->v_flags & VNODE_MARKTERM))
+				continue;
+			if (vp->v_flags & VNODE_DEAD)
+				continue;
+			PSECTION_OBJECT_POINTERS sop =
+			    &vp->SectionObjectPointers;
+			if (sop->SharedCacheMap == NULL &&
+			    sop->DataSectionObject == NULL &&
+			    sop->ImageSectionObject == NULL)
+				continue;
+			/* Hold a reference so vp stays valid after lock drop */
+			vnode_lock(vp);
+			if (vp->v_flags & VNODE_DEAD) {
+				vnode_unlock(vp);
+				continue;
+			}
+			atomic_inc_32(&vp->v_iocount);
+			vnode_unlock(vp);
+			found = B_TRUE;
+			break;
+		}
+		mutex_exit(&vnode_all_list_lock);
+
+		if (found) {
+			dprintf("%s: flushing CcMgr for stuck vp %p\n",
+			    __func__, vp);
+			IO_STATUS_BLOCK iosb = { 0 };
+			CcFlushCache(&vp->SectionObjectPointers,
+			    NULL, 0, &iosb);
+			/*
+			 * Acquire/release PagingIoResource to wait for any
+			 * in-flight paging I/O to drain before purging.
+			 */
+			ExAcquireResourceExclusiveLite(
+			    vp->FileHeader.PagingIoResource, TRUE);
+			ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
+			CcPurgeCacheSection(&vp->SectionObjectPointers,
+			    NULL, 0, FALSE);
+			atomic_dec_32(&vp->v_iocount);
+		}
+	} while (found && --max_passes > 0);
+}
+
 int
 vflush(struct mount *mp, struct vnode *skipvp, int flags)
 {
@@ -1797,7 +1868,7 @@ filesanddirs:
 
 	dprintf("vflush end: deadlisted %d nodes\n", deadlist);
 #endif
-	if (FORCECLOSE)
+	if (flags & FORCECLOSE)
 		vnode_drain_delayclose(1);
 
 	return (reclaims > 0 ? EBUSY : 0);

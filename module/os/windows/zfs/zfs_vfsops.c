@@ -960,7 +960,16 @@ zfsvfs_free(zfsvfs_t *zfsvfs)
 	znode_t *zz_leaked;
 	while ((zz_leaked = list_head(&zfsvfs->z_all_znodes)) != NULL) {
 		list_remove(&zfsvfs->z_all_znodes, zz_leaked);
-		dprintf("zfsvfs_free: leaked znode %p\n", zz_leaked);
+		dprintf("zfsvfs_free: leaked znode %p (vp %p)\n",
+		    zz_leaked, zz_leaked->z_vnode);
+		/*
+		 * Null out v_data before we destroy z_teardown_inactive_lock.
+		 * If CcMgr releases late and vnode_recycle_int fires after
+		 * zfsvfs_free, zfs_vnop_reclaim would rw_enter a freed lock.
+		 * With v_data = NULL it detects the znode is already gone.
+		 */
+		if (zz_leaked->z_vnode != NULL)
+			zz_leaked->z_vnode->v_data = NULL;
 	}
 	list_destroy(&zfsvfs->z_all_znodes);
 	ZFS_TEARDOWN_DESTROY(zfsvfs);
@@ -1716,6 +1725,17 @@ zfs_vfs_unmount(struct mount *mp, int mntflags, vfs_context_t context)
 	/*
 	 * Last chance to dump unreferenced system files.
 	 */
+	(void) vflush(mp, NULLVP, FORCECLOSE);
+
+	/*
+	 * Force-flush and purge the Windows Cache Manager for any vnodes that
+	 * vflush left behind because SharedCacheMap was still live.  This must
+	 * happen BEFORE zfsvfs_teardown() sets z_unmounted = TRUE: after that
+	 * point AcquireForLazyWrite returns FALSE, dirty pages can never be
+	 * written, and SharedCacheMap is never torn down — a permanent hang.
+	 * After purging, run a final vflush so those vnodes are reclaimed.
+	 */
+	vnode_purge_ccmgr_vnodes(mp);
 	(void) vflush(mp, NULLVP, FORCECLOSE);
 
 	VERIFY(zfsvfs_teardown(zfsvfs, B_TRUE) == 0);

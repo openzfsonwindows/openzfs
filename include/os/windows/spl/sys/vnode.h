@@ -526,6 +526,7 @@ int vnode_get_reparse_point(struct vnode *vp, REPARSE_DATA_BUFFER **rpp,
 #define	LOOKUP_NO_AUTOMOUNT	0x4
 
 int vflush(struct mount *mp, struct vnode *skipvp, int flags);
+void vnode_purge_ccmgr_vnodes(struct mount *mp);
 int vnode_fileobject_add(vnode_t *vp, void *fo);
 int vnode_fileobject_remove(vnode_t *vp, void *fo);
 int vnode_fileobject_empty(vnode_t *vp, int locked);
