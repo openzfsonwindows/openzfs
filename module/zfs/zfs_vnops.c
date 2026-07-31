@@ -771,9 +771,9 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	 * Guard the entire range-lock-held section against SEH exceptions.
 	 * If an exception escapes the inner try{dmu_write_uio_dbuf} block
 	 * (e.g. from sa_bulk_update, zfs_log_write, or dmu_tx_commit), the
-	 * normal unwinding skips zfs_rangelock_exit(lr) at line ~1165, leaving
-	 * the lock permanently in the AVL tree and blocking every subsequent
-	 * writer on this file (CcWorkerThread deadlock).
+	 * normal unwinding skips zfs_rangelock_exit(lr) and dmu_tx_abort(tx),
+	 * leaving lr permanently in the AVL tree and tx holding tc_count up so
+	 * txg_quiesce never completes (CcWorkerThread / NtClose deadlock).
 	 */
 	try {
 #endif
@@ -837,6 +837,7 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	 * and allows us to do more fine-grained space accounting.
 	 */
 	boolean_t tx_waited = B_FALSE;
+	dmu_tx_t *tx = NULL;
 	while (n > 0) {
 		woff = zfs_uio_offset(uio);
 
@@ -907,7 +908,7 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		/*
 		 * Start a transaction.
 		 */
-		dmu_tx_t *tx = dmu_tx_create(zfsvfs->z_os);
+		tx = dmu_tx_create(zfsvfs->z_os);
 		dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
 		dmu_buf_impl_t *db = (dmu_buf_impl_t *)sa_get_db(zp->z_sa_hdl);
 		DB_DNODE_ENTER(db);
@@ -970,6 +971,9 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 			dmu_tx_wait(tx);
 #endif
 			dmu_tx_abort(tx);
+#ifdef _WIN32
+			tx = NULL;
+#endif
 			tx_waited = B_TRUE;
 			if (ioflag & O_APPEND) {
 				lr = zfs_rangelock_enter(&zp->z_rangelock,
@@ -986,6 +990,9 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 			continue;
 		} else if (error) {
 			dmu_tx_abort(tx);
+#ifdef _WIN32
+			tx = NULL;
+#endif
 			if (abuf != NULL)
 				dmu_return_arcbuf(abuf);
 			break;
@@ -1061,6 +1068,9 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 				zfs_clear_setid_bits_if_necessary(zfsvfs, zp,
 				    cr, &clear_setid_bits_txg, tx);
 				dmu_tx_commit(tx);
+#ifdef _WIN32
+				tx = NULL;
+#endif
 				break;
 			}
 			tx_bytes -= zfs_uio_resid(uio);
@@ -1084,6 +1094,9 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 				    cr, &clear_setid_bits_txg, tx);
 				dmu_return_arcbuf(abuf);
 				dmu_tx_commit(tx);
+#ifdef _WIN32
+				tx = NULL;
+#endif
 				break;
 			}
 			ASSERT3S(nbytes, <=, zfs_uio_resid(uio));
@@ -1125,6 +1138,9 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 			(void) sa_update(zp->z_sa_hdl, SA_ZPL_SIZE(zfsvfs),
 			    (void *)&zp->z_size, sizeof (uint64_t), tx);
 			dmu_tx_commit(tx);
+#ifdef _WIN32
+			tx = NULL;
+#endif
 			ASSERT(error != 0);
 			break;
 		}
@@ -1166,6 +1182,9 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		    NULL);
 
 		dmu_tx_commit(tx);
+#ifdef _WIN32
+		tx = NULL;
+#endif
 
 		/*
 		 * Direct I/O was deferred in order to grow the first block.
@@ -1231,10 +1250,16 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	} except (EXCEPTION_EXECUTE_HANDLER) {
 		/*
 		 * An SEH exception escaped the inner try{dmu_write_uio_dbuf}
-		 * block.  Release the range lock so that concurrent writers on
-		 * this file (e.g. CcWorkerThread) are not blocked indefinitely.
-		 * The IRP will complete with an error status.
+		 * block (e.g. from sa_bulk_update, zfs_log_write, or
+		 * dmu_tx_commit).  Release the range lock and abort the
+		 * transaction so that:
+		 *  - concurrent writers on this file (CcWorkerThread) are
+		 *    not blocked indefinitely on the range lock, and
+		 *  - tc_count is decremented so txg_quiesce can complete
+		 *    (NtClose / CcFlushCache deadlock).
 		 */
+		if (tx != NULL)
+			dmu_tx_abort(tx);
 		if (lr != NULL)
 			zfs_rangelock_exit(lr);
 		zfs_exit(zfsvfs, FTAG);
