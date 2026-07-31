@@ -1220,11 +1220,16 @@ zvol_resume(zvol_state_t *zv)
 	 * zv_suspend_lock. zvol_remove_minors_impl thus cannot check
 	 * zv_suspend_lock to determine it is safe to free because rwlock is
 	 * not inherent atomic.
+	 *
+	 * The decrement and broadcast must be done together under zv_state_lock
+	 * so the waiter in zvol_remove_minors_impl cannot observe
+	 * suspend_ref==0 between decrement and wakeup (missed-wakeup race).
 	 */
+	mutex_enter(&zv->zv_state_lock);
 	atomic_dec(&zv->zv_suspend_ref);
-
 	if (zv->zv_flags & ZVOL_REMOVING)
 		cv_broadcast(&zv->zv_removing_cv);
+	mutex_exit(&zv->zv_state_lock);
 
 	return (error);
 }
