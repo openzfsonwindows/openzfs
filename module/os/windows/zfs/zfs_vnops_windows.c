@@ -6757,11 +6757,7 @@ zfs_read_wrap(vnode_t *vp, uint8_t *data, uint64_t start,
 		}
 	}
 
-	try {
-		Status = zfs_read(zp, &uio, 0, NULL);
-	} except(EXCEPTION_EXECUTE_HANDLER) {
-		Status = GetExceptionCode();
-	}
+	Status = zfs_read(zp, &uio, 0, NULL);
 
 	// Update bytes read
 	if (pbr)
@@ -7101,6 +7097,65 @@ exit:
 	return (Status);
 }
 
+/*
+ * Persistent exception record for the outer zfs_write / zfs_read SEH guard.
+ * Survives cbuf.txt overwrites; inspect in WinDbg:
+ *   dt OpenZFS!zfs_write_last_except
+ *   dq OpenZFS!zfs_write_last_except+0x10 L8   (stack frames)
+ */
+volatile struct {
+	ULONG   code;   /* ExceptionCode */
+	ULONG   count;  /* how many times fired */
+	PVOID   addr;   /* ExceptionAddress */
+	ULONG64 rip;    /* ContextRecord->Rip */
+	ULONG64 rsp;    /* ContextRecord->Rsp */
+	ULONG64 stack[8]; /* raw return addrs from Rsp */
+} zfs_write_last_except;
+
+LONG
+zfs_write_fault_filter(PEXCEPTION_POINTERS ep)
+{
+	ULONG code = ep->ExceptionRecord->ExceptionCode;
+
+	/*
+	 * Never catch kernel panics or assertion failures — let them reach
+	 * KeBugCheckEx so a crash dump is produced for diagnosis.
+	 * Catching these was masking real ZFS invariant violations.
+	 */
+	if (code == STATUS_BREAKPOINT || code == STATUS_ASSERTION_FAILURE)
+		return (EXCEPTION_CONTINUE_SEARCH);
+
+	/* Only handle user-buffer access faults. */
+	if (code != STATUS_ACCESS_VIOLATION && code != STATUS_IN_PAGE_ERROR)
+		return (EXCEPTION_CONTINUE_SEARCH);
+
+	PULONG64 sp = (PULONG64)(ULONG_PTR)ep->ContextRecord->Rsp;
+
+	zfs_write_last_except.code  = code;
+	zfs_write_last_except.addr  = ep->ExceptionRecord->ExceptionAddress;
+	zfs_write_last_except.rip   = ep->ContextRecord->Rip;
+	zfs_write_last_except.rsp   = ep->ContextRecord->Rsp;
+	zfs_write_last_except.count++;
+	for (int i = 0; i < 8; i++)
+		zfs_write_last_except.stack[i] = sp[i];
+
+	dprintf("ZFS: zfs_write/read exception #%u code=0x%08x addr=%p "
+	    "stack: %p %p %p %p %p %p %p %p\n",
+	    zfs_write_last_except.count,
+	    zfs_write_last_except.code,
+	    zfs_write_last_except.addr,
+	    (PVOID)zfs_write_last_except.stack[0],
+	    (PVOID)zfs_write_last_except.stack[1],
+	    (PVOID)zfs_write_last_except.stack[2],
+	    (PVOID)zfs_write_last_except.stack[3],
+	    (PVOID)zfs_write_last_except.stack[4],
+	    (PVOID)zfs_write_last_except.stack[5],
+	    (PVOID)zfs_write_last_except.stack[6],
+	    (PVOID)zfs_write_last_except.stack[7]);
+
+	return (EXCEPTION_EXECUTE_HANDLER);
+}
+
 NTSTATUS
 zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     LARGE_INTEGER offset, void *buf, ULONG *length,
@@ -7206,9 +7261,9 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 #endif
 
-	// 1) if pagefile - grab MainResource EXCLUSIVE, then PagingIoResource EXCLUSIVE
-	// 2) elif pagingio - grab only PagingIoResource EXCLUSIVE
-	// 3) elif normal io - grab MainResource SHARED (ZFS range locks handle ordering)
+	/* 1) pagefile: MainResource EXCLUSIVE, PagingIoResource EXCLUSIVE */
+	/* 2) pagingio: PagingIoResource EXCLUSIVE only */
+	/* 3) normal: MainResource SHARED (ZFS range locks handle ordering) */
 
 	if (paging_io) {
 
@@ -7236,12 +7291,10 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 	} else {
 		/*
-		 * Non-paging (user-initiated) write: acquire MainResource SHARED.
-		 * EXCLUSIVE is unnecessary — ZFS range locks serialise concurrent
-		 * writers.  EXCLUSIVE here would also prevent CREATE oplock
-		 * preflight (which needs EXCLUSIVE) from overlapping with writes,
-		 * increasing open latency with no correctness benefit.
-		 * Skip the acquire if the caller already holds EXCLUSIVE (stronger).
+		 * Non-paging write: acquire MainResource SHARED.
+		 * ZFS range locks serialise concurrent writers so EXCLUSIVE
+		 * is unnecessary and would block CREATE oplock checks.
+		 * Skip if the caller already holds EXCLUSIVE (stronger).
 		 */
 		if (!ExIsResourceAcquiredExclusiveLite(
 		    vp->FileHeader.Resource)) {
@@ -7307,19 +7360,20 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	if (changed_length) {
-		if (newlength >
-		    (uint64_t)vp->FileHeader.AllocationSize.QuadPart) {
-
-			Status = zfs_freesp(zp,
-			    newlength, 0, FWRITE, B_FALSE);
-			if (!NT_SUCCESS(Status)) {
-				dprintf("extend_file returned %08lx\n",
-				    Status);
-				goto end;
-			}
-		} else {
-			zp->z_size = newlength;
-		}
+		/*
+		 * Update z_size in memory so zfs_write sees the new end.
+		 * We deliberately skip zfs_freesp() here: that function
+		 * acquires [0, UINT64_MAX] range lock inside zfs_extend()
+		 * and then calls dmu_tx_hold_sa(), which can block on a
+		 * disk read for the SA spill block.  Under heavy I/O load
+		 * (large TXG sync) that read can stall for tens of seconds,
+		 * holding the range lock and blocking CcWorkerThread paging
+		 * writes to this file.  zfs_write() already handles the
+		 * extension atomically (including block-size growth via the
+		 * lr->lr_length == UINT64_MAX over-lock path), so the
+		 * zfs_freesp(B_FALSE) pre-extend was redundant and unsafe.
+		 */
+		zp->z_size = newlength;
 
 		vp->FileHeader.AllocationSize.QuadPart = newlength;
 		vp->FileHeader.FileSize.QuadPart = newlength;
@@ -7463,11 +7517,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			uio.uio_extflg |= SKIP_WRITE_TIME;
 	}
 
-	try {
-		Status = zfs_write(zp, &uio, 0, NULL);
-	} except(EXCEPTION_EXECUTE_HANDLER) {
-		Status = GetExceptionCode();
-	}
+	Status = zfs_write(zp, &uio, 0, NULL);
 
 	if (!NT_SUCCESS(Status)) {
 		dprintf("zfs_write returned %08lx\n", Status);
@@ -8458,7 +8508,8 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	/*
 	 * Flush dirty CM pages before uninitialising the cache, but ONLY
-	 * when this specific file object owns the cache (has a PrivateCacheMap).
+	 * when this specific file object owns the cache
+	 * (has a PrivateCacheMap).
 	 *
 	 * CcIsFileCached() checks SharedCacheMap, which is shared across all
 	 * file objects for the same vnode.  Using it here would trigger
@@ -9832,8 +9883,8 @@ _Function_class_(DRIVER_DISPATCH)
 			 * IopRemoveDevice on the same thread) cannot open a
 			 * file object on this device after PnP has internally
 			 * deleted the device node.  If it could, the subsequent
-			 * close would fire a second IopCompleteUnloadOrDelete ->
-			 * ObDereferenceSecurityDescriptor on an SD with refcount
+			 * close would fire IopCompleteUnloadOrDelete ->
+			 * ObDereferenceSecurityDescriptor on an SD with
 			 * already 0, BSODing (INVALID_REFERENCE_COUNT, 0x139).
 			 */
 			zmo->dcb_del_pending = B_TRUE;

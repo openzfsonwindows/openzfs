@@ -86,17 +86,15 @@ spl_panic(const char *file, const char *func, int line, const char *fmt, ...)
 	printBuffer("OpenZFS version %s\n", ZFS_META_GITREV);
 
 	/*
-	 * If a kernel debugger is attached let the developer inspect
-	 * the live state before we tear down.  Without a debugger this
-	 * is a no-op (KdBreakPoint is gated on KD_DEBUGGER_ENABLED).
-	 */
-	KdBreakPoint();
-
-	/*
-	 * Issue a proper bug-check so Windows captures a full minidump.
-	 * Parameters: custom ZFS code, file, func, line, message pointer.
-	 * The 0x00FFFFFF code is easy to recognise as an OpenZFS-initiated
-	 * panic in the minidump header.
+	 * KeBugCheckEx is not an SEH exception; no try/except can intercept
+	 * it.  This always produces a crash dump and is the only reliable
+	 * way to record that a ZFS invariant was violated.
+	 *
+	 * Note: do NOT call KdBreakPoint() before this.  In kernel mode
+	 * without an attached debugger the int 3 is dispatched through the
+	 * kernel's global exception handler which produces a 0x7E bugcheck
+	 * before any local __try/__except can run, regardless of clang-cl
+	 * SEH frames.  The dump already contains the full call stack.
 	 */
 	KeBugCheckEx(0x00FFFFFF,
 	    (ULONG_PTR)file,

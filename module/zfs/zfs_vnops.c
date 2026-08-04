@@ -391,10 +391,6 @@ zfs_read(struct znode *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	zfs_locked_range_t *lr = zfs_rangelock_enter(&zp->z_rangelock,
 	    zfs_uio_offset(uio), zfs_uio_resid(uio), RL_READER);
 
-#ifdef _WIN32
-	try {
-#endif
-
 	/*
 	 * If we are reading past end-of-file we can skip
 	 * to the end; but we might still need to set atime.
@@ -538,9 +534,6 @@ zfs_read(struct znode *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	dataset_kstats_update_read_kstats(&zfsvfs->z_kstat, nread);
 out:
 	zfs_rangelock_exit(lr);
-#ifdef _WIN32
-	lr = NULL; /* prevent double-release in outer except handler */
-#endif
 
 	if (dio_checksum_failure == B_TRUE)
 		uio->uio_extflg |= UIO_DIRECT;
@@ -554,15 +547,6 @@ out:
 	ZFS_ACCESSTIME_STAMP(zfsvfs, zp);
 	zfs_exit(zfsvfs, FTAG);
 	return (error);
-
-#ifdef _WIN32
-	} except (EXCEPTION_EXECUTE_HANDLER) {
-		if (lr != NULL)
-			zfs_rangelock_exit(lr);
-		zfs_exit(zfsvfs, FTAG);
-		return (GetExceptionCode());
-	}
-#endif
 }
 
 static void
@@ -645,6 +629,7 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	ssize_t start_resid = zfs_uio_resid(uio);
 	uint64_t clear_setid_bits_txg = 0;
 	boolean_t o_direct_defer = B_FALSE;
+	dmu_tx_t *tx = NULL;
 
 	/*
 	 * Fasttrack empty write
@@ -766,18 +751,6 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		lr = zfs_rangelock_enter(&zp->z_rangelock, woff, n, RL_WRITER);
 	}
 
-#ifdef _WIN32
-	/*
-	 * Guard the entire range-lock-held section against SEH exceptions.
-	 * If an exception escapes the inner try{dmu_write_uio_dbuf} block
-	 * (e.g. from sa_bulk_update, zfs_log_write, or dmu_tx_commit), the
-	 * normal unwinding skips zfs_rangelock_exit(lr) and dmu_tx_abort(tx),
-	 * leaving lr permanently in the AVL tree and tx holding tc_count up so
-	 * txg_quiesce never completes (CcWorkerThread / NtClose deadlock).
-	 */
-	try {
-#endif
-
 	if (zn_rlimit_fsize_uio(zp, uio)) {
 		zfs_rangelock_exit(lr);
 		zfs_exit(zfsvfs, FTAG);
@@ -837,7 +810,6 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	 * and allows us to do more fine-grained space accounting.
 	 */
 	boolean_t tx_waited = B_FALSE;
-	dmu_tx_t *tx = NULL;
 	while (n > 0) {
 		woff = zfs_uio_offset(uio);
 
@@ -851,7 +823,8 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		}
 
 		uint64_t blksz;
-		if (lr->lr_length == UINT64_MAX && zp->z_size <= zp->z_blksz) {
+		if (lr->lr_length == UINT64_MAX &&
+		    (zp->z_blksz == 0 || zp->z_size <= zp->z_blksz)) {
 			if (zp->z_blksz > zfsvfs->z_max_blksz &&
 			    !ISP2(zp->z_blksz)) {
 				/*
@@ -953,7 +926,6 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 				dmu_return_arcbuf(abuf);
 			zfs_rangelock_exit(lr);
 #ifdef _WIN32
-			lr = NULL; /* prevent double-release in outer except handler */
 			{
 			vnode_t *__vp = ZTOV(zp);
 			boolean_t __had_pagingio =
@@ -971,9 +943,6 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 			dmu_tx_wait(tx);
 #endif
 			dmu_tx_abort(tx);
-#ifdef _WIN32
-			tx = NULL;
-#endif
 			tx_waited = B_TRUE;
 			if (ioflag & O_APPEND) {
 				lr = zfs_rangelock_enter(&zp->z_rangelock,
@@ -990,9 +959,6 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 			continue;
 		} else if (error) {
 			dmu_tx_abort(tx);
-#ifdef _WIN32
-			tx = NULL;
-#endif
 			if (abuf != NULL)
 				dmu_return_arcbuf(abuf);
 			break;
@@ -1023,25 +989,10 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		ssize_t tx_bytes;
 		if (abuf == NULL) {
 			tx_bytes = zfs_uio_resid(uio);
-#ifdef _WIN32
-			/*
-			 * In case we trigger an exception here, we can't
-			 * leave the rangelock around, or it will deadlock
-			 * future IO. If the functions were
-			 * zfs_uio_fault_disable() and zfs_uio_fault_enable()
-			 * I could just #define it.
-			 */
-			try {
-#endif
 			zfs_uio_fault_disable(uio, B_TRUE);
 			error = dmu_write_uio_dbuf(sa_get_db(zp->z_sa_hdl),
 			    uio, nbytes, tx, dflags);
 			zfs_uio_fault_disable(uio, B_FALSE);
-#ifdef _WIN32
-			} except(EXCEPTION_EXECUTE_HANDLER) {
-				error = GetExceptionCode();
-			}
-#endif
 
 #ifdef __linux__
 			if (error == EFAULT) {
@@ -1068,9 +1019,6 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 				zfs_clear_setid_bits_if_necessary(zfsvfs, zp,
 				    cr, &clear_setid_bits_txg, tx);
 				dmu_tx_commit(tx);
-#ifdef _WIN32
-				tx = NULL;
-#endif
 				break;
 			}
 			tx_bytes -= zfs_uio_resid(uio);
@@ -1094,9 +1042,6 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 				    cr, &clear_setid_bits_txg, tx);
 				dmu_return_arcbuf(abuf);
 				dmu_tx_commit(tx);
-#ifdef _WIN32
-				tx = NULL;
-#endif
 				break;
 			}
 			ASSERT3S(nbytes, <=, zfs_uio_resid(uio));
@@ -1138,9 +1083,6 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 			(void) sa_update(zp->z_sa_hdl, SA_ZPL_SIZE(zfsvfs),
 			    (void *)&zp->z_size, sizeof (uint64_t), tx);
 			dmu_tx_commit(tx);
-#ifdef _WIN32
-			tx = NULL;
-#endif
 			ASSERT(error != 0);
 			break;
 		}
@@ -1182,9 +1124,6 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		    NULL);
 
 		dmu_tx_commit(tx);
-#ifdef _WIN32
-		tx = NULL;
-#endif
 
 		/*
 		 * Direct I/O was deferred in order to grow the first block.
@@ -1211,9 +1150,6 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 
 	zfs_znode_update_vfs(zp);
 	zfs_rangelock_exit(lr);
-#ifdef _WIN32
-	lr = NULL; /* prevent double-release in outer except handler */
-#endif
 
 	/*
 	 * Cleanup for Direct I/O if requested.
@@ -1245,27 +1181,6 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 
 	zfs_exit(zfsvfs, FTAG);
 	return (0);
-
-#ifdef _WIN32
-	} except (EXCEPTION_EXECUTE_HANDLER) {
-		/*
-		 * An SEH exception escaped the inner try{dmu_write_uio_dbuf}
-		 * block (e.g. from sa_bulk_update, zfs_log_write, or
-		 * dmu_tx_commit).  Release the range lock and abort the
-		 * transaction so that:
-		 *  - concurrent writers on this file (CcWorkerThread) are
-		 *    not blocked indefinitely on the range lock, and
-		 *  - tc_count is decremented so txg_quiesce can complete
-		 *    (NtClose / CcFlushCache deadlock).
-		 */
-		if (tx != NULL)
-			dmu_tx_abort(tx);
-		if (lr != NULL)
-			zfs_rangelock_exit(lr);
-		zfs_exit(zfsvfs, FTAG);
-		return (GetExceptionCode());
-	}
-#endif
 }
 
 /*

@@ -83,12 +83,15 @@ int
 zfs_uiocopy(const char *p, size_t n, enum uio_rw rw, zfs_uio_t *uio,
     size_t *cbytes)
 {
-	int result;
-
+	int result = 0;
 	zfs_uio_t uio_copy;
 
 	memcpy(&uio_copy, uio, sizeof (zfs_uio_t));
-	result = zfs_uiomove_iov((void *)p, n, rw, &uio_copy);
+	try {
+		result = zfs_uiomove_iov((void *)p, n, rw, &uio_copy);
+	} except(EXCEPTION_EXECUTE_HANDLER) {
+		result = EIO;
+	}
 
 	*cbytes = uio->uio_resid - uio_copy.uio_resid;
 
