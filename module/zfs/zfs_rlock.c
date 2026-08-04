@@ -397,6 +397,9 @@ zfs_rangelock_add_reader(avl_tree_t *tree, zfs_locked_range_t *new,
 	if (next == NULL || off + len <= next->lr_offset) {
 		/* no overlaps, use the original new rl_t in the tree */
 		avl_insert(tree, new, where);
+#ifdef _WIN32
+		zfs_rangelock_capture(new);
+#endif
 		return;
 	}
 
