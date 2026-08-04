@@ -843,6 +843,12 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 			blksz = zp->z_blksz;
 		}
 
+		/*
+		 * Snapshot uio before the arc-borrow path advances it via
+		 * zfs_uiocopy().  On ERESTART restore it so the retry
+		 * re-copies the same data without skipping a chunk.
+		 */
+		zfs_uio_t uio_snap = *uio;
 		arc_buf_t *abuf = NULL;
 		ssize_t nbytes = n;
 		if (n >= blksz && woff >= zp->z_size &&
@@ -922,8 +928,11 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 			 * Release PagingIoResource before the wait (range
 			 * lock is already dropped) and re-acquire after.
 			 */
-			if (abuf != NULL)
+			if (abuf != NULL) {
 				dmu_return_arcbuf(abuf);
+				abuf = NULL;
+				*uio = uio_snap;
+			}
 			zfs_rangelock_exit(lr);
 #ifdef _WIN32
 			{
