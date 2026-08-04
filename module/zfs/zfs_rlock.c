@@ -149,39 +149,6 @@ zfs_rangelock_fini(zfs_rangelock_t *rl)
 	avl_destroy(&rl->rl_tree);
 }
 
-#ifdef _WIN32
-/*
- * Bitmask controlling rangelock debug prints. Settable at runtime via
- * WinDbg ("ed zfs!zfs_rangelock_debug <value>") or module param.
- * 1=acquired(empty), 2=acquired(insert), 4=waiting, 8=exit. Default 0.
- */
-uint64_t zfs_rangelock_debug = 0xfULL;
-
-ZFS_MODULE_PARAM(, zfs_, rangelock_debug, U64, ZMOD_RW,
-	"Windows: rangelock debugging");
-
-static void
-zfs_rangelock_print_stack(void)
-{
-#ifdef _KERNEL
-	uintptr_t stk[8];
-	int nstk = getpcstack(stk, 8);
-	for (int _i = 0; _i < nstk; _i++)
-		dprintf("  #%d %p\n", _i, (void *)stk[_i]);
-#endif
-}
-
-/* Capture acquiring thread and call stack for debugger inspection. */
-static void
-zfs_rangelock_capture(zfs_locked_range_t *lr)
-{
-#ifdef _KERNEL
-	lr->lr_holder = curthread;
-	(void) getpcstack(lr->lr_stack, 8);
-#endif
-}
-#endif
-
 /*
  * Check if a write lock can be grabbed.  If not, fail immediately or sleep and
  * recheck until available, depending on the value of the "nonblock" parameter.
@@ -218,9 +185,6 @@ zfs_rangelock_enter_writer(zfs_rangelock_t *rl, zfs_locked_range_t *new,
 		 */
 		if (avl_numnodes(tree) == 0) {
 			avl_add(tree, new);
-#ifdef _WIN32
-			zfs_rangelock_capture(new);
-#endif
 			return (B_TRUE);
 		}
 
@@ -242,9 +206,6 @@ zfs_rangelock_enter_writer(zfs_rangelock_t *rl, zfs_locked_range_t *new,
 			goto wait;
 
 		avl_insert(tree, new, where);
-#ifdef _WIN32
-		zfs_rangelock_capture(new);
-#endif
 		return (B_TRUE);
 wait:
 		if (nonblock)
@@ -253,20 +214,6 @@ wait:
 			cv_init(&lr->lr_write_cv, NULL, CV_DEFAULT, NULL);
 			lr->lr_write_wanted = B_TRUE;
 		}
-#ifdef _WIN32
-		if (zfs_rangelock_debug & 4) {
-			dprintf("ZFS: rangelock_waiting "
-			    "[%llx, +%llx) blocked_by [%llx, +%llx) "
-			    "type=%d holder=%p waiter=%p\n",
-			    (u_longlong_t)new->lr_offset,
-			    (u_longlong_t)new->lr_length,
-			    (u_longlong_t)lr->lr_offset,
-			    (u_longlong_t)lr->lr_length,
-			    (int)lr->lr_type,
-			    lr->lr_holder, curthread);
-			zfs_rangelock_print_stack();
-		}
-#endif
 		cv_wait(&lr->lr_write_cv, &rl->rl_lock);
 
 		/* reset to original */
@@ -397,9 +344,6 @@ zfs_rangelock_add_reader(avl_tree_t *tree, zfs_locked_range_t *new,
 	if (next == NULL || off + len <= next->lr_offset) {
 		/* no overlaps, use the original new rl_t in the tree */
 		avl_insert(tree, new, where);
-#ifdef _WIN32
-		zfs_rangelock_capture(new);
-#endif
 		return;
 	}
 
@@ -561,9 +505,6 @@ zfs_rangelock_enter_impl(zfs_rangelock_t *rl, uint64_t off, uint64_t len,
 		 */
 		if (avl_numnodes(&rl->rl_tree) == 0) {
 			avl_add(&rl->rl_tree, new);
-#ifdef _WIN32
-			zfs_rangelock_capture(new);
-#endif
 		} else if (!zfs_rangelock_enter_reader(rl, new, nonblock)) {
 			kmem_free(new, sizeof (*new));
 			new = NULL;
