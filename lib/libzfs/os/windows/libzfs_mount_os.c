@@ -245,7 +245,8 @@ do_mount(zfs_handle_t *zhp, const char *dir, const char *optptr, int mflag)
 			int skip;
 			remaining_path = dir;
 			skip = strlen(parent_mountpoint);
-			if (skip < strlen(dir))
+			if (skip < strlen(dir) &&
+			    strncmp(dir, parent_mountpoint, skip) == 0)
 				remaining_path = &dir[skip];
 #ifdef DEBUG
 			fprintf(stderr, "Skipping %d ('%s') of '%s' -> '%s'\n",
