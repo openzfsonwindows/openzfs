@@ -7377,7 +7377,15 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		vp->FileHeader.AllocationSize.QuadPart = newlength;
 		vp->FileHeader.FileSize.QuadPart = newlength;
-		vp->FileHeader.ValidDataLength.QuadPart = newlength;
+		/*
+		 * ValidDataLength is NOT advanced here.  Advancing it before
+		 * CcCopyWrite returns causes the cache manager to issue a
+		 * paging read for the new (not yet written) region so it can
+		 * do a read-modify-write.  That paging read reaches DMU where
+		 * the dnode may still have dn_datablkshift==0 (uninitialized
+		 * block size), triggering zfs_panic_recover.  VDL is advanced
+		 * only after the data actually reaches ZFS (see below).
+		 */
 
 		dprintf("AllocationSize = %I64x\n",
 		    vp->FileHeader.AllocationSize.QuadPart);
@@ -7415,6 +7423,9 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			}
 
 			if (IrpSp->MinorFunction & IRP_MN_MDL) {
+				if (changed_length)
+					vp->FileHeader.ValidDataLength.QuadPart =
+					    newlength;
 				CcPrepareMdlWrite(FileObject, &offset, *length,
 				    &Irp->MdlAddress, &Irp->IoStatus);
 
@@ -7522,6 +7533,31 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (!NT_SUCCESS(Status)) {
 		dprintf("zfs_write returned %08lx\n", Status);
 		goto end;
+	}
+
+	/*
+	 * Advance ValidDataLength to cover the bytes just committed to ZFS.
+	 * This is especially important for paging writes flushed from the
+	 * cache after a cached-write that extended the file: the cached-write
+	 * path deliberately left ValidDataLength at the pre-extension value so
+	 * that paging reads during CcCopyWrite zero-filled the new region
+	 * (avoiding DMU access on an uninitialized dnode).  Now that ZFS has
+	 * the data, VDL can catch up and paging reads will be served from ZFS.
+	 */
+	if (paging_io && !pagefile && FileObject &&
+	    FileObject->PrivateCacheMap) {
+		uint64_t new_end = off64 + (uint64_t)(*length);
+		if (new_end > vp->FileHeader.ValidDataLength.QuadPart) {
+			vp->FileHeader.ValidDataLength.QuadPart = new_end;
+			CC_FILE_SIZES ccfs;
+			ccfs.AllocationSize = vp->FileHeader.AllocationSize;
+			ccfs.FileSize = vp->FileHeader.FileSize;
+			ccfs.ValidDataLength = vp->FileHeader.ValidDataLength;
+			try {
+				CcSetFileSizes(FileObject, &ccfs);
+			} except(EXCEPTION_EXECUTE_HANDLER) {
+			}
+		}
 	}
 
 	// gethrestime(&now);
