@@ -1548,6 +1548,20 @@ zfs_grow_blocksize(znode_t *zp, uint64_t size, dmu_tx_t *tx)
 	if (zp->z_blksz && zp->z_size > zp->z_blksz)
 		return;
 
+	/*
+	 * dmu_buf_hold_array_by_dnode() treats any dnode with
+	 * dn_datablkshift==0 as a fixed-size single-block object (used for
+	 * SA spill blocks etc.) and panics if offset+length > dn_datablksz.
+	 * dn_datablkshift is zero whenever dn_datablksz is not a power of 2,
+	 * which happens when dnode_set_blksz() is called with a 512-aligned
+	 * but non-power-of-2 size (e.g. 7680 = 15×512).  File data blocks
+	 * must be power-of-2 so that the multi-block addressing path works.
+	 * Round up to the next power of 2 before requesting the block size.
+	 */
+	if (!ISP2(size))
+		size = 1ULL << highbit64(size);
+	size = MIN(size, (uint64_t)zp->z_zfsvfs->z_max_blksz);
+
 	error = dmu_object_set_blocksize(zp->z_zfsvfs->z_os,
 	    zp->z_id,
 	    size, 0, tx);
