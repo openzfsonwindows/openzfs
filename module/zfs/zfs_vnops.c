@@ -988,6 +988,20 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 			zfs_grow_blocksize(zp, blksz, tx);
 			zfs_rangelock_reduce(lr, woff, n);
 		}
+#ifdef _WIN32
+		else if (zp->z_blksz != 0 && !ISP2(zp->z_blksz) &&
+		    woff + nbytes > zp->z_blksz) {
+			/*
+			 * Pre-existing non-power-of-2 block (dn_datablkshift==0),
+			 * created before the ISP2 rounding fix in zfs_grow_blocksize.
+			 * Windows paging writes arrive via RL_WRITER and bypass the
+			 * lr_length==UINT64_MAX grow path above.  Heal the block now
+			 * to prevent the "accessing past end of object" panic in
+			 * dmu_buf_hold_array_by_dnode.
+			 */
+			zfs_grow_blocksize(zp, woff + nbytes, tx);
+		}
+#endif
 
 		dmu_flags_t dflags = DMU_READ_PREFETCH;
 		if (ioflag & O_DIRECT)

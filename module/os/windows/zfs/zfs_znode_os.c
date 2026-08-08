@@ -1538,7 +1538,7 @@ zfs_grow_blocksize(znode_t *zp, uint64_t size, dmu_tx_t *tx)
 	int		error;
 	u_longlong_t	dummy;
 
-	if (size <= zp->z_blksz)
+	if (size <= zp->z_blksz && ISP2(zp->z_blksz))
 		return;
 	/*
 	 * If the file size is already greater than the current blocksize,
