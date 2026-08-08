@@ -1544,23 +1544,43 @@ zfs_grow_blocksize(znode_t *zp, uint64_t size, dmu_tx_t *tx)
 	 * If the file size is already greater than the current blocksize,
 	 * we will not grow.  If there is more than one block in a file,
 	 * the blocksize cannot change.
+	 *
+	 * Exception: when z_blksz is not a power of 2, dn_datablkshift==0
+	 * and the dnode is stuck in single-block mode.  Any write past
+	 * dn_datablksz will panic in dmu_buf_hold_array_by_dnode.  Bypass
+	 * the guard so we can heal those dnodes; dnode_set_blksz() returns
+	 * ENOTSUP if the file genuinely has more than one block.
+	 *
+	 * On Windows, z_size is pre-advanced in the changed_length block
+	 * before the data reaches ZFS (needed for Cache Manager coherency),
+	 * so z_size > z_blksz is true even for single-block files during
+	 * the paging-write flush.  Only skip the resize when z_blksz is
+	 * already a healthy power-of-2 — multi-block addressing will work.
 	 */
-	if (zp->z_blksz && zp->z_size > zp->z_blksz)
+	if (zp->z_blksz && zp->z_size > zp->z_blksz && ISP2(zp->z_blksz))
 		return;
 
 	/*
-	 * dmu_buf_hold_array_by_dnode() treats any dnode with
-	 * dn_datablkshift==0 as a fixed-size single-block object (used for
-	 * SA spill blocks etc.) and panics if offset+length > dn_datablksz.
-	 * dn_datablkshift is zero whenever dn_datablksz is not a power of 2,
-	 * which happens when dnode_set_blksz() is called with a 512-aligned
-	 * but non-power-of-2 size (e.g. 7680 = 15×512).  File data blocks
-	 * must be power-of-2 so that the multi-block addressing path works.
-	 * Round up to the next power of 2 before requesting the block size.
+	 * Block sizes for file data must be a power of 2 so that
+	 * dmu_buf_hold_array_by_dnode() can address multiple blocks via
+	 * dn_datablkshift.  Round up to the next power of 2.
+	 *
+	 * When healing a pre-existing non-power-of-2 block, the target
+	 * must be at least as large as the current block to avoid
+	 * truncating data already written there.  Do not cap at z_max_blksz
+	 * in the healing case: the block already exceeds it, and
+	 * dnode_set_blksz() enforces the pool's hard ceiling via
+	 * spa_maxblocksize.
 	 */
 	if (!ISP2(size))
 		size = 1ULL << highbit64(size);
-	size = MIN(size, (uint64_t)zp->z_zfsvfs->z_max_blksz);
+	if (zp->z_blksz && !ISP2(zp->z_blksz))
+		size = MAX(size, 1ULL << highbit64(zp->z_blksz));
+	else
+		size = MIN(size, (uint64_t)zp->z_zfsvfs->z_max_blksz);
+
+	if (size <= zp->z_blksz)
+		return;
 
 	error = dmu_object_set_blocksize(zp->z_zfsvfs->z_os,
 	    zp->z_id,
