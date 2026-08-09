@@ -7424,8 +7424,8 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 			if (IrpSp->MinorFunction & IRP_MN_MDL) {
 				if (changed_length)
-					vp->FileHeader.ValidDataLength.QuadPart =
-					    newlength;
+					vp->FileHeader.ValidDataLength
+					    .QuadPart = newlength;
 				CcPrepareMdlWrite(FileObject, &offset, *length,
 				    &Irp->MdlAddress, &Irp->IoStatus);
 
