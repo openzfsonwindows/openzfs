@@ -7460,6 +7460,31 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 
 		if (changed_length) {
+			/*
+			 * CcCopyWrite has committed the data to the cache.
+			 * Advance ValidDataLength now: VDL was held at its old
+			 * value during CcCopyWrite so that any cache-fill paging
+			 * read for the new region would zero-fill (above-VDL)
+			 * rather than reach ZFS while the dnode block size is
+			 * still uninitialized.  Now that the user data is in the
+			 * cache it is safe to advance VDL so that subsequent
+			 * readers get the written data via CcCopyRead instead of
+			 * zeros.
+			 */
+			if (NT_SUCCESS(Status)) {
+				CC_FILE_SIZES ccfs;
+				vp->FileHeader.ValidDataLength.QuadPart =
+				    newlength;
+				ccfs.AllocationSize =
+				    vp->FileHeader.AllocationSize;
+				ccfs.FileSize = vp->FileHeader.FileSize;
+				ccfs.ValidDataLength =
+				    vp->FileHeader.ValidDataLength;
+				try {
+					CcSetFileSizes(FileObject, &ccfs);
+				} except(EXCEPTION_EXECUTE_HANDLER) {
+				}
+			}
 
 			if (zp->z_pflags & ZFS_XATTR) {
 				zfs_send_notify_stream(zp->z_zfsvfs,
@@ -7537,18 +7562,21 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	/*
 	 * Advance ValidDataLength to cover the bytes just committed to ZFS.
-	 * This is especially important for paging writes flushed from the
-	 * cache after a cached-write that extended the file: the cached-write
-	 * path deliberately left ValidDataLength at the pre-extension value so
-	 * that paging reads during CcCopyWrite zero-filled the new region
-	 * (avoiding DMU access on an uninitialized dnode).  Now that ZFS has
-	 * the data, VDL can catch up and paging reads will be served from ZFS.
+	 *
+	 * Paging write: dirty pages flushed from the cache after a
+	 * cached-write that extended the file.  The cached-write path
+	 * advances VDL immediately after CcCopyWrite (see above), so
+	 * this block is now a safety net for any paging write whose VDL
+	 * was not yet advanced.
+	 *
+	 * Direct (no-cache) write: the cached-write path was bypassed
+	 * entirely, so VDL was never advanced.  Update it here so that
+	 * subsequent reads (which also clip against VDL) see the data.
 	 */
-	if (paging_io && !pagefile && FileObject &&
-	    FileObject->PrivateCacheMap) {
-		uint64_t new_end = off64 + (uint64_t)(*length);
-		if (new_end > vp->FileHeader.ValidDataLength.QuadPart) {
-			vp->FileHeader.ValidDataLength.QuadPart = new_end;
+	if (!pagefile && FileObject && changed_length &&
+	    newlength > (uint64_t)vp->FileHeader.ValidDataLength.QuadPart) {
+		vp->FileHeader.ValidDataLength.QuadPart = newlength;
+		if (FileObject->PrivateCacheMap) {
 			CC_FILE_SIZES ccfs;
 			ccfs.AllocationSize = vp->FileHeader.AllocationSize;
 			ccfs.FileSize = vp->FileHeader.FileSize;
