@@ -329,9 +329,6 @@ zfs_log_session_create(int argc, char **argv)
 			LOGGER_SESSION, OPEN_ZFS_GUID, flags.c_str(),
 			levels.c_str(), size_in_mb, etl_file.c_str());
 
-		/* sanitize */
-		sanitize(command);
-
 		ret = system(command);
 		if (ret != 0)
 			fprintf(stderr, "There is an issue creating the "
@@ -369,6 +366,10 @@ perf_counters(char *inf_path, int type)
 	else if (path.is_relative())
 		final_path = get_cwd() + std::string("\\") + std::string(
 			driver_path) + MANIFEST_FILE;
+	else {
+		fprintf(stderr, "Cannot determine path type for %s\n", inf_path);
+		return (1);
+	}
 
 	char command[MAX_PATH_LEN] = { 0 };
 	switch (type)
@@ -445,7 +446,7 @@ main(int argc, char *argv[])
 			if (zed_service)
 				uninstall_zed();
 
-			int ret = zfs_uninstall(argv[2]);
+			ret = zfs_uninstall(argv[2]);
 			if (0 == ret)
 				ret = zvol_uninstall(argv[3]);
 			if (0 == ret)
@@ -669,8 +670,11 @@ installRootDevice(char *inf, bool IsServiceRunning, const char *rootdev)
 	failcode = 0;
 
 	// According to devcon we also have to Update now as well.
-	UpdateDriverForPlugAndPlayDevicesA(NULL, rootdev,
-		inf, flags, &reboot);
+	if (!UpdateDriverForPlugAndPlayDevicesA(NULL, rootdev, inf, flags,
+	    &reboot)) {
+		fprintf(stderr, "%s: UpdateDriverForPlugAndPlayDevicesA "
+		    "failed: %lu\n", __func__, GetLastError());
+	}
 
 	if (reboot) {
 		reboot_indicated = true;
@@ -695,42 +699,6 @@ Utf8ToWide(std::wstring &out, const char *in)
 		return (GetLastError());
 	out.assign(n - 1, L'\0');
 	MultiByteToWideChar(CP_UTF8, 0, in, -1, &out[0], n);
-	return (ERROR_SUCCESS);
-}
-
-static DWORD
-StageInfAndGetPublishedPath(const wchar_t *srcInfPath,
-	std::wstring &publishedFullPath)
-{
-	wchar_t dest[MAX_PATH] = {};
-	DWORD   destChars = _countof(dest);  // <-- value, not pointer
-	DWORD   required = 0;
-
-	BOOL ok = SetupCopyOEMInfW(srcInfPath,
-		nullptr,          // OEMSourceMediaLocation
-		SPOST_PATH,       // srcInfPath is a filesystem path
-		0,                // CopyStyle
-		dest,
-		destChars,        // <-- size by value
-		&required,        // <-- pointer for “needed”
-		nullptr);         // we don't need the component
-
-	if (!ok) {
-		DWORD err = GetLastError();
-		if (err == ERROR_INSUFFICIENT_BUFFER && required > 0) {
-			std::wstring big(required, L'\0');     // room for required chars
-			ok = SetupCopyOEMInfW(srcInfPath, nullptr, SPOST_PATH, 0,
-				(wchar_t *) big.data(), required, &required, nullptr);
-			if (!ok) return GetLastError();
-			big.resize(wcslen(big.c_str()));
-			publishedFullPath = std::move(big);    // full path to oemXX.inf
-			return (ERROR_SUCCESS);
-		}
-		return (err);
-	}
-
-	// Success path with fixed buffer
-	publishedFullPath.assign(dest);                // full path to oemXX.inf
 	return (ERROR_SUCCESS);
 }
 
@@ -855,6 +823,7 @@ installZVOLDevice(const char *infPathUtf8, BOOL /*ignored*/, const char * /*unus
 DWORD
 uninstallRootDevice(char *inf, const char *rootdev)
 {
+	(void)inf;
 	int failcode = 13;
 	HDEVINFO DeviceInfoSet = INVALID_HANDLE_VALUE;
 	SP_DEVINFO_DATA DeviceInfoData;
@@ -897,6 +866,8 @@ uninstallRootDevice(char *inf, const char *rootdev)
 				if (buffer) ZeroMemory(buffer, buffersize);
 			} else {
 				// Unknown Failure.
+				free(buffer);
+				buffer = NULL;
 				goto final;
 			}
 		}
@@ -1086,18 +1057,9 @@ zfs_install(char *inf_path)
 
 	error = executeInfSection("OpenZFS_Install 128 ", inf_path);
 
-	// Start driver service if not already running
-	char serviceName[] = "OpenZFS";
-	if (!error)
-		;//		error = startService(serviceName);
-	else
+	if (error)
 		fprintf(stderr, "Installation failed, skip "
 			"starting the service\r\n");
-
-	if (error == ERROR_SERVICE_ALREADY_RUNNING) {
-		IsServiceRunning = true;
-		error = 0;
-	}
 
 	if(!error)
 		error = installRootDevice(inf_path, IsServiceRunning, ZFS_ROOTDEV);
@@ -1233,14 +1195,11 @@ executeInfSection(const char *cmd, char *inf_path)
 	sprintf_s(buf, "%s%s", cmd, inf_path);
 	fprintf(stderr, "%s\n", buf);
 
-	mbstowcs_s(&sz, wc_buf, len, buf, MAX_PATH);
+	mbstowcs_s(&sz, wc_buf, _countof(wc_buf), buf, MAX_PATH);
 
-	InstallHinfSection(
-		NULL,
-		NULL,
-		wc_buf,
-		0
-	);
+	SetupSetNonInteractiveMode(TRUE);
+	InstallHinfSection(NULL, NULL, wc_buf, 0);
+	SetupSetNonInteractiveMode(FALSE);
 
 	return (error);
 }
