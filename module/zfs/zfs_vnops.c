@@ -662,6 +662,9 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_CTIME(zfsvfs), NULL,
 	    &ctime, 16);
 #endif
+#ifdef _WIN32
+	if (!(uio->uio_extflg & UIO_SKIP_SIZE_UPDATE))
+#endif
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_SIZE(zfsvfs), NULL,
 	    &zp->z_size, 8);
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_FLAGS(zfsvfs), NULL,
@@ -1104,6 +1107,9 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		 * partial progress, update the znode and ZIL accordingly.
 		 */
 		if (tx_bytes == 0) {
+#ifdef _WIN32
+			if (!(uio->uio_extflg & UIO_SKIP_SIZE_UPDATE))
+#endif
 			(void) sa_update(zp->z_sa_hdl, SA_ZPL_SIZE(zfsvfs),
 			    (void *)&zp->z_size, sizeof (uint64_t), tx);
 			dmu_tx_commit(tx);
@@ -1119,7 +1125,14 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		/*
 		 * Update the file size (zp_size) if it has changed;
 		 * account for possible concurrent updates.
+		 * On Windows, paging writes (cache-manager flushes) set
+		 * UIO_SKIP_SIZE_UPDATE so they never advance z_size: the
+		 * logical size was already established by the preceding
+		 * cached write via the changed_length block.
 		 */
+#ifdef _WIN32
+		if (!(uio->uio_extflg & UIO_SKIP_SIZE_UPDATE))
+#endif
 		while ((end_size = zp->z_size) < zfs_uio_offset(uio)) {
 			(void) atomic_cas_64(&zp->z_size, end_size,
 			    zfs_uio_offset(uio));

@@ -60,6 +60,7 @@ extern "C" {
 #define	UIO_DIRECT		(1ULL << 0)	/* Direct I/O request */
 #define	UIO_SKIP_CHANGETIME	(1ULL << 1)
 #define	UIO_SKIP_WRITETIME	(1ULL << 2)
+#define	UIO_SKIP_SIZE_UPDATE	(1ULL << 3)	/* skip z_size update */
 
 /*
  * I/O parameter information.  A uio structure describes the I/O which

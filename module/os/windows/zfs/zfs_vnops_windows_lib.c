@@ -3895,7 +3895,14 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (vnode_isdir(vp))
 		return (STATUS_INVALID_PARAMETER);
 
-	dprintf("* File_EndOfFile_Information:\n");
+	dprintf("set_file_eof: entry vp=%p cur_file_sz=%llx "
+	    "new_eof=%llx advance_only=%d\n",
+	    vp,
+	    (unsigned long long)vp->FileHeader.FileSize.QuadPart,
+	    (unsigned long long)
+	    ((FILE_END_OF_FILE_INFORMATION *)Irp->AssociatedIrp.SystemBuffer)
+	    ->EndOfFile.QuadPart,
+	    (int)advance_only);
 
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
 		return (error);
@@ -3934,7 +3941,9 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			goto end;
 		}
 
-		dprintf("truncating file to %I64x bytes\n", new_end_of_file);
+		dprintf("set_file_eof: TRUNCATE vp=%p old=%llx new=%llx\n",
+		    vp, (unsigned long long)zp->z_size,
+		    (unsigned long long)new_end_of_file);
 
 		if (!MmCanFileBeTruncated(
 		    &vp->SectionObjectPointers,
@@ -4732,6 +4741,8 @@ set_file_position_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_INVALID_PARAMETER);
 
 	IrpSp->FileObject->CurrentByteOffset = fpi->CurrentByteOffset;
+	dprintf("   New CurrentByteOffset: %I64u\n",
+	    fpi->CurrentByteOffset.QuadPart);
 	return (STATUS_SUCCESS);
 }
 
@@ -5526,6 +5537,66 @@ file_stat_lx_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		fsli->LxDeviceIdMajor = 0;
 		fsli->LxDeviceIdMinor = 0;
 	}
+	return (STATUS_SUCCESS);
+}
+
+NTSTATUS
+file_stat_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp, FILE_STAT_BASIC_INFORMATION *fsbi)
+{
+	PFILE_OBJECT FileObject = IrpSp->FileObject;
+
+	dprintf("   %s\n", __func__);
+
+	struct vnode *vp = FileObject->FsContext;
+	if (vp == NULL)
+		return (STATUS_SUCCESS);
+
+	znode_t *zp = VTOZ(vp);
+	if (zp == NULL)
+		return (STATUS_SUCCESS);
+
+	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+
+	if (zp->z_is_sa) {
+		sa_bulk_attr_t bulk[3];
+		int count = 0;
+		uint64_t mtime[2];
+		uint64_t ctime[2];
+		uint64_t crtime[2];
+		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_MTIME(zfsvfs),
+		    NULL, &mtime, 16);
+		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_CTIME(zfsvfs),
+		    NULL, &ctime, 16);
+		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_CRTIME(zfsvfs),
+		    NULL, &crtime, 16);
+		sa_bulk_lookup(zp->z_sa_hdl, bulk, count);
+
+		TIME_UNIX_TO_WINDOWS(crtime, fsbi->CreationTime.QuadPart);
+		TIME_UNIX_TO_WINDOWS(zp->z_atime,
+		    fsbi->LastAccessTime.QuadPart);
+		TIME_UNIX_TO_WINDOWS(mtime, fsbi->LastWriteTime.QuadPart);
+		TIME_UNIX_TO_WINDOWS(ctime, fsbi->ChangeTime.QuadPart);
+	}
+
+	fsbi->FileId.QuadPart = zp->z_id;
+	fsbi->AllocationSize.QuadPart = allocationsize(zp);
+	fsbi->EndOfFile.QuadPart = zp->z_size;
+	fsbi->FileAttributes =
+	    zfs_getwinflags(zp->z_pflags, vnode_isdir(vp));
+	fsbi->ReparseTag = get_reparse_tag(zp);
+	fsbi->NumberOfLinks = DIR_LINKS(zp);
+	fsbi->DeviceType = FILE_DEVICE_DISK;
+	fsbi->DeviceCharacteristics = FILE_DEVICE_IS_MOUNTED;
+	fsbi->Reserved = 0;
+	fsbi->VolumeSerialNumber.QuadPart = 0x19831116;
+
+	RtlCopyMemory(&fsbi->FileId128.Identifier[0], &zp->z_id,
+	    sizeof (UINT64));
+	uint64_t guid = dmu_objset_fsid_guid(zfsvfs->z_os);
+	RtlCopyMemory(&fsbi->FileId128.Identifier[sizeof (UINT64)],
+	    &guid, sizeof (UINT64));
+
 	return (STATUS_SUCCESS);
 }
 

@@ -39,6 +39,7 @@ extern PDEVICE_OBJECT fsDiskDeviceObject;
 
 #define	SKIP_CHANGE_TIME	(UIO_SKIP_CHANGETIME)
 #define	SKIP_WRITE_TIME		(UIO_SKIP_WRITETIME)
+#define	SKIP_SIZE_UPDATE	(UIO_SKIP_SIZE_UPDATE)
 
 // We have to remember "query directory" related items, like index and
 // search pattern. This is attached in IRP_MJ_CREATE to fscontext2
@@ -279,6 +280,31 @@ extern NTSTATUS file_stat_information(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION,
 	FILE_STAT_INFORMATION *);
 extern NTSTATUS file_stat_lx_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION,	FILE_STAT_LX_INFORMATION *);
+/*
+ * FILE_STAT_BASIC_INFORMATION was added in WDK for Win11 22H2 (NTDDI_WIN11_ZN).
+ * Define it ourselves when the build targets an older SDK.
+ */
+#if !defined(NTDDI_WIN11_ZN) || (NTDDI_VERSION < NTDDI_WIN11_ZN)
+typedef struct _FILE_STAT_BASIC_INFORMATION {
+	LARGE_INTEGER FileId;
+	LARGE_INTEGER CreationTime;
+	LARGE_INTEGER LastAccessTime;
+	LARGE_INTEGER LastWriteTime;
+	LARGE_INTEGER ChangeTime;
+	LARGE_INTEGER AllocationSize;
+	LARGE_INTEGER EndOfFile;
+	ULONG FileAttributes;
+	ULONG ReparseTag;
+	ULONG NumberOfLinks;
+	ULONG DeviceType;
+	ULONG DeviceCharacteristics;
+	ULONG Reserved;
+	LARGE_INTEGER VolumeSerialNumber;
+	FILE_ID_128 FileId128;
+} FILE_STAT_BASIC_INFORMATION, *PFILE_STAT_BASIC_INFORMATION;
+#endif
+extern NTSTATUS file_stat_basic_information(PDEVICE_OBJECT, PIRP,
+    PIO_STACK_LOCATION,	FILE_STAT_BASIC_INFORMATION *);
 extern NTSTATUS file_name_information(PDEVICE_OBJECT, PIRP, PIO_STACK_LOCATION,
 	FILE_NAME_INFORMATION *, PULONG usedspace, int normalize);
 extern NTSTATUS file_remote_protocol_information(PDEVICE_OBJECT, PIRP,

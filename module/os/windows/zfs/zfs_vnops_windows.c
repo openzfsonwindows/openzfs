@@ -125,6 +125,8 @@ ZFS_MODULE_RAW(zfs, disable_wincache, zfs_disable_wincache,
 #endif
 
 extern void UnlockAndFreeMdl(PMDL);
+
+
 void CcSetAdditionalCacheAttributesEx(
 	[in] PFILE_OBJECT FileObject,
 	[in] ULONG Flags
@@ -413,9 +415,21 @@ zfs_couplefileobject(vnode_t *vp, vnode_t *dvp, FILE_OBJECT *fileobject,
 		a = P2ROUNDUP(zp->z_size, zp->z_blksz);
 	}
 
-	vp->FileHeader.AllocationSize.QuadPart = alloc ? alloc : a;
-	vp->FileHeader.FileSize.QuadPart = s;
-	vp->FileHeader.ValidDataLength.QuadPart = s;
+	/*
+	 * Never decrease FileSize or VDL on an open.  zp->z_size reflects
+	 * committed (paged-out) data while FileSize tracks the full extent
+	 * that the cache manager knows about.  Clamping to zp->z_size would
+	 * shrink FileSize below cached dirty pages, causing the next paging
+	 * flush to fire changed_length=TRUE and produce a spurious extension.
+	 */
+	uint64_t cur_fs = (uint64_t)vp->FileHeader.FileSize.QuadPart;
+	uint64_t new_fs = (s > cur_fs) ? s : cur_fs;
+	uint64_t new_alloc = alloc ? alloc : a;
+	if (new_alloc < new_fs)
+		new_alloc = new_fs;
+	vp->FileHeader.AllocationSize.QuadPart = new_alloc;
+	vp->FileHeader.FileSize.QuadPart = new_fs;
+	vp->FileHeader.ValidDataLength.QuadPart = new_fs;
 
 #ifdef ZFS_HAVE_FASTIO
 	vp->FileHeader.IsFastIoPossible = fast_io_possible(vp);
@@ -3965,6 +3979,19 @@ query_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    Irp->AssociatedIrp.SystemBuffer);
 		Irp->IoStatus.Information = sizeof (FILE_STAT_LX_INFORMATION);
 		break;
+	case FileStatBasicInformation:
+		if (IrpSp->Parameters.QueryFile.Length <
+		    sizeof (FILE_STAT_BASIC_INFORMATION)) {
+			Irp->IoStatus.Information =
+			    sizeof (FILE_STAT_BASIC_INFORMATION);
+			Status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		Status = file_stat_basic_information(DeviceObject, Irp, IrpSp,
+		    Irp->AssociatedIrp.SystemBuffer);
+		Irp->IoStatus.Information =
+		    sizeof (FILE_STAT_BASIC_INFORMATION);
+		break;
 	default:
 		dprintf("* %s: unknown class 0x%x NOT IMPLEMENTED\n", __func__,
 		    IrpSp->Parameters.QueryFile.FileInformationClass);
@@ -5011,50 +5038,49 @@ out:
 	return (SET_ERROR(Status));
 }
 
-/*
- * Thought this was needed for clone, but it is not
- * but keeping it around in case one day we will need it
- */
-#if 0
 #ifndef FILE_REGION_INFO
 typedef struct _FILE_REGION_INFO {
-    LONGLONG FileOffset;
-    LONGLONG Length;
-    ULONG Usage;
-    ULONG Reserved;
+	LONGLONG FileOffset;
+	LONGLONG Length;
+	ULONG Usage;
+	ULONG Reserved;
 } FILE_REGION_INFO, *PFILE_REGION_INFO;
 #endif
 
 #ifndef FILE_REGION_OUTPUT
 typedef struct _FILE_REGION_OUTPUT {
-    ULONG Flags;
-    ULONG TotalRegionEntryCount;
-    ULONG RegionEntryCount;
-    ULONG Reserved;
-    FILE_REGION_INFO Region[1];
+	ULONG Flags;
+	ULONG TotalRegionEntryCount;
+	ULONG RegionEntryCount;
+	ULONG Reserved;
+	FILE_REGION_INFO Region[1];
 } FILE_REGION_OUTPUT, *PFILE_REGION_OUTPUT;
 #endif
 
 #ifndef FILE_REGION_USAGE_VALID_CACHED_DATA
 #define	FILE_REGION_USAGE_VALID_CACHED_DATA	0x00000001
 #endif
-#endif
 
 NTSTATUS
 query_file_regions(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
 {
-#if 0
-	uint64_t inlen = IrpSp->Parameters.DeviceIoControl.InputBufferLength;
-	uint64_t outlen = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+	uint64_t inlen =
+	    IrpSp->Parameters.FileSystemControl.InputBufferLength;
+	uint64_t outlen =
+	    IrpSp->Parameters.FileSystemControl.OutputBufferLength;
 
 	if (!IrpSp->FileObject)
 		return (STATUS_INVALID_PARAMETER);
 
-	if (Irp->AssociatedIrp.SystemBuffer != NULL &&
-	    inlen < sizeof (FILE_REGION_INFO)) {
+	/*
+	 * Input is optional.  Only validate size when the caller
+	 * actually provides an input buffer (inlen > 0).  For
+	 * METHOD_BUFFERED, SystemBuffer is always allocated regardless
+	 * of inlen, so we cannot use its NULL-ness to detect input.
+	 */
+	if (inlen > 0 && inlen < sizeof (FILE_REGION_INFO))
 		return (STATUS_BUFFER_TOO_SMALL);
-	}
 
 	if (Irp->AssociatedIrp.SystemBuffer == NULL ||
 	    outlen < sizeof (FILE_REGION_OUTPUT)) {
@@ -5070,39 +5096,43 @@ query_file_regions(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zp == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
-	if (inlen == 0) {
-
-	} else {
+	/*
+	 * If the caller supplies an input region filter, validate it.
+	 * Save the values now because writing the output reuses the
+	 * same SystemBuffer (METHOD_BUFFERED).
+	 */
+	LONGLONG filter_offset = 0;
+	LONGLONG filter_length =
+	    (LONGLONG)vp->FileHeader.ValidDataLength.QuadPart;
+	if (inlen > 0) {
 		FILE_REGION_INFO *fri =
 		    (FILE_REGION_INFO *)Irp->AssociatedIrp.SystemBuffer;
-		if (fri->FileOffset > INT64_MAX || fri->Length > INT64_MAX)
+		if ((ULONGLONG)fri->FileOffset > (ULONGLONG)INT64_MAX ||
+		    (ULONGLONG)fri->Length > (ULONGLONG)INT64_MAX)
 			return (STATUS_INVALID_PARAMETER);
 		if ((fri->FileOffset + fri->Length) > INT64_MAX)
 			return (STATUS_INVALID_PARAMETER);
 		if ((fri->Usage & 3) == 0)
 			return (STATUS_INVALID_PARAMETER);
-		fri->Reserved = 0;
+		filter_offset = fri->FileOffset;
+		filter_length = fri->Length;
 	}
-
 
 	FILE_REGION_OUTPUT *fro =
 	    (FILE_REGION_OUTPUT *)Irp->AssociatedIrp.SystemBuffer;
 
 	fro->Flags = 0;
 	fro->TotalRegionEntryCount = 1;
-	fro->RegionEntryCount = 0;
+	fro->RegionEntryCount = 1;
 	fro->Reserved = 0;
 
-	Irp->IoStatus.Information = sizeof (FILE_REGION_OUTPUT);
-	fro->RegionEntryCount = 1;
-	fro->Region[0].FileOffset = 0;
-	fro->Region[0].Length = zp->z_size;
+	fro->Region[0].FileOffset = filter_offset;
+	fro->Region[0].Length = filter_length;
 	fro->Region[0].Usage = FILE_REGION_USAGE_VALID_CACHED_DATA;
 	fro->Region[0].Reserved = 0;
 
+	Irp->IoStatus.Information = sizeof (FILE_REGION_OUTPUT);
 	return (STATUS_SUCCESS);
-#endif
-	return (STATUS_INVALID_PARAMETER);
 }
 
 #ifndef OPLOCK_LEVEL_CACHE_NONE
@@ -7068,11 +7098,17 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 update:
 	if (FileObject->Flags & FO_SYNCHRONOUS_IO &&
-	    !(Irp->Flags & IRP_PAGING_IO))
+	    !(Irp->Flags & IRP_PAGING_IO)) {
+
+
+		dprintf("updating file offset from %llx to %llx\n",
+		    FileObject->CurrentByteOffset.QuadPart,
+		    IrpSp->Parameters.Read.ByteOffset.QuadPart +
+		    (NT_SUCCESS(Status) ? bytes_read : 0));
 		FileObject->CurrentByteOffset.QuadPart =
 		    IrpSp->Parameters.Read.ByteOffset.QuadPart +
 		    (NT_SUCCESS(Status) ? bytes_read : 0);
-
+	}
 end:
 	switch (Status) {
 	case 0:
@@ -7169,8 +7205,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	NTSTATUS Status;
 	vnode_t *vp;
 	zfs_ccb_t *ccb;
-	boolean_t paging_lock = FALSE, acquired_vp_lock = FALSE,
-	    pagefile;
+	boolean_t paging_lock = FALSE, acquired_vp_lock = FALSE, pagefile;
 	ULONG filter = 0;
 
 	if (*length == 0) {
@@ -7197,14 +7232,41 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_INVALID_DEVICE_REQUEST);
 	}
 
-	if (offset.LowPart == FILE_WRITE_TO_END_OF_FILE &&
-	    offset.HighPart == -1)
-		offset = vp->FileHeader.FileSize;
+	boolean_t eof_write = (offset.LowPart == FILE_WRITE_TO_END_OF_FILE &&
+	    offset.HighPart == -1);
 
-	off64 = offset.QuadPart;
+	if (eof_write) {
+		/*
+		 * Reserve a sequential write slot before CcCanIWrite so that
+		 * concurrent EOF writes from multiple connections get unique,
+		 * non-overlapping offsets even before any call CcSetFileSizes.
+		 * Stamp ByteOffset now so a STATUS_PENDING retry uses the same
+		 * slot rather than re-resolving -1 against a stale FileSize.
+		 */
+		KeWaitForSingleObject(&vp->z_eof_mutex, Executive,
+		    KernelMode, FALSE, NULL);
+		LONGLONG cur_sz = vp->FileHeader.FileSize.QuadPart;
+		LONGLONG pending = (LONGLONG)vp->z_eof_pending;
+		LONGLONG slot = (pending > cur_sz) ? pending : cur_sz;
+		vp->z_eof_pending = (uint64_t)(slot + *length);
+		offset.QuadPart = slot;
+		IrpSp->Parameters.Write.ByteOffset = offset;
+		KeReleaseMutex(&vp->z_eof_mutex, FALSE);
+		dprintf("zfs_write_wrap: eof slot=%llx cur_sz=%llx "
+		    "new_pending=%llx\n", slot, cur_sz, vp->z_eof_pending);
+	}
+
+	dprintf("zfs_write_wrap: raw_off=%llx len=%x "
+	    "file_sz=%llx paging=%d nocache=%d\n",
+	    offset.QuadPart, *length,
+	    vp->FileHeader.FileSize.QuadPart, paging_io, no_cache);
 
 	if (!no_cache && !CcCanIWrite(FileObject, *length, wait,
 	    deferred_write)) {
+		/*
+		 * Cache throttling.  ByteOffset was already stamped with the
+		 * reserved slot, so the retry lands at the correct offset.
+		 */
 		IoMarkIrpPending(Irp);
 		return (STATUS_PENDING);
 	}
@@ -7291,24 +7353,31 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 	} else {
 		/*
-		 * Non-paging write: acquire MainResource SHARED.
-		 * ZFS range locks serialise concurrent writers so EXCLUSIVE
-		 * is unnecessary and would block CREATE oplock checks.
-		 * Skip if the caller already holds EXCLUSIVE (stronger).
+		 * Non-paging write: acquire EXCLUSIVE if the write extends
+		 * the file (CcSetFileSizes must be atomic with CcCopyWrite),
+		 * SHARED otherwise.
 		 */
 		if (!ExIsResourceAcquiredExclusiveLite(
 		    vp->FileHeader.Resource)) {
-
-			if (!ExAcquireResourceSharedLite(
-			    vp->FileHeader.Resource, wait)) {
-				Status = STATUS_PENDING;
-				IoMarkIrpPending(Irp);
-				goto end;
+			boolean_t need_excl =
+			    (offset.QuadPart + (LONGLONG)*length >
+			    vp->FileHeader.FileSize.QuadPart);
+			if (need_excl) {
+				ExAcquireResourceExclusiveLite(
+				    vp->FileHeader.Resource, TRUE);
 			} else {
-				acquired_vp_lock = TRUE;
+				if (!ExAcquireResourceSharedLite(
+				    vp->FileHeader.Resource, wait)) {
+					Status = STATUS_PENDING;
+					IoMarkIrpPending(Irp);
+					goto end;
+				}
 			}
+			acquired_vp_lock = TRUE;
 		}
 	}
+
+	off64 = offset.QuadPart;
 
 	newlength = zp->z_size;
 
@@ -7320,12 +7389,30 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	 * may have extended the file in cache without updating zp->z_size.
 	 * Use ValidDataLength as the authoritative upper bound so dirty cache
 	 * pages written beyond the stale zp->z_size are not silently dropped.
+	 *
+	 * The same staleness applies to concurrent cached EOF writes: a
+	 * later-slot write that acquired the exclusive resource first may
+	 * have advanced FileHeader.FileSize before we got the lock.  If we
+	 * computed newlength purely from the stale zp->z_size we would set
+	 * FileSize smaller than it already is, causing CcSetFileSizes to
+	 * truncate the concurrent write's cache pages and lose that data.
 	 */
 	if (paging_io && !zp->z_unlinked) {
 		uint64_t vdl =
 		    (uint64_t)vp->FileHeader.ValidDataLength.QuadPart;
 		if (vdl > newlength)
 			newlength = vdl;
+	} else if (!paging_io && !zp->z_unlinked) {
+		uint64_t cur_sz = (uint64_t)vp->FileHeader.FileSize.QuadPart;
+		if (cur_sz > newlength) {
+			dprintf("zfs_write_wrap: [newlength-guard] "
+			    "zp_sz=%llx FileSize=%llx slot=%llx "
+			    "— would have shrunk, clamping\n",
+			    (unsigned long long)zp->z_size,
+			    (unsigned long long)cur_sz,
+			    (unsigned long long)off64);
+			newlength = cur_sz;
+		}
 	}
 
 	if (paging_io)
@@ -7378,14 +7465,15 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		vp->FileHeader.AllocationSize.QuadPart = newlength;
 		vp->FileHeader.FileSize.QuadPart = newlength;
 		/*
-		 * ValidDataLength is NOT advanced here.  Advancing it before
-		 * CcCopyWrite returns causes the cache manager to issue a
-		 * paging read for the new (not yet written) region so it can
-		 * do a read-modify-write.  That paging read reaches DMU where
-		 * the dnode may still have dn_datablkshift==0 (uninitialized
-		 * block size), triggering zfs_panic_recover.  VDL is advanced
-		 * only after the data actually reaches ZFS (see below).
+		 * Advance VDL to the new end now, before CcCopyWrite.
+		 * CcCopyWrite will immediately populate the cache pages,
+		 * satisfying any paging read the CM might issue for the
+		 * newly-valid region.  The dnode block-size is guaranteed
+		 * initialised by this point (z_blksz==0 guard in zfs_write).
+		 * Advancing here collapses the two CcSetFileSizes calls into
+		 * one, halving the latency for extending writes.
 		 */
+		vp->FileHeader.ValidDataLength.QuadPart = newlength;
 
 		dprintf("AllocationSize = %I64x\n",
 		    vp->FileHeader.AllocationSize.QuadPart);
@@ -7459,33 +7547,28 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			Status = GetExceptionCode();
 		}
 
-		if (changed_length) {
-			/*
-			 * CcCopyWrite has committed the data to the cache.
-			 * Advance ValidDataLength now: VDL was held at its old
-			 * value during CcCopyWrite so that any cache-fill paging
-			 * read for the new region would zero-fill (above-VDL)
-			 * rather than reach ZFS while the dnode block size is
-			 * still uninitialized.  Now that the user data is in the
-			 * cache it is safe to advance VDL so that subsequent
-			 * readers get the written data via CcCopyRead instead of
-			 * zeros.
-			 */
-			if (NT_SUCCESS(Status)) {
-				CC_FILE_SIZES ccfs;
-				vp->FileHeader.ValidDataLength.QuadPart =
-				    newlength;
-				ccfs.AllocationSize =
-				    vp->FileHeader.AllocationSize;
-				ccfs.FileSize = vp->FileHeader.FileSize;
-				ccfs.ValidDataLength =
-				    vp->FileHeader.ValidDataLength;
-				try {
-					CcSetFileSizes(FileObject, &ccfs);
-				} except(EXCEPTION_EXECUTE_HANDLER) {
-				}
+		/*
+		 * For pre-allocated files (changed_length=FALSE, FileSize
+		 * already at the pre-allocated size) VDL may still lag
+		 * behind the write end.  Advance it now if needed.
+		 * Extending writes already set VDL=newlength above, so for
+		 * them this block is a no-op.
+		 */
+		if (NT_SUCCESS(Status) &&
+		    newlength >
+		    (uint64_t)vp->FileHeader.ValidDataLength.QuadPart) {
+			CC_FILE_SIZES ccfs;
+			vp->FileHeader.ValidDataLength.QuadPart = newlength;
+			ccfs.AllocationSize = vp->FileHeader.AllocationSize;
+			ccfs.FileSize = vp->FileHeader.FileSize;
+			ccfs.ValidDataLength = vp->FileHeader.ValidDataLength;
+			try {
+				CcSetFileSizes(FileObject, &ccfs);
+			} except(EXCEPTION_EXECUTE_HANDLER) {
 			}
+		}
 
+		if (changed_length) {
 			if (zp->z_pflags & ZFS_XATTR) {
 				zfs_send_notify_stream(zp->z_zfsvfs,
 				    ccb->z_name_cache,
@@ -7546,6 +7629,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (paging_io) {
 		uio.uio_extflg |= SKIP_CHANGE_TIME;
 		uio.uio_extflg |= SKIP_WRITE_TIME;
+		uio.uio_extflg |= SKIP_SIZE_UPDATE;
 	} else {
 		if (ccb->user_set_change_time)
 			uio.uio_extflg |= SKIP_CHANGE_TIME;
@@ -7562,18 +7646,13 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	/*
 	 * Advance ValidDataLength to cover the bytes just committed to ZFS.
-	 *
-	 * Paging write: dirty pages flushed from the cache after a
-	 * cached-write that extended the file.  The cached-write path
-	 * advances VDL immediately after CcCopyWrite (see above), so
-	 * this block is now a safety net for any paging write whose VDL
-	 * was not yet advanced.
-	 *
-	 * Direct (no-cache) write: the cached-write path was bypassed
-	 * entirely, so VDL was never advanced.  Update it here so that
-	 * subsequent reads (which also clip against VDL) see the data.
+	 * Not gated on changed_length: paging writes (flushed from cache)
+	 * always have changed_length==FALSE, and writes into a pre-allocated
+	 * file also have changed_length==FALSE because FileSize was already
+	 * set.  Any write that advances past the current VDL must update it
+	 * so that subsequent reads are served from ZFS rather than zeroed.
 	 */
-	if (!pagefile && FileObject && changed_length &&
+	if (!pagefile && FileObject &&
 	    newlength > (uint64_t)vp->FileHeader.ValidDataLength.QuadPart) {
 		vp->FileHeader.ValidDataLength.QuadPart = newlength;
 		if (FileObject->PrivateCacheMap) {
@@ -7628,7 +7707,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	Status = STATUS_SUCCESS;
-	Irp->IoStatus.Information = *length;
+	Irp->IoStatus.Information = *length - (ULONG)zfs_uio_resid(&uio);
 
 	if (filter != 0) {
 		zfsvfs_t *zfsvfs = zp->z_zfsvfs;
@@ -7651,7 +7730,12 @@ end:
 	if (NT_SUCCESS(Status) && FileObject->Flags & FO_SYNCHRONOUS_IO &&
 	    !paging_io) {
 		FileObject->CurrentByteOffset.QuadPart =
-		    offset.QuadPart + (NT_SUCCESS(Status) ? *length : 0);
+		    offset.QuadPart + Irp->IoStatus.Information;
+		dprintf("zfs_write_wrap: CurrentByteOffset->%llx "
+		    "(wrote %lx of %lx)\n",
+		    (unsigned long long)
+		    FileObject->CurrentByteOffset.QuadPart,
+		    Irp->IoStatus.Information, *length);
 	}
 
 	if (paging_lock)
@@ -7668,6 +7752,7 @@ fs_write_impl(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp,
     boolean_t wait, boolean_t deferred_write)
 {
 	void *buf;
+	void *kbuf = NULL;
 	NTSTATUS Status;
 	LARGE_INTEGER offset = IrpSp->Parameters.Write.ByteOffset;
 	PFILE_OBJECT FileObject = IrpSp->FileObject;
@@ -7694,7 +7779,36 @@ fs_write_impl(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp,
 			Status = STATUS_INSUFFICIENT_RESOURCES;
 			goto exit;
 		}
+		/*
+		 * buf points to MDL-mapped user pages (or raw user VA).
+		 * Those pages are volatile: another CPU can overwrite them
+		 * while we hold locks or block inside CcCopyWrite.  Snapshot
+		 * into kernel memory before any blocking operation.
+		 * Skip paging I/O — CM buffers are stable for the write.
+		 *
+		 * Pin the copy in AssociatedIrp.SystemBuffer so it survives
+		 * a STATUS_PENDING deferral: the retry (do_write_job) will
+		 * reuse this snapshot instead of re-mapping the user buffer.
+		 * do_write_job frees it before IoCompleteRequest.
+		 */
+		if (buf && !(Irp->Flags & IRP_PAGING_IO)) {
+			kbuf = ExAllocatePoolWithTag(NonPagedPoolNx,
+			    IrpSp->Parameters.Write.Length, 'ZBFC');
+			if (!kbuf) {
+				Status = STATUS_INSUFFICIENT_RESOURCES;
+				goto exit;
+			}
+			RtlCopyMemory(kbuf, buf,
+			    IrpSp->Parameters.Write.Length);
+			buf = kbuf;
+			Irp->AssociatedIrp.SystemBuffer = kbuf;
+		}
 	} else {
+		/*
+		 * Either a true DO_BUFFERED_IO kernel copy (rare for an FSD),
+		 * or our saved snapshot from the first (deferred) call above.
+		 * Either way the buffer is stable.
+		 */
 		buf = Irp->AssociatedIrp.SystemBuffer;
 	}
 
@@ -7741,6 +7855,20 @@ fs_write_impl(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp,
 	}
 
 exit:
+	if (kbuf) {
+		if (Status == STATUS_PENDING) {
+			/*
+			 * IRP deferred to do_write_job worker thread.
+			 * kbuf stays in AssociatedIrp.SystemBuffer so
+			 * the retry sees stable data; do_write_job frees
+			 * it after the deferred write completes.
+			 */
+		} else {
+			/* Write done. Drop our kernel snapshot. */
+			ExFreePoolWithTag(kbuf, 'ZBFC');
+			Irp->AssociatedIrp.SystemBuffer = NULL;
+		}
+	}
 
 	return (Status);
 }
@@ -7908,6 +8036,16 @@ do_write_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 		dprintf("write_file returned %08lx\n", Status);
 
 	Irp->IoStatus.Status = Status;
+
+	/*
+	 * Free the kbuf snapshot saved in AssociatedIrp.SystemBuffer
+	 * during the initial dispatch.  Must happen before
+	 * IoCompleteRequest, which may free the IRP itself.
+	 */
+	if (Irp->AssociatedIrp.SystemBuffer) {
+		ExFreePoolWithTag(Irp->AssociatedIrp.SystemBuffer, 'ZBFC');
+		Irp->AssociatedIrp.SystemBuffer = NULL;
+	}
 
 	IoCompleteRequest(Irp, IO_NO_INCREMENT);
 
