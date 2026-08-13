@@ -11321,6 +11321,19 @@ fastio_check_if_possible(PFILE_OBJECT FileObject,
 		    &quadlen, LockKey, FileObject, PsGetCurrentProcess()))
 			return (TRUE);
 	} else {
+		/*
+		 * FsRtlCopyWrite may only copy into the range already
+		 * registered with the Cache Manager via CcSetFileSizes.
+		 * A write that extends the file must take the slow (IRP)
+		 * path so ZFS can grow FileHeader.FileSize/AllocationSize
+		 * and call CcSetFileSizes before any data is copied.  See
+		 * fastio_write().
+		 */
+		if (FileObject->PrivateCacheMap == NULL ||
+		    (uint64_t)FileOffset->QuadPart + Length >
+		    (uint64_t)vp->FileHeader.FileSize.QuadPart)
+			return (FALSE);
+
 		if (/*!vp->Vcb->readonly &&
 		    !is_subvol_readonly(vp->subvol, NULL) && */
 		    FsRtlFastCheckLockForWrite(&vp->lock, FileOffset,
@@ -11337,20 +11350,43 @@ fastio_write(PFILE_OBJECT FileObject, PLARGE_INTEGER FileOffset,
     PIO_STATUS_BLOCK IoStatus, PDEVICE_OBJECT DeviceObject)
 {
 	BOOLEAN ret;
+	vnode_t *vp;
+	znode_t *zp;
 
-	// treelock
+	if (FileObject == NULL || FileObject->FsContext == NULL ||
+	    FileObject->PrivateCacheMap == NULL)
+		return (FALSE);
+
+	vp = (vnode_t *)FileObject->FsContext;
+
+	/*
+	 * Hold FileHeader.Resource shared for the duration of the copy.
+	 * This is the same resource the slow path takes exclusively while
+	 * it grows FileSize/AllocationSize and calls CcSetFileSizes, so
+	 * this keeps FsRtlCopyWrite from racing a concurrent size change
+	 * (extension or truncation) that would otherwise corrupt the
+	 * Cache Manager's view of the section (BSOD MEMORY_MANAGEMENT in
+	 * MmMapViewInSystemCache).
+	 */
+	if (!ExAcquireResourceSharedLite(vp->FileHeader.Resource, Wait))
+		return (FALSE);
+
+	/*
+	 * Re-check under the lock: an extending write must go through the
+	 * slow (IRP) path, which grows FileSize/AllocationSize and calls
+	 * CcSetFileSizes before copying any data into the cache.
+	 */
+	if ((uint64_t)FileOffset->QuadPart + Length >
+	    (uint64_t)vp->FileHeader.FileSize.QuadPart) {
+		ExReleaseResourceLite(vp->FileHeader.Resource);
+		return (FALSE);
+	}
+
 	ret = FsRtlCopyWrite(FileObject, FileOffset, Length,
 	    Wait, LockKey, Buffer, IoStatus, DeviceObject);
 
-	/*
-	 * FsRtlCopyWrite extends the file in the Cache Manager but does not
-	 * update zp->z_size.  If it did extend the file, sync zp->z_size now
-	 * so that paging I/O from CcFlushCache is not treated as "beyond EOF"
-	 * and silently dropped in zfs_write_wrap.
-	 */
-	if (ret && FileObject->FsContext) {
-		vnode_t *vp = (vnode_t *)FileObject->FsContext;
-		znode_t *zp = VTOZ(vp);
+	if (ret) {
+		zp = VTOZ(vp);
 		if (zp) {
 			uint64_t new_end =
 			    (uint64_t)FileOffset->QuadPart + Length;
@@ -11358,6 +11394,8 @@ fastio_write(PFILE_OBJECT FileObject, PLARGE_INTEGER FileOffset,
 				zp->z_size = new_end;
 		}
 	}
+
+	ExReleaseResourceLite(vp->FileHeader.Resource);
 
 	return (ret);
 }
