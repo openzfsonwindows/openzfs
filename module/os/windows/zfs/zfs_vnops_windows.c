@@ -10194,6 +10194,97 @@ _Function_class_(DRIVER_DISPATCH)
 }
 
 /*
+ * NTFS mangles filenames when redirecting a CREATE through one of its own
+ * on-disk IO_REPARSE_TAG_MOUNT_POINT reparse points -- which is what
+ * happens whenever a pool is mounted at a folder path rather than a drive
+ * letter (see zfs_vnops_windows_mount.c, justDriveLetter == B_FALSE).
+ * NtfsFindStartingNode uppercases the whole path to compute a lookup hash,
+ * then reverts the portion before the reparse point back to its original
+ * case -- but leaves the portion after the reparse point (the part
+ * actually forwarded to us as the new IRP's FileName) uppercased.  For a
+ * case-sensitive dataset this makes every lookup through a folder mount
+ * fail; for a case-insensitive/mixed dataset it still resolves but
+ * returns/creates the wrong case.
+ *
+ * Windows 7+ attaches an undocumented Extra Create Parameter (ECP) of type
+ * IopSymlinkECPGuid to the reparsed IRP, which carries the original-case
+ * path from before NTFS mangled it.  This recovers the original-case tail
+ * from that ECP and overwrites FileObject->FileName's tail in place before
+ * we ever use it for lookup.  It is a no-op (returns FALSE) whenever the
+ * ECP or the MountPoint flag isn't present, so it never affects
+ * drive-letter mounts or ordinary (non-reparsed) opens.
+ *
+ * IopSymlinkECPGuid and SYMLINK_ECP_CONTEXT are undocumented by Microsoft;
+ * both are reverse-engineered, sourced from a WinBtrfs contributor's
+ * write-up of this exact NTFS behaviour.
+ */
+static const GUID IopSymlinkECPGuid = {
+	0x73d5118a, 0x88ba, 0x439f,
+	{ 0x92, 0xf4, 0x46, 0xd3, 0x89, 0x52, 0xd2, 0x50 }
+};
+
+typedef struct _SYMLINK_ECP_CONTEXT {
+	USHORT UnparsedNameLength;
+	union {
+		USHORT Flags;
+		struct {
+			USHORT MountPoint : 1;
+		};
+	};
+	USHORT DeviceNameLength;
+	USHORT Zero;
+	struct _SYMLINK_ECP_CONTEXT *Reparsed;
+	UNICODE_STRING Name;
+} SYMLINK_ECP_CONTEXT;
+
+static BOOLEAN
+zfs_revert_reparsed_case(PIRP Irp)
+{
+	PECP_LIST EcpList;
+	SYMLINK_ECP_CONTEXT *EcpContext;
+	PUNICODE_STRING FileName;
+	USHORT UnparsedNameLength, FileNameLength, NameLength;
+	UNICODE_STRING us1, us2;
+
+	if (!NT_SUCCESS(FsRtlGetEcpListFromIrp(Irp, &EcpList)) ||
+	    EcpList == NULL)
+		return (FALSE);
+
+	if (!NT_SUCCESS(FsRtlFindExtraCreateParameter(EcpList,
+	    &IopSymlinkECPGuid, (void **)&EcpContext, NULL)))
+		return (FALSE);
+
+	if (FsRtlIsEcpFromUserMode(EcpContext) || !EcpContext->MountPoint)
+		return (FALSE);
+
+	UnparsedNameLength = EcpContext->UnparsedNameLength;
+	if (UnparsedNameLength == 0)
+		return (FALSE);
+
+	FileName = &IoGetCurrentIrpStackLocation(Irp)->FileObject->FileName;
+	FileNameLength = FileName->Length;
+	NameLength = EcpContext->Name.Length;
+
+	if (UnparsedNameLength > NameLength ||
+	    UnparsedNameLength > FileNameLength)
+		return (FALSE);
+
+	us1.Length = us1.MaximumLength = UnparsedNameLength;
+	us1.Buffer = (PWSTR)RtlOffsetToPointer(FileName->Buffer,
+	    FileNameLength - UnparsedNameLength);
+
+	us2.Length = us2.MaximumLength = UnparsedNameLength;
+	us2.Buffer = (PWSTR)RtlOffsetToPointer(EcpContext->Name.Buffer,
+	    NameLength - UnparsedNameLength);
+
+	if (!RtlEqualUnicodeString(&us1, &us2, TRUE))
+		return (FALSE);
+
+	memcpy(us1.Buffer, us2.Buffer, UnparsedNameLength);
+	return (TRUE);
+}
+
+/*
  * This is the main FileSystem IOCTL handler. This is where the filesystem
  * vnops happen and we handle everything with files and directories in ZFS.
  */
@@ -10291,6 +10382,14 @@ _Function_class_(DRIVER_DISPATCH)
 	switch (IrpSp->MajorFunction) {
 
 	case IRP_MJ_CREATE:
+		/*
+		 * Undo NTFS's case-mangling of the unparsed tail when this
+		 * CREATE was redirected to us via one of our own folder
+		 * mount-point reparse points.  See zfs_revert_reparsed_case()
+		 * above.  No-op for drive-letter mounts and ordinary opens.
+		 */
+		zfs_revert_reparsed_case(Irp);
+
 		if (IrpSp->Parameters.Create.Options & FILE_OPEN_BY_FILE_ID) {
 			dprintf("IRP_MJ_CREATE: FileObject %p related %p "
 			    "FileID 0x%llx flags 0x%x sharing 0x%x options "
