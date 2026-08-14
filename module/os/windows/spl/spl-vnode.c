@@ -517,8 +517,6 @@ zfs_vnode_cache_constructor(void *buf, void *arg, int kmflags)
 	ExInitializeResourceLite(&vp->resource);
 	ExInitializeResourceLite(&vp->pageio_resource);
 	ExInitializeFastMutex(&vp->AdvancedFcbHeaderMutex);
-	KeInitializeMutex(&vp->z_eof_mutex, 0);
-	vp->z_eof_pending = 0;
 	return (0);
 }
 

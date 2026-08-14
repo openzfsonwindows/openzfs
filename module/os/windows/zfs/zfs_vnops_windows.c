@@ -7081,9 +7081,22 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		}
 	}
 
-	if (!ExIsResourceAcquiredSharedLite(vp->FileHeader.Resource)) {
-		if (!ExAcquireResourceSharedLite(vp->FileHeader.Resource,
-		    wait)) {
+	/*
+	 * PagingIoResource, not FileHeader.Resource: this read can be
+	 * entered recursively, on the same thread, from inside a write's
+	 * CcCopyWrite when a cache miss forces a synchronous page fault-in
+	 * (IoPageReadEx -> fs_read).  If this acquired FileHeader.Resource
+	 * instead, that recursive acquisition would contend against any
+	 * unrelated thread doing a structural op (e.g.
+	 * set_file_endoffile_information) that holds FileHeader.Resource
+	 * exclusive while itself waiting on PagingIoResource -- an AB-BA
+	 * deadlock across threads.  PagingIoResource matches what the
+	 * write paths (zfs_write_wrap, fastio_write) and NTFS's own
+	 * NtfsCopyReadA use for the same reason.
+	 */
+	if (!ExIsResourceAcquiredSharedLite(vp->FileHeader.PagingIoResource)) {
+		if (!ExAcquireResourceSharedLite(
+		    vp->FileHeader.PagingIoResource, wait)) {
 			Status = STATUS_PENDING;
 			IoMarkIrpPending(Irp);
 			goto end;
@@ -7094,7 +7107,7 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	Status = fs_read_impl(Irp, wait, &bytes_read);
 
 	if (acquired_vp_lock)
-		ExReleaseResourceLite(vp->FileHeader.Resource);
+		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
 
 update:
 	if (FileObject->Flags & FO_SYNCHRONOUS_IO &&
@@ -7243,17 +7256,19 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		 * Stamp ByteOffset now so a STATUS_PENDING retry uses the same
 		 * slot rather than re-resolving -1 against a stale FileSize.
 		 */
-		KeWaitForSingleObject(&vp->z_eof_mutex, Executive,
-		    KernelMode, FALSE, NULL);
-		LONGLONG cur_sz = vp->FileHeader.FileSize.QuadPart;
-		LONGLONG pending = (LONGLONG)vp->z_eof_pending;
-		LONGLONG slot = (pending > cur_sz) ? pending : cur_sz;
-		vp->z_eof_pending = (uint64_t)(slot + *length);
-		offset.QuadPart = slot;
+		uint64_t old_pending, new_pending, slot;
+		do {
+			old_pending = vp->z_eof_pending;
+			uint64_t cur_sz =
+			    (uint64_t)vp->FileHeader.FileSize.QuadPart;
+			slot = (old_pending > cur_sz) ? old_pending : cur_sz;
+			new_pending = slot + *length;
+		} while (atomic_cas_64(&vp->z_eof_pending, old_pending,
+		    new_pending) != old_pending);
+		offset.QuadPart = (LONGLONG)slot;
 		IrpSp->Parameters.Write.ByteOffset = offset;
-		KeReleaseMutex(&vp->z_eof_mutex, FALSE);
-		dprintf("zfs_write_wrap: eof slot=%llx cur_sz=%llx "
-		    "new_pending=%llx\n", slot, cur_sz, vp->z_eof_pending);
+		dprintf("zfs_write_wrap: eof slot=%llx new_pending=%llx\n",
+		    slot, new_pending);
 	}
 
 	dprintf("zfs_write_wrap: raw_off=%llx len=%x "
@@ -7325,7 +7340,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	/* 1) pagefile: MainResource EXCLUSIVE, PagingIoResource EXCLUSIVE */
 	/* 2) pagingio: PagingIoResource EXCLUSIVE only */
-	/* 3) normal: MainResource SHARED (ZFS range locks handle ordering) */
+	/* 3) normal: PagingIoResource SHARED (range locks handle ordering) */
 
 	if (paging_io) {
 
@@ -7353,27 +7368,37 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 	} else {
 		/*
-		 * Non-paging write: acquire EXCLUSIVE if the write extends
-		 * the file (CcSetFileSizes must be atomic with CcCopyWrite),
+		 * Non-paging write: acquire PagingIoResource, EXCLUSIVE if
+		 * the write extends the file (must be atomic with
+		 * CcSetFileSizes/CcCopyWrite and exclude a concurrent
+		 * truncate/extend via set_file_endoffile_information),
 		 * SHARED otherwise.
+		 *
+		 * Deliberately NOT FileHeader.Resource: CcCopyWrite's
+		 * cache-miss fault-in can recurse into our own IRP_MJ_READ
+		 * dispatch on this same thread (IoPageReadEx -> fs_read),
+		 * which would try to reacquire FileHeader.Resource and
+		 * inflate this write's critical section across an entire
+		 * nested read (dbuf/disk I/O) instead of just the copy --
+		 * the same self-recursion hazard fixed in fastio_write.
 		 */
 		if (!ExIsResourceAcquiredExclusiveLite(
-		    vp->FileHeader.Resource)) {
+		    vp->FileHeader.PagingIoResource)) {
 			boolean_t need_excl =
 			    (offset.QuadPart + (LONGLONG)*length >
 			    vp->FileHeader.FileSize.QuadPart);
 			if (need_excl) {
 				ExAcquireResourceExclusiveLite(
-				    vp->FileHeader.Resource, TRUE);
+				    vp->FileHeader.PagingIoResource, TRUE);
 			} else {
 				if (!ExAcquireResourceSharedLite(
-				    vp->FileHeader.Resource, wait)) {
+				    vp->FileHeader.PagingIoResource, wait)) {
 					Status = STATUS_PENDING;
 					IoMarkIrpPending(Irp);
 					goto end;
 				}
 			}
-			acquired_vp_lock = TRUE;
+			paging_lock = TRUE;
 		}
 	}
 
@@ -11360,15 +11385,27 @@ fastio_write(PFILE_OBJECT FileObject, PLARGE_INTEGER FileOffset,
 	vp = (vnode_t *)FileObject->FsContext;
 
 	/*
-	 * Hold FileHeader.Resource shared for the duration of the copy.
-	 * This is the same resource the slow path takes exclusively while
-	 * it grows FileSize/AllocationSize and calls CcSetFileSizes, so
-	 * this keeps FsRtlCopyWrite from racing a concurrent size change
+	 * Hold PagingIoResource shared for the duration of the copy, the
+	 * same resource the slow path takes exclusively while it grows
+	 * FileSize/AllocationSize and calls CcSetFileSizes (see the
+	 * "prevent truncates" acquisitions in zfs_write_wrap), so this
+	 * keeps FsRtlCopyWrite from racing a concurrent size change
 	 * (extension or truncation) that would otherwise corrupt the
 	 * Cache Manager's view of the section (BSOD MEMORY_MANAGEMENT in
 	 * MmMapViewInSystemCache).
+	 *
+	 * Deliberately NOT FileHeader.Resource: FsRtlCopyWrite may need to
+	 * acquire that resource itself internally (e.g. ValidDataLength
+	 * bookkeeping or a recursive cache-miss fault-in), and every
+	 * reference driver (FastFAT, btrfs, NTFS) avoids holding it across
+	 * this call for that reason.  NTFS specifically uses
+	 * Header->PagingIoResource here for the same "prevent truncates"
+	 * purpose.  Holding FileHeader.Resource instead self-deadlocks:
+	 * this thread already owns it shared when FsRtlCopyWrite tries to
+	 * acquire it again.
 	 */
-	if (!ExAcquireResourceSharedLite(vp->FileHeader.Resource, Wait))
+	if (!ExAcquireResourceSharedLite(vp->FileHeader.PagingIoResource,
+	    Wait))
 		return (FALSE);
 
 	/*
@@ -11378,7 +11415,7 @@ fastio_write(PFILE_OBJECT FileObject, PLARGE_INTEGER FileOffset,
 	 */
 	if ((uint64_t)FileOffset->QuadPart + Length >
 	    (uint64_t)vp->FileHeader.FileSize.QuadPart) {
-		ExReleaseResourceLite(vp->FileHeader.Resource);
+		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
 		return (FALSE);
 	}
 
@@ -11395,7 +11432,7 @@ fastio_write(PFILE_OBJECT FileObject, PLARGE_INTEGER FileOffset,
 		}
 	}
 
-	ExReleaseResourceLite(vp->FileHeader.Resource);
+	ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
 
 	return (ret);
 }

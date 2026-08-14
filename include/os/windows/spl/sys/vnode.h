@@ -115,8 +115,7 @@ struct vnode {
 
 	avl_tree_t v_fileobjects; // All seen FOs that point to this
 
-	KMUTEX z_eof_mutex;	/* serialises concurrent EOF writes */
-	uint64_t z_eof_pending;	/* next slot; protected by z_eof_mutex */
+	uint64_t z_eof_pending;	/* next slot; updated via atomic_cas_64 */
 };
 typedef struct vnode vnode_t;
 #pragma pack()

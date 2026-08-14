@@ -3878,6 +3878,7 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	CC_FILE_SIZES ccfs;
 	LIST_ENTRY rollback;
 	boolean_t set_size = B_FALSE;
+	boolean_t paging_lock = B_FALSE;
 	ULONG filter = 0UL;
 
 	if (IrpSp->FileObject == NULL || IrpSp->FileObject->FsContext == NULL)
@@ -3911,6 +3912,28 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		zfs_exit(zfsvfs, FTAG);
 		return (STATUS_INVALID_PARAMETER);
 	}
+
+	/*
+	 * Also exclude concurrent cached-write copies (zfs_write_wrap,
+	 * fastio_write) for the duration of the truncate/extend and the
+	 * CcSetFileSizes call below.  Those paths hold PagingIoResource
+	 * (shared for an in-place copy, exclusive if extending) and then
+	 * call into FsRtlCopyWrite/CcCopyWrite -- which, it turns out,
+	 * internally acquires FileHeader.Resource itself as part of its
+	 * own operation (confirmed live: a fastio_write thread blocked
+	 * inside FsRtlCopyWrite's own ExAcquireResourceExclusiveLite on
+	 * FileHeader.Resource).  So every copy path's effective order is
+	 * PagingIoResource, then (inside Cc) FileHeader.Resource.  This
+	 * truncate must acquire in that SAME order -- PagingIoResource
+	 * first, FileHeader.Resource second -- or it AB-BA deadlocks
+	 * against an in-progress copy: acquiring them in the opposite
+	 * order was tried and live-deadlocked against a fastio_write
+	 * thread stuck inside FsRtlCopyWrite waiting on FileHeader.
+	 * Resource while this function held it and waited on
+	 * PagingIoResource.
+	 */
+	ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource, TRUE);
+	paging_lock = B_TRUE;
 
 	ExAcquireResourceExclusiveLite(
 	    vp->FileHeader.Resource, TRUE);
@@ -4021,6 +4044,9 @@ end:
 			dprintf("CcSetFileSizes threw exception %08lx\n",
 			    Status);
 	}
+
+	if (paging_lock)
+		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
 
 	VN_RELE(vp);
 	zfs_exit(zfsvfs, FTAG);
