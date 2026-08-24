@@ -416,20 +416,47 @@ zfs_couplefileobject(vnode_t *vp, vnode_t *dvp, FILE_OBJECT *fileobject,
 	}
 
 	/*
+	 * Serialise against fastio_write/zfs_write_wrap/
+	 * set_file_endoffile_information, which all acquire PagingIoResource
+	 * before relying on FileHeader.FileSize/AllocationSize/
+	 * ValidDataLength being stable, or before changing them in lockstep
+	 * with CcSetFileSizes.
+	 */
+	ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource, TRUE);
+
+	/*
 	 * Never decrease FileSize or VDL on an open.  zp->z_size reflects
 	 * committed (paged-out) data while FileSize tracks the full extent
 	 * that the cache manager knows about.  Clamping to zp->z_size would
 	 * shrink FileSize below cached dirty pages, causing the next paging
 	 * flush to fire changed_length=TRUE and produce a spurious extension.
+	 *
+	 * Conversely, only *grow* FileSize/AllocationSize here if Cc has not
+	 * yet established a cache map for this vnode's shared section
+	 * (SharedCacheMap == NULL, i.e. this is the first open).  If a cache
+	 * map already exists -- set up by some other, already-open
+	 * FileObject sharing this same SectionObjectPointer -- growing these
+	 * fields without also calling CcSetFileSizes on the FileObject(s)
+	 * that own that cache map would leave Cc's VACB/section bookkeeping
+	 * smaller than what we now claim.  A later fastio_write/CcCopyWrite
+	 * trusting the enlarged bound then asks Cc to map a region it
+	 * doesn't think the section covers, crashing MmMapViewInSystemCache
+	 * (BSOD MEMORY_MANAGEMENT, subtype 0x103087).  zfs_write_wrap grows
+	 * these fields correctly, in lockstep with CcSetFileSizes, whenever
+	 * an actual write needs to -- safe to just defer to that here.
 	 */
 	uint64_t cur_fs = (uint64_t)vp->FileHeader.FileSize.QuadPart;
-	uint64_t new_fs = (s > cur_fs) ? s : cur_fs;
+	uint64_t new_fs = cur_fs;
+	if (s > cur_fs && vp->SectionObjectPointers.SharedCacheMap == NULL)
+		new_fs = s;
 	uint64_t new_alloc = alloc ? alloc : a;
 	if (new_alloc < new_fs)
 		new_alloc = new_fs;
 	vp->FileHeader.AllocationSize.QuadPart = new_alloc;
 	vp->FileHeader.FileSize.QuadPart = new_fs;
 	vp->FileHeader.ValidDataLength.QuadPart = new_fs;
+
+	ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
 
 #ifdef ZFS_HAVE_FASTIO
 	vp->FileHeader.IsFastIoPossible = fast_io_possible(vp);
@@ -11122,6 +11149,7 @@ _Function_class_(DRIVER_DISPATCH)
 
 	} else
 #endif
+
 	if ((Status == STATUS_INVALID_DEVICE_REQUEST) && Irp &&
 	    zmo != NULL &&
 	    DriverExtension->LowerDeviceObject != NULL &&
