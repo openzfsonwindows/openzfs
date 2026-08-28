@@ -3330,13 +3330,13 @@ pnp_query_id(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	if (idLen > 0) {
 		WCHAR *str;
 		str = (WCHAR *)ExAllocatePoolWithTag(PagedPool,
-		    idLen /* + sizeof(WCHAR) */, '!OIZ');
+		    idLen + sizeof (WCHAR), '!OIZ');
 		if (str == NULL)
 			return (STATUS_INSUFFICIENT_RESOURCES);
 
 		RtlCopyMemory((void *)str, idString,
 		    idLen);
-		// str[idLen / sizeof(WCHAR)] = UNICODE_NULL;
+		str[idLen / sizeof (WCHAR)] = UNICODE_NULL;
 
 		Irp->IoStatus.Information = (ULONG_PTR)str;
 

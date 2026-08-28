@@ -6238,8 +6238,8 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 	case TargetDeviceRelation:
 	{
 		DeviceRelations =
-		    (PDEVICE_RELATIONS)ExAllocatePool(PagedPool,
-		    sizeof (DEVICE_RELATIONS));
+		    (PDEVICE_RELATIONS)ExAllocatePoolWithTag(PagedPool,
+		    sizeof (DEVICE_RELATIONS), 'ZTdr');
 		if (!DeviceRelations) {
 			dprintf("enomem DeviceRelations\n");
 			Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -6275,8 +6275,8 @@ QueryDeviceRelations(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		// change as we process this function.
 		count = vfs_mount_count();
 
-		DeviceRelations = ExAllocatePool(PagedPool,
-		    offsetof(DEVICE_RELATIONS, Objects[count]));
+		DeviceRelations = ExAllocatePoolWithTag(PagedPool,
+		    offsetof(DEVICE_RELATIONS, Objects[count]), 'ZBrl');
 
 		if (DeviceRelations == NULL) {
 			if (StorportRelations) // Count can be 0.
