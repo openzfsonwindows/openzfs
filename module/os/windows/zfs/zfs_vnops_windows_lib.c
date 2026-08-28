@@ -7316,7 +7316,20 @@ fsctl_set_zero_data(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	znode_t *zp = VTOZ(vp);
 
+	/*
+	 * PagingIoResource before FileHeader.Resource, same reasoning as
+	 * set_file_endoffile_information(): CcFlushCache/CcCopyWrite/
+	 * FsRtlCopyWrite internally acquire FileHeader.Resource themselves
+	 * (confirmed live this session), so anything holding both must
+	 * take PagingIoResource first or it AB-BA deadlocks against an
+	 * in-progress fastio_write/CcCopyWrite.  This also excludes a
+	 * concurrent copy from racing zfs_freesp() below, which frees the
+	 * underlying blocks for this range -- previously nothing did,
+	 * since FileHeader.Resource alone does not exclude fastio_write
+	 * (which only takes PagingIoResource).
+	 */
 	// ExAcquireResourceSharedLite(&zmo->tree_lock, true);
+	ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource, TRUE);
 	ExAcquireResourceExclusiveLite(vp->FileHeader.Resource, TRUE);
 
 	CcFlushCache(FileObject->SectionObjectPointer, NULL, 0, &iosb);
@@ -7358,6 +7371,7 @@ fsctl_set_zero_data(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 end:
 
 	ExReleaseResourceLite(vp->FileHeader.Resource);
+	ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
 	// ExReleaseResourceLite(&Vcb->tree_lock);
 
 	return (Status);

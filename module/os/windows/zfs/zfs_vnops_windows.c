@@ -5128,9 +5128,10 @@ query_file_regions(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	 * Save the values now because writing the output reuses the
 	 * same SystemBuffer (METHOD_BUFFERED).
 	 */
-	LONGLONG filter_offset = 0;
-	LONGLONG filter_length =
+	LONGLONG valid_extent =
 	    (LONGLONG)vp->FileHeader.ValidDataLength.QuadPart;
+	LONGLONG filter_offset = 0;
+	LONGLONG filter_length = valid_extent;
 	if (inlen > 0) {
 		FILE_REGION_INFO *fri =
 		    (FILE_REGION_INFO *)Irp->AssociatedIrp.SystemBuffer;
@@ -5143,20 +5144,38 @@ query_file_regions(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			return (STATUS_INVALID_PARAMETER);
 		filter_offset = fri->FileOffset;
 		filter_length = fri->Length;
+
+		/*
+		 * Never claim a region is valid cached data beyond what the
+		 * file actually has committed.  This used to echo the
+		 * caller's own query straight back as "confirmed valid"
+		 * with no check at all -- which can tell a caller (e.g. VHD
+		 * creation/attach tooling, which uses this FSCTL to verify
+		 * a fixed-size VHD is fully realized) that data exists when
+		 * it does not.  Clamp to what ValidDataLength actually
+		 * supports, or report zero regions if the query starts
+		 * beyond it entirely.
+		 */
+		if (filter_offset >= valid_extent)
+			filter_length = 0;
+		else if (filter_offset + filter_length > valid_extent)
+			filter_length = valid_extent - filter_offset;
 	}
 
 	FILE_REGION_OUTPUT *fro =
 	    (FILE_REGION_OUTPUT *)Irp->AssociatedIrp.SystemBuffer;
 
 	fro->Flags = 0;
-	fro->TotalRegionEntryCount = 1;
-	fro->RegionEntryCount = 1;
+	fro->TotalRegionEntryCount = (filter_length > 0) ? 1 : 0;
+	fro->RegionEntryCount = (filter_length > 0) ? 1 : 0;
 	fro->Reserved = 0;
 
-	fro->Region[0].FileOffset = filter_offset;
-	fro->Region[0].Length = filter_length;
-	fro->Region[0].Usage = FILE_REGION_USAGE_VALID_CACHED_DATA;
-	fro->Region[0].Reserved = 0;
+	if (filter_length > 0) {
+		fro->Region[0].FileOffset = filter_offset;
+		fro->Region[0].Length = filter_length;
+		fro->Region[0].Usage = FILE_REGION_USAGE_VALID_CACHED_DATA;
+		fro->Region[0].Reserved = 0;
+	}
 
 	Irp->IoStatus.Information = sizeof (FILE_REGION_OUTPUT);
 	return (STATUS_SUCCESS);
@@ -7989,9 +8008,27 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	try {
 		if (FlagOn(IrpSp->MinorFunction, IRP_MN_COMPLETE)) {
 			dprintf("%s: IRP_MN_COMPLETE\n", __func__);
+			/*
+			 * CcPrepareMdlWrite (zfs_write_wrap, the earlier,
+			 * separate IRP that started this MDL-mode write) runs
+			 * under PagingIoResource.  This completion runs as
+			 * its own later IRP, after that hold has long since
+			 * been released, with no resource protection at all.
+			 * If CcMdlWriteComplete touches FileHeader.Resource
+			 * internally the same way CcCopyWrite does (confirmed
+			 * live earlier for the fastio_write/CcCopyWrite case),
+			 * anything that changes FileSize/AllocationSize in the
+			 * gap between prepare and complete -- another write,
+			 * a truncate, zfs_couplefileobject -- races it
+			 * unprotected.  Close that gap the same way: hold
+			 * PagingIoResource, not FileHeader.Resource.
+			 */
+			ExAcquireResourceExclusiveLite(
+			    vp->FileHeader.PagingIoResource, TRUE);
 			CcMdlWriteComplete(IrpSp->FileObject,
 			    &IrpSp->Parameters.Write.ByteOffset,
 			    Irp->MdlAddress);
+			ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
 			// Mdl is now deallocated.
 			Irp->MdlAddress = NULL;
 			Status = STATUS_SUCCESS;
@@ -8734,9 +8771,10 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    OPLOCK_FLAG_COMPLETE_IF_OPLOCKED,
 	    NULL, NULL, NULL);
 
-	dprintf("IRP_MJ_CLEANUP: '%s' iocount %u usecount %u unlink %u\n",
+	dprintf("IRP_MJ_CLEANUP: '%s' iocount %u usecount %u unlink %u "
+	    "zccb %p\n",
 	    zccb && zccb->z_name_cache ? zccb->z_name_cache : "",
-	    vp->v_iocount, vp->v_usecount, vnode_unlink(vp));
+	    vp->v_iocount, vp->v_usecount, vnode_unlink(vp), zccb);
 
 	if (zccb && zccb->HoldsOplock) {
 		zccb->HoldsOplock = FALSE;
@@ -8812,8 +8850,23 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	/*
 	 * Real delete is global to the vnode, not this particular FILE_OBJECT.
 	 * We only do it on last close.
+	 *
+	 * vnode_isinuse() only tracks v_usecount; it knows nothing about
+	 * v_fileobjects, the separate list of FILE_OBJECTs coupled to this
+	 * vnode.  A second, still-open FILE_OBJECT can leave v_usecount at 0
+	 * while remaining registered in v_fileobjects (its own decoupling
+	 * happens later, at its own IRP_MJ_CLOSE) -- without this check,
+	 * delete_entry() below frees the underlying storage and reclaims
+	 * the vnode while that other FILE_OBJECT is still live, so its
+	 * eventual close/decouple then touches an already-DEAD vnode.
+	 * vnode_fileobject_count() still counts *this* FILE_OBJECT (it is
+	 * not decoupled until its own close), so "nobody else attached" is
+	 * count <= 1, not count == 0.  Mirrors the same three-way check
+	 * (iocount/usecount/fileobjects) vnode_drain_delayclose() already
+	 * requires before it will recycle a vnode.
 	 */
-	if (!vnode_isinuse(vp, 0) && vnode_unlink(vp)) {
+	if (!vnode_isinuse(vp, 0) && vnode_unlink(vp) &&
+	    vnode_fileobject_count(vp, 0) <= 1) {
 		need_delete = B_TRUE;
 		need_purge = need_flush;
 	} else {
@@ -10142,6 +10195,46 @@ _Function_class_(DRIVER_DISPATCH)
 			 * already 0, BSODing (INVALID_REFERENCE_COUNT, 0x139).
 			 */
 			zmo->dcb_del_pending = B_TRUE;
+
+			/*
+			 * dcb_del_pending only blocks NEW opens; a FILE_OBJECT
+			 * opened on this device before this point (e.g. by
+			 * IopInvalidateVolumesForDevice, or Windows' own PnP
+			 * worker thread doing housekeeping) may still be open
+			 * or in the process of closing.  If DeviceObject's
+			 * ReferenceCount is still > 0 when PnP's own
+			 * device-node deletion proceeds (IopRemoveDevice /
+			 * PnpDeleteLockedDeviceNode), that close races the
+			 * device's own teardown and hits the exact same
+			 * ObDereferenceSecurityDescriptor / 0x139 crash on an
+			 * already-0 refcount.  Since dcb_del_pending now blocks
+			 * new opens, the count can only decrease; yield briefly
+			 * so any in-flight close can complete and drain it to 0
+			 * before we hand control back to PnP.  Same pattern as
+			 * zfs_vss_snapshot_remove() in zfs_vss.c, which fixed
+			 * the identical race for VSS snapshot devices.  1 ms
+			 * per tick, up to 100 ticks (100 ms total).
+			 */
+			if (DeviceObject->ReferenceCount > 0) {
+				LARGE_INTEGER surprise_delay;
+				int surprise_poll;
+
+				surprise_delay.QuadPart = -10000LL; // 1ms
+				dprintf("IRP_MN_SURPRISE_REMOVAL: "
+				    "ReferenceCount > 0, waiting for PnP to "
+				    "drain\n");
+				for (surprise_poll = 0;
+				    surprise_poll < 100 &&
+				    DeviceObject->ReferenceCount > 0;
+				    surprise_poll++) {
+					KeDelayExecutionThread(KernelMode,
+					    FALSE, &surprise_delay);
+				}
+				dprintf("IRP_MN_SURPRISE_REMOVAL: waited "
+				    "%d ms, ReferenceCount now %d\n",
+				    surprise_poll,
+				    (int)DeviceObject->ReferenceCount);
+			}
 			Status = STATUS_SUCCESS;
 			break;
 		case IRP_MN_START_DEVICE:
@@ -11157,6 +11250,7 @@ _Function_class_(DRIVER_DISPATCH)
 #if 1
 		dprintf("Passing request %s down bus\n",
 		    major2str(IrpSp->MajorFunction, IrpSp->MinorFunction));
+
 		PDEVICE_OBJECT Attached;
 		Attached = DriverExtension->LowerDeviceObject;
 		while (Attached->DriverObject == WIN_DriverObject)

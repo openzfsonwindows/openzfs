@@ -724,9 +724,26 @@ static NTSTATUS
 vdev_disk_io_intr(PDEVICE_OBJECT DeviceObject, PIRP irp, PVOID Context)
 {
 	zio_t *zio = (zio_t *)Context;
+	uint32_t already_called;
 
 	VERIFY3P(zio->windows.work_item, !=, NULL);
-	atomic_swap_32(&zio->windows.completion_called, 1);
+
+	/*
+	 * atomic_swap_32() returns the *previous* value.  If it was already
+	 * 1, this completion routine has already fired once for this exact
+	 * zio -- queuing the work item again would run
+	 * vdev_disk_io_start_done() a second time on the same zio, freeing
+	 * its MDL/IRP twice (PFN_LIST_CORRUPT / MiBadRefCount).  This check
+	 * is atomic, so it is safe even if two calls to this routine race
+	 * each other for the same zio; exactly one observes 0 and proceeds.
+	 */
+	already_called = atomic_swap_32(&zio->windows.completion_called, 1);
+	if (already_called != 0) {
+		dprintf("%s: zio %p completion routine called more than "
+		    "once, ignoring repeat\n", __func__, zio);
+		return (STATUS_MORE_PROCESSING_REQUIRED);
+	}
+
 	IoQueueWorkItem(zio->windows.work_item,
 	    (PIO_WORKITEM_ROUTINE)vdev_disk_io_start_done,
 	    HyperCriticalWorkQueue, zio);
@@ -748,6 +765,7 @@ vdev_disk_io_start_done(__in PVOID pDummy, __in PVOID pWkParms)
 	zio->io_error = (!NT_SUCCESS(status) ? EIO : 0);
 
 	UnlockAndFreeMdl(zio->windows.irp->MdlAddress);
+	zio->windows.irp->MdlAddress = NULL;
 	IoFreeIrp(zio->windows.irp);
 	zio->windows.irp = NULL;
 

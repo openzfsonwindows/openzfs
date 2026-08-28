@@ -533,6 +533,7 @@ int vnode_fileobject_add(vnode_t *vp, void *fo);
 int vnode_fileobject_remove(vnode_t *vp, void *fo);
 int vnode_fileobject_empty(vnode_t *vp, int locked);
 int vnode_fileobject_member(vnode_t *vp, void *fo);
+uint64_t vnode_fileobject_count(vnode_t *vp, int locked);
 int vnode_umount_preflight(struct mount *, struct vnode *, int);
 
 void vnode_lock(vnode_t *vp);

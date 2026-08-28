@@ -2255,6 +2255,26 @@ vnode_fileobject_empty(vnode_t *vp, int locked)
 	return (ret);
 }
 
+/*
+ * Number of FILE_OBJECTs currently coupled to this vnode.  Unlike
+ * vnode_fileobject_empty(), this is meant to be checked from within the
+ * IRP_MJ_CLEANUP handling of one of those FILE_OBJECTs itself: that FO is
+ * only decoupled later, at its own separate IRP_MJ_CLOSE, so it is still
+ * counted here.  A caller deciding "is anyone else still attached" should
+ * compare against 1, not 0.
+ */
+uint64_t
+vnode_fileobject_count(vnode_t *vp, int locked)
+{
+	if (!locked)
+		mutex_enter(&vp->v_mutex);
+	uint64_t ret = avl_numnodes(&vp->v_fileobjects);
+	if (!locked)
+		mutex_exit(&vp->v_mutex);
+
+	return (ret);
+}
+
 // Get cached EA size, returns 1 is it is cached, 0 if not.
 int
 vnode_easize(struct vnode *vp, uint64_t *size)
