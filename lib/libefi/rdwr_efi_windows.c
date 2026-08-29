@@ -180,12 +180,12 @@ done:
 static int
 efi_get_info(int fd, struct dk_cinfo *dki_info)
 {
+	memset(dki_info, 0, sizeof (*dki_info));
+
 #if defined(__linux__)
 	int rval = 0;
 	char *path;
 	char *dev_path;
-
-	memset(dki_info, 0, sizeof (*dki_info));
 
 	path = calloc(PATH_MAX, 1);
 	if (path == NULL)
@@ -357,7 +357,7 @@ efi_get_info(int fd, struct dk_cinfo *dki_info)
 	    &retcount,
 	    (LPOVERLAPPED)NULL);
 	if (err) {
-		dki_info->dki_partition = 0;
+		dki_info->dki_partition = partInfo.PartitionNumber;
 		dki_info->dki_ctype = DKC_DIRECT;
 		strlcpy(dki_info->dki_dname,
 		"getnamehere",
