@@ -232,7 +232,7 @@ static const cpuid_feature_desc_t spl_cpuid_features[] = {
 	[AES]		= {1U, 0U, _AES_BIT,		ECX	},
 	[PCLMULQDQ]	= {1U, 0U, _PCLMULQDQ_BIT,	ECX	},
 	[MOVBE]		= {1U, 0U, _MOVBE_BIT,		ECX	},
-	[SHANI]		= {1U, 0U, _SHANI_BIT,		EBX	},
+	[SHANI]		= {7U, 0U, _SHANI_BIT,		EBX	},
 	[VAES]		= {7U, 0U, _VAES_BIT,		ECX	},
 	[VPCLMULQDQ]	= {7U, 0U, _VPCLMULQDQ_BIT,	ECX	},
 };
