@@ -8859,14 +8859,25 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	 * delete_entry() below frees the underlying storage and reclaims
 	 * the vnode while that other FILE_OBJECT is still live, so its
 	 * eventual close/decouple then touches an already-DEAD vnode.
-	 * vnode_fileobject_count() still counts *this* FILE_OBJECT (it is
-	 * not decoupled until its own close), so "nobody else attached" is
-	 * count <= 1, not count == 0.  Mirrors the same three-way check
-	 * (iocount/usecount/fileobjects) vnode_drain_delayclose() already
-	 * requires before it will recycle a vnode.
+	 *
+	 * Mark this FILE_OBJECT cleaned-up first so vnode_fileobject_count()
+	 * excludes it too: a FO's own IRP_MJ_CLOSE can be delayed well past
+	 * its IRP_MJ_CLEANUP (e.g. while Cc finishes tearing down its cache
+	 * map asynchronously), during which it is a "zombie" still sitting
+	 * in v_fileobjects but no longer genuinely in use.  Without excluding
+	 * cleaned-up FOs, a vnode that churns opens/closes fast enough (seen
+	 * with FreeFileSync's lock-file pattern) can find a zombie FO still
+	 * present when the real delete's cleanup runs, permanently deferring
+	 * need_delete and leaving vnode_unlink() stuck set -- every later
+	 * open of that name then gets STATUS_DELETE_PENDING (surfaces to
+	 * callers as generic access-denied) forever.  "Nobody else genuinely
+	 * attached" is therefore count == 0, not <= 1.  Mirrors the same
+	 * three-way check (iocount/usecount/fileobjects) vnode_drain_
+	 * delayclose() already requires before it will recycle a vnode.
 	 */
+	vnode_fileobject_mark_cleanedup(vp, FileObject);
 	if (!vnode_isinuse(vp, 0) && vnode_unlink(vp) &&
-	    vnode_fileobject_count(vp, 0) <= 1) {
+	    vnode_fileobject_count(vp, 0) == 0) {
 		need_delete = B_TRUE;
 		need_purge = need_flush;
 	} else {

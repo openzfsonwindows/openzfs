@@ -68,6 +68,7 @@ typedef struct vnode_fileobjects {
 	avl_node_t avlnode;
 	void *fileobject;
 	int remove;
+	int cleanedup;
 } vnode_fileobjects_t;
 
 
@@ -534,6 +535,7 @@ int vnode_fileobject_remove(vnode_t *vp, void *fo);
 int vnode_fileobject_empty(vnode_t *vp, int locked);
 int vnode_fileobject_member(vnode_t *vp, void *fo);
 uint64_t vnode_fileobject_count(vnode_t *vp, int locked);
+int vnode_fileobject_mark_cleanedup(vnode_t *vp, void *fo);
 int vnode_umount_preflight(struct mount *, struct vnode *, int);
 
 void vnode_lock(vnode_t *vp);

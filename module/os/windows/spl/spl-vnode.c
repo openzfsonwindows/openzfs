@@ -2191,6 +2191,7 @@ vnode_fileobject_add(vnode_t *vp, void *fo)
 	node = kmem_alloc(sizeof (*node), KM_SLEEP);
 	node->fileobject = fo;
 	node->remove = 0;
+	node->cleanedup = 0;
 
 	mutex_enter(&vp->v_mutex);
 	if (avl_find(&vp->v_fileobjects, node, &idx) == NULL) {
@@ -2256,23 +2257,68 @@ vnode_fileobject_empty(vnode_t *vp, int locked)
 }
 
 /*
- * Number of FILE_OBJECTs currently coupled to this vnode.  Unlike
- * vnode_fileobject_empty(), this is meant to be checked from within the
- * IRP_MJ_CLEANUP handling of one of those FILE_OBJECTs itself: that FO is
- * only decoupled later, at its own separate IRP_MJ_CLOSE, so it is still
- * counted here.  A caller deciding "is anyone else still attached" should
- * compare against 1, not 0.
+ * Number of FILE_OBJECTs coupled to this vnode that have NOT yet gone
+ * through their own IRP_MJ_CLEANUP (vnode_fileobject_mark_cleanedup()).
+ *
+ * A FILE_OBJECT is only decoupled (removed from v_fileobjects) at its own
+ * separate IRP_MJ_CLOSE, which Windows can delay arbitrarily long after
+ * IRP_MJ_CLEANUP -- e.g. while the Cache Manager finishes tearing down a
+ * SectionObjectPointer/CcUninitializeCacheMap asynchronously in the
+ * background.  During that window the FO is still in v_fileobjects but is,
+ * for every user-visible purpose, already closed.  Counting it as "still
+ * attached" made a delete-on-close gate here get permanently stuck once a
+ * file was opened/closed/reopened fast enough (confirmed: FreeFileSync's
+ * lock-file churn) for such a zombie FO to still be present when the real
+ * delete's own IRP_MJ_CLEANUP ran, leaving the vnode's unlink flag set
+ * forever and STATUS_DELETE_PENDING returned to every later open of that
+ * name (surfaces to callers as generic access-denied).
+ *
+ * So this only counts FOs that have not been marked cleaned-up: "is anyone
+ * else genuinely still using this file" should compare the result to 0,
+ * not 1 -- call vnode_fileobject_mark_cleanedup() for the FO whose own
+ * cleanup is running before checking this, so it excludes itself too.
  */
 uint64_t
 vnode_fileobject_count(vnode_t *vp, int locked)
 {
 	if (!locked)
 		mutex_enter(&vp->v_mutex);
-	uint64_t ret = avl_numnodes(&vp->v_fileobjects);
+	uint64_t ret = 0;
+	for (vnode_fileobjects_t *node = avl_first(&vp->v_fileobjects);
+	    node != NULL; node = AVL_NEXT(&vp->v_fileobjects, node)) {
+		if (!node->cleanedup)
+			ret++;
+	}
 	if (!locked)
 		mutex_exit(&vp->v_mutex);
 
 	return (ret);
+}
+
+/*
+ * Mark a FILE_OBJECT as having gone through its own IRP_MJ_CLEANUP, so
+ * vnode_fileobject_count() stops counting it.  It remains in v_fileobjects
+ * (and vnode_fileobject_member()/vnode_fileobject_empty() still see it)
+ * until its eventual IRP_MJ_CLOSE calls vnode_fileobject_remove() -- this
+ * only affects whether it counts as "still actively attached" for the
+ * delete-on-close gate in zfs_fileobject_cleanup().
+ */
+int
+vnode_fileobject_mark_cleanedup(vnode_t *vp, void *fo)
+{
+	vnode_fileobjects_t search, *node;
+
+	mutex_enter(&vp->v_mutex);
+	search.fileobject = fo;
+	node = avl_find(&vp->v_fileobjects, &search, NULL);
+	if (node == NULL) {
+		mutex_exit(&vp->v_mutex);
+		return (0);
+	}
+	node->cleanedup = 1;
+	mutex_exit(&vp->v_mutex);
+
+	return (1);
 }
 
 // Get cached EA size, returns 1 is it is cached, 0 if not.
