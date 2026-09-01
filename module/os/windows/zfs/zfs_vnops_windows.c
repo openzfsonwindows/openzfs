@@ -5579,10 +5579,30 @@ fsctl_offload_write(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (err != 0)
 		return (STATUS_INVALID_PARAMETER);
 
-	/* Flush destination cache before we write beneath it */
-	ExAcquireResourceExclusiveLite(dst_vp->FileHeader.Resource, TRUE);
+	/*
+	 * Flush destination cache before we write beneath it.  Use
+	 * PagingIoResource, not FileHeader.Resource: this is the same
+	 * "flush before a direct write" pattern the no-cache write path in
+	 * zfs_write_wrap uses (see its PagingIoResource acquisition around
+	 * CcFlushCache/CcPurgeCacheSection), and it keeps this path on the
+	 * one resource fastio_write/zfs_write_wrap/zfs_couplefileobject all
+	 * serialise FileHeader.FileSize/AllocationSize/ValidDataLength
+	 * changes through.
+	 */
+	ExAcquireResourceExclusiveLite(dst_vp->FileHeader.PagingIoResource,
+	    TRUE);
 
 	CcFlushCache(FileObject->SectionObjectPointer, NULL, 0, &iosb);
+
+	/*
+	 * Release before the copy itself: the copy (block clone, or the
+	 * chunked read/write loop below) can run for a long time on a large
+	 * transfer, and there is no coherency reason to hold
+	 * PagingIoResource across it -- doing so would serialise every
+	 * concurrent fastio_write/cached write to this file for the
+	 * duration, same rationale as the no-cache write path.
+	 */
+	ExReleaseResourceLite(dst_vp->FileHeader.PagingIoResource);
 
 	/* Attempt zero-copy block clone first */
 	{
@@ -5633,7 +5653,25 @@ fsctl_offload_write(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		kmem_free(kbuf, ZFS_OFFLOAD_COPY_CHUNK);
 	}
 
-	/* Update Windows header if the destination was extended */
+	/*
+	 * Update Windows header if the destination was extended.  Re-acquire
+	 * PagingIoResource here (never FileHeader.Resource -- CcSetFileSizes
+	 * can trigger a recursive fault-in that needs FileHeader.Resource
+	 * internally, the same self-recursion hazard documented in
+	 * fastio_write/zfs_write_wrap) so this size bump and CcSetFileSizes
+	 * call are atomic with respect to a concurrent fastio_write's
+	 * FileHeader.FileSize bound check.  Without this, fastio_write on
+	 * another handle to the same vnode could observe FileSize grown to
+	 * cover data this offload write hasn't finished registering with the
+	 * Cache Manager's own section bookkeeping, and race
+	 * CcMapAndCopyInToCache into MmMapViewInSystemCache over a view Cc
+	 * doesn't think exists yet (BSOD MEMORY_MANAGEMENT, subtype
+	 * 0x103087) -- the same failure mode zfs_couplefileobject's
+	 * SharedCacheMap check exists to prevent.
+	 */
+	ExAcquireResourceExclusiveLite(dst_vp->FileHeader.PagingIoResource,
+	    TRUE);
+
 	if (NT_SUCCESS(Status) &&
 	    (LONGLONG)(dst_offset + done) >
 	    dst_vp->FileHeader.FileSize.QuadPart) {
@@ -5649,6 +5687,8 @@ fsctl_offload_write(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 	}
 
+	ExReleaseResourceLite(dst_vp->FileHeader.PagingIoResource);
+
 	if (FileObject->SectionObjectPointer &&
 	    FileObject->SectionObjectPointer->DataSectionObject) {
 		LARGE_INTEGER dst_li;
@@ -5656,8 +5696,6 @@ fsctl_offload_write(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		CcPurgeCacheSection(FileObject->SectionObjectPointer,
 		    &dst_li, (ULONG)MIN(done, MAXULONG), FALSE);
 	}
-
-	ExReleaseResourceLite(dst_vp->FileHeader.Resource);
 
 	zrele(src_zp);
 
