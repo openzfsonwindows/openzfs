@@ -468,7 +468,28 @@ zfs_file_private(zfs_file_t *fp)
 	dev_t dev;
 	void *zs;
 
-	dev = zfsdev_get_dev();
+	/*
+	 * dev_t for a zfsdev handle is its FILE_OBJECT pointer (see
+	 * zfsdev_open(), which uses (dev_t)IrpSp->FileObject both as the
+	 * dev_t passed to zfsdev_state_init() and, via minor(), as
+	 * zs_minor).  fp->f_fp is that same FILE_OBJECT*, obtained by
+	 * getf() via ObReferenceObjectByHandle() on the fd this zfs_file_t
+	 * wraps -- so it recovers the exact handle fp refers to.
+	 *
+	 * This used to call zfsdev_get_dev(), which reads a per-OS-thread
+	 * TSD slot set once in zfsdev_open() to "whichever dev_t this
+	 * thread most recently opened" -- ignoring fp entirely.  That is
+	 * only correct if a thread never touches more than one zfsdev
+	 * handle in its lifetime.  zed opens more than one /dev/zfs handle
+	 * (general control plus a dedicated event stream); if their opens
+	 * or ioctls ever land on the same or a reused kernel thread, the
+	 * TSD slot reflects the wrong handle and zc_cleanup_fd-based
+	 * lookups (e.g. ZFS_IOC_EVENTS_NEXT) can silently resolve to a
+	 * different, possibly already-closed-and-freed zfsdev_state_t /
+	 * zfs_zevent_t -- confirmed as the cause of a UAF crash in
+	 * zfs_zevent_next() (nvlist_common) via zc_cleanup_fd.
+	 */
+	dev = (dev_t)fp->f_fp;
 	dprintf("%s: fetching dev x%x\n", __func__, dev);
 	if (dev == 0)
 		return (NULL);
