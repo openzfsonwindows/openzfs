@@ -11617,6 +11617,29 @@ fastio_check_if_possible(PFILE_OBJECT FileObject,
 			return (TRUE);
 	} else {
 		/*
+		 * FILE_WRITE_TO_END_OF_FILE (-1) is an unresolved append
+		 * offset: only zfs_write_wrap's z_eof_pending CAS loop knows
+		 * how to resolve it against concurrent appenders.  Treated
+		 * as a literal byte offset, (uint64_t)-1 + Length wraps
+		 * around to a small value that slips under FileHeader.
+		 * FileSize, making an unresolved append look like a safe
+		 * in-bounds write to the check below.  See fastio_write().
+		 *
+		 * Compare LowPart/HighPart, not QuadPart: FILE_WRITE_TO_END_
+		 * OF_FILE is an untyped 0xffffffff, i.e. plain (32-bit)
+		 * unsigned int in C.  QuadPart is a signed 64-bit LONGLONG,
+		 * so QuadPart == FILE_WRITE_TO_END_OF_FILE zero-extends the
+		 * 32-bit constant to 0x00000000ffffffff instead of sign-
+		 * extending it to -1 -- silently never matching a genuine
+		 * -1 offset.  Confirmed live: this exact comparison let a
+		 * second MEMORY.DMP reproduce subtype 0x103087 right through
+		 * this unfired check.
+		 */
+		if (FileOffset->LowPart == FILE_WRITE_TO_END_OF_FILE &&
+		    FileOffset->HighPart == -1)
+			return (FALSE);
+
+		/*
 		 * FsRtlCopyWrite may only copy into the range already
 		 * registered with the Cache Manager via CcSetFileSizes.
 		 * A write that extends the file must take the slow (IRP)
@@ -11655,6 +11678,33 @@ fastio_write(PFILE_OBJECT FileObject, PLARGE_INTEGER FileOffset,
 	vp = (vnode_t *)FileObject->FsContext;
 
 	/*
+	 * FILE_WRITE_TO_END_OF_FILE (-1) is an unresolved append offset;
+	 * only zfs_write_wrap's z_eof_pending CAS loop knows how to resolve
+	 * it against concurrent appenders under proper serialisation.  Left
+	 * unhandled here, (uint64_t)-1 + Length wraps around to a small
+	 * value that slips under FileHeader.FileSize in the bound check
+	 * below, so the unresolved append is treated as a safe in-bounds
+	 * write and the literal -1 offset is passed straight into
+	 * FsRtlCopyWrite/CcCopyWrite -- crashing MmMapViewInSystemCache
+	 * (BSOD MEMORY_MANAGEMENT, subtype 0x103087).  Confirmed live via a
+	 * MEMORY.DMP where FileOffset->QuadPart was exactly -1 at this
+	 * frame (Length 0x1085, FileHeader.FileSize ~45GB, wrapped bound
+	 * check value 0x1084).  Must bail to the slow path unconditionally.
+	 *
+	 * Compare LowPart/HighPart, not QuadPart: FILE_WRITE_TO_END_OF_FILE
+	 * is an untyped 0xffffffff, i.e. plain (32-bit) unsigned int in C.
+	 * QuadPart is a signed 64-bit LONGLONG, so QuadPart ==
+	 * FILE_WRITE_TO_END_OF_FILE zero-extends the 32-bit constant to
+	 * 0x00000000ffffffff instead of sign-extending it to -1 -- this
+	 * comparison silently never matches and let a second MEMORY.DMP
+	 * reproduce this exact crash right through the first attempt at
+	 * this fix.
+	 */
+	if (FileOffset->LowPart == FILE_WRITE_TO_END_OF_FILE &&
+	    FileOffset->HighPart == -1)
+		return (FALSE);
+
+	/*
 	 * Hold PagingIoResource shared for the duration of the copy, the
 	 * same resource the slow path takes exclusively while it grows
 	 * FileSize/AllocationSize and calls CcSetFileSizes (see the
@@ -11688,6 +11738,19 @@ fastio_write(PFILE_OBJECT FileObject, PLARGE_INTEGER FileOffset,
 		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
 		return (FALSE);
 	}
+
+	/*
+	 * fastio_write otherwise has no logging at all, making any future
+	 * FsRtlCopyWrite/CcCopyWrite failure here hard to correlate against
+	 * the ring buffer.
+	 */
+	dprintf("fastio_write: vp=%p fo=%p off=%llx len=%lx wait=%d "
+	    "AllocationSize=%llx FileSize=%llx ValidDataLength=%llx\n",
+	    vp, FileObject, (unsigned long long)FileOffset->QuadPart,
+	    Length, (int)Wait,
+	    (unsigned long long)vp->FileHeader.AllocationSize.QuadPart,
+	    (unsigned long long)vp->FileHeader.FileSize.QuadPart,
+	    (unsigned long long)vp->FileHeader.ValidDataLength.QuadPart);
 
 	ret = FsRtlCopyWrite(FileObject, FileOffset, Length,
 	    Wait, LockKey, Buffer, IoStatus, DeviceObject);
