@@ -1014,8 +1014,14 @@ vnode_setparent(vnode_t *vp, vnode_t *newparent)
 	vp->v_parent = NULL;
 
 	if (newparent) {
-		vnode_ref(newparent);
-		vp->v_parent = newparent;
+		/*
+		 * If newparent is concurrently being reclaimed (racing
+		 * vnode_prune_idle() or a forced unmount) vnode_ref() will
+		 * refuse the hold; leave v_parent NULL rather than pointing
+		 * it at a vnode we do not hold a reference on.
+		 */
+		if (vnode_ref(newparent) == 0)
+			vp->v_parent = newparent;
 	}
 
 	// Try holding it, so we call vnode_put()
@@ -1042,7 +1048,16 @@ vnode_getwithref(vnode_t *vp)
 #endif
 
 	mutex_enter(&vp->v_mutex);
-	if ((vp->v_flags & VNODE_DEAD)) {
+	if ((vp->v_flags & (VNODE_DEAD | VNODE_MARKTERM))) {
+		/*
+		 * Once VNODE_MARKTERM is set, vnode_recycle_int() will
+		 * call zfs_vnop_reclaim() after dropping v_mutex, and
+		 * VNODE_DEAD is not set until after that returns. A new
+		 * iocount handed out during that window would let a
+		 * caller keep using a znode that is concurrently being
+		 * torn down. Match xnu's vnode_get_locked(), which refuses
+		 * on VL_TERMINATE as well as VL_DEAD.
+		 */
 		error = ENOENT;
 //	} else if (vnode_deleted(vp)) {
 //		error = ENOENT;
@@ -1405,7 +1420,19 @@ int
 vnode_ref(vnode_t *vp)
 {
 	ASSERT(vp->v_iocount > 0);
-	ASSERT(!(vp->v_flags & VNODE_DEAD));
+
+	/*
+	 * Mirror the VN_HOLD/vnode_getwithref check: refuse to hand out
+	 * a new long-term (usecount) reference once VNODE_MARKTERM is
+	 * set, not just VNODE_DEAD, matching xnu's vnode_ref_ext() which
+	 * checks VL_TERMINATE in addition to VL_DEAD. Callers that
+	 * already hold a fresh iocount (the common case) can't race this,
+	 * since a vnode can not be marked TERM while its iocount is
+	 * nonzero except via a forced unmount.
+	 */
+	if (vp->v_flags & (VNODE_DEAD | VNODE_MARKTERM))
+		return (ENOENT);
+
 	atomic_inc_32(&vp->v_usecount);
 	return (0);
 }
