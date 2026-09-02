@@ -4643,6 +4643,28 @@ spl_free_reap_caches(void)
 
 	kmem_reap();
 	vmem_qcache_reap(kmem_va_arena);
+
+	/*
+	 * spl_heap_arena (aka "bucket_heap") is the shared backing arena for
+	 * every named kmem_cache in the system -- kmem_cache slab frees all
+	 * land here.  Unlike the size-classed bucket arenas it imports from
+	 * (which are created with VMC_NO_QCACHE), spl_heap_arena uses normal
+	 * quantum caches, so freed slab-sized chunks sit in its magazine
+	 * layer for fast reuse and are NOT eagerly coalesced/returned to
+	 * their source bucket -- that only happens via an explicit
+	 * vmem_qcache_reap() call, same as kmem_va_arena above.  Without
+	 * this, spl_heap_arena's retained capacity never shrinks back down
+	 * to the buckets no matter how much memory pressure occurs or how
+	 * many pools get exported.  Confirmed via kstat: bucket_32768 held
+	 * ~1.06GB (mem_inuse == mem_total, zero frees) that didn't move at
+	 * all across a pool export, even though the individual kmem_caches
+	 * whose slabs it had backed (dnode_t, zfs_znode_cache, sa_cache,
+	 * etc.) had all correctly dropped to buf_inuse == 0 by then -- the
+	 * memory was sitting idle in spl_heap_arena's qcache, never handed
+	 * back down to bucket_32768.
+	 */
+	extern vmem_t *spl_heap_arena;
+	vmem_qcache_reap(spl_heap_arena);
 }
 
 void

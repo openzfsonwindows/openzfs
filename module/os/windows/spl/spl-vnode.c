@@ -1565,6 +1565,75 @@ vnode_drain_delayclose(int force)
 	return (ret);
 }
 
+/*
+ * Reclaim idle, ordinary (not necessarily deleted) vnodes, up to
+ * nr_to_scan of them.  This is the Windows backend for the arc_prune
+ * callback (see zfs_prune_task() in zfs_vfsops.c): ARC calls it when it
+ * wants metadata room back and needs the VFS layer to drop its own holds
+ * on idle vnodes so their znode/dnode/dbufs can actually be freed --
+ * mirroring FreeBSD's vnlru_free_vfsops() and Linux's zpl_prune_sb(), the
+ * standard cross-platform mechanism for this (see arc_add_prune_callback()
+ * callers on those platforms).
+ *
+ * Without this, a vnode created for any file ever opened stays resident
+ * for the life of the mount: vnode_drain_delayclose() below only reclaims
+ * vnodes already flagged VNODE_MARKTERM (i.e. deleted files awaiting
+ * removal), never ordinary idle ones.  Confirmed via kstat: zfs_vnode_
+ * cache/zfs_znode_cache/dnode_t/dmu_buf_impl_t/sa_cache all showed
+ * buf_inuse == buf_total and slab_free == 0 after filling a small pool --
+ * nothing was ever being freed back, regardless of memory pressure,
+ * because nothing ever asked the VFS layer to let go of idle vnodes.
+ *
+ * Same eligibility check as vnode_drain_delayclose()'s recycle branch,
+ * minus the VNODE_MARKTERM requirement.
+ */
+uint64_t
+vnode_prune_idle(uint64_t nr_to_scan)
+{
+	struct vnode *vp, *next = NULL;
+	uint64_t reclaimed = 0;
+
+	mutex_enter(&vnode_all_list_lock);
+
+	for (vp = list_head(&vnode_all_list);
+	    vp != NULL && reclaimed < nr_to_scan;
+	    vp = next) {
+
+		next = list_next(&vnode_all_list, vp);
+
+		vnode_lock(vp);
+
+		if (!(vp->v_flags & VNODE_DEAD) &&
+		    !(vp->v_flags & VNODE_MARKTERM) &&
+		    (vp->v_iocount == 0) &&
+		    (vp->v_usecount == 0) &&
+		    vnode_fileobject_empty(vp, /* locked */ 1) &&
+		    !vnode_isvroot(vp) &&
+		    (vp->SectionObjectPointers.ImageSectionObject == NULL) &&
+		    (vp->SectionObjectPointers.DataSectionObject == NULL)) {
+
+			dprintf("%s: pruning idle %p\n", __func__, vp);
+
+			/*
+			 * Pass VNODELOCKED as we hold vp, recycle will
+			 * unlock.  Give up all_list first: recycle -> reclaim
+			 * -> rmnode -> purgedir -> zget -> vnode_create can
+			 * re-enter this list.
+			 */
+			mutex_exit(&vnode_all_list_lock);
+			if (vnode_recycle_int(vp, VNODELOCKED) == 0)
+				reclaimed++;
+			mutex_enter(&vnode_all_list_lock);
+		} else {
+			vnode_unlock(vp);
+		}
+	}
+
+	mutex_exit(&vnode_all_list_lock);
+
+	return (reclaimed);
+}
+
 int
 mount_count_nodes(struct mount *mp, int flags)
 {

@@ -2163,6 +2163,61 @@ struct fromname_struct {
 };
 typedef struct fromname_struct fromname_t;
 
+static arc_prune_t *zfs_prune;
+
+/*
+ * ARC calls this when it wants metadata room back and needs the VFS layer
+ * to drop its own holds on idle vnodes so their znode/dnode/dbufs can
+ * actually be freed -- the standard cross-platform mechanism for this
+ * (see arc_add_prune_callback() in zfs_init() below, and FreeBSD's
+ * zfs_prune_task()/Linux's zpl_prune_sb() for the equivalent).  Without
+ * it registered, nothing ever asks this driver to let go of idle vnodes,
+ * and every file ever opened stays cached for the life of the mount.
+ *
+ * arc_prune_func_t's "bytes" parameter is, despite the name, computed by
+ * arc.c as dnode_size / sizeof (dnode_t) -- already a count, not a byte
+ * quantity -- so pass it straight through as a scan count, same as
+ * FreeBSD does.
+ *
+ * Also sweeps vnodes already marked VNODE_DEAD via vnode_drain_delayclose().
+ * vflush() (unmount/export) marks each vnode DEAD and frees its underlying
+ * znode/dnode/sa_handle immediately, but the vnode_t wrapper itself is only
+ * kmem_cache_free'd once it has been DEAD for more than 5 seconds (a safety
+ * margin -- see vnode_drain_delayclose()'s comment).  vflush() calls
+ * vnode_drain_delayclose(1) right after marking them DEAD, so that pass
+ * never actually frees anything (they are microseconds old, not 5+ seconds).
+ * With nothing else driving this sweep during normal operation, every
+ * exported pool's vnode_t structures were stuck in DEAD-but-never-freed
+ * limbo forever -- confirmed via kstat: zfs_vnode_cache buf_inuse stayed
+ * unchanged across a pool export even though zfs_znode_cache/dnode_t/
+ * sa_cache all correctly dropped to buf_inuse == 0.  Piggybacking on this
+ * periodic prune callback gives the aged-DEAD sweep somewhere to run from
+ * during ordinary operation, independent of the next unmount ever happening.
+ *
+ * Also drives spl_free_reap_caches(), which returns spl_heap_arena's
+ * (aka "bucket_heap", the shared quantum-cached backing arena for every
+ * named kmem_cache) idle magazine capacity back down to its size-classed
+ * bucket arenas (e.g. bucket_32768).  It was previously only ever invoked
+ * from the emergency-memory-pressure path (spl_free_maybe_reap_flag,
+ * spl-kmem.c), so on a system with plenty of free RAM it could go
+ * uninvoked indefinitely -- confirmed via kstat: bucket_32768 held
+ * ~1.06GB (mem_inuse == mem_total) that never moved across a pool export.
+ * spl_free_reap_caches() has its own internal 60-second throttle, so
+ * calling it from every prune cycle is cheap and just guarantees it
+ * actually runs periodically instead of only under genuine emergencies.
+ */
+static void
+zfs_prune_task(uint64_t nr_to_scan, void *private)
+{
+	if (nr_to_scan > INT_MAX)
+		nr_to_scan = INT_MAX;
+	(void) vnode_prune_idle(nr_to_scan);
+	(void) vnode_drain_delayclose(0);
+
+	extern void spl_free_reap_caches(void);
+	spl_free_reap_caches();
+}
+
 void
 zfsvfs_update_fromname(const char *oldname, const char *newname)
 {
@@ -2195,11 +2250,13 @@ zfs_init(void)
 	/* Start arc_os - reclaim thread */
 	arc_os_init();
 
+	zfs_prune = arc_add_prune_callback(zfs_prune_task, NULL);
 }
 
 void
 zfs_fini(void)
 {
+	arc_remove_prune_callback(zfs_prune);
 	arc_os_fini();
 	zfsctl_fini();
 	zfs_znode_fini();

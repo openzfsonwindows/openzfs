@@ -536,6 +536,7 @@ int vnode_fileobject_empty(vnode_t *vp, int locked);
 int vnode_fileobject_member(vnode_t *vp, void *fo);
 uint64_t vnode_fileobject_count(vnode_t *vp, int locked);
 int vnode_fileobject_mark_cleanedup(vnode_t *vp, void *fo);
+uint64_t vnode_prune_idle(uint64_t nr_to_scan);
 int vnode_umount_preflight(struct mount *, struct vnode *, int);
 
 void vnode_lock(vnode_t *vp);
