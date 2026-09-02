@@ -86,8 +86,20 @@ extern boolean_t spl_minimal_physmem_p_logic();
 uint64_t
 arc_default_max(uint64_t min, uint64_t allmem)
 {
-	/* Default to 1/3 of all memory. */
-	return (MAX(allmem, min));
+	/*
+	 * Default to 1/3 of all memory, per the comment above (that was
+	 * always the stated intent here, but the code instead returned
+	 * MAX(allmem, min) -- i.e. allmem itself, since allmem is virtually
+	 * always >= min.  That set the ARC's ceiling to the entire physical
+	 * memory size, with no headroom reserved for the OS or other
+	 * applications, so the ARC had no internal reason to ever stop
+	 * growing on its own; only the separate, reactive low-memory
+	 * pressure detector in arc_reclaim_thread() ever pulled it back.
+	 * Compare Linux/FreeBSD's arc_default_max(), which reserves a
+	 * real fraction of memory (allmem - 1GB, or 5/8 of allmem,
+	 * whichever is larger).
+	 */
+	return (MAX(allmem / 3, min));
 }
 
 #ifdef _KERNEL
