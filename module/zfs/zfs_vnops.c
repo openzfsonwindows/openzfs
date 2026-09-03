@@ -662,9 +662,18 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_CTIME(zfsvfs), NULL,
 	    &ctime, 16);
 #endif
-#ifdef _WIN32
-	if (!(uio->uio_extflg & UIO_SKIP_SIZE_UPDATE))
-#endif
+	/*
+	 * Always persist the current zp->z_size, even for Windows paging
+	 * writes (UIO_SKIP_SIZE_UPDATE).  That flag only prevents *deriving*
+	 * a new size from this write's own offset (see the CAS loop below);
+	 * it must not stop the already-authoritative in-memory size from
+	 * being written to the SA.  Skipping this bulk attr left the paging
+	 * write's data durable on disk with no on-disk size pointing at it,
+	 * so a crash (or any vnode reload) before some *other* event
+	 * happened to persist the size reverted the file to its last
+	 * durably-synced size -- 0 for a freshly truncate-opened file, even
+	 * though the actual bytes had already been committed.
+	 */
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_SIZE(zfsvfs), NULL,
 	    &zp->z_size, 8);
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_FLAGS(zfsvfs), NULL,
@@ -1107,9 +1116,6 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		 * partial progress, update the znode and ZIL accordingly.
 		 */
 		if (tx_bytes == 0) {
-#ifdef _WIN32
-			if (!(uio->uio_extflg & UIO_SKIP_SIZE_UPDATE))
-#endif
 			(void) sa_update(zp->z_sa_hdl, SA_ZPL_SIZE(zfsvfs),
 			    (void *)&zp->z_size, sizeof (uint64_t), tx);
 			dmu_tx_commit(tx);
@@ -1126,9 +1132,15 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		 * Update the file size (zp_size) if it has changed;
 		 * account for possible concurrent updates.
 		 * On Windows, paging writes (cache-manager flushes) set
-		 * UIO_SKIP_SIZE_UPDATE so they never advance z_size: the
-		 * logical size was already established by the preceding
-		 * cached write via the changed_length block.
+		 * UIO_SKIP_SIZE_UPDATE so this CAS loop never *derives* a new
+		 * z_size from this write's own offset: the logical size was
+		 * already established by the preceding cached write via the
+		 * changed_length block, and a paging write only flushes some
+		 * dirty range of it -- not necessarily up to the true logical
+		 * end -- so its own offset is not authoritative.  The already-
+		 * correct z_size (whatever it is by now) still gets persisted
+		 * to the SA below via the bulk update; only the advance-from-
+		 * offset step is skipped here.
 		 */
 #ifdef _WIN32
 		if (!(uio->uio_extflg & UIO_SKIP_SIZE_UPDATE))
