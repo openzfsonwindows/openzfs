@@ -8140,6 +8140,20 @@ do_read_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	if (!NT_SUCCESS(Status))
 		dprintf("read_file returned %08lx\n", Status);
 
+	/*
+	 * do_read_job is the deferred (wait=TRUE) retry: it is expected to
+	 * produce a final result and complete the IRP below.  STATUS_PENDING
+	 * is not a valid IoStatus.Status for IoCompleteRequest -- it has a
+	 * separate meaning to the I/O manager (see IoMarkIrpPending) and a
+	 * caller blocked on this IRP would see undefined behavior instead of
+	 * ever being woken.  Treat an unexpected PENDING here as a failure.
+	 */
+	if (Status == STATUS_PENDING) {
+		dprintf("read_file: fs_read_impl returned PENDING on the "
+		    "wait=TRUE retry, completing as STATUS_UNSUCCESSFUL\n");
+		Status = STATUS_UNSUCCESSFUL;
+	}
+
 	Irp->IoStatus.Status = Status;
 
 	IoCompleteRequest(Irp, IO_NO_INCREMENT);
@@ -8167,6 +8181,21 @@ do_write_job(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 
 	if (!NT_SUCCESS(Status))
 		dprintf("write_file returned %08lx\n", Status);
+
+	/*
+	 * do_write_job is the deferred (wait=TRUE, deferred_write=TRUE)
+	 * retry: it is expected to produce a final result and complete the
+	 * IRP below.  STATUS_PENDING is not a valid IoStatus.Status for
+	 * IoCompleteRequest -- it has a separate meaning to the I/O manager
+	 * (see IoMarkIrpPending) and a caller blocked on this IRP would see
+	 * undefined behavior instead of ever being woken.  Treat an
+	 * unexpected PENDING here as a failure.
+	 */
+	if (Status == STATUS_PENDING) {
+		dprintf("write_file: fs_write_impl returned PENDING on the "
+		    "wait=TRUE retry, completing as STATUS_UNSUCCESSFUL\n");
+		Status = STATUS_UNSUCCESSFUL;
+	}
 
 	Irp->IoStatus.Status = Status;
 
