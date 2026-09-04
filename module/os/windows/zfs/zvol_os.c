@@ -661,7 +661,16 @@ zvol_os_write_zv(zvol_state_t *zv, zfs_uio_t *uio, int flags)
 	    "0x%llx bytes 0x%llx)\n", __func__, __LINE__,
 	    zfs_uio_offset(uio), zfs_uio_resid(uio), bytes);
 
-	sync = (zv->zv_objset->os_sync == ZFS_SYNC_ALWAYS);
+	/*
+	 * ZVOL_WRITE_SYNC is set by the StorPort layer when the SCSI CDB
+	 * had ForceUnitAccess set -- the initiator is explicitly asking
+	 * for this write to be durable before it's acknowledged, regardless
+	 * of the dataset's sync property. `flags` was otherwise unused by
+	 * this function, silently dropping that guarantee. Matches
+	 * module/os/linux/zfs/zvol_os.c's io_is_fua() || os_sync check.
+	 */
+	sync = (flags & ZVOL_WRITE_SYNC) ||
+	    (zv->zv_objset->os_sync == ZFS_SYNC_ALWAYS);
 
 	start_resid = zfs_uio_resid(uio);
 
