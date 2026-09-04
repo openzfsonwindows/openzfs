@@ -1805,7 +1805,42 @@ zfs_trunc(znode_t *zp, uint64_t end)
 		error = dmu_tx_assign(tx, DMU_TX_NOWAIT);
 		if (error == ERESTART) {
 			zfs_rangelock_exit(lr);
+			/*
+			 * set_file_endoffile_information() holds
+			 * PagingIoResource and, inside that, FileHeader.
+			 * Resource across this call.  Blocking in
+			 * dmu_tx_wait() while holding them risks the same
+			 * permanent livelock documented in zfs_write()'s
+			 * ERESTART handling: a concurrent paging write to
+			 * this file (lazy writer, or a reentrant
+			 * CcFlushCache from cleanup) can't get
+			 * PagingIoResource back and stalls, and if that
+			 * write is what txg_quiesce is waiting on,
+			 * dmu_tx_wait() here never returns.  Release both
+			 * (reverse acquisition order) before waiting and
+			 * reacquire (original order) after -- mirroring
+			 * zfs_write()'s __had_pagingio pattern, since not
+			 * every zfs_trunc() caller holds these (e.g.
+			 * zfs_setattr()'s chsize path does not).
+			 */
+			boolean_t had_fileheader =
+			    ExIsResourceAcquiredExclusiveLite(
+			    vp->FileHeader.Resource) != 0;
+			boolean_t had_pagingio =
+			    ExIsResourceAcquiredExclusiveLite(
+			    vp->FileHeader.PagingIoResource) != 0;
+			if (had_fileheader)
+				ExReleaseResourceLite(vp->FileHeader.Resource);
+			if (had_pagingio)
+				ExReleaseResourceLite(
+				    vp->FileHeader.PagingIoResource);
 			dmu_tx_wait(tx);
+			if (had_pagingio)
+				ExAcquireResourceExclusiveLite(
+				    vp->FileHeader.PagingIoResource, TRUE);
+			if (had_fileheader)
+				ExAcquireResourceExclusiveLite(
+				    vp->FileHeader.Resource, TRUE);
 			dmu_tx_abort(tx);
 			lr = zfs_rangelock_enter(&zp->z_rangelock,
 			    0, UINT64_MAX, RL_WRITER);
