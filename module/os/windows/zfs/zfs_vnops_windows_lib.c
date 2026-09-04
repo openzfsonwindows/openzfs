@@ -110,8 +110,21 @@ zfs_error_to_ntstatus(int error)
 	case ERANGE:
 	case EOVERFLOW:
 		return (STATUS_BUFFER_OVERFLOW);
+	case EIO:
+		return (STATUS_IO_DEVICE_ERROR);
+	case ENXIO:
+		return (STATUS_NO_SUCH_DEVICE);
 	default:
-		return (error);
+		/*
+		 * Every errno is a small positive int, which NT_SUCCESS()
+		 * (>= 0) treats as success -- returning it unconverted would
+		 * turn an unmapped failure into a fabricated success status.
+		 * Log it so the mapping can be extended, but never hand back
+		 * something that looks like success.
+		 */
+		dprintf("%s: unmapped errno %d -> STATUS_UNEXPECTED_IO_ERROR\n",
+		    __func__, error);
+		return (STATUS_UNEXPECTED_IO_ERROR);
 	}
 }
 

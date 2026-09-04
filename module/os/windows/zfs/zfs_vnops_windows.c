@@ -6840,7 +6840,6 @@ NTSTATUS
 zfs_read_wrap(vnode_t *vp, uint8_t *data, uint64_t start,
     uint64_t length, uint64_t *pbr, PIRP Irp)
 {
-	NTSTATUS Status;
 	znode_t *zp = VTOZ(vp);
 
 	VERIFY3P(zp, !=, NULL);
@@ -6871,13 +6870,21 @@ zfs_read_wrap(vnode_t *vp, uint8_t *data, uint64_t start,
 		}
 	}
 
-	Status = zfs_read(zp, &uio, 0, NULL);
+	int error = zfs_read(zp, &uio, 0, NULL);
 
 	// Update bytes read
 	if (pbr)
 		*pbr = length - zfs_uio_resid(&uio);
 
-	return (Status);
+	/*
+	 * zfs_read() returns a POSIX errno, not an NTSTATUS -- callers here
+	 * test NT_SUCCESS(), which is true for any value >= 0, so returning
+	 * the errno directly would turn EIO(5)/ENXIO(6)/etc into "success".
+	 */
+	if (error != 0)
+		return (zfs_error_to_ntstatus(error));
+
+	return (STATUS_SUCCESS);
 }
 
 NTSTATUS
@@ -7746,9 +7753,17 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			uio.uio_extflg |= SKIP_WRITE_TIME;
 	}
 
-	Status = zfs_write(zp, &uio, 0, NULL);
+	int error = zfs_write(zp, &uio, 0, NULL);
 
-	if (!NT_SUCCESS(Status)) {
+	if (error != 0) {
+		/*
+		 * zfs_write() returns a POSIX errno, not an NTSTATUS -- small
+		 * positive values like ENOSPC(28) or EIO(5) pass NT_SUCCESS()
+		 * (defined as >= 0), so testing Status directly here would
+		 * silently treat every write failure as success. Convert
+		 * before it reaches Irp->IoStatus.Status.
+		 */
+		Status = zfs_error_to_ntstatus(error);
 		dprintf("zfs_write returned %08lx\n", Status);
 		goto end;
 	}
@@ -8088,22 +8103,13 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		Status = GetExceptionCode();
 	}
 
-	switch (error) {
-	case 0:
-		break;
-	case EISDIR:
-		Status = STATUS_FILE_IS_A_DIRECTORY;
-		break;
-	case ENOSPC:
-		Status = STATUS_DISK_FULL;
-		break;
-	case EDQUOT:
-		// Status = STATUS_DISK_QUOTA_EXCEEDED;
-		Status = STATUS_DISK_FULL;
-		break;
-	default:
-		break;
-	}
+	/*
+	 * `error` here is zfs_enter()'s return, already checked non-zero
+	 * above (which returns early) -- it is always 0 by this point, so
+	 * a switch on it can never convert anything.  The real write
+	 * result is `Status`, already a proper NTSTATUS: fs_write_impl()
+	 * returns zfs_write_wrap()'s converted status directly.
+	 */
 
 	VN_RELE(vp);
 
