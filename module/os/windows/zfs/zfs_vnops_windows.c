@@ -8036,7 +8036,6 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	if (VTOZ(vp) == NULL) {
 		dprintf("zp == NULL\n");
-		return (SET_ERROR(STATUS_SUCCESS));
 		return (SET_ERROR(STATUS_INVALID_PARAMETER));
 	}
 
