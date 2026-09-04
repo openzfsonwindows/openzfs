@@ -682,28 +682,6 @@ vdev_disk_physio(vdev_t *vd, caddr_t data,
 	return (EIO);
 }
 
-static void
-vdev_disk_ioctl_free(zio_t *zio)
-{
-	kmem_free(zio->io_vsd, sizeof (struct dk_callback));
-}
-
-static const zio_vsd_ops_t vdev_disk_vsd_ops = {
-	vdev_disk_ioctl_free,
-	zio_vsd_default_cksum_report
-};
-
-static void
-vdev_disk_ioctl_done(void *zio_arg, int error)
-{
-	zio_t *zio = zio_arg;
-
-	zio->io_error = error;
-
-	zio_interrupt(zio);
-}
-
-
 /*
  * IO completion routine: runs at DPC/arbitrary-thread level.
  * Cannot call mutex_enter() or any blocking primitive here.
@@ -786,10 +764,9 @@ vdev_disk_io_start(zio_t *zio)
 {
 	vdev_t *vd = zio->io_vd;
 	vdev_disk_t *dvd = vd->vdev_tsd;
-	struct dk_callback *dkc;
 	buf_t *bp;
 	unsigned long trim_flags = 0;
-	int flags, error = 0;
+	int flags;
 
 	// dprintf("%s: type 0x%x offset 0x%llx len 0x%llx \n",
 	// __func__, zio->io_type, zio->io_offset, zio->io_size);
@@ -813,35 +790,33 @@ vdev_disk_io_start(zio_t *zio)
 			return;
 		}
 
-		if (zfs_nocacheflush)
-			break;
-
-		if (vd->vdev_nowritecache) {
-			zio->io_error = SET_ERROR(ENOTSUP);
-			break;
-		}
-
-		zio->io_vsd = dkc = kmem_alloc(sizeof (*dkc), KM_SLEEP);
-		zio->io_vsd_ops = &vdev_disk_vsd_ops;
-
-		dkc->dkc_callback = vdev_disk_ioctl_done;
-		dkc->dkc_cookie = zio;
-
-		// Windows: find me
-		// error = ldi_ioctl(dvd->vd_lh, zio->io_cmd,
-		// (uintptr_t)dkc, FKIOCTL, kcred, NULL);
-
-		if (error == 0) {
-			/*
-			 * The ioctl will be done asychronously,
-			 * and will call vdev_disk_ioctl_done()
-			 * upon completion.
-			 */
-			zio_execute(zio);  // until we have ioctl
+		if (zfs_nocacheflush) {
+			zio_execute(zio);
 			return;
 		}
 
-		zio->io_error = error;
+		if (vd->vdev_nowritecache) {
+			zio->io_error = SET_ERROR(ENOTSUP);
+			zio_execute(zio);
+			return;
+		}
+
+		/*
+		 * Synchronously flush the underlying disk's write cache.
+		 * vdev_disk_io_start already runs at PASSIVE_LEVEL (it does
+		 * a KM_SLEEP allocation for the READ/WRITE path below), so
+		 * this blocking call is safe here -- illumos/FreeBSD
+		 * vdev_disk.c issues this same flush as a synchronous ioctl.
+		 * FLUSH zios run on the vdev's own zio taskq, never directly
+		 * on an application thread.
+		 */
+		{
+			IO_STATUS_BLOCK iosb;
+			NTSTATUS ntstatus =
+			    ZwFlushBuffersFile(dvd->vd_lh, &iosb);
+			zio->io_error = (ntstatus == STATUS_SUCCESS) ?
+			    0 : SET_ERROR(EIO);
+		}
 		zio_execute(zio);
 		return;
 
