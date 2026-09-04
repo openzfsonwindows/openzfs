@@ -547,7 +547,7 @@ zvol_os_read_zv(zvol_state_t *zv, zfs_uio_t *uio, int flags)
 {
 	zfs_locked_range_t *lr;
 	int error = 0;
-	uint64_t offset = 0;
+	uint64_t start_resid;
 
 	const ULONG_PTR r = IoGetRemainingStackSize();
 
@@ -565,6 +565,8 @@ zvol_os_read_zv(zvol_state_t *zv, zfs_uio_t *uio, int flags)
 		return (EIO);
 
 	rw_enter(&zv->zv_suspend_lock, RW_READER);
+
+	start_resid = zfs_uio_resid(uio);
 
 	lr = zfs_rangelock_enter(&zv->zv_rangelock,
 	    zfs_uio_offset(uio), zfs_uio_resid(uio), RL_READER);
@@ -592,7 +594,8 @@ zvol_os_read_zv(zvol_state_t *zv, zfs_uio_t *uio, int flags)
 	}
 	zfs_rangelock_exit(lr);
 
-	dataset_kstats_update_read_kstats(&zv->zv_kstat, offset);
+	dataset_kstats_update_read_kstats(&zv->zv_kstat,
+	    start_resid - zfs_uio_resid(uio));
 
 	rw_exit(&zv->zv_suspend_lock);
 	return (error);
@@ -606,9 +609,8 @@ zvol_os_write_zv(zvol_state_t *zv, zfs_uio_t *uio, int flags)
 	zfs_locked_range_t *lr;
 	int error = 0;
 	boolean_t sync;
-	uint64_t offset = 0;
+	uint64_t start_resid;
 	uint64_t bytes = 0;
-	uint64_t off;
 
 	const ULONG_PTR r = IoGetRemainingStackSize();
 
@@ -661,6 +663,8 @@ zvol_os_write_zv(zvol_state_t *zv, zfs_uio_t *uio, int flags)
 
 	sync = (zv->zv_objset->os_sync == ZFS_SYNC_ALWAYS);
 
+	start_resid = zfs_uio_resid(uio);
+
 	/* Lock the entire range */
 	lr = zfs_rangelock_enter(&zv->zv_rangelock, zfs_uio_offset(uio),
 	    zfs_uio_resid(uio), RL_WRITER);
@@ -686,7 +690,14 @@ zvol_os_write_zv(zvol_state_t *zv, zfs_uio_t *uio, int flags)
 		    bytes, tx, DMU_READ_PREFETCH);
 
 		if (error == 0) {
-			zvol_log_write(zv, tx, offset, bytes, sync);
+			/*
+			 * Must be the per-iteration "off", not a value fixed
+			 * before the loop: on crash, ZIL replay uses this as
+			 * lr_offset for the WR_COPIED data copy, so logging
+			 * the wrong offset replays the write to the wrong
+			 * place in the zvol.
+			 */
+			zvol_log_write(zv, tx, off, bytes, sync);
 		}
 		dmu_tx_commit(tx);
 
@@ -695,7 +706,8 @@ zvol_os_write_zv(zvol_state_t *zv, zfs_uio_t *uio, int flags)
 	}
 	zfs_rangelock_exit(lr);
 
-	dataset_kstats_update_write_kstats(&zv->zv_kstat, offset);
+	dataset_kstats_update_write_kstats(&zv->zv_kstat,
+	    start_resid - zfs_uio_resid(uio));
 
 	if (error == 0 && sync)
 		error = zil_commit(zv->zv_zilog, ZVOL_OBJ);
