@@ -285,11 +285,19 @@ zfs_file_read(zfs_file_t *fp, void *buf, size_t count, ssize_t *resid)
 		bytesRead += (ULONG)ioStatusBlock.Information;
 	}
 
-	// Double check for short reads
-	VERIFY3U(count, ==, bytesRead);
-
-	if (resid)
-		*resid = 0;
+	/*
+	 * A short read (pipe writer closed early, truncated stream) is a
+	 * normal occurrence for callers like dmu_recv, which read the resid
+	 * to detect it -- panicking here (as VERIFY3U(count, ==, bytesRead)
+	 * previously did) turned an expected short read into a bugcheck.
+	 * Match module/os/linux/zfs/zfs_file_os.c: report the shortfall via
+	 * *resid when the caller asked for it, otherwise treat it as EIO.
+	 */
+	if (resid) {
+		*resid = count - bytesRead;
+	} else if (bytesRead != count) {
+		return (EIO);
+	}
 	return (0);
 }
 
