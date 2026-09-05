@@ -279,6 +279,8 @@ ZFSinPerfVdevEnumerate(PCW_MASK_INFORMATION EnumerateInstances)
 	spa_namespace_enter(FTAG);
 	while ((spa_perf = spa_next(spa_perf)) != NULL) {
 		vdev_t *vd = spa_perf->spa_root_vdev;
+		if (vd == NULL)
+			continue;
 		char vdev_zpool[ZFS_MAX_DATASET_NAME_LEN] = { 0 };
 
 		for (int c = 0; c < vd->vdev_children; c++) {
@@ -666,6 +668,10 @@ void ZFSinPerfVdevCollect(PCW_MASK_INFORMATION CollectData) {
 	while ((spa_perf = spa_next(spa_perf)) != NULL) {
 		spa_config_enter(spa_perf, SCL_ALL, FTAG, RW_READER);
 		vdev_t *vd = spa_perf->spa_root_vdev;
+		if (vd == NULL) {
+			spa_config_exit(spa_perf, SCL_ALL, FTAG);
+			continue;
+		}
 		char vdev_zpool[ZFS_MAX_DATASET_NAME_LEN] = { 0 };
 		zpool_perf_counters perf_vdev = { 0 };
 
