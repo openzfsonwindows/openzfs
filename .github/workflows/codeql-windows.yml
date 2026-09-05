@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: windows-build-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -150,6 +150,6 @@ jobs:
           cmake --build "${{ github.workspace }}/out/build/x64-Debug" --parallel
 
       - name: Analyze
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
 
 
