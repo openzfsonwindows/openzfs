@@ -4228,9 +4228,9 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			    FILE_ACTION_ADDED);
 		}
 #endif
+	} else {
+		error = zfs_error_to_ntstatus(error);
 	}
-
-	error = zfs_error_to_ntstatus(error);
 
 	// Release all holds
 out:
@@ -4511,7 +4511,8 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	error = zfs_rename(VTOZ(fdvp), &fccb->z_name_cache[fccb->z_name_offset],
 	    VTOZ(tdvp), remainder ? remainder : filename, &fccb->cred,
 	    FBYPASS_ZFS_ACL, 0, NULL, NULL);
-	error = zfs_error_to_ntstatus(error);
+	if (error != 0)
+		error = zfs_error_to_ntstatus(error);
 
 	if (error == STATUS_SUCCESS) {
 
