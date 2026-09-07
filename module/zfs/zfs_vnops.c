@@ -413,6 +413,8 @@ zfs_read(struct znode *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	ssize_t start_offset = zfs_uio_offset(uio);
 #endif
 	uint_t blksz = zp->z_blksz;
+	if (blksz == 0)
+		blksz = zfsvfs->z_max_blksz;
 	ssize_t chunk_size;
 	ssize_t n = MIN(zfs_uio_resid(uio), zp->z_size - zfs_uio_offset(uio));
 	ssize_t start_resid = n;
