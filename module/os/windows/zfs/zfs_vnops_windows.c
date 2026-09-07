@@ -8995,9 +8995,38 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	if (need_purge) {
-		dprintf("Purging cache due to delete\n");
-		CcPurgeCacheSection(FileObject->SectionObjectPointer,
-		    NULL, 0, FALSE);
+		dprintf("Truncating cache to zero due to delete\n");
+		/*
+		 * Match NTFS/WinBtrfs/FastFAT: tell the Cache Manager the
+		 * data is gone by shrinking sizes to zero via
+		 * CcSetFileSizes, the same non-blocking mechanism ordinary
+		 * truncate-to-zero already uses successfully -- not
+		 * CcPurgeCacheSection, which can block indefinitely on
+		 * nt!CcCollisionDelay.  Acquire+release PagingIoResource as
+		 * a barrier to drain in-flight paging I/O before changing
+		 * the sizes; never hold it across CcSetFileSizes.
+		 */
+		ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource,
+		    TRUE);
+		vp->FileHeader.AllocationSize.QuadPart = 0;
+		vp->FileHeader.FileSize.QuadPart = 0;
+		vp->FileHeader.ValidDataLength.QuadPart = 0;
+		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
+
+		if (FileObject->SectionObjectPointer &&
+		    CcIsFileCached(FileObject)) {
+			CC_FILE_SIZES ccfs;
+			ccfs.AllocationSize = vp->FileHeader.AllocationSize;
+			ccfs.FileSize = vp->FileHeader.FileSize;
+			ccfs.ValidDataLength =
+			    vp->FileHeader.ValidDataLength;
+			try {
+				CcSetFileSizes(FileObject, &ccfs);
+			} except(EXCEPTION_EXECUTE_HANDLER) {
+				dprintf("CcSetFileSizes threw exception "
+				    "%08lx\n", GetExceptionCode());
+			}
+		}
 	}
 
 	if (need_cache_uninit) {

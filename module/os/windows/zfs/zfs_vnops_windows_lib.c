@@ -3438,16 +3438,15 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp, boolean_t deleteonclose)
 	}
 
 	/*
-	 * Purge Cache Manager data pages first.  A DataSectionObject can
-	 * be left behind when a caching write handle is closed without an
-	 * explicit flush; purging lets MmFlushImageSection succeed in the
-	 * common case (no image section either).
-	 */
-	if (vp->SectionObjectPointers.DataSectionObject != NULL)
-		CcPurgeCacheSection(&vp->SectionObjectPointers, NULL, 0,
-		    FALSE);
-
-	/*
+	 * Do NOT purge/flush the cache section here.  A file about to be
+	 * deleted has no future reads to keep coherent, and
+	 * CcPurgeCacheSection can block indefinitely (nt!CcCollisionDelay)
+	 * waiting out a collision with an unrelated in-flight write-back on
+	 * this section -- confirmed live, see the setunlink purge-gate
+	 * history.  NTFS, WinBtrfs, and FastFAT's own disposition-set
+	 * handlers all agree: only MmFlushImageSection is checked here;
+	 * cache cleanup, if any, happens later at IRP_MJ_CLEANUP.
+	 *
 	 * Block deletion only when a true IMAGE section exists (the file
 	 * is loaded as an executable by some process).  When
 	 * MmFlushImageSection returns FALSE but ImageSectionObject is
