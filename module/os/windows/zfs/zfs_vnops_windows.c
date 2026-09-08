@@ -7713,8 +7713,18 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	boolean_t locked = FALSE;
 
 	if (write_irp && Irp->MdlAddress) {
+		/*
+		 * MDL_SOURCE_IS_NONPAGED_POOL (eg. an MDL built by
+		 * MmBuildMdlForNonPagedPool(), as kernel-mode callers such
+		 * as vhdmp.sys use for their own block buffers) describes
+		 * memory that is never pageable -- it is unconditionally
+		 * resident, so there is nothing to probe or lock.  Calling
+		 * MmProbeAndLockPages() on it is a Driver Verifier bugcheck
+		 * (0xC4/0xB1), confirmed live.
+		 */
 		locked = Irp->MdlAddress->MdlFlags &
-		    (MDL_PAGES_LOCKED | MDL_PARTIAL);
+		    (MDL_PAGES_LOCKED | MDL_PARTIAL |
+		    MDL_SOURCE_IS_NONPAGED_POOL);
 
 		if (!locked) {
 			Status = STATUS_SUCCESS;
