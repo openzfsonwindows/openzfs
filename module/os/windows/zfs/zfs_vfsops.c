@@ -856,11 +856,23 @@ static int
 zfsvfs_setup(zfsvfs_t *zfsvfs, boolean_t mounting)
 {
 	int error;
-	boolean_t readonly = vfs_isrdonly(zfsvfs->z_vfs);
+	boolean_t readonly;
 
 	error = zfs_register_callbacks(zfsvfs->z_vfs);
 	if (error)
 		return (error);
+
+	/*
+	 * Must be read *after* zfs_register_callbacks(), which is what
+	 * actually forces the mount readonly when the pool itself was
+	 * opened readonly (spa_writeable() == B_FALSE), e.g. a pool
+	 * imported with "-o readonly=on" but mounted without an explicit
+	 * "-o ro". Reading it earlier can see a stale writable state and
+	 * fall through to zfs_unlinked_drain() below, which will attempt
+	 * a real write against a non-writeable spa and hit the
+	 * ASSERT(spa_writeable(...)) in zilog_dirty().
+	 */
+	readonly = vfs_isrdonly(zfsvfs->z_vfs);
 
 	zfsvfs->z_log = zil_open(zfsvfs->z_os, zfs_get_data, NULL);
 
