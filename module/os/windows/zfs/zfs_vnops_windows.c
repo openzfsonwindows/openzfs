@@ -7430,7 +7430,8 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 #endif
 
 	/* 1) pagefile: MainResource EXCLUSIVE, PagingIoResource EXCLUSIVE */
-	/* 2) pagingio: PagingIoResource EXCLUSIVE only */
+	/* 2) pagingio: PagingIoResource EXCLUSIVE only if extending, else */
+	/*    SHARED (range locks handle ordering) */
 	/* 3) normal: PagingIoResource SHARED (range locks handle ordering) */
 
 	if (paging_io) {
@@ -7449,14 +7450,40 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			}
 		}
 
-		if (!ExAcquireResourceExclusiveLite(
-		    vp->FileHeader.PagingIoResource, wait)) {
-			Status = STATUS_PENDING;
-			IoMarkIrpPending(Irp);
-			goto end;
+		/*
+		 * Do NOT take this unconditionally exclusive: fastio_write
+		 * holds PagingIoResource shared across FsRtlCopyWrite, which
+		 * internally calls CcCanIWrite() and can block waiting for
+		 * the Lazy Writer (CcWriteBehind) to flush dirty pages --
+		 * i.e. waiting for this exact paging-write path to run.
+		 * Requiring exclusive here deadlocks against that: confirmed
+		 * live via VeraCrypt Format.exe's fastio_write thread
+		 * holding PagingIoResource shared inside CcCanIWrite while
+		 * CcWriteBehind's worker thread blocked here waiting for
+		 * exclusive access. Only a paging write that extends the
+		 * file (FileSize growing under it, same condition the
+		 * non-paging branch below checks) needs exclusive.
+		 */
+		boolean_t need_excl = pagefile ||
+		    (offset.QuadPart + (LONGLONG)*length >
+		    vp->FileHeader.FileSize.QuadPart);
+
+		if (need_excl) {
+			if (!ExAcquireResourceExclusiveLite(
+			    vp->FileHeader.PagingIoResource, wait)) {
+				Status = STATUS_PENDING;
+				IoMarkIrpPending(Irp);
+				goto end;
+			}
 		} else {
-			paging_lock = TRUE;
+			if (!ExAcquireResourceSharedLite(
+			    vp->FileHeader.PagingIoResource, wait)) {
+				Status = STATUS_PENDING;
+				IoMarkIrpPending(Irp);
+				goto end;
+			}
 		}
+		paging_lock = TRUE;
 	} else {
 		/*
 		 * Non-paging write: acquire PagingIoResource, EXCLUSIVE if
