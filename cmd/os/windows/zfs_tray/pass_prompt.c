@@ -29,12 +29,14 @@
 #include <stdint.h>
 #include "resource.h"
 #include "pipe_rpc.h"
+#include "dlg_util.h"
 
 typedef struct {
     const wchar_t *dsW; // in: dataset label
     wchar_t outW[1024]; // out: passphrase (wide)
     int outLen; // out: chars (no NUL)
     BOOL ok; // out: user pressed OK
+    HFONT hHeaderFont;
 } PASSCTX;
 
 static INT_PTR CALLBACK
@@ -55,6 +57,25 @@ PassphraseDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 		    EM_SETPASSWORDCHAR, L'*', 0);
 		InvalidateRect(GetDlgItem(hDlg, IDC_EDIT_PASSPHRASE),
 		    NULL, TRUE);
+
+		// Branding icon + bold heading, matching the Import
+		// window's look instead of a bare "Enter passphrase:"
+		// label.
+		SetDlgIcon(hDlg, IDC_ICON_HDR, IDI_APP, 24, 24);
+		if (pc) {
+			pc->hHeaderFont = CreateHeaderFont(hDlg);
+			if (pc->hHeaderFont)
+				SendDlgItemMessageW(hDlg, IDC_TITLE,
+				    WM_SETFONT, (WPARAM)pc->hHeaderFont,
+				    TRUE);
+		}
+
+		// Follow the system light/dark setting.
+		ApplyThemeFollowSystem(hDlg);
+
+		// Anchor near the tray icon/cursor instead of screen
+		// center.
+		PositionNearCursor(hDlg);
 		return (TRUE);
 	}
 	case WM_COMMAND:
@@ -85,6 +106,15 @@ PassphraseDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 			return (TRUE);
 		}
 		break;
+
+	case WM_DESTROY: {
+		PASSCTX *pc = (PASSCTX *)GetWindowLongPtrW(hDlg, GWLP_USERDATA);
+		if (pc && pc->hHeaderFont) {
+			DeleteObject(pc->hHeaderFont);
+			pc->hHeaderFont = NULL;
+		}
+		return (TRUE);
+	}
 	}
 	return (FALSE);
 }

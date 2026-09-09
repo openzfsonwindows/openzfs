@@ -42,6 +42,7 @@
 
 #include "import_window.h"
 #include "pass_prompt.h"
+#include "dlg_util.h"
 
 #define	strlcpy(dest, src, siz) \
 	_snprintf_s(dest, siz, _TRUNCATE, "%s", src)
@@ -252,6 +253,36 @@ RefreshPoolsFromService(void)
 		HeapFree(GetProcessHeap(), 0, out);
 }
 
+static HRESULT CALLBACK
+TaskDialogPosCallback(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+    LONG_PTR lpRefData)
+{
+	if (msg == TDN_CREATED) {
+		PositionNearCursor(hwnd);
+		// Match the system light/dark setting -- TaskDialog is a
+		// classic dialog under the hood and doesn't do this on
+		// its own.
+		ApplyThemeFollowSystem(hwnd);
+	}
+	return (S_OK);
+}
+
+// Picks the branded icon (plain / warn / err) matching a pool health
+// string, so the summary reads as "alive" state at a glance instead
+// of the health word being just more body text to parse.
+static int
+IconIdForHealth(const wchar_t *health)
+{
+	if (!health)
+		return (IDI_APP);
+	if (_wcsicmp(health, L"ONLINE") == 0)
+		return (IDI_APP);
+	if (_wcsicmp(health, L"DEGRADED") == 0)
+		return (IDI_APP_WARN);
+	// FAULTED, UNAVAIL, REMOVED, SUSPENDED, etc.
+	return (IDI_APP_ERR);
+}
+
 static void
 ShowPoolSummary(HWND hWnd, const PoolSummary *ps)
 {
@@ -259,10 +290,13 @@ ShowPoolSummary(HWND hWnd, const PoolSummary *ps)
 	_snwprintf_s(mainInstr, _countof(mainInstr), _TRUNCATE, L"%s — %s",
 	    ps->name, (ps->health[0] ? ps->health : L"?"));
 
+	// capacity_pct already comes back from the service with its own
+	// "%" suffix (e.g. "12%") -- don't double it up into "12%%".
+	const wchar_t *cap = ps->capacity_pct[0] ? ps->capacity_pct : L"?";
 	wchar_t content[512];
 	_snwprintf_s(content, _countof(content), _TRUNCATE,
-	    L"Capacity: %s%%\r\nAllocated: %s\r\nFree: %s\r\nGUID: %llu",
-	    (ps->capacity_pct[0] ? ps->capacity_pct : L"?"),
+	    L"Capacity: %s\r\nAllocated: %s\r\nFree: %s\r\nGUID: %llu",
+	    cap,
 	    (ps->alloc[0] ? ps->alloc : L"?"),
 	    (ps->freeb[0] ? ps->freeb : L"?"),
 	    (unsigned long long)ps->guid);
@@ -276,15 +310,28 @@ ShowPoolSummary(HWND hWnd, const PoolSummary *ps)
 		    (PFN_TaskDialogIndirect)GetProcAddress(hComCtl,
 		    "TaskDialogIndirect");
 		if (pTaskDialogIndirect) {
+			HICON hIcon = (HICON)LoadImageW(
+			    (HINSTANCE)GetWindowLongPtrW(hWnd,
+			    GWLP_HINSTANCE),
+			    MAKEINTRESOURCEW(IconIdForHealth(ps->health)),
+			    IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+
 			TASKDIALOGCONFIG cfg = { sizeof (cfg) };
 			cfg.hwndParent = hWnd;
-			cfg.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION |
-			    TDF_POSITION_RELATIVE_TO_WINDOW;
+			cfg.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
+			if (hIcon)
+				cfg.dwFlags |= TDF_USE_HICON_MAIN;
 			cfg.pszWindowTitle = L"OpenZFS";
 			cfg.pszMainInstruction = mainInstr;
 			cfg.pszContent = content;
 			cfg.dwCommonButtons = TDCBF_OK_BUTTON;
+			cfg.hMainIcon = hIcon;
+			// Anchor near the tray icon/cursor instead of the
+			// (invisible, zero-size) main window's position.
+			cfg.pfCallback = TaskDialogPosCallback;
 			pTaskDialogIndirect(&cfg, NULL, NULL, NULL);
+			if (hIcon)
+				DestroyIcon(hIcon);
 			FreeLibrary(hComCtl);
 			return;
 		}
@@ -687,11 +734,14 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		g_nid.hIcon = LoadAppIconForTray((HINSTANCE)GetWindowLongPtrW(
 		    hWnd, GWLP_HINSTANCE));
 		g_nid.uVersion = NOTIFYICON_VERSION_4;
+		lstrcpynW(g_nid.szTip, L"OpenZFS", ARRAYSIZE(g_nid.szTip));
+		// NOTE: NIM_ADD must be called exactly once per icon; a
+		// second NIM_ADD for the same hWnd/uID is invalid (unlike
+		// NIM_MODIFY, which is what you'd use to change the tip
+		// after the fact).
 		Shell_NotifyIconW(NIM_ADD, &g_nid);
 		Shell_NotifyIconW(NIM_SETVERSION, &g_nid);
 
-		lstrcpynW(g_nid.szTip, L"OpenZFS", ARRAYSIZE(g_nid.szTip));
-		Shell_NotifyIconW(NIM_ADD, &g_nid);
 		// Start event thread (fake stream)
 		HANDLE h = CreateThread(NULL, 0, EventThread, NULL, 0, NULL);
 		if (h) CloseHandle(h);

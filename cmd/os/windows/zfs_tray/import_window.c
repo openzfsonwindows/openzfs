@@ -43,6 +43,7 @@
 #include "rpc_client.h"
 #include "import_window.h"
 #include "resource.h"
+#include "dlg_util.h"
 
 #pragma comment(lib, "comctl32.lib")
 
@@ -72,6 +73,7 @@ typedef struct {
     HWND   hWnd;
     zrpc_t *rpc;
     HANDLE hScanThread;
+    HFONT  hHeaderFont;
 } ImportCtx;
 
 // Parse: { "candidates":[ {"name":"...", "guid":"...", "state":"..."} ... ] }
@@ -359,6 +361,24 @@ ImportDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 
 		CheckDlgButton(hDlg, IDC_CHK_LOADKEYS, BST_CHECKED);
 
+		// Branding icon + bold heading, so this reads as a
+		// deliberate "Import ZFS Pool" screen rather than a
+		// bare list dumped in a box.
+		SetDlgIcon(hDlg, IDC_ICON_HDR, IDI_APP, 32, 32);
+		ctx->hHeaderFont = CreateHeaderFont(hDlg);
+		if (ctx->hHeaderFont)
+			SendDlgItemMessageW(hDlg, IDC_TITLE, WM_SETFONT,
+			    (WPARAM)ctx->hHeaderFont, TRUE);
+
+		// Follow the system light/dark setting (mainly the
+		// titlebar -- classic dialogs don't do this on their
+		// own even with the comctl32 v6 manifest).
+		ApplyThemeFollowSystem(hDlg);
+
+		// Anchor near the tray icon/cursor instead of screen
+		// center.
+		PositionNearCursor(hDlg);
+
 		// init listview columns, set status text, kick scan thread
 		AddListColumns(GetDlgItem(hDlg, IDC_LIST));
 		SetDlgItemTextW(hDlg, IDC_STATUS,
@@ -485,6 +505,10 @@ ImportDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 			if (ctx->hScanThread) {
 				CloseHandle(ctx->hScanThread);
 				ctx->hScanThread = NULL;
+			}
+			if (ctx->hHeaderFont) {
+				DeleteObject(ctx->hHeaderFont);
+				ctx->hHeaderFont = NULL;
 			}
 			HeapFree(GetProcessHeap(), 0, ctx);
 			SetWindowLongPtrW(hDlg, GWLP_USERDATA, 0);

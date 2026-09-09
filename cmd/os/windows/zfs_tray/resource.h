@@ -25,6 +25,9 @@
 
 #pragma once
 #define	IDI_APP	1
+#define	IDI_APP_WARN	2
+#define	IDI_APP_ERR	3
+#define	IDI_APP_SCRUB	4
 
 #define	IDD_IMPORT	2100
 #define	IDC_LIST	2101
@@ -38,6 +41,10 @@
 #define	IDC_LBL_STATUS	2109
 #define	IDC_ED_ALTROOT	2110
 #define	IDC_CHK_LOADKEYS  2111
+#define	IDC_ICON_HDR	2112
+#define	IDC_TITLE	2113
+#define	IDC_HDR_SEP	2114
+#define	IDC_GRP_OPTIONS	2115
 
 #define	IDD_PASSPHRASE	2000
 #define	IDC_EDIT_PASSPHRASE 2001
