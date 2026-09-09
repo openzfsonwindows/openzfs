@@ -403,7 +403,7 @@ zfs_read(struct znode *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 	ssize_t dio_remaining_resid = 0;
 
 	dmu_flags_t dflags = DMU_READ_PREFETCH;
-	if (ioflag & O_DIRECT)
+	if ((ioflag & O_DIRECT) || (uio->uio_extflg & UIO_UNCACHED))
 		dflags |= DMU_UNCACHEDIO;
 	if (uio->uio_extflg & UIO_DIRECT) {
 		/*
@@ -1004,7 +1004,7 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 #endif
 
 		dmu_flags_t dflags = DMU_READ_PREFETCH;
-		if (ioflag & O_DIRECT)
+		if ((ioflag & O_DIRECT) || (uio->uio_extflg & UIO_UNCACHED))
 			dflags |= DMU_UNCACHEDIO;
 		if (uio->uio_extflg & UIO_DIRECT)
 			dflags |= DMU_DIRECTIO;
