@@ -9,14 +9,7 @@
 	  "installRoot": "${projectDir}\\out\\install\\${name}",
 	  "cmakeCommandArgs": "",
 	  "buildCommandArgs": "-v",
-	  "ctestCommandArgs": "",
-	  "variables": [
-		{
-		  "name": "OPENZFS_SIGNTOOL_SHA1",
-		  "value": "20564273046A323E710BFDC5C9CC22E7392F8049",
-		  "type": "STRING"
-		}
-	  ]
+	  "ctestCommandArgs": ""
 	},
 	{
 	  "name": "x64-Release",
@@ -72,11 +65,6 @@
 		{
 		  "name": "WDK_COMPILE_FLAGS",
 		  "value": "",
-		  "type": "STRING"
-		},
-		{
-		  "name": "OPENZFS_SIGNTOOL_SHA1",
-		  "value": "20564273046A323E710BFDC5C9CC22E7392F8049",
 		  "type": "STRING"
 		}
 	  ],

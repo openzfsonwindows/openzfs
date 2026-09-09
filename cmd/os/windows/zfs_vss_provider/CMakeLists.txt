@@ -30,15 +30,17 @@ target_link_libraries(zfs_vss_provider PRIVATE
 	libzfs
 )
 
-add_custom_command(
-	TARGET zfs_vss_provider
-	POST_BUILD
-	COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256
-		/sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}"
-		$<TARGET_FILE:zfs_vss_provider>
-	WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-	VERBATIM COMMENT "Sign VSS provider EXE"
-)
+if (OPENZFS_SIGNTOOL_SHA1)
+	add_custom_command(
+		TARGET zfs_vss_provider
+		POST_BUILD
+		COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256
+			/sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}"
+			$<TARGET_FILE:zfs_vss_provider>
+		WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+		VERBATIM COMMENT "Sign VSS provider EXE"
+	)
+endif()
 
 install(TARGETS zfs_vss_provider RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES $<TARGET_PDB_FILE:zfs_vss_provider>

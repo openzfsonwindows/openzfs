@@ -68,14 +68,19 @@ if (NOT STAMPINF_PROGRAM)
 	message(FATAL_ERROR "Failed to find stampinf.exe")
 endif()
 
+# Local per-developer override: set OPENZFS_SIGNTOOL_SHA1 as an OS
+# environment variable to sign test builds with your own certificate.
+# Leave it unset to build unsigned - all signing steps are skipped
+# automatically. CI overrides it via -D on the command line instead.
+if (NOT OPENZFS_SIGNTOOL_SHA1 AND DEFINED ENV{OPENZFS_SIGNTOOL_SHA1})
+	set(OPENZFS_SIGNTOOL_SHA1 "$ENV{OPENZFS_SIGNTOOL_SHA1}" CACHE STRING "SHA1 of the certificate.")
+endif()
+
 if (NOT "${OPENZFS_SIGNTOOL_CERTSTORE}")
 	set(OPENZFS_SIGNTOOL_CERTSTORE PrivateCertStore CACHE STRING "Name of the certificate store (PrivateCertStore) that contains the test certificate.")
 endif()
 if (NOT "${OPENZFS_SIGNTOOL_CERTNAME}")
 	set(OPENZFS_SIGNTOOL_CERTNAME "OpenZFS Test Signing Certificate" CACHE STRING "Name of the certificate (OpenZFS Test Signing Certificate) that is installed in the specified certificate store.")
-endif()
-if (NOT "${OPENZFS_SIGNTOOL_SHA1}")
-	set(OPENZFS_SIGNTOOL_SHA1 "e96bb80ace0b559239c89a425ba0b58d5590fdb3" CACHE STRING "SHA1 of the certificate.")
 endif()
 if (NOT "${OPENZFS_SIGNTOOL_TSA}")
 	set(OPENZFS_SIGNTOOL_TSA "http://timestamp.digicert.com" CACHE STRING "Specifies URL of the TSA (http://timestamp.digicert.com) which will time stamp the digital signature.")
@@ -149,17 +154,19 @@ function(um_add_executable name)
 	add_executable(${ARGV})
 
 	target_link_options(${name} PRIVATE "/MANIFESTUAC:level=\"asInvoker\" uiAccess=\"false\"")
-	add_custom_command(
-		TARGET ${name}
-		POST_BUILD
-		#COMMAND "${SIGNTOOL_PROGRAM}" sign /v /fd sha1 /s "${OPENZFS_SIGNTOOL_CERTSTORE}" /n "${OPENZFS_SIGNTOOL_CERTNAME}" /t "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:${name}>
-		#COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /s "${OPENZFS_SIGNTOOL_CERTSTORE}" /n "${OPENZFS_SIGNTOOL_CERTNAME}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:${name}>
-		#COMMAND "${SIGNTOOL_PROGRAM}" sign /v /fd sha1 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /t "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:${name}>
-		# Lundman's line
-		COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:${name}>
-		WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-		VERBATIM COMMENT "Sign userspace tool"
-	)
+	if (OPENZFS_SIGNTOOL_SHA1)
+		add_custom_command(
+			TARGET ${name}
+			POST_BUILD
+			#COMMAND "${SIGNTOOL_PROGRAM}" sign /v /fd sha1 /s "${OPENZFS_SIGNTOOL_CERTSTORE}" /n "${OPENZFS_SIGNTOOL_CERTNAME}" /t "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:${name}>
+			#COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /s "${OPENZFS_SIGNTOOL_CERTSTORE}" /n "${OPENZFS_SIGNTOOL_CERTNAME}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:${name}>
+			#COMMAND "${SIGNTOOL_PROGRAM}" sign /v /fd sha1 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /t "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:${name}>
+			# Lundman's line
+			COMMAND "${SIGNTOOL_PROGRAM}" sign /v /as /fd sha256 /td sha256 /sha1 "${OPENZFS_SIGNTOOL_SHA1}" /tr "${OPENZFS_SIGNTOOL_TSA}" $<TARGET_FILE:${name}>
+			WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+			VERBATIM COMMENT "Sign userspace tool"
+		)
+	endif()
 endfunction()
 
 function(tracewpp OUTPUT_DIR SOURCE)

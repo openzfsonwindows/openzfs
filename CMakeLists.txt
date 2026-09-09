@@ -18,6 +18,25 @@ elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "ARM64")
 	set(OPENSSL_SSL_LIBRARY "C:/Program Files/OpenSSL-Win64-ARM/lib/VC/arm64/MTd/libssl_static.lib")
 endif()
 
+# Local per-developer overrides, e.g. a non-standard OpenSSL install path.
+# OPENSSL_ROOT_DIR is already read from the environment by FindOpenSSL.cmake
+# itself; these few also need to be pre-seeded into the cache here since the
+# things that consume them (find_library/find_path calls below and in
+# lib/libzfs/CMakeLists.txt) only check for an existing cache entry, not the
+# environment. CI overrides the same variables via -D on the command line.
+foreach(_openssl_override_var
+	OPENSSL_INCLUDE_DIR
+	LIB_EAY_DEBUG
+	LIB_EAY_RELEASE
+	SSL_EAY_DEBUG
+	SSL_EAY_RELEASE
+	CRYPTO_STATIC_TEST
+)
+	if (NOT ${_openssl_override_var} AND DEFINED ENV{${_openssl_override_var}})
+		set(${_openssl_override_var} "$ENV{${_openssl_override_var}}" CACHE FILEPATH "")
+	endif()
+endforeach()
+
 set(OPENSSL_USE_STATIC_LIBS TRUE)
 set(OPENSSL_MSVC_STATIC_RT TRUE)
 find_package(OpenSSL REQUIRED)

@@ -11,6 +11,8 @@ add_library(libfetch
 	http.c
 )
 
+target_include_directories(libfetch BEFORE PRIVATE "${OPENSSL_INCLUDE_DIR}")
+
 find_library(SSL_EAY_RELEASE
     NAMES
       libssl64MTd
