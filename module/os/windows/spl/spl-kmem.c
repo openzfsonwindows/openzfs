@@ -4817,10 +4817,7 @@ spl_free_thread()
 				/* grow a little every pressure-free pass */
 				new_spl_free += 1024LL*1024LL;
 			}
-			/*
-			 * Cap, bearing in mind that we deflate
-			 * total_memory by 50% at initialization
-			 */
+			/* Cap growth of spl_free at total_memory. */
 			if (new_spl_free > total_memory)
 				new_spl_free = total_memory;
 		}

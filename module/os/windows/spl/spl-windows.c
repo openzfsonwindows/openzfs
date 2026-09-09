@@ -505,21 +505,28 @@ spl_start(PUNICODE_STRING RegistryPath)
 	// Not sure how to get physical RAM size in a Windows Driver
 	// So until then, pull some numbers out of the aether. Next
 	// we could let users pass in a value, somehow...
-	total_memory = spl_GetPhysMem();
 	real_total_memory = spl_GetPhysMem();
 
 	// Set 2GB as code above doesnt work
-	if (real_total_memory) {
-		zfs_total_memory_limit = spl_GetZfsTotalMemory(RegistryPath);
-		if (zfs_total_memory_limit > ZFS_MIN_MEMORY_LIMIT &&
-		    zfs_total_memory_limit < real_total_memory)
-			total_memory = zfs_total_memory_limit;
-		else
-			total_memory = real_total_memory * 50ULL / 100ULL;
-	} else {
+	if (real_total_memory == 0)
 		real_total_memory = ZFS_MIN_MEMORY_LIMIT;
-		total_memory = real_total_memory * 50ULL / 100ULL;
-	}
+
+	/*
+	 * total_memory is what the rest of SPL/kmem/vmem and the ARC treat
+	 * as "how much RAM this machine has" for all budgeting purposes.
+	 * Default it to the true, measured value; an admin who wants to
+	 * reserve real RAM for other software on this box can still cap
+	 * total_memory downward with a "zfs_total_memory_limit" REG_QWORD
+	 * in our service Registry key. total_memory must never exceed
+	 * real_total_memory, which stays available elsewhere (sysctl_os.c's
+	 * zfs_arc_max validation, several spl-kmem.c/spl-vmem.c thresholds)
+	 * as ground truth, independent of any admin override.
+	 */
+	total_memory = real_total_memory;
+	zfs_total_memory_limit = spl_GetZfsTotalMemory(RegistryPath);
+	if (zfs_total_memory_limit > ZFS_MIN_MEMORY_LIMIT &&
+	    zfs_total_memory_limit < real_total_memory)
+		total_memory = zfs_total_memory_limit;
 
 	dprintf("%s real_total_memory: %llu zfs_total_memory_limit: %llu "
 	    "total_memory: %llu\n", __func__, real_total_memory,
