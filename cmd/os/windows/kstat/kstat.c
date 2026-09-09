@@ -1040,8 +1040,12 @@ ks_instances_print(void)
 
 /*
  * kstat -w module:instance:name:statistic=value [ ... ]
- * e.g. "kstat -w zfs:0:tunable:zfs_arc_mac=1234567890
+ * e.g. "kstat -w spl:0:spl_misc:spl_dynamic_memory_cap=1234567890
  *
+ * zfs_arc_max and the other zfs_arc_* tunables are not writable kstats
+ * on Windows -- there is no "zfs:0:tunable" kstat. Set them live via a
+ * REG_QWORD under this driver's service Registry key instead, e.g.
+ * HKLM\SYSTEM\CurrentControlSet\Services\OpenZFS\zfs_arc\zfs_arc_max.
  */
 int
 write_mode(int argc, char **argv)
@@ -1056,7 +1060,12 @@ write_mode(int argc, char **argv)
 		usage();
 		(void) fprintf(stderr, "-w takes at least one argument\n");
 		(void) fprintf(stderr,
-		    "\te.g. kstat -w zfs:0:tunable:zfs_arc_max=1200000\n");
+		    "\te.g. kstat -w spl:0:spl_misc:"
+		    "spl_dynamic_memory_cap=1234567890\n");
+		(void) fprintf(stderr,
+		    "\tzfs_arc_max is set via the Registry, not kstat -w --"
+		    " see zfs_arc\\zfs_arc_max under this driver's service "
+		    "key\n");
 		return (-1);
 	}
 
