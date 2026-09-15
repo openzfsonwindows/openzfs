@@ -54,6 +54,7 @@
 typedef struct
 {
     int len;
+    uint32_t flags; /* live MNT_RDONLY/MNT_NOATIME/MNT_NOEXEC/MNT_NODEV */
     WCHAR buffer[1]; // make this dynamic?
 } fsctl_zfs_volume_mountpoint_t;
 
@@ -468,6 +469,7 @@ getfsstat(struct statfs *buf, int bufsize, int flags)
 		if (buf) {
 			memset(buf, 0, sizeof (*buf));
 			if (UID && fzvm) {
+				buf->f_flags = fzvm->flags;
 				// Look up mountpoint
 				strlcpy(buf->f_mntfromname, UID->UniqueId,
 				    sizeof (buf->f_mntfromname));

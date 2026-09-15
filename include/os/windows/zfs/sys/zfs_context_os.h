@@ -213,6 +213,7 @@ extern void kx_qsort(void *array, size_t nm, size_t member_size,
     0x8ff, METHOD_BUFFERED, FILE_ANY_ACCESS)
 typedef struct {
 	int len;
+	uint32_t flags; /* live MNT_RDONLY/MNT_NOATIME/MNT_NOEXEC/MNT_NODEV */
 	WCHAR buffer[1]; // make this dynamic?
 } fsctl_zfs_volume_mountpoint_t;
 

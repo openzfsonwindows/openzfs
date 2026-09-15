@@ -7275,6 +7275,20 @@ fsctl_zfs_volume_mountpoint(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    (fsctl_zfs_volume_mountpoint_t *)Irp->AssociatedIrp.SystemBuffer;
 
 	fzvm->len = zmo->mountpoint.Length;
+	/*
+	 * zmo here is the disk's DCB, whose own ->mountflags is set once
+	 * at mount time and never touched again. The live flags (kept
+	 * current by atime_changed_cb() and friends in zfs_vfsops.c) live
+	 * on the mounted volume's VCB, reachable via the zfsvfs that the
+	 * DCB's fsprivate points at.
+	 */
+	{
+		zfsvfs_t *zfsvfs = (zfsvfs_t *)vfs_fsprivate(zmo);
+
+		fzvm->flags = (zfsvfs != NULL) ?
+		    (uint32_t)vfs_flags(zfsvfs->z_vfs) :
+		    (uint32_t)vfs_flags(zmo);
+	}
 	memcpy(fzvm->buffer, zmo->mountpoint.Buffer, fzvm->len);
 	Irp->IoStatus.Information =
 	    sizeof (fsctl_zfs_volume_mountpoint_t) +
