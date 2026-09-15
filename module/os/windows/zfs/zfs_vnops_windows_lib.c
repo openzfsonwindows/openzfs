@@ -805,6 +805,36 @@ vnode_apply_single_ea(struct vnode *vp, struct vnode *xdvp,
 	dprintf("%s: xattr '%.*s' valuelen %u\n", __func__,
 	    ea->EaNameLength, ea->EaName, ea->EaValueLength);
 
+	/*
+	 * Some Windows subsystems (MSYS2/git-bash in particular) resend
+	 * the same marker EAs, e.g. "NfsActOnLink", on every single lookup
+	 * or open, not only on create. Without this check, every such
+	 * lookup unconditionally rewrites the SA/spill xattr data even
+	 * though nothing changed, turning ordinary read traffic into a
+	 * steady stream of COW metadata writes. Skip the set entirely
+	 * when the stored value already matches.
+	 */
+	if (ea->EaValueLength == 0) {
+		ssize_t retsize = 0;
+
+		if (zpl_xattr_get(vp, ea->EaName, NULL, &retsize, NULL) == 0 &&
+		    retsize == 0)
+			return (0);
+	} else if (ea->EaValueLength <= 512) {
+		char existing[512];
+		struct iovec cmp_iov = { existing, ea->EaValueLength };
+		zfs_uio_t cmp_uio;
+		ssize_t retsize = 0;
+
+		zfs_uio_iovec_init(&cmp_uio, &cmp_iov, 1, 0, UIO_SYSSPACE,
+		    ea->EaValueLength, 0);
+		if (zpl_xattr_get(vp, ea->EaName, &cmp_uio, &retsize,
+		    NULL) == 0 && retsize == ea->EaValueLength &&
+		    memcmp(existing, ea->EaName + ea->EaNameLength + 1,
+		    ea->EaValueLength) == 0)
+			return (0);
+	}
+
 	// EaValueLength of zero, means no value, not delete.
 	if (ea->EaValueLength == 0) {
 		iov.iov_base = (void *)NULL;
