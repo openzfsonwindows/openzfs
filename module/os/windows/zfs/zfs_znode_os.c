@@ -1467,6 +1467,36 @@ zfs_znode_free(znode_t *zp)
 
 
 /*
+ * Standard relatime rule (mirrors what Linux's VFS applies before atime
+ * ever reaches ZFS_ACCESSTIME_STAMP()): an access-only atime update is
+ * only worth persisting if the cached atime is more than a day stale,
+ * or if mtime/ctime have moved past it since - otherwise it's just a
+ * write nobody will notice, so skip it.
+ */
+boolean_t
+zfs_atime_relatime_needed(znode_t *zp)
+{
+	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	timestruc_t now;
+	uint64_t atime_sec = zp->z_atime[0];
+	uint64_t mtime[2], ctime[2];
+	sa_bulk_attr_t bulk[2];
+	int count = 0;
+
+	gethrestime(&now);
+
+	if ((uint64_t)now.tv_sec - atime_sec >= 24 * 60 * 60)
+		return (B_TRUE);
+
+	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_MTIME(zfsvfs), NULL, mtime, 16);
+	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_CTIME(zfsvfs), NULL, ctime, 16);
+	if (sa_bulk_lookup(zp->z_sa_hdl, bulk, count) != 0)
+		return (B_TRUE);
+
+	return (mtime[0] >= atime_sec || ctime[0] >= atime_sec);
+}
+
+/*
  * Prepare to update znode time stamps.
  *
  *	IN:	zp	- znode requiring timestamp update

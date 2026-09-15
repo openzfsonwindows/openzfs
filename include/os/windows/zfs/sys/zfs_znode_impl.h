@@ -185,8 +185,21 @@ extern unsigned int zfs_object_mutex_size;
 	(tp)->tv_nsec = (long)(stmp)[1];	\
 }
 
+/*
+ * Unlike Linux (where ZFS_ACCESSTIME_STAMP is a no-op and atime is
+ * throttled by the VFS's own relatime logic before it ever reaches ZFS),
+ * Windows has no equivalent layer above us, so we apply the same
+ * relatime rule here: skip the update if the cached atime is still
+ * "fresh". Without this, every zfs_read()/zfs_readdir() dirties atime,
+ * and zfs_inactive() persists it synchronously on the next handle
+ * close - turning simple directory scans into a steady stream of
+ * metadata writes.
+ */
+extern boolean_t zfs_atime_relatime_needed(struct znode *zp);
+
 #define	ZFS_ACCESSTIME_STAMP(zfsvfs, zp)	\
-    if ((zfsvfs)->z_atime && !vfs_isrdonly(zfsvfs->z_vfs))	\
+    if ((zfsvfs)->z_atime && !vfs_isrdonly(zfsvfs->z_vfs) &&	\
+	zfs_atime_relatime_needed(zp))	\
 		zfs_tstamp_update_setup_ext(zp, ACCESSED, NULL, NULL, B_FALSE);
 
 extern void	zfs_tstamp_update_setup_ext(struct znode *,
