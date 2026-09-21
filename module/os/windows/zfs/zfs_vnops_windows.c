@@ -3225,8 +3225,19 @@ zfs_znode_getvnode(znode_t *zp, znode_t *dzp, zfsvfs_t *zfsvfs)
 	atomic_inc_64(&vnop_num_vnodes);
 
 	// dprintf("Assigned zp %p with vp %p\n", zp, vp);
+	/*
+	 * Publish under z_attach_lock and wake anyone blocked in
+	 * zfs_znode_asyncwait() (called from zfs_zget_ext() when it finds
+	 * a znode with no vnode yet attached, racing this function). This
+	 * is the only place a znode's vnode is ever attached synchronously
+	 * - zfs_znode_asyncgetvnode_impl() calls this same function from
+	 * its taskq, so covering it here is enough for both paths.
+	 */
+	mutex_enter(&zp->z_attach_lock);
 	zp->z_vid = vnode_vid(vp);
 	zp->z_vnode = vp;
+	cv_broadcast(&zp->z_attach_cv);
+	mutex_exit(&zp->z_attach_lock);
 
 	// Assign security here. But, if we are XATTR, we do not? In Windows,
 	// it refers to Streams and they do not have Security?

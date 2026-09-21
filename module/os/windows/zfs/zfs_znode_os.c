@@ -1134,19 +1134,22 @@ again:
 		zfs_znode_hold_exit(zfsvfs, zh);
 
 		/*
-		 * We are racing zfs_znode_getvnode() and we got here first, we
-		 * need to let it get ahead
+		 * We are racing whoever is attaching a vnode to this znode -
+		 * either the async taskq path or a plain synchronous
+		 * zfs_znode_getvnode() call (create/mkdir/etc). Both now
+		 * broadcast z_attach_cv once zp->z_vnode is set, so wait
+		 * properly regardless of which kind of attach we're racing -
+		 * this used to only try waiting when *we* were called with
+		 * ZGET_FLAG_ASYNC, which left every plain zget() racing a
+		 * synchronous attach to busy-spin here instead of blocking.
 		 */
 		if (!vp) {
-
-			// Wait until attached, if we can.
-			if ((flags & ZGET_FLAG_ASYNC) &&
-			    zfs_znode_asyncwait(zfsvfs, zp) == 0) {
+			if (zfs_znode_asyncwait(zfsvfs, zp) == 0) {
 				dprintf("%s: waited on z_vnode OK\n", __func__);
 			} else {
 				dprintf("%s: async racing attach\n", __func__);
-				// Could be zp is being torn down, idle a bit,
-				// and retry. This branch is rarely executed.
+				// zfsvfs is tearing down (zfs_enter() failed) -
+				// can't wait on it, idle a bit and retry.
 				kpreempt(KPREEMPT_SYNC);
 			}
 			goto again;

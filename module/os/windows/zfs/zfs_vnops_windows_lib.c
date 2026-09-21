@@ -1498,64 +1498,51 @@ zfs_znode_asyncgetvnode_impl(void *arg)
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 	VERIFY3P(zfsvfs, !=, NULL);
 
-	// Attach vnode, done as different thread
+	// Attach vnode, done as different thread. This already wakes up
+	// anyone blocked in zfs_znode_asyncwait() once zp->z_vnode is set.
 	zfs_znode_getvnode(zp, NULL, zfsvfs);
 
-	// Wake up anyone blocked on us
+	// Mark the taskq entry idle again.
 	mutex_enter(&zp->z_attach_lock);
 	taskq_init_ent(&zp->z_attach_taskq);
-	cv_broadcast(&zp->z_attach_cv);
 	mutex_exit(&zp->z_attach_lock);
 
 }
 
 
 /*
- * If the znode's vnode is not yet attached (zp->z_vnode == NULL)
- * we call taskq_wait to wait for it to complete.
+ * If the znode's vnode is not yet attached (zp->z_vnode == NULL), block
+ * until it is. zfs_znode_getvnode() broadcasts z_attach_cv once it sets
+ * zp->z_vnode, regardless of whether it was called directly (the
+ * synchronous create/mkdir/etc paths) or from the async taskq
+ * (zfs_znode_asyncgetvnode_impl()) - so this covers racing either kind
+ * of attacher, not just the async one.
+ *
  * We guarantee znode has a vnode at the return of function only
- * when return is "0". On failure to wait, it returns -1, and caller
- * may consider waiting by other means.
+ * when return is "0". On failure to wait (e.g. zfsvfs tearing down),
+ * it returns -1, and caller may consider waiting by other means.
  */
 int
 zfs_znode_asyncwait(zfsvfs_t *zfsvfs, znode_t *zp)
 {
-	int ret = -1;
-	int error = 0;
+	if (zp == NULL || zfsvfs == NULL)
+		return (-1);
 
-	if (zp == NULL)
-		return (ret);
+	if (zfs_enter(zfsvfs, FTAG) != 0)
+		return (-1);
 
-	if (zfsvfs == NULL)
-		return (ret);
-
-	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
-		return (ret);
-
-	if (zfsvfs->z_os == NULL)
-		goto out;
-
-	// Work out if we need to block, that is, we have
-	// no vnode AND a taskq was launched. Unsure if we should
-	// look inside taskqent node like this.
-again:
-	mutex_enter(&zp->z_attach_lock);
-	if (zp->z_vnode == NULL &&
-	    zp->z_attach_taskq.tqent_func != NULL) {
-		// We need to block and wait for taskq to finish.
-		cv_wait(&zp->z_attach_cv, &zp->z_attach_lock);
-		ret = 0;
+	if (zfsvfs->z_os == NULL) {
+		zfs_exit(zfsvfs, FTAG);
+		return (-1);
 	}
+
+	mutex_enter(&zp->z_attach_lock);
+	while (zp->z_vnode == NULL)
+		cv_wait(&zp->z_attach_cv, &zp->z_attach_lock);
 	mutex_exit(&zp->z_attach_lock);
 
-	// Why would it be NULL?
-	if (zp->z_vnode == NULL &&
-	    zp->z_attach_taskq.tqent_func != NULL)
-		goto again;
-
-out:
 	zfs_exit(zfsvfs, FTAG);
-	return (ret);
+	return (0);
 }
 
 /*
