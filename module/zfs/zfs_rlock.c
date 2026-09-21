@@ -671,11 +671,9 @@ zfs_rangelock_reduce(zfs_locked_range_t *lr, uint64_t off, uint64_t len)
 	mutex_exit(&rl->rl_lock);
 }
 
-#if defined(_KERNEL)
 EXPORT_SYMBOL(zfs_rangelock_init);
 EXPORT_SYMBOL(zfs_rangelock_fini);
 EXPORT_SYMBOL(zfs_rangelock_enter);
 EXPORT_SYMBOL(zfs_rangelock_tryenter);
 EXPORT_SYMBOL(zfs_rangelock_exit);
 EXPORT_SYMBOL(zfs_rangelock_reduce);
-#endif

@@ -614,7 +614,6 @@ vdev_indirect_mapping_free_obsolete_counts(vdev_indirect_mapping_t *vim,
 	vmem_free(counts, vim->vim_phys->vimp_num_entries * sizeof (uint32_t));
 }
 
-#if defined(_KERNEL)
 EXPORT_SYMBOL(vdev_indirect_mapping_add_entries);
 EXPORT_SYMBOL(vdev_indirect_mapping_alloc);
 EXPORT_SYMBOL(vdev_indirect_mapping_bytes_mapped);
@@ -631,7 +630,6 @@ EXPORT_SYMBOL(vdev_indirect_mapping_num_entries);
 EXPORT_SYMBOL(vdev_indirect_mapping_object);
 EXPORT_SYMBOL(vdev_indirect_mapping_open);
 EXPORT_SYMBOL(vdev_indirect_mapping_size);
-#endif
 
 ZFS_MODULE_PARAM(zfs_vdev, zfs_, indirect_open_disable, INT, ZMOD_RW,
 	"Skip vdev_indirect_mapping_open() call");

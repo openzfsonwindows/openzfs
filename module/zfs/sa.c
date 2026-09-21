@@ -2255,7 +2255,6 @@ sa_handle_unlock(sa_handle_t *hdl)
 	mutex_exit(&hdl->sa_lock);
 }
 
-#ifdef _KERNEL
 EXPORT_SYMBOL(sa_handle_get);
 EXPORT_SYMBOL(sa_handle_get_from_db);
 EXPORT_SYMBOL(sa_handle_destroy);
@@ -2288,4 +2287,3 @@ EXPORT_SYMBOL(sa_handle_lock);
 EXPORT_SYMBOL(sa_handle_unlock);
 EXPORT_SYMBOL(sa_lookup_uio);
 EXPORT_SYMBOL(sa_add_projid);
-#endif /* _KERNEL */

@@ -1798,7 +1798,7 @@ spa_create_zio_taskqs(spa_t *spa)
 	}
 }
 
-#if defined(_KERNEL) && defined(HAVE_SPA_THREAD)
+#ifdef HAVE_SPA_THREAD
 static void
 spa_thread(void *arg)
 {
@@ -1919,11 +1919,9 @@ spa_activate(spa_t *spa, spa_mode_t mode)
 			ASSERT(spa->spa_proc != &p0);
 			ASSERT(spa->spa_did != 0);
 		} else {
-#ifdef _KERNEL
 			cmn_err(CE_WARN,
 			    "Couldn't create process for zfs pool \"%s\"\n",
 			    spa->spa_name);
-#endif
 		}
 	}
 #endif /* HAVE_SPA_THREAD */
