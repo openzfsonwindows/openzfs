@@ -2441,6 +2441,36 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	}
 
 
+	/*
+	 * Check an existing file before zfs_create() can change its attributes
+	 * and before coupling the FileObject.  The size helper repeats the
+	 * truncation check under PagingIoResource to cover a new mapping that
+	 * appears after this preflight.
+	 */
+	if (vp && (CreateDisposition == FILE_SUPERSEDE ||
+	    CreateDisposition == FILE_OVERWRITE ||
+	    CreateDisposition == FILE_OVERWRITE_IF)) {
+		LARGE_INTEGER zero_size = { .QuadPart = 0 };
+		Status = STATUS_SUCCESS;
+		if (zfsvfs->z_rdonly || vfs_isrdonly(zfsvfs->z_vfs) ||
+		    !spa_writeable(dmu_objset_spa(zfsvfs->z_os)))
+			Status = STATUS_MEDIA_WRITE_PROTECTED;
+		else if (!MmFlushImageSection(&vp->SectionObjectPointers,
+		    MmFlushForWrite))
+			Status = STATUS_SHARING_VIOLATION;
+		else if (!MmCanFileBeTruncated(&vp->SectionObjectPointers,
+		    &zero_size))
+			Status = STATUS_USER_MAPPED_FILE;
+
+		if (!NT_SUCCESS(Status)) {
+			UNDO_SHARE_ACCESS(vp);
+			VN_RELE(vp);
+			VN_RELE(dvp);
+			Irp->IoStatus.Information = 0;
+			return (Status);
+		}
+	}
+
 	// We can not DeleteOnClose if readonly filesystem
 	if (DeleteOnClose) {
 		if (zfsvfs->z_rdonly || vfs_isrdonly(zfsvfs->z_vfs) ||
@@ -2480,29 +2510,15 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			vap->va_mode = 0777 | S_IFREG;
 		vap->va_mask |= (ATTR_MODE | ATTR_TYPE);
 
-		// If O_TRUNC:
-		switch (CreateDisposition) {
-		case FILE_SUPERSEDE:
-		case FILE_OVERWRITE_IF:
-		case FILE_OVERWRITE:
-
-			// Additionally, if overwriting, set size to 0
-			// after checking it is not memory mapped.
-			if (vp != NULL) {
-				if (!MmFlushImageSection(
-				    &vp->SectionObjectPointers,
-				    MmFlushForWrite)) {
-					UNDO_SHARE_ACCESS(vp);
-					VN_RELE(vp);
-					VN_RELE(dvp);
-					Irp->IoStatus.Information = 0; // ?
-					return (STATUS_SHARING_VIOLATION);
-				}
-			}
-			vap->va_mask |= ATTR_SIZE;
-			vap->va_size = 0;
-			break;
-		}
+		/*
+		 * Defer overwrite truncation until FileObject is coupled.  A
+		 * zfs_create(ATTR_SIZE=0) truncates z_size, but on Windows
+		 * vnode_pager_setsize() is a no-op. FileHeader and Cc retain
+		 * the previous size, and dirty pages can restore the old tail.
+		 */
+		if (replacing && (CreateDisposition == FILE_SUPERSEDE ||
+		    CreateDisposition == FILE_OVERWRITE_IF))
+			vap->va_mask &= ~ATTR_SIZE;
 
 		/* Set UID,GID from IRP security context for new ownership */
 		zfs_security_context_pre(vap,
@@ -2559,17 +2575,31 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			vp = ZTOV(zp);
 
 			if (!reenter_for_xattr) {
+				uint64_t allocation_size =
+				    Irp->Overlay.AllocationSize.QuadPart;
 				zfs_couplefileobject(vp, dvp, FileObject,
 				    zp ? zp->z_size : 0ULL, &zccb,
-				    Irp->Overlay.AllocationSize.QuadPart,
+				    allocation_size,
 				    granted_access ?
 				    granted_access : DesiredAccess,
 				    stream_name, Irp);
+				if (replacing && (CreateDisposition ==
+				    FILE_SUPERSEDE || CreateDisposition ==
+				    FILE_OVERWRITE_IF))
+					Status = zfs_truncate_open_file(
+					    IrpSp->DeviceObject, FileObject,
+					    allocation_size);
 
-				if (DeleteOnClose)
+				if (NT_SUCCESS(Status) && DeleteOnClose)
 					Status =
 					    zfs_setunlink_masked(FileObject,
 					    dvp);
+
+				if (!NT_SUCCESS(Status)) {
+					UNDO_SHARE_ACCESS(vp);
+					Irp->IoStatus.Information = 0;
+					goto create_done;
+				}
 
 				Irp->IoStatus.Information = replacing ?
 				    CreateDisposition == FILE_SUPERSEDE ?
@@ -2606,6 +2636,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 					    FILE_ACTION_ADDED_STREAM,
 					    NULL);
 				}
+
+			create_done:
 			}
 
 			if (NT_SUCCESS(Status) && return_break_in_progress)
@@ -2709,15 +2741,19 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 			// If we are to truncate the file:
 			if (CreateDisposition == FILE_OVERWRITE) {
-				Irp->IoStatus.Information = FILE_OVERWRITTEN;
+				Status = zfs_truncate_open_file(
+				    IrpSp->DeviceObject, FileObject,
+				    Irp->Overlay.AllocationSize.QuadPart);
+				if (!NT_SUCCESS(Status)) {
+					UNDO_SHARE_ACCESS(vp);
+					Irp->IoStatus.Information = 0;
+					goto open_done;
+				}
 				zp->z_pflags |= ZFS_ARCHIVE;
-				// zfs_freesp() path uses vnode_pager_setsize()
-				// so we need to make sure fileobject is set.
-				zfs_freesp(zp, 0, 0, FWRITE, B_TRUE);
-				// Did they ask for an AllocationSize
+				Irp->IoStatus.Information = FILE_OVERWRITTEN;
 			}
 
-			// If we created something new, add this permission
+			// If we created something new, add this permission.
 			if (UndoShareAccess == FALSE) {
 				vnode_lock(vp);
 				IoSetShareAccess(
@@ -2729,7 +2765,9 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			}
 		} else {
 			UNDO_SHARE_ACCESS(vp);
+			Irp->IoStatus.Information = 0;
 		}
+	open_done:
 		VN_RELE(vp);
 		VN_RELE(dvp);
 	}
