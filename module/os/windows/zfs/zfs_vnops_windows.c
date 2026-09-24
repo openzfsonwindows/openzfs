@@ -2513,8 +2513,8 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		/*
 		 * Defer overwrite truncation until FileObject is coupled.  A
 		 * zfs_create(ATTR_SIZE=0) truncates z_size, but on Windows
-		 * vnode_pager_setsize() is a no-op: FileHeader and Cc retain the
-		 * previous size and dirty pages can restore the old tail.
+		 * vnode_pager_setsize() is a no-op. FileHeader and Cc retain
+		 * the previous size, and dirty pages can restore the old tail.
 		 */
 		if (replacing && (CreateDisposition == FILE_SUPERSEDE ||
 		    CreateDisposition == FILE_OVERWRITE_IF))
@@ -2575,9 +2575,11 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			vp = ZTOV(zp);
 
 			if (!reenter_for_xattr) {
+				uint64_t allocation_size =
+				    Irp->Overlay.AllocationSize.QuadPart;
 				zfs_couplefileobject(vp, dvp, FileObject,
 				    zp ? zp->z_size : 0ULL, &zccb,
-				    Irp->Overlay.AllocationSize.QuadPart,
+				    allocation_size,
 				    granted_access ?
 				    granted_access : DesiredAccess,
 				    stream_name, Irp);
@@ -2586,53 +2588,56 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    FILE_OVERWRITE_IF))
 					Status = zfs_truncate_open_file(
 					    IrpSp->DeviceObject, FileObject,
-					    Irp->Overlay.AllocationSize.QuadPart);
+					    allocation_size);
 
 				if (NT_SUCCESS(Status) && DeleteOnClose)
 					Status =
 					    zfs_setunlink_masked(FileObject,
 					    dvp);
 
-				if (NT_SUCCESS(Status)) {
-					Irp->IoStatus.Information = replacing ?
-					    CreateDisposition == FILE_SUPERSEDE ?
-					    FILE_SUPERSEDED : FILE_OVERWRITTEN :
-					    FILE_CREATED;
-
-					vnode_lock(vp);
-					IoSetShareAccess(
-					    DesiredAccess,
-					    IrpSp->Parameters.Create.ShareAccess,
-					    FileObject,
-					    &vp->share_access);
-					vnode_unlock(vp);
-
-					// Did we create file, or stream?
-					if (!(zp->z_pflags & ZFS_XATTR)) {
-
-						// Merge SecurityDescriptors
-						zfs_security_context_post(vp, dvp,
-						    IrpSp->Parameters.Create.
-						    SecurityContext);
-
-						zfs_send_notify(zfsvfs,
-						    zccb->z_name_cache,
-						    zccb->z_name_offset,
-						    FILE_NOTIFY_CHANGE_FILE_NAME,
-						    FILE_ACTION_ADDED);
-					} else {
-
-						zfs_send_notify_stream(zfsvfs, // WOOT
-						    zccb->z_name_cache,
-						    zccb->z_name_offset,
-						    FILE_NOTIFY_CHANGE_STREAM_NAME,
-						    FILE_ACTION_ADDED_STREAM,
-						    NULL);
-					}
-				} else {
+				if (!NT_SUCCESS(Status)) {
 					UNDO_SHARE_ACCESS(vp);
 					Irp->IoStatus.Information = 0;
+					goto create_done;
 				}
+
+				Irp->IoStatus.Information = replacing ?
+				    CreateDisposition == FILE_SUPERSEDE ?
+				    FILE_SUPERSEDED : FILE_OVERWRITTEN :
+				    FILE_CREATED;
+
+				vnode_lock(vp);
+				IoSetShareAccess(
+				    DesiredAccess,
+				    IrpSp->Parameters.Create.ShareAccess,
+				    FileObject,
+				    &vp->share_access);
+				vnode_unlock(vp);
+
+				// Did we create file, or stream?
+				if (!(zp->z_pflags & ZFS_XATTR)) {
+
+					// Merge SecurityDescriptors
+					zfs_security_context_post(vp, dvp,
+					    IrpSp->Parameters.Create.
+					    SecurityContext);
+
+					zfs_send_notify(zfsvfs,
+					    zccb->z_name_cache,
+					    zccb->z_name_offset,
+					    FILE_NOTIFY_CHANGE_FILE_NAME,
+					    FILE_ACTION_ADDED);
+				} else {
+
+					zfs_send_notify_stream(zfsvfs, // WOOT
+					    zccb->z_name_cache,
+					    zccb->z_name_offset,
+					    FILE_NOTIFY_CHANGE_STREAM_NAME,
+					    FILE_ACTION_ADDED_STREAM,
+					    NULL);
+				}
+
+			create_done:
 			}
 
 			if (NT_SUCCESS(Status) && return_break_in_progress)
@@ -2739,31 +2744,30 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				Status = zfs_truncate_open_file(
 				    IrpSp->DeviceObject, FileObject,
 				    Irp->Overlay.AllocationSize.QuadPart);
-				if (NT_SUCCESS(Status)) {
-					zp->z_pflags |= ZFS_ARCHIVE;
-					Irp->IoStatus.Information = FILE_OVERWRITTEN;
+				if (!NT_SUCCESS(Status)) {
+					UNDO_SHARE_ACCESS(vp);
+					Irp->IoStatus.Information = 0;
+					goto open_done;
 				}
+				zp->z_pflags |= ZFS_ARCHIVE;
+				Irp->IoStatus.Information = FILE_OVERWRITTEN;
 			}
 
-			if (NT_SUCCESS(Status)) {
-				// If we created something new, add this permission.
-				if (UndoShareAccess == FALSE) {
-					vnode_lock(vp);
-					IoSetShareAccess(
-					    DesiredAccess,
-					    IrpSp->Parameters.Create.ShareAccess,
-					    FileObject,
-					    &vp->share_access);
-					vnode_unlock(vp);
-				}
-			} else {
-				UNDO_SHARE_ACCESS(vp);
-				Irp->IoStatus.Information = 0;
+			// If we created something new, add this permission.
+			if (UndoShareAccess == FALSE) {
+				vnode_lock(vp);
+				IoSetShareAccess(
+				    DesiredAccess,
+				    IrpSp->Parameters.Create.ShareAccess,
+				    FileObject,
+				    &vp->share_access);
+				vnode_unlock(vp);
 			}
 		} else {
 			UNDO_SHARE_ACCESS(vp);
 			Irp->IoStatus.Information = 0;
 		}
+	open_done:
 		VN_RELE(vp);
 		VN_RELE(dvp);
 	}

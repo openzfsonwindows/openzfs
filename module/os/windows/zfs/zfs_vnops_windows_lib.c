@@ -4057,7 +4057,8 @@ set_file_endoffile_information_impl(PDEVICE_OBJECT DeviceObject,
 		vp->FileHeader.FileSize.QuadPart = new_end_of_file;
 		if (vp->FileHeader.ValidDataLength.QuadPart >
 		    new_end_of_file)
-			vp->FileHeader.ValidDataLength.QuadPart = new_end_of_file;
+			vp->FileHeader.ValidDataLength.QuadPart =
+			    new_end_of_file;
 	}
 	ccfs.AllocationSize.QuadPart =
 	    vp->FileHeader.AllocationSize.QuadPart;
