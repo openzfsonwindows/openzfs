@@ -238,6 +238,8 @@ extern NTSTATUS set_file_disposition_information_ex(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
 extern NTSTATUS set_file_endoffile_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION, boolean_t advance_only, boolean_t prealloc);
+extern NTSTATUS zfs_truncate_open_file(PDEVICE_OBJECT, PFILE_OBJECT,
+    uint64_t allocation_size);
 extern NTSTATUS set_file_link_information(PDEVICE_OBJECT, PIRP,
     PIO_STACK_LOCATION);
 extern NTSTATUS set_file_rename_information(PDEVICE_OBJECT, PIRP,

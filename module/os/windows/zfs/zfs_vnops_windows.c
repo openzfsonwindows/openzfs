@@ -2441,6 +2441,42 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	}
 
 
+	/*
+	 * Check an existing file before zfs_create() can change its attributes
+	 * and before coupling the FileObject.  The size helper repeats the
+	 * truncation check under PagingIoResource to cover a new mapping that
+	 * appears after this preflight.
+	 */
+	if (vp && (CreateDisposition == FILE_SUPERSEDE ||
+	    CreateDisposition == FILE_OVERWRITE ||
+	    CreateDisposition == FILE_OVERWRITE_IF)) {
+		LARGE_INTEGER zero_size = { .QuadPart = 0 };
+		if (zfsvfs->z_rdonly || vfs_isrdonly(zfsvfs->z_vfs) ||
+		    !spa_writeable(dmu_objset_spa(zfsvfs->z_os))) {
+			UNDO_SHARE_ACCESS(vp);
+			VN_RELE(vp);
+			VN_RELE(dvp);
+			Irp->IoStatus.Information = 0;
+			return (STATUS_MEDIA_WRITE_PROTECTED);
+		}
+		if (!MmFlushImageSection(&vp->SectionObjectPointers,
+		    MmFlushForWrite)) {
+			UNDO_SHARE_ACCESS(vp);
+			VN_RELE(vp);
+			VN_RELE(dvp);
+			Irp->IoStatus.Information = 0;
+			return (STATUS_SHARING_VIOLATION);
+		}
+		if (!MmCanFileBeTruncated(&vp->SectionObjectPointers,
+		    &zero_size)) {
+			UNDO_SHARE_ACCESS(vp);
+			VN_RELE(vp);
+			VN_RELE(dvp);
+			Irp->IoStatus.Information = 0;
+			return (STATUS_USER_MAPPED_FILE);
+		}
+	}
+
 	// We can not DeleteOnClose if readonly filesystem
 	if (DeleteOnClose) {
 		if (zfsvfs->z_rdonly || vfs_isrdonly(zfsvfs->z_vfs) ||
@@ -2480,29 +2516,15 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 			vap->va_mode = 0777 | S_IFREG;
 		vap->va_mask |= (ATTR_MODE | ATTR_TYPE);
 
-		// If O_TRUNC:
-		switch (CreateDisposition) {
-		case FILE_SUPERSEDE:
-		case FILE_OVERWRITE_IF:
-		case FILE_OVERWRITE:
-
-			// Additionally, if overwriting, set size to 0
-			// after checking it is not memory mapped.
-			if (vp != NULL) {
-				if (!MmFlushImageSection(
-				    &vp->SectionObjectPointers,
-				    MmFlushForWrite)) {
-					UNDO_SHARE_ACCESS(vp);
-					VN_RELE(vp);
-					VN_RELE(dvp);
-					Irp->IoStatus.Information = 0; // ?
-					return (STATUS_SHARING_VIOLATION);
-				}
-			}
-			vap->va_mask |= ATTR_SIZE;
-			vap->va_size = 0;
-			break;
-		}
+		/*
+		 * Defer overwrite truncation until FileObject is coupled.  A
+		 * zfs_create(ATTR_SIZE=0) truncates z_size, but on Windows
+		 * vnode_pager_setsize() is a no-op: FileHeader and Cc retain the
+		 * previous size and dirty pages can restore the old tail.
+		 */
+		if (replacing && (CreateDisposition == FILE_SUPERSEDE ||
+		    CreateDisposition == FILE_OVERWRITE_IF))
+			vap->va_mask &= ~ATTR_SIZE;
 
 		/* Set UID,GID from IRP security context for new ownership */
 		zfs_security_context_pre(vap,
@@ -2565,46 +2587,57 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 				    granted_access ?
 				    granted_access : DesiredAccess,
 				    stream_name, Irp);
+				if (replacing && (CreateDisposition ==
+				    FILE_SUPERSEDE || CreateDisposition ==
+				    FILE_OVERWRITE_IF))
+					Status = zfs_truncate_open_file(
+					    IrpSp->DeviceObject, FileObject,
+					    Irp->Overlay.AllocationSize.QuadPart);
 
-				if (DeleteOnClose)
+				if (NT_SUCCESS(Status) && DeleteOnClose)
 					Status =
 					    zfs_setunlink_masked(FileObject,
 					    dvp);
 
-				Irp->IoStatus.Information = replacing ?
-				    CreateDisposition == FILE_SUPERSEDE ?
-				    FILE_SUPERSEDED : FILE_OVERWRITTEN :
-				    FILE_CREATED;
+				if (NT_SUCCESS(Status)) {
+					Irp->IoStatus.Information = replacing ?
+					    CreateDisposition == FILE_SUPERSEDE ?
+					    FILE_SUPERSEDED : FILE_OVERWRITTEN :
+					    FILE_CREATED;
 
-				vnode_lock(vp);
-				IoSetShareAccess(
-				    DesiredAccess,
-				    IrpSp->Parameters.Create.ShareAccess,
-				    FileObject,
-				    &vp->share_access);
-				vnode_unlock(vp);
+					vnode_lock(vp);
+					IoSetShareAccess(
+					    DesiredAccess,
+					    IrpSp->Parameters.Create.ShareAccess,
+					    FileObject,
+					    &vp->share_access);
+					vnode_unlock(vp);
 
-				// Did we create file, or stream?
-				if (!(zp->z_pflags & ZFS_XATTR)) {
+					// Did we create file, or stream?
+					if (!(zp->z_pflags & ZFS_XATTR)) {
 
-					// Merge SecurityDescriptors
-					zfs_security_context_post(vp, dvp,
-					    IrpSp->Parameters.Create.
-					    SecurityContext);
+						// Merge SecurityDescriptors
+						zfs_security_context_post(vp, dvp,
+						    IrpSp->Parameters.Create.
+						    SecurityContext);
 
-					zfs_send_notify(zfsvfs,
-					    zccb->z_name_cache,
-					    zccb->z_name_offset,
-					    FILE_NOTIFY_CHANGE_FILE_NAME,
-					    FILE_ACTION_ADDED);
+						zfs_send_notify(zfsvfs,
+						    zccb->z_name_cache,
+						    zccb->z_name_offset,
+						    FILE_NOTIFY_CHANGE_FILE_NAME,
+						    FILE_ACTION_ADDED);
+					} else {
+
+						zfs_send_notify_stream(zfsvfs, // WOOT
+						    zccb->z_name_cache,
+						    zccb->z_name_offset,
+						    FILE_NOTIFY_CHANGE_STREAM_NAME,
+						    FILE_ACTION_ADDED_STREAM,
+						    NULL);
+					}
 				} else {
-
-					zfs_send_notify_stream(zfsvfs, // WOOT
-					    zccb->z_name_cache,
-					    zccb->z_name_offset,
-					    FILE_NOTIFY_CHANGE_STREAM_NAME,
-					    FILE_ACTION_ADDED_STREAM,
-					    NULL);
+					UNDO_SHARE_ACCESS(vp);
+					Irp->IoStatus.Information = 0;
 				}
 			}
 
@@ -2709,26 +2742,33 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 			// If we are to truncate the file:
 			if (CreateDisposition == FILE_OVERWRITE) {
-				Irp->IoStatus.Information = FILE_OVERWRITTEN;
-				zp->z_pflags |= ZFS_ARCHIVE;
-				// zfs_freesp() path uses vnode_pager_setsize()
-				// so we need to make sure fileobject is set.
-				zfs_freesp(zp, 0, 0, FWRITE, B_TRUE);
-				// Did they ask for an AllocationSize
+				Status = zfs_truncate_open_file(
+				    IrpSp->DeviceObject, FileObject,
+				    Irp->Overlay.AllocationSize.QuadPart);
+				if (NT_SUCCESS(Status)) {
+					zp->z_pflags |= ZFS_ARCHIVE;
+					Irp->IoStatus.Information = FILE_OVERWRITTEN;
+				}
 			}
 
-			// If we created something new, add this permission
-			if (UndoShareAccess == FALSE) {
-				vnode_lock(vp);
-				IoSetShareAccess(
-				    DesiredAccess,
-				    IrpSp->Parameters.Create.ShareAccess,
-				    FileObject,
-				    &vp->share_access);
-				vnode_unlock(vp);
+			if (NT_SUCCESS(Status)) {
+				// If we created something new, add this permission.
+				if (UndoShareAccess == FALSE) {
+					vnode_lock(vp);
+					IoSetShareAccess(
+					    DesiredAccess,
+					    IrpSp->Parameters.Create.ShareAccess,
+					    FileObject,
+					    &vp->share_access);
+					vnode_unlock(vp);
+				}
+			} else {
+				UNDO_SHARE_ACCESS(vp);
+				Irp->IoStatus.Information = 0;
 			}
 		} else {
 			UNDO_SHARE_ACCESS(vp);
+			Irp->IoStatus.Information = 0;
 		}
 		VN_RELE(vp);
 		VN_RELE(dvp);

@@ -3904,16 +3904,16 @@ set_file_disposition_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (Status);
 }
 
-NTSTATUS
-set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
-    PIO_STACK_LOCATION IrpSp, boolean_t advance_only, boolean_t prealloc)
+static NTSTATUS
+set_file_endoffile_information_impl(PDEVICE_OBJECT DeviceObject,
+    PFILE_OBJECT FileObject, LARGE_INTEGER end_of_file,
+    boolean_t advance_only, boolean_t prealloc,
+    uint64_t initial_allocation_size)
 {
 	NTSTATUS Status = STATUS_SUCCESS;
 	uint64_t new_end_of_file;
-	PFILE_OBJECT FileObject = IrpSp->FileObject;
-	struct vnode *vp = FileObject->FsContext;
-	zfs_ccb_t *zccb = FileObject->FsContext2;
-	FILE_END_OF_FILE_INFORMATION *feofi = Irp->AssociatedIrp.SystemBuffer;
+	struct vnode *vp;
+	zfs_ccb_t *zccb;
 	int changed = 0;
 	int error = 0;
 	mount_t *zmo = DeviceObject->DeviceExtension;
@@ -3923,13 +3923,16 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	boolean_t paging_lock = B_FALSE;
 	ULONG filter = 0UL;
 
-	if (IrpSp->FileObject == NULL || IrpSp->FileObject->FsContext == NULL)
+	if (FileObject == NULL || FileObject->FsContext == NULL)
 		return (STATUS_INVALID_PARAMETER);
+	vp = FileObject->FsContext;
+	zccb = FileObject->FsContext2;
 
 	zfsvfs_t *zfsvfs = NULL;
 	if (zmo != NULL &&
 	    (zfsvfs = vfs_fsprivate(zmo)) != NULL &&
-	    zfsvfs->z_rdonly)
+	    (zfsvfs->z_rdonly || vfs_isrdonly(zfsvfs->z_vfs) ||
+	    !spa_writeable(dmu_objset_spa(zfsvfs->z_os))))
 		return (STATUS_MEDIA_WRITE_PROTECTED);
 
 	if (zfsvfs == NULL)
@@ -3943,8 +3946,7 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    vp,
 	    (unsigned long long)vp->FileHeader.FileSize.QuadPart,
 	    (unsigned long long)
-	    ((FILE_END_OF_FILE_INFORMATION *)Irp->AssociatedIrp.SystemBuffer)
-	    ->EndOfFile.QuadPart,
+	    end_of_file.QuadPart,
 	    (int)advance_only);
 
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
@@ -3982,7 +3984,7 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 	znode_t *zp = VTOZ(vp);
 
-	new_end_of_file = feofi->EndOfFile.QuadPart;
+	new_end_of_file = end_of_file.QuadPart;
 
 
 	/*
@@ -3992,7 +3994,7 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	 * Microsoft does the same as we're doing below.
 	 */
 	if (advance_only &&
-	    feofi->EndOfFile.QuadPart >=
+	    end_of_file.QuadPart >=
 	    (uint64_t)vp->FileHeader.FileSize.QuadPart)
 		new_end_of_file = vp->FileHeader.FileSize.QuadPart;
 
@@ -4012,15 +4014,16 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
 		if (!MmCanFileBeTruncated(
 		    &vp->SectionObjectPointers,
-		    &feofi->EndOfFile)) {
+		    &end_of_file)) {
 			Status = STATUS_USER_MAPPED_FILE;
 			goto end;
 		}
 
-		Status = zfs_freesp(zp, new_end_of_file,
+		error = zfs_freesp(zp, new_end_of_file,
 		    0, 0, B_TRUE); // Len = 0 is truncate
 
-		if (!NT_SUCCESS(Status)) {
+		if (error != 0) {
+			Status = zfs_error_to_ntstatus(error);
 			dprintf("error - truncate_file failed\n");
 			goto end;
 		}
@@ -4028,10 +4031,11 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	} else if ((new_end_of_file > zp->z_size) && !prealloc) {
 		dprintf("extending file to %I64x bytes\n", new_end_of_file);
 
-		Status = zfs_freesp(zp,
+		error = zfs_freesp(zp,
 		    new_end_of_file,
 		    0, 0, B_TRUE);
-		if (!NT_SUCCESS(Status)) {
+		if (error != 0) {
+			Status = zfs_error_to_ntstatus(error);
 			dprintf("error - extend_file failed\n");
 			goto end;
 		}
@@ -4041,10 +4045,19 @@ set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		goto end;
 	}
 
-	vp->FileHeader.AllocationSize.QuadPart = new_end_of_file;
+	/* Preserve NtCreateFile's requested allocation on overwrite-open. */
+	vp->FileHeader.AllocationSize.QuadPart =
+	    MAX(new_end_of_file, initial_allocation_size);
 	if (!prealloc) {
 		vp->FileHeader.FileSize.QuadPart = new_end_of_file;
 		vp->FileHeader.ValidDataLength.QuadPart = new_end_of_file;
+	} else if (new_end_of_file <
+	    (uint64_t)vp->FileHeader.FileSize.QuadPart) {
+		/* Allocation size may not be smaller than EOF. */
+		vp->FileHeader.FileSize.QuadPart = new_end_of_file;
+		if (vp->FileHeader.ValidDataLength.QuadPart >
+		    new_end_of_file)
+			vp->FileHeader.ValidDataLength.QuadPart = new_end_of_file;
 	}
 	ccfs.AllocationSize.QuadPart =
 	    vp->FileHeader.AllocationSize.QuadPart;
@@ -4093,6 +4106,27 @@ end:
 	VN_RELE(vp);
 	zfs_exit(zfsvfs, FTAG);
 	return (Status);
+}
+
+NTSTATUS
+set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp, boolean_t advance_only, boolean_t prealloc)
+{
+	if (Irp == NULL || Irp->AssociatedIrp.SystemBuffer == NULL ||
+	    IrpSp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+	FILE_END_OF_FILE_INFORMATION *feofi = Irp->AssociatedIrp.SystemBuffer;
+	return (set_file_endoffile_information_impl(DeviceObject,
+	    IrpSp->FileObject, feofi->EndOfFile, advance_only, prealloc, 0));
+}
+
+NTSTATUS
+zfs_truncate_open_file(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject,
+    uint64_t allocation_size)
+{
+	LARGE_INTEGER end_of_file = { .QuadPart = 0 };
+	return (set_file_endoffile_information_impl(DeviceObject, FileObject,
+	    end_of_file, B_FALSE, B_FALSE, allocation_size));
 }
 
 // create hardlink by calling zfs_create
