@@ -96,8 +96,39 @@ def test_preallocation(test_path: pathlib.Path):
             os.unlink(fpath)
 
 
+def test_overwrite_truncation(test_path: pathlib.Path):
+    """An overwrite-open must discard the old tail and update EOF.
+
+    Reducing FileAllocationInformation below EOF must also reduce EOF.
+    See https://github.com/openzfsonwindows/openzfs/issues/644.
+    """
+    fpath = test_path / "overwrite-truncation.bin"
+    old_data = b"A" * 8192
+    new_data = b"B" * 2048
+
+    try:
+        fpath.write_bytes(old_data)
+        with open(fpath, "wb") as test_file:
+            test_file.write(new_data)
+            test_file.flush()
+            tc.assertEqual(
+                get_sizes_from_file(test_file)["EndOfFile"], len(new_data)
+            )
+        tc.assertEqual(fpath.read_bytes(), new_data)
+
+        fpath.write_bytes(old_data)
+        with open(fpath, "r+b") as test_file:
+            preallocate_file_object(test_file, 0)
+            tc.assertEqual(get_sizes_from_file(test_file)["EndOfFile"], 0)
+        tc.assertEqual(fpath.read_bytes(), b"")
+    finally:
+        if os.path.isfile(fpath):
+            os.unlink(fpath)
+
+
 def run_tests(test_path: pathlib.Path):
     test_preallocation(test_path)
+    test_overwrite_truncation(test_path)
 
 
 def main():

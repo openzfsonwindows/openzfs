@@ -2451,29 +2451,23 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	    CreateDisposition == FILE_OVERWRITE ||
 	    CreateDisposition == FILE_OVERWRITE_IF)) {
 		LARGE_INTEGER zero_size = { .QuadPart = 0 };
+		Status = STATUS_SUCCESS;
 		if (zfsvfs->z_rdonly || vfs_isrdonly(zfsvfs->z_vfs) ||
-		    !spa_writeable(dmu_objset_spa(zfsvfs->z_os))) {
+		    !spa_writeable(dmu_objset_spa(zfsvfs->z_os)))
+			Status = STATUS_MEDIA_WRITE_PROTECTED;
+		else if (!MmFlushImageSection(&vp->SectionObjectPointers,
+		    MmFlushForWrite))
+			Status = STATUS_SHARING_VIOLATION;
+		else if (!MmCanFileBeTruncated(&vp->SectionObjectPointers,
+		    &zero_size))
+			Status = STATUS_USER_MAPPED_FILE;
+
+		if (!NT_SUCCESS(Status)) {
 			UNDO_SHARE_ACCESS(vp);
 			VN_RELE(vp);
 			VN_RELE(dvp);
 			Irp->IoStatus.Information = 0;
-			return (STATUS_MEDIA_WRITE_PROTECTED);
-		}
-		if (!MmFlushImageSection(&vp->SectionObjectPointers,
-		    MmFlushForWrite)) {
-			UNDO_SHARE_ACCESS(vp);
-			VN_RELE(vp);
-			VN_RELE(dvp);
-			Irp->IoStatus.Information = 0;
-			return (STATUS_SHARING_VIOLATION);
-		}
-		if (!MmCanFileBeTruncated(&vp->SectionObjectPointers,
-		    &zero_size)) {
-			UNDO_SHARE_ACCESS(vp);
-			VN_RELE(vp);
-			VN_RELE(dvp);
-			Irp->IoStatus.Information = 0;
-			return (STATUS_USER_MAPPED_FILE);
+			return (Status);
 		}
 	}
 
