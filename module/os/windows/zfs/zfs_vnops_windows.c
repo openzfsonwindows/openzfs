@@ -9117,10 +9117,36 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	}
 
 	if (need_cache_uninit) {
+		CACHE_UNINITIALIZE_EVENT cc_uninit_event;
+
 		dprintf("CcUninitializeCacheMap on vp %p fo %p, Vpb %p\n",
 		    vp, FileObject, FileObject->Vpb);
 		atomic_dec_64(&zccb->cacheinit);
-		CcUninitializeCacheMap(FileObject, NULL, NULL);
+
+		KeInitializeEvent(&cc_uninit_event.Event,
+		    SynchronizationEvent, FALSE);
+
+		/*
+		 * If teardown can't complete synchronously (eg it still
+		 * needs one more lazy-write pass to let go of the section),
+		 * CcUninitializeCacheMap defers and signals cc_uninit_event
+		 * once truly done. We must wait for that here, while zfsvfs
+		 * is still guaranteed valid: if the containing pool is
+		 * exported/unmounted first, zfs_AcquireForLazyWrite starts
+		 * returning FALSE (zfsvfs gone), the deferred lazy-write
+		 * pass can never complete, and this vnode's SharedCacheMap
+		 * is stuck forever -- reproduced via a Recycle Bin $I file
+		 * left mid-teardown when zpool export ran shortly after.
+		 */
+		if (!CcUninitializeCacheMap(FileObject, NULL,
+		    &cc_uninit_event)) {
+			dprintf("CcUninitializeCacheMap deferred on vp %p "
+			    "fo %p, waiting\n", vp, FileObject);
+			KeWaitForSingleObject(&cc_uninit_event.Event,
+			    Executive, KernelMode, FALSE, NULL);
+			dprintf("CcUninitializeCacheMap wait complete on vp "
+			    "%p fo %p\n", vp, FileObject);
+		}
 	}
 
 	/*
