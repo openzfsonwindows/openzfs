@@ -4,10 +4,12 @@ use_clang()
 um_add_executable(zstreamdump
 	zstream.c
 	zstream_decompress.c
+	zstream_drop_record.c
 	zstream_dump.c
 	zstream_recompress.c
 	zstream_redup.c
 	zstream_token.c
+	zstream_util.c
 	os/windows/resource.rc
 )
 
