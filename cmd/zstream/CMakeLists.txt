@@ -10,6 +10,8 @@ um_add_executable(zstreamdump
 	zstream_dump.c
 	zstream_fletcher4.c
 	zstream_io.c
+	zstream_queue.c
+	zstream_raw.c
 	zstream_recompress.c
 	zstream_redup.c
 	zstream_token.c
