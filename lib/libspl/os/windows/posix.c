@@ -25,6 +25,7 @@
 #define	_LARGEFILE64_SOURCE
 #define	_FILE_OFFSET_BITS 64
 #include <WinSock2.h>
+#include <semaphore.h>
 #include <sys/types.h>
 #include <sys/types32.h>
 #include <time.h>
@@ -1505,6 +1506,52 @@ pwritev(int fd, const struct iovec *iov, int iov_cnt, off_t offset)
 		i++;
 	}
 	return (ret);
+}
+
+int
+sem_init(sem_t *sem, int pshared, unsigned int value)
+{
+	(void) pshared;
+	sem->sem_handle = CreateSemaphore(NULL, value, LONG_MAX, NULL);
+	return (sem->sem_handle != NULL ? 0 : -1);
+}
+
+int
+sem_destroy(sem_t *sem)
+{
+	return (CloseHandle(sem->sem_handle) ? 0 : -1);
+}
+
+int
+sem_post(sem_t *sem)
+{
+	return (ReleaseSemaphore(sem->sem_handle, 1, NULL) ? 0 : -1);
+}
+
+int
+sem_wait(sem_t *sem)
+{
+	return (WaitForSingleObject(sem->sem_handle, INFINITE) ==
+	    WAIT_OBJECT_0 ? 0 : -1);
+}
+
+int
+sem_timedwait(sem_t *sem, const struct timespec *abs_timeout)
+{
+	struct timespec now;
+	clock_gettime(CLOCK_REALTIME, &now);
+
+	int64_t ms = (int64_t)(abs_timeout->tv_sec - now.tv_sec) * 1000 +
+	    (abs_timeout->tv_nsec - now.tv_nsec) / 1000000;
+	if (ms < 0)
+		ms = 0;
+
+	DWORD res = WaitForSingleObject(sem->sem_handle, (DWORD)ms);
+	if (res == WAIT_OBJECT_0)
+		return (0);
+	if (res == WAIT_TIMEOUT)
+		errno = ETIMEDOUT;
+	return (-1);
 }
 
 ssize_t
