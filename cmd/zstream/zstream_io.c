@@ -17,7 +17,11 @@
  * Copyright (c) 2026 by Garth Snyder. All rights reserved.
  */
 
+#ifdef _WIN32
+#include <sys/byteorder.h>
+#else
 #include <arpa/inet.h>
+#endif
 #include <err.h>
 #include <errno.h>
 #include <libzutil.h>
