@@ -480,7 +480,7 @@ scandir(const char *dirp, struct dirent ***namelist,
 		__seterrno(ENOENT);
 		return (-1);
 	}
-	entries = (struct dirent **) malloc(sizeof (struct dirent *) * count);
+	entries = (struct dirent **)malloc(sizeof (struct dirent *) * count);
 	if (!entries) {
 		closedir(d);
 		__seterrno(ENOMEM);
