@@ -61,6 +61,8 @@ function(use_clang)
 # It seems "-include file" is "/FI file" on Windows
 add_compile_options(/FI
 	${CMAKE_SOURCE_DIR}/include/os/windows/zfs/zfs_config.h
+	/FI
+	${CMAKE_SOURCE_DIR}/include/sys/simd_config.h
 )
 set(CMAKE_C_COMPILER clang-cl.exe PARENT_SCOPE)
 set(CMAKE_CXX_COMPILER clang-cl.exe PARENT_SCOPE)
@@ -131,6 +133,7 @@ endif()
 
 # Force-include zfs_config.h in all WDK kernel builds (mirrors /FI in use_clang for userland)
 list(APPEND WDK_COMPILE_FLAGS "/FI${CMAKE_SOURCE_DIR}/include/os/windows/zfs/zfs_config.h")
+list(APPEND WDK_COMPILE_FLAGS "/FI${CMAKE_SOURCE_DIR}/include/sys/simd_config.h")
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_definitions(-DDBG -DZFS_DEBUG)
