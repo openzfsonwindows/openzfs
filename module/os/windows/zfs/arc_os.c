@@ -264,7 +264,8 @@ arc_reclaim_thread(void *unused)
 		if (free_memory < 0 || manual_pressure > 0) {
 
 			if (manual_pressure > 0 || free_memory <=
-			    (arc_c >> zfs_arc_no_grow_shift) + SPA_MAXBLOCKSIZE) {
+			    (arc_c >> zfs_arc_no_grow_shift) +
+			    SPA_MAXBLOCKSIZE) {
 
 				arc_no_grow = B_TRUE;
 
