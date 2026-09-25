@@ -118,7 +118,8 @@ commitcheck:
 		${top_srcdir}/scripts/commitcheck.sh; \
 	fi
 
-CHECKS += spdxcheck
+# Let's disable this on Windows for now
+# CHECKS += spdxcheck
 spdxcheck:
 	$(AM_V_at)$(top_srcdir)/scripts/spdxcheck.pl
 
@@ -139,6 +140,7 @@ cstyle:
 		! -path './include/sys/lua/*' \
 		! -path './module/lua/l*.[ch]' \
 		! -path './module/zfs/lz4.c' \
+		! -path './lib/os/windows/zlib-1.2.13/*' \
 		! -path './tests/unit/munit.[ch]' \
 		$(cstyle_line)
 

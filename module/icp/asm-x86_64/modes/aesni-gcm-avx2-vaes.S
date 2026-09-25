@@ -13,7 +13,7 @@
 #include <modes/gcm_asm_rename_funcs.h>
 
 /* Windows userland links with OpenSSL */
-#if !defined (_WIN32) || defined (_KERNEL)
+// #if !defined (_WIN32) || defined (_KERNEL)
 
 .section	.rodata
 .balign	16
@@ -1281,7 +1281,7 @@ ENDBR
 .cfi_endproc
 SET_SIZE(aes_gcm_dec_update_vaes_avx2)
 
-#endif /* !_WIN32 || _KERNEL */
+// #endif /* !_WIN32 || _KERNEL */
 
 /* Mark the stack non-executable. */
 #ifdef __ELF__
