@@ -464,6 +464,21 @@ zfs_mount_delegation_check(void)
 	return ((geteuid() != 0) ? EACCES : 0);
 }
 
+/*
+ * Windows has no equivalent to Linux's mount_setattr(2). As with FreeBSD
+ * and macOS, fall back to a full remount: zfs_mount()'s option-building
+ * logic reads the dataset's current properties fresh every time, so a
+ * remount picks up whatever namespace property (atime, exec, setuid,
+ * etc.) just changed without needing to translate nspflags into
+ * individual mount flags.
+ */
+int
+zfs_mount_setattr(zfs_handle_t *zhp, uint32_t nspflags)
+{
+	(void) nspflags;
+	return (zfs_mount(zhp, MNTOPT_REMOUNT, 0));
+}
+
 static char *
 zfs_snapshot_mountpoint(zfs_handle_t *zhp)
 {
