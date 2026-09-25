@@ -1244,7 +1244,7 @@ zfsctl_snapshot_touch(const char *snapname)
 }
 
 int
-zfsctl_snapshot_unmount(const char *snapname, int flags)
+zfsctl_snapshot_unmount(const char *snapname)
 {
 	zfsvfs_t *zfsvfs = NULL;
 
@@ -1506,7 +1506,7 @@ zfsctl_unmount_thread(void *notused)
 			mutex_exit(&zfsctl_unmount_list_lock);
 
 			for (int i = 0; i < n_unmount; i++) {
-				zfsctl_snapshot_unmount(to_unmount[i], 0);
+				zfsctl_snapshot_unmount(to_unmount[i]);
 				kmem_strfree(to_unmount[i]);
 			}
 #undef	ZFSCTL_UNMOUNT_BATCH

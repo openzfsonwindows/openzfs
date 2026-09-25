@@ -140,7 +140,7 @@ extern int zfsctl_snapdir_remove(struct vnode *dip, char *name, cred_t *cr,
 extern int zfsctl_snapdir_mkdir(struct vnode *dip, char *dirname, vattr_t *vap,
     struct vnode **ipp, cred_t *cr, int flags);
 extern int zfsctl_snapshot_mount(struct vnode *, int flags);
-extern int zfsctl_snapshot_unmount(const char *, int flags);
+extern int zfsctl_snapshot_unmount(const char *);
 extern void zfsctl_snapshot_touch(const char *snapname);
 extern int zfsctl_snapshot_unmount_node(struct vnode *, const char *,
     int flags);
