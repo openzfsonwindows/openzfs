@@ -33,6 +33,7 @@
 #define	O_DSYNC		0
 #define	O_CLOEXEC	0
 #define	O_NDELAY	0
+#define	O_NONBLOCK	0
 #define	O_NOCTTY	0
 
 #define	F_SETFD		2
