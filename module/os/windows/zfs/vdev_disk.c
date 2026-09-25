@@ -196,8 +196,9 @@ zfs_win_interface_link_from_devobj(_In_ PDEVICE_OBJECT devobj,
 
 static int
 vdev_disk_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
-    uint64_t *ashift, uint64_t *physical_ashif)
+    uint64_t *ashift, uint64_t *physical_ashif, cred_t *cr)
 {
+	(void) cr;
 	spa_t *spa = vd->vdev_spa;
 	vdev_disk_t *dvd = vd->vdev_tsd;
 	int error = EINVAL;
