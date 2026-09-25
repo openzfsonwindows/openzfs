@@ -36,9 +36,11 @@
 #define	SIGEV_THREAD	2	/* Call back from another pthread. */
 
 #define	SIGHUP		1
+#define	SIGALRM		14
 #define	SIGPIPE		13
 #define	SIGCHLD		18
 #define	SIGSTOP		23
+#define	SIGRTMIN	24
 #define	SIGUSR1		30	/* user defined signal 1 */
 #define	SIGUSR2		31	/* user defined signal 2 */
 
@@ -128,5 +130,8 @@ extern int sigaction(int sig, struct sigaction *sa, struct sigaction *osa);
 extern int sigprocmask(int operation, sigset_t *set, sigset_t *oset);
 extern int pause(void);
 extern int kill(int pid, int sig);
+extern int sigwait(const sigset_t *set, int *sig);
+extern int sigsuspend(const sigset_t *mask);
+extern int sigpending(sigset_t *set);
 
 #endif /* SPL_SIGNAL_H */

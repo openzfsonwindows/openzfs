@@ -116,6 +116,7 @@ static inline pid_t fork(void)
 
 extern int mkostemps(char *templ, int suffixlen, DWORD flags);
 void *reallocarray(void *optr, size_t nmemb, size_t size);
+extern unsigned int alarm(unsigned int seconds);
 
 #ifdef  __cplusplus
 }

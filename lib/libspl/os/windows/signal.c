@@ -23,6 +23,7 @@
  * Copyright (c) 2017 Jorgen Lundman <lundman@lundman.net>
  */
 
+#include <windows.h>
 #include <signal.h>
 
 int
@@ -88,5 +89,47 @@ pause(void)
 int
 kill(int pid, int sig)
 {
+	return (0);
+}
+
+unsigned int
+alarm(unsigned int seconds)
+{
+	/* No real signal delivery on Windows; never fires. */
+	return (0);
+}
+
+int
+sigpending(sigset_t *set)
+{
+	if (set)
+		set->sig[0] = 0;
+	return (0);
+}
+
+int
+sigsuspend(const sigset_t *mask)
+{
+	/*
+	 * No real signal delivery on Windows: block forever, matching the
+	 * rest of this no-op signal emulation. A real implementation would
+	 * atomically swap in mask and wait for a signal to arrive.
+	 */
+	for (;;)
+		Sleep(INFINITE);
+	return (0);
+}
+
+int
+sigwait(const sigset_t *set, int *sig)
+{
+	/*
+	 * No real signal delivery on Windows: block forever rather than
+	 * return immediately, since callers treat a return here as "the
+	 * awaited signal arrived" (e.g. zstream's watchdog thread, which
+	 * would otherwise fire immediately at startup instead of never).
+	 */
+	for (;;)
+		Sleep(INFINITE);
 	return (0);
 }
