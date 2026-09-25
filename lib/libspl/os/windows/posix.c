@@ -1478,6 +1478,36 @@ writev(int fd, struct iovec *iov, unsigned iov_cnt)
 }
 
 ssize_t
+pwritev(int fd, const struct iovec *iov, int iov_cnt, off_t offset)
+{
+	int i = 0;
+	ssize_t ret = 0;
+	while (i < iov_cnt) {
+		ssize_t r = pwrite64(fd, iov[i].iov_base, iov[i].iov_len,
+		    offset + ret);
+
+		if (r > 0) {
+			ret += r;
+		} else if (!r) {
+			break;
+		} else if (errno == EINTR) {
+			continue;
+		} else {
+			/*
+			 * else it is some "other" error,
+			 * only return if there was no data processed.
+			 */
+			if (ret == 0) {
+				ret = -1;
+			}
+			break;
+		}
+		i++;
+	}
+	return (ret);
+}
+
+ssize_t
 readv(int fd, const struct iovec *iov, int iov_cnt)
 {
 	unsigned int i = 0;
@@ -2057,6 +2087,12 @@ sysconf(int name)
 
 	case _SC_NPROCESSORS_ONLN:
 		return (GetLogicalProcessors());
+	case _SC_IOV_MAX:
+		/*
+		 * pwritev()/writev() here just loop, no native scatter-
+		 * gather limit; use the common Linux/glibc value.
+		 */
+		return (1024);
 	case _SC_PHYS_PAGES:
 	case _SC_PAGE_SIZE:
 		GetSystemInfo(&info);

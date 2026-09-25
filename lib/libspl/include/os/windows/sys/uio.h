@@ -51,5 +51,7 @@ typedef struct iovec iovec_t;
 
 extern ssize_t readv(int, const struct iovec *, int);
 extern ssize_t writev(int fd, struct iovec *iov, unsigned iov_cnt);
+extern ssize_t pwritev(int fd, const struct iovec *iov, int iov_cnt,
+    off_t offset);
 
 #endif	/* _WINDOWS_SYS_UIO_H */
