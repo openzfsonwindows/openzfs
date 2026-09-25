@@ -798,7 +798,7 @@ zpl_xattr_set_dir(struct vnode *ip, const char *name, zfs_uio_t *uio,
 		vattr.va_mask = ATTR_TYPE | ATTR_MODE;
 
 		error = zfs_create(dxzp, (char *)name, &vattr, 0,
-		    xattr_mode, &xzp, cr, 0, NULL, NULL);
+		    xattr_mode, &xzp, cr, 0, NULL);
 		if (error)
 			goto out;
 	}

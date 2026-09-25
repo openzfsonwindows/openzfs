@@ -932,7 +932,7 @@ vnode_apply_eas(struct vnode *vp, zfs_ccb_t *zccb,
 
 	// Update zp based on LX eas.
 	if (vap.va_active != 0)
-		zfs_setattr(zp, &vap, 0, NULL, NULL);
+		zfs_setattr(zp, &vap, 0, NULL);
 
 	zfs_send_notify(zfsvfs, zccb->z_name_cache,
 	    zccb->z_name_offset,
@@ -3798,7 +3798,7 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 
 		if (changed) {
-			Status = zfs_setattr(zp, vap, 0, NULL, NULL);
+			Status = zfs_setattr(zp, vap, 0, NULL);
 
 			/* Unfortunately, ZFS turns on ARCHIVE sometimes */
 			if (!(fbi->FileAttributes & FILE_ATTRIBUTE_ARCHIVE) &&
@@ -4562,7 +4562,7 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	 */
 	error = zfs_rename(VTOZ(fdvp), &fccb->z_name_cache[fccb->z_name_offset],
 	    VTOZ(tdvp), remainder ? remainder : filename, &fccb->cred,
-	    FBYPASS_ZFS_ACL, 0, NULL, NULL);
+	    FBYPASS_ZFS_ACL, 0, NULL);
 	if (error != 0)
 		error = zfs_error_to_ntstatus(error);
 
@@ -4811,7 +4811,7 @@ set_file_case_sensitive_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    (fcsi->Flags & FILE_CS_FLAG_CASE_SENSITIVE_DIR);
 	XVA_SET_REQ(&xva, XAT_CASESENSITIVEDIR);
 
-	Status = zfs_setattr(zp, vap, 0, NULL, NULL);
+	Status = zfs_setattr(zp, vap, 0, NULL);
 
 	zfs_exit(zfsvfs, FTAG);
 	return (Status);

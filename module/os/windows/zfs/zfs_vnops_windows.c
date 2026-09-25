@@ -2197,7 +2197,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 
 		ASSERT(strchr(finalname, '\\') == NULL);
 		error = zfs_mkdir(VTOZ(dvp), finalname, vap, &zp, mkdir_cr,
-		    flags, NULL, NULL);
+		    flags, NULL);
 		if (error == 0) {
 			vp = ZTOV(zp);
 			zfs_couplefileobject(vp, NULL, FileObject, 0ULL,
@@ -2561,7 +2561,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 		/* O_EXCL only if FILE_CREATE */
 		error = zfs_create(VTOZ(dvp), finalname, vap,
 		    CreateDisposition == FILE_CREATE, vap->va_mode,
-		    &zp, create_cr, flags, NULL, NULL);
+		    &zp, create_cr, flags, NULL);
 		if (error == 0) {
 			boolean_t reenter_for_xattr = B_FALSE;
 
@@ -8675,7 +8675,7 @@ set_security(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 
 	/* Do we need to update ZFS? */
 	if (vattr.va_mask != 0) {
-		zfs_setattr(zp, &vattr, 0, NULL, NULL);
+		zfs_setattr(zp, &vattr, 0, NULL);
 		Status = STATUS_SUCCESS;
 	}
 

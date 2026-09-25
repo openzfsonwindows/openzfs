@@ -475,8 +475,7 @@ is_nametoolong(zfsvfs_t *zfsvfs, const char *name)
 
 int
 zfs_create(znode_t *dzp, char *name, vattr_t *vap, int excl,
-    int mode, znode_t **zpp, cred_t *cr, int flag, vsecattr_t *vsecp,
-    zidmap_t *mnt_ns)
+    int mode, znode_t **zpp, cred_t *cr, int flag, vsecattr_t *vsecp)
 {
 	znode_t		*zp = NULL;
 	zfsvfs_t	*zfsvfs = ZTOZSB(dzp);
@@ -996,7 +995,7 @@ out:
  */
 int
 zfs_mkdir(znode_t *dzp, char *dirname, vattr_t *vap, znode_t **zpp,
-    cred_t *cr, int flags, vsecattr_t *vsecp, zidmap_t *mnt_ns)
+    cred_t *cr, int flags, vsecattr_t *vsecp)
 {
 	znode_t		*zp;
 	zfsvfs_t	*zfsvfs = ZTOZSB(dzp);
@@ -1752,7 +1751,7 @@ void kx_qsort(void* array, size_t nm, size_t member_size,
  *	vp - ctime updated, mtime updated if size changed.
  */
 int
-zfs_setattr(znode_t *zp, vattr_t *vap, int flags, cred_t *cr, zidmap_t *mnt_ns)
+zfs_setattr(znode_t *zp, vattr_t *vap, int flags, cred_t *cr)
 {
 	vnode_t		*vp = ZTOV(zp);
 	zfsvfs_t	*zfsvfs = zp->z_zfsvfs;
@@ -2608,7 +2607,7 @@ zfs_rename_lock(znode_t *szp, znode_t *tdzp, znode_t *sdzp, zfs_zlock_t **zlpp)
  */
 int
 zfs_rename(znode_t *sdzp, char *snm, znode_t *tdzp, char *tnm,
-    cred_t *cr, int flags, uint64_t rflags, vattr_t *wo_vap, zidmap_t *mnt_ns)
+    cred_t *cr, int flags, uint64_t rflags, vattr_t *wo_vap)
 {
 	znode_t		*szp, *tzp;
 	zfsvfs_t	*zfsvfs = ZTOZSB(sdzp);
@@ -3001,7 +3000,7 @@ out:
  */
 int
 zfs_symlink(znode_t *dzp, char *name, vattr_t *vap, char *link,
-    znode_t **zpp, cred_t *cr, int flags, zidmap_t *mnt_ns)
+    znode_t **zpp, cred_t *cr, int flags)
 {
 	znode_t		*zp;
 	zfs_dirlock_t	*dl;
