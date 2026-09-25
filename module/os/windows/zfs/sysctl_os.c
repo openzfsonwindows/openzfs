@@ -496,6 +496,32 @@ param_set_arc_max(ZFS_MODULE_PARAM_ARGS)
 }
 
 int
+param_set_l2arc_dwpd_limit(ZFS_MODULE_PARAM_ARGS)
+{
+	uint64_t val;
+	uint64_t old_val = l2arc_dwpd_limit;
+
+	*type = ZT_TYPE_U64;
+
+	if (set == B_FALSE) {
+		*ptr = &l2arc_dwpd_limit;
+		*len = sizeof (l2arc_dwpd_limit);
+		return (0);
+	}
+
+	ASSERT3U(*len, >=, sizeof (l2arc_dwpd_limit));
+
+	val = *(uint64_t *)(*ptr);
+
+	l2arc_dwpd_limit = val;
+
+	if (l2arc_dwpd_limit != old_val)
+		l2arc_dwpd_bump_reset();
+
+	return (0);
+}
+
+int
 param_set_arc_min(ZFS_MODULE_PARAM_ARGS)
 {
 	uint64_t val;
