@@ -82,6 +82,7 @@ struct zfsvfs {
 	int	z_norm;	/* normalization flags */
 	boolean_t	z_atime;	/* enable atimes mount option */
 	boolean_t	z_unmounted;	/* unmounted */
+	boolean_t	z_use_hold;	/* held via dmu_objset_hold */
 	rrmlock_t	z_teardown_lock;
 	krwlock_t	z_teardown_inactive_lock;
 	list_t	z_all_znodes;	/* all vnodes in the fs */
@@ -283,6 +284,7 @@ extern int  zfs_vnode_lock(vnode_t *vp, int flags);
 extern void zfs_freevfs(struct mount *vfsp);
 
 extern int  zfsvfs_create(const char *name, boolean_t rd, zfsvfs_t **zfvp);
+extern int  zfsvfs_create_hold(const char *name, zfsvfs_t **zfvp);
 extern void zfsvfs_free(zfsvfs_t *zfsvfs);
 
 extern int zfs_get_temporary_prop(dsl_dataset_t *ds, zfs_prop_t zfs_prop,
