@@ -144,6 +144,8 @@ add_library(libzpool
     "${MODULE_DIR}/zfs/vdev_root.c"
     "${MODULE_DIR}/zfs/vdev_trim.c"
     "${MODULE_DIR}/zfs/zap.c"
+    "${MODULE_DIR}/zfs/zap_fat.c"
+    "${MODULE_DIR}/zfs/zap_impl.c"
     "${MODULE_DIR}/zfs/zap_leaf.c"
     "${MODULE_DIR}/zfs/zap_micro.c"
     "${MODULE_DIR}/zfs/zcp.c"
