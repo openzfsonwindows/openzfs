@@ -23,6 +23,8 @@
 #define	_SPL_ZONE_H
 
 #include <sys/byteorder.h>
+#include <sys/cred.h>
+#include <sys/errno.h>
 
 #define	GLOBAL_ZONEID 0
 
