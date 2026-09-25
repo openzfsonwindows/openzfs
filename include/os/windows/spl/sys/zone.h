@@ -23,8 +23,9 @@
 #define	_SPL_ZONE_H
 
 #include <sys/byteorder.h>
-#include <sys/cred.h>
 #include <sys/errno.h>
+
+typedef struct cred cred_t;
 
 #define	GLOBAL_ZONEID 0
 
