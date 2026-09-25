@@ -30,7 +30,6 @@
 #include <mountmgr.h>
 #include <sys/cred.h>
 #include <sys/vnode.h>
-#include <sys/zfs_acl_impl.h>
 #include <sys/zfs_dir.h>
 #include <sys/zfs_ioctl.h>
 #include <sys/fs/zfs.h>
@@ -43,6 +42,7 @@
 #include <sys/sa.h>
 #include <sys/zfs_vnops.h>
 #include <sys/zfs_vnops_os.h>
+#include <sys/zfs_acl_impl.h>
 #include <sys/zfs_ctldir.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
