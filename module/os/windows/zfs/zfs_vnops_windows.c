@@ -54,6 +54,7 @@
 
 #include <sys/cred.h>
 #include <sys/vnode.h>
+#include <sys/zfs_acl_impl.h>
 #include <sys/zfs_dir.h>
 #include <sys/zfs_ioctl.h>
 #include <sys/zfs_ioctl_compat.h>
@@ -2333,7 +2334,7 @@ zfs_vnop_lookup_impl(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo,
 	    vp && zp &&
 	    dvp && VTOZ(dvp) &&
 	    !zfsctl_is_node(VTOZ(dvp)) &&
-	    zfs_zaccess_delete(VTOZ(dvp), zp, 0, NULL) > 0) {
+	    zfs_zaccess_delete(VTOZ(dvp), zp, 0) > 0) {
 			VN_RELE(vp);
 			if (dvp)
 				VN_RELE(dvp);

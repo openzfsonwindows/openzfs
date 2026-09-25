@@ -44,6 +44,7 @@
 #include <sys/zfs_znode.h>
 #include <sys/zfs_fuid.h>
 #include <sys/zfs_acl.h>
+#include <sys/zfs_acl_impl.h>
 #include <sys/zfs_dir.h>
 #include <sys/zfs_vfsops.h>
 #include <sys/zfs_vnops.h>
@@ -1663,7 +1664,7 @@ zfs_acl_inherit(zfsvfs_t *zfsvfs, zfs_acl_t *paclp,
  */
 int
 zfs_acl_ids_create(znode_t *dzp, int flag, vattr_t *vap, cred_t *cr,
-    vsecattr_t *vsecp, zfs_acl_ids_t *acl_ids, zidmap_t *mnt_ns)
+    vsecattr_t *vsecp, zfs_acl_ids_t *acl_ids)
 {
 	int		error;
 	zfsvfs_t	*zfsvfs = dzp->z_zfsvfs;
@@ -2132,7 +2133,7 @@ zfs_setacl(znode_t *zp, vsecattr_t *vsecp, boolean_t skipaclchk, cred_t *cr)
 	if (zp->z_pflags & ZFS_IMMUTABLE)
 		return (SET_ERROR(EPERM));
 
-	if ((error = zfs_zaccess(zp, ACE_WRITE_ACL, 0, skipaclchk, cr, NULL)))
+	if ((error = zfs_zaccess(zp, ACE_WRITE_ACL, 0, skipaclchk, cr)))
 		return (error);
 
 	error = zfs_vsec_2_aclp(zfsvfs, vnode_vtype(ZTOV(zp)), vsecp, cr,
@@ -2553,7 +2554,7 @@ slow:
 	DTRACE_PROBE(zfs__fastpath__execute__access__miss);
 	if ((error = zfs_enter(zdp->z_zfsvfs, FTAG)) != 0)
 		return (error);
-	error = zfs_zaccess(zdp, ACE_EXECUTE, 0, B_FALSE, cr, NULL);
+	error = zfs_zaccess(zdp, ACE_EXECUTE, 0, B_FALSE, cr);
 	zfs_exit(zdp->z_zfsvfs, FTAG);
 	return (error);
 }
@@ -2565,8 +2566,7 @@ slow:
  * can define any form of access.
  */
 int
-zfs_zaccess(znode_t *zp, int mode, int flags, boolean_t skipaclchk, cred_t *cr,
-    zidmap_t *mnt_ns)
+zfs_zaccess(znode_t *zp, int mode, int flags, boolean_t skipaclchk, cred_t *cr)
 {
 	uint32_t	working_mode;
 	int		error;
@@ -2744,11 +2744,9 @@ zfs_zaccess(znode_t *zp, int mode, int flags, boolean_t skipaclchk, cred_t *cr,
  * native ACL format and call zfs_zaccess()
  */
 int
-zfs_zaccess_rwx(znode_t *zp, mode_t mode, int flags, cred_t *cr,
-    zidmap_t *mnt_ns)
+zfs_zaccess_rwx(znode_t *zp, mode_t mode, int flags, cred_t *cr)
 {
-	return (zfs_zaccess(zp, zfs_unix_to_v4(mode >> 6), flags, B_FALSE, cr,
-	    NULL));
+	return (zfs_zaccess(zp, zfs_unix_to_v4(mode >> 6), flags, B_FALSE, cr));
 }
 
 /*
@@ -2759,7 +2757,7 @@ zfs_zaccess_unix(void *zp, int mode, cred_t *cr)
 {
 	int v4_mode = zfs_unix_to_v4(mode >> 6);
 
-	return (zfs_zaccess(zp, v4_mode, 0, B_FALSE, cr, NULL));
+	return (zfs_zaccess(zp, v4_mode, 0, B_FALSE, cr));
 }
 
 /* See zfs_zaccess_delete() */
@@ -2836,7 +2834,7 @@ uint64_t zfs_write_implies_delete_child = 1;
  * zfs_write_implies_delete_child
  */
 int
-zfs_zaccess_delete(znode_t *dzp, znode_t *zp, cred_t *cr, zidmap_t *mnt_ns)
+zfs_zaccess_delete(znode_t *dzp, znode_t *zp, cred_t *cr)
 {
 	uint32_t wanted_dirperms;
 	uint32_t dzp_working_mode = 0;
@@ -2964,7 +2962,7 @@ zfs_zaccess_delete(znode_t *dzp, znode_t *zp, cred_t *cr, zidmap_t *mnt_ns)
 
 int
 zfs_zaccess_rename(znode_t *sdzp, znode_t *szp, znode_t *tdzp,
-    znode_t *tzp, cred_t *cr, zidmap_t *mnt_ns)
+    znode_t *tzp, cred_t *cr)
 {
 	int add_perm;
 	int error;
@@ -2984,8 +2982,7 @@ zfs_zaccess_rename(znode_t *sdzp, znode_t *szp, znode_t *tdzp,
 	 * to another.
 	 */
 	if (vnode_isdir(ZTOV(szp)) && ZTOV(sdzp) != ZTOV(tdzp)) {
-		if ((error = zfs_zaccess(szp, ACE_WRITE_DATA, 0, B_FALSE, cr,
-		    NULL)))
+		if ((error = zfs_zaccess(szp, ACE_WRITE_DATA, 0, B_FALSE, cr)))
 			return (error);
 	}
 
@@ -2995,21 +2992,21 @@ zfs_zaccess_rename(znode_t *sdzp, znode_t *szp, znode_t *tdzp,
 	 * If that succeeds then check for add_file/add_subdir permissions
 	 */
 
-	if ((error = zfs_zaccess_delete(sdzp, szp, cr, mnt_ns)))
+	if ((error = zfs_zaccess_delete(sdzp, szp, cr)))
 		return (error);
 
 	/*
 	 * If we have a tzp, see if we can delete it?
 	 */
 	if (tzp) {
-		if ((error = zfs_zaccess_delete(tdzp, tzp, cr, mnt_ns)))
+		if ((error = zfs_zaccess_delete(tdzp, tzp, cr)))
 			return (error);
 	}
 
 	/*
 	 * Now check for add permissions
 	 */
-	error = zfs_zaccess(tdzp, add_perm, 0, B_FALSE, cr, NULL);
+	error = zfs_zaccess(tdzp, add_perm, 0, B_FALSE, cr);
 
 	return (error);
 }

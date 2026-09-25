@@ -30,6 +30,7 @@
 #include <mountmgr.h>
 #include <sys/cred.h>
 #include <sys/vnode.h>
+#include <sys/zfs_acl_impl.h>
 #include <sys/zfs_dir.h>
 #include <sys/zfs_ioctl.h>
 #include <sys/fs/zfs.h>
@@ -1657,7 +1658,7 @@ zfs_obtain_xattr(znode_t *dzp, const char *name, mode_t mode, cred_t *cr,
 	vattr.va_mask = ATTR_TYPE | ATTR_MODE;
 
 	if ((error = zfs_acl_ids_create(dzp, 0,
-	    &vattr, cr, NULL, &acl_ids, NULL)) != 0) {
+	    &vattr, cr, NULL, &acl_ids)) != 0) {
 		zfs_exit(zfsvfs, FTAG);
 		return (error);
 	}
@@ -3574,7 +3575,7 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp, boolean_t deleteonclose)
 		 */
 		if (delete_cr == NULL)
 			delete_cr = &elevated_delete_cr;
-		error = zfs_zaccess_delete(dzp, zp, delete_cr, NULL);
+		error = zfs_zaccess_delete(dzp, zp, delete_cr);
 	}
 
 	if (error == 0) {
