@@ -550,27 +550,27 @@ param_set_arc_min(ZFS_MODULE_PARAM_ARGS)
 	return (0);
 }
 
-static int
-sysctl_vfs_zfs_arc_no_grow_shift(ZFS_MODULE_PARAM_ARGS)
+int
+param_set_arc_no_grow_shift(ZFS_MODULE_PARAM_ARGS)
 {
 	int val;
 
-	*type = ZT_TYPE_INT;
+	*type = ZT_TYPE_UINT;
 
 	if (set == B_FALSE) {
-		*ptr = &arc_no_grow_shift;
-		*len = sizeof (arc_no_grow_shift);
+		*ptr = &zfs_arc_no_grow_shift;
+		*len = sizeof (zfs_arc_no_grow_shift);
 		return (0);
 	}
 
-	ASSERT3U(*len, >=, sizeof (arc_no_grow_shift));
+	ASSERT3U(*len, >=, sizeof (zfs_arc_no_grow_shift));
 
 	val = *(int *)(*ptr);
 
 	if (val < 0 || val >= arc_shrink_shift)
-		return (EINVAL);
+		return (SET_ERROR(EINVAL));
 
-	arc_no_grow_shift = val;
+	zfs_arc_no_grow_shift = val;
 	return (0);
 }
 
