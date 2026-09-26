@@ -6325,9 +6325,9 @@ print_zpool_script_list(const char *subcommand)
 	if (sp == NULL)
 		return;
 
-	for (dir = strtok_r(sp, ":", &tmp);
+	for (dir = strtok_r(sp, ZPOOL_SCRIPTS_PATH_SEP, &tmp);
 	    dir != NULL;
-	    dir = strtok_r(NULL, ":", &tmp))
+	    dir = strtok_r(NULL, ZPOOL_SCRIPTS_PATH_SEP, &tmp))
 		print_zpool_dir_scripts(dir);
 
 	free(sp);
