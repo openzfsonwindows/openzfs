@@ -50,6 +50,12 @@ wdk_add_library(luakern
   #lundump.h
   lvm.h
   lzio.h
-  setjmp/setjmp_x86_64.S
 )
+
+if (CMAKE_C_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
+	target_sources(luakern PRIVATE setjmp/setjmp_x86_64.S)
+elseif (CMAKE_C_COMPILER_ARCHITECTURE_ID STREQUAL "ARM64")
+	target_sources(luakern PRIVATE setjmp/setjmp_aarch64.S)
+endif()
+
 target_link_libraries(luakern PRIVATE splkern)

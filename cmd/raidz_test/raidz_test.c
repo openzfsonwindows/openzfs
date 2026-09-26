@@ -805,7 +805,7 @@ main(int argc, char **argv)
 	/* init gdb pid string early */
 	(void) sprintf(pid_s, "%d", getpid());
 
-#ifndef WIN32
+#ifndef _WIN32
 	action.sa_handler = sig_handler;
 	sigemptyset(&action.sa_mask);
 	action.sa_flags = 0;

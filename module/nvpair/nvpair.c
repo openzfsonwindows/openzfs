@@ -3313,15 +3313,6 @@ nvs_xdr_nvp_##type(XDR *xdrs, void *ptr)	\
 	return (xdr_##type(xdrs, ptr));		\
 }
 
-#elif defined(_WIN32) && defined(_KERNEL)
-
-#define	NVS_BUILD_XDRPROC_T(type)		\
-static bool_t					\
-nvs_xdr_nvp_##type(XDR *xdrs, void *ptr, ...)	\
-{						\
-	return (xdr_##type(xdrs, ptr));	\
-}
-
 #elif defined(_WIN32) /* windows userland */
 
 #define	NVS_BUILD_XDRPROC_T(type)		\

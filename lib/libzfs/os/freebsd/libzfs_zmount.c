@@ -159,7 +159,7 @@ int
 zfs_snapshot_mount(zfs_handle_t *zhp, const char *options, int flags)
 {
 	(void) zhp, (void) options, (void) flags;
-	return (0);
+	return (ENOTSUP);
 }
 
 /* Called for manual "zfs unmount snapshot" */
@@ -167,5 +167,5 @@ int
 zfs_snapshot_unmount(zfs_handle_t *zhp, int flags)
 {
 	(void) zhp, (void) flags;
-	return (0);
+	return (ENOTSUP);
 }
