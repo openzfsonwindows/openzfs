@@ -2550,3 +2550,195 @@ hsearch(ENTRY item, ACTION action)
 	hsearch_tab[idx] = node;
 	return (&node->item);
 }
+
+/*
+ * Build a Windows command line string from a NULL-terminated argv[],
+ * quoting/escaping each argument per the rules CommandLineToArgvW (and
+ * CRT startup code) expect.  Caller frees the result.
+ */
+static char *
+argv_to_cmdline(char *argv[])
+{
+	size_t cap = 1;
+	for (int i = 0; argv[i] != NULL; i++)
+		cap += strlen(argv[i]) * 2 + 3;
+
+	char *cmd = malloc(cap);
+	if (cmd == NULL)
+		return (NULL);
+
+	size_t pos = 0;
+	for (int i = 0; argv[i] != NULL; i++) {
+		const char *arg = argv[i];
+		boolean_t quote = arg[0] == '\0' ||
+		    strpbrk(arg, " \t\"") != NULL;
+
+		if (i > 0)
+			cmd[pos++] = ' ';
+
+		if (!quote) {
+			size_t alen = strlen(arg);
+			memcpy(cmd + pos, arg, alen);
+			pos += alen;
+			continue;
+		}
+
+		cmd[pos++] = '"';
+		for (const char *p = arg; *p != '\0'; ) {
+			size_t nbs = 0;
+			while (*p == '\\') {
+				nbs++;
+				p++;
+			}
+			if (*p == '\0') {
+				for (size_t j = 0; j < nbs * 2; j++)
+					cmd[pos++] = '\\';
+				break;
+			}
+			size_t rep = (*p == '"') ? nbs * 2 + 1 : nbs;
+			for (size_t j = 0; j < rep; j++)
+				cmd[pos++] = '\\';
+			cmd[pos++] = *p++;
+		}
+		cmd[pos++] = '"';
+	}
+	cmd[pos] = '\0';
+	return (cmd);
+}
+
+/*
+ * Build a Windows double-NUL-terminated environment block from a
+ * NULL-terminated array of "NAME=VALUE" strings.  This is an exact
+ * replacement block (no merging with the calling process's own
+ * environment), matching execve()/execvpe()'s semantics on other
+ * platforms.  Caller frees the result.
+ */
+static char *
+env_array_to_block(char *env[])
+{
+	size_t len = 1;
+	int n;
+	for (n = 0; env[n] != NULL; n++)
+		len += strlen(env[n]) + 1;
+
+	char *block = malloc(len);
+	if (block == NULL)
+		return (NULL);
+
+	size_t pos = 0;
+	for (int i = 0; i < n; i++) {
+		size_t l = strlen(env[i]) + 1;
+		memcpy(block + pos, env[i], l);
+		pos += l;
+	}
+	block[pos] = '\0';
+	return (block);
+}
+
+/*
+ * Run argv[0] with the given argv/env, wait for it to exit, and return
+ * its exit code (or -1 if the process itself could not be created).
+ *
+ * env, when non-NULL, entirely replaces the child's environment (rather
+ * than being merged with ours), matching execve()/execvpe() on other
+ * platforms - the caller is expected to build a complete environment.
+ * When NULL, the child inherits our environment, matching execv()/
+ * execvp().
+ *
+ * If capture_stdout_fd is non-NULL, the child's stdout is captured
+ * through a pipe and a CRT file descriptor for the read end is handed
+ * back through it for the caller to read (e.g. with fdopen()) and
+ * close; otherwise stdout follows stdout_verbose (inherited if true,
+ * discarded otherwise).  stderr always just follows stderr_verbose.
+ */
+int
+wosix_run_process(char *argv[], char *env[], boolean_t stdout_verbose,
+    boolean_t stderr_verbose, int *capture_stdout_fd)
+{
+	STARTUPINFO si;
+	PROCESS_INFORMATION pi;
+	HANDLE pipe_read = NULL, pipe_write = NULL;
+	HANDLE stdout_devnull = NULL, stderr_devnull = NULL;
+	char *cmdline, *envblock = NULL;
+	DWORD exit_code = (DWORD)-1;
+
+	cmdline = argv_to_cmdline(argv);
+	if (cmdline == NULL)
+		return (-1);
+
+	if (env != NULL) {
+		envblock = env_array_to_block(env);
+		if (envblock == NULL) {
+			free(cmdline);
+			return (-1);
+		}
+	}
+
+	ZeroMemory(&si, sizeof (si));
+	si.cb = sizeof (si);
+	ZeroMemory(&pi, sizeof (pi));
+	si.dwFlags = STARTF_USESTDHANDLES;
+	si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+
+	if (capture_stdout_fd != NULL) {
+		SECURITY_ATTRIBUTES sa;
+		ZeroMemory(&sa, sizeof (sa));
+		sa.nLength = sizeof (sa);
+		sa.bInheritHandle = TRUE;
+		if (!CreatePipe(&pipe_read, &pipe_write, &sa, 0))
+			goto out;
+		SetHandleInformation(pipe_read, HANDLE_FLAG_INHERIT, 0);
+		si.hStdOutput = pipe_write;
+	} else if (stdout_verbose) {
+		si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+	} else {
+		stdout_devnull = CreateFile("NUL", GENERIC_WRITE,
+		    FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+		    OPEN_EXISTING, 0, NULL);
+		si.hStdOutput = stdout_devnull;
+	}
+
+	if (stderr_verbose) {
+		si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+	} else {
+		stderr_devnull = CreateFile("NUL", GENERIC_WRITE,
+		    FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+		    OPEN_EXISTING, 0, NULL);
+		si.hStdError = stderr_devnull;
+	}
+
+	if (!CreateProcess(NULL, cmdline, NULL, NULL, TRUE, 0,
+	    envblock, NULL, &si, &pi))
+		goto out;
+
+	CloseHandle(pi.hThread);
+	if (pipe_write != NULL) {
+		CloseHandle(pipe_write);
+		pipe_write = NULL;
+	}
+
+	if (capture_stdout_fd != NULL) {
+		*capture_stdout_fd =
+		    _open_osfhandle((intptr_t)pipe_read, _O_RDONLY);
+		if (*capture_stdout_fd != -1)
+			pipe_read = NULL; /* fd owns the handle now */
+	}
+
+	WaitForSingleObject(pi.hProcess, INFINITE);
+	GetExitCodeProcess(pi.hProcess, &exit_code);
+	CloseHandle(pi.hProcess);
+
+out:
+	if (pipe_read != NULL)
+		CloseHandle(pipe_read);
+	if (pipe_write != NULL)
+		CloseHandle(pipe_write);
+	if (stdout_devnull != NULL)
+		CloseHandle(stdout_devnull);
+	if (stderr_devnull != NULL)
+		CloseHandle(stderr_devnull);
+	free(cmdline);
+	free(envblock);
+
+	return (exit_code == (DWORD)-1 ? -1 : (int)exit_code);
+}

@@ -88,6 +88,9 @@ extern int wosix_socketpair(int domain, int type, int protocol,
     int socket_vector[2]);
 extern int wosix_dup2(int fildes, int fildes2);
 extern int wosix_pipe(int fildes[2]);
+extern int wosix_run_process(char *argv[], char *env[],
+    boolean_t stdout_verbose, boolean_t stderr_verbose,
+    int *capture_stdout_fd);
 extern void *wosix_mmap(void *addr, size_t len, int prot, int flags,
     int fildes, off_t off);
 extern int wosix_munmap(void *addr, size_t len);

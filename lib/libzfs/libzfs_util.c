@@ -926,7 +926,17 @@ static int
 libzfs_run_process_impl(const char *path, char *argv[], char *env[], int flags,
     char **lines[], int *lines_cnt)
 {
-	return (0);
+	(void) path;
+	int fd = -1;
+	int rc = wosix_run_process(argv, env,
+	    (flags & STDOUT_VERBOSE) != 0, (flags & STDERR_VERBOSE) != 0,
+	    lines != NULL ? &fd : NULL);
+
+	if (lines != NULL)
+		*lines_cnt = (fd != -1) ?
+		    libzfs_read_stdout_from_fd(fd, lines) : 0;
+
+	return (rc);
 }
 
 #else
