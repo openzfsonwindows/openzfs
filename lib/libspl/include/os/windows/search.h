@@ -33,23 +33,8 @@ typedef struct entry {
 	void *data;
 } ENTRY;
 
-
-/* Implement me for zstream decompress */
-inline static int
-hcreate(size_t n)
-{
-	return (0);
-}
-
-inline static void
-hdestroy(void)
-{
-}
-
-static inline ENTRY *
-hsearch(ENTRY entry, ACTION action)
-{
-	return (NULL);
-}
+extern int hcreate(size_t n);
+extern void hdestroy(void);
+extern ENTRY *hsearch(ENTRY entry, ACTION action);
 
 #endif

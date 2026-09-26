@@ -48,6 +48,7 @@
 #include <wfunopen.h>
 #include <pwd.h>
 #include <grp.h>
+#include <search.h>
 
 /* Magic instruction to compiler to add library */
 #pragma comment(lib, "ws2_32.lib")
@@ -2464,4 +2465,88 @@ getgrnam_r(const char *name, struct group *grp,
 extern pid_t setsid(void)
 {
 	return (0);
+}
+
+/*
+ * hcreate()/hsearch()/hdestroy() - POSIX only requires one table open
+ * at a time, which matches how zstream's decompress/drop_record use it:
+ * build a small table keyed by "object,offset" strings, look entries up
+ * while streaming, then tear it down.  Keys are stored by reference (not
+ * copied), matching traditional hsearch() behaviour - callers must keep
+ * the key storage alive for as long as the table exists.
+ */
+typedef struct hsearch_node {
+	ENTRY item;
+	struct hsearch_node *next;
+} hsearch_node_t;
+
+static hsearch_node_t **hsearch_tab = NULL;
+static size_t hsearch_tab_size = 0;
+
+static size_t
+hsearch_hash(const char *key)
+{
+	size_t h = 5381;
+	while (*key != '\0')
+		h = h * 33 + (unsigned char)*key++;
+	return (h);
+}
+
+int
+hcreate(size_t nel)
+{
+	if (hsearch_tab != NULL)
+		hdestroy();
+
+	hsearch_tab_size = nel < 8 ? 8 : nel * 2;
+	hsearch_tab = calloc(hsearch_tab_size, sizeof (hsearch_node_t *));
+	if (hsearch_tab == NULL) {
+		hsearch_tab_size = 0;
+		return (0);
+	}
+	return (1);
+}
+
+void
+hdestroy(void)
+{
+	if (hsearch_tab == NULL)
+		return;
+
+	for (size_t i = 0; i < hsearch_tab_size; i++) {
+		hsearch_node_t *node = hsearch_tab[i];
+		while (node != NULL) {
+			hsearch_node_t *next = node->next;
+			free(node);
+			node = next;
+		}
+	}
+	free(hsearch_tab);
+	hsearch_tab = NULL;
+	hsearch_tab_size = 0;
+}
+
+ENTRY *
+hsearch(ENTRY item, ACTION action)
+{
+	if (hsearch_tab == NULL)
+		return (NULL);
+
+	size_t idx = hsearch_hash(item.key) % hsearch_tab_size;
+	for (hsearch_node_t *node = hsearch_tab[idx]; node != NULL;
+	    node = node->next) {
+		if (strcmp(node->item.key, item.key) == 0)
+			return (&node->item);
+	}
+
+	if (action == FIND)
+		return (NULL);
+
+	hsearch_node_t *node = malloc(sizeof (hsearch_node_t));
+	if (node == NULL)
+		return (NULL);
+	node->item = item;
+	node->next = hsearch_tab[idx];
+	hsearch_tab[idx] = node;
+	return (&node->item);
 }
