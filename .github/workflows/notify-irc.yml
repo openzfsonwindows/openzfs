@@ -26,10 +26,13 @@ jobs:
 
     steps:
       - name: Notify IRC
-        uses: openzfsonwindows/notify-irc@v2
+        uses: openzfsonwindows/notify-irc@v3
         with:
           channel: "#OpenZFS-Windows"
-          server: "irc.libera.chat"
+          # Tried in order, so one stalled libera node doesn't fail the run
+          server: "irc.libera.chat,irc.eu.libera.chat"
+          # Forks copy this workflow; keep them from announcing to our channel
+          only_repository: "openzfsonwindows/*"
           nickname: "zfs-consus"
           mirccolor: "true"
           eventpath: ${{ github.event_path }}
