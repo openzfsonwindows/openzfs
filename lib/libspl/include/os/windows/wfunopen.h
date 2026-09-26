@@ -127,8 +127,9 @@ static inline int wosix_fclose(FILE *f)
 	int result;
 
 	if (!wosix_is_fake_file(f))
-		result = fclose(f);
-	else if (fFILE->realFILE)
+		return (fclose(f));
+
+	if (fFILE->realFILE)
 		result = fclose(fFILE->realFILE);
 	else
 		result = fFILE->closefn(fFILE->cookie);

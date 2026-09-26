@@ -1090,8 +1090,21 @@ getline_impl(char **linep, size_t *linecapp,
 			fFILE->readfn(fFILE->cookie, (char *)&c, 1);
 		else
 			c = getc(stream);
+		if (!internal && c == EOF) {
+			if (i == 0) {
+				console_echo(TRUE);
+				return (-1);
+			}
+			getpassbuf[i] = '\0';
+			break;
+		}
 		if ((c == '\r') || (c == '\n')) {
 			getpassbuf[i] = '\0';
+			if (!internal && c == '\r') {
+				int c2 = getc(stream);
+				if (c2 != '\n' && c2 != EOF)
+					ungetc(c2, stream);
+			}
 			break;
 		} else if (i < MAX_GETLINE) {
 			getpassbuf[i++] = c;
@@ -2718,10 +2731,17 @@ wosix_run_process(char *argv[], char *env[], boolean_t stdout_verbose,
 	}
 
 	if (capture_stdout_fd != NULL) {
-		*capture_stdout_fd =
-		    _open_osfhandle((intptr_t)pipe_read, _O_RDONLY);
-		if (*capture_stdout_fd != -1)
-			pipe_read = NULL; /* fd owns the handle now */
+		/*
+		 * Callers pass this to the shared (cross-platform)
+		 * libzfs_read_stdout_from_fd(), which calls fdopen() -
+		 * wosix_fdopen() expects an HTOI()-encoded HANDLE (this
+		 * codebase's own "fd" convention), not a real CRT fd from
+		 * _open_osfhandle(); it would ITOH() it right back into
+		 * garbage. Hand back the raw handle in that encoding and
+		 * let wosix_fdopen() do the _open_osfhandle() itself.
+		 */
+		*capture_stdout_fd = HTOI(pipe_read);
+		pipe_read = NULL; /* ownership transfers via wosix_fdopen() */
 	}
 
 	WaitForSingleObject(pi.hProcess, INFINITE);

@@ -907,8 +907,9 @@ libzfs_read_stdout_from_fd(int fd, char **lines[])
 		tmp_lines = tmp;
 
 		/* Remove newline if not EOF */
-		if (line[strlen(line) - 1] == '\n')
-			line[strlen(line) - 1] = '\0';
+		size_t linelen = strlen(line);
+		if (linelen > 0 && line[linelen - 1] == '\n')
+			line[linelen - 1] = '\0';
 
 		tmp_lines[lines_cnt] = strdup(line);
 		if (tmp_lines[lines_cnt] == NULL)
