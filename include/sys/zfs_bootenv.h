@@ -32,7 +32,6 @@ extern "C" {
 #define	BE_WINDOWS_VENDOR	"windows"
 #define	BE_GRUB_VENDOR		"grub"
 #define	BE_LINUX_VENDOR		"linux"
-#define	BE_WINDOWS_VENDOR	"windows"
 #define	BE_POSIX_VENDOR		"posix"
 
 #include <sys/zfs_bootenv_os.h>

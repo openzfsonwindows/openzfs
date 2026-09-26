@@ -28,7 +28,7 @@
 #ifndef _SPL_RANDOM_H
 #define	_SPL_RANDOM_H
 
-extern int random_get_bytes(uint8_t *ptr, uint32_t len);
+extern int random_get_bytes(uint8_t *ptr, size_t len);
 #define	random_get_pseudo_bytes random_get_bytes
 
 static inline uint32_t

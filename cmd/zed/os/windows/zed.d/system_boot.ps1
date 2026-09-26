@@ -29,8 +29,8 @@ if (Test-Path $zpoolCachePath) {
     & "$env:ZPOOL" import -c "$zpoolCachePath" -a
     
     # Optionally, log the result or handle any output
-    zed_log_msg "ZFS Pools Imported."
+    zed_log_msg LOG_NOTICE "ZFS Pools Imported."
 	zed_notify "ZFS Pools Imported" "path"
 } else {
-    zed_log_msg "zpool.cache not found. No pools imported."
+    zed_log_msg LOG_NOTICE "zpool.cache not found. No pools imported."
 }

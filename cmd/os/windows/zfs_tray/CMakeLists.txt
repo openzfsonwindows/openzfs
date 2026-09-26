@@ -19,7 +19,7 @@ target_include_directories(zfs_tray PRIVATE
 	# "${CMAKE_SOURCE_DIR}/include"
 )
 
-target_link_libraries(zed_service PRIVATE
+target_link_libraries(zfs_tray PRIVATE
 	user32
 	shell32
 	comctl32
