@@ -61,6 +61,16 @@ extern "C" {
 #define	UIO_SKIP_CHANGETIME	(1ULL << 1)
 #define	UIO_SKIP_WRITETIME	(1ULL << 2)
 #define	UIO_SKIP_SIZE_UPDATE	(1ULL << 3)	/* skip z_size update */
+#define	UIO_UNCACHED		(1ULL << 4)	/* Caller will not reuse data */
+/*
+ * UIO_DIO_DENY: the zpl caller declines Direct I/O for this request (e.g. a
+ * file handle that already hit a benign DIO read verify failure).
+ * UIO_DIO_CKSUM_RETRIED: set by zfs_read when a DIO read verify failed but
+ * the buffered re-read succeeded -- a recycled O_DIRECT buffer, not an
+ * on-disk error.
+ */
+#define	UIO_DIO_DENY		(1ULL << 5)
+#define	UIO_DIO_CKSUM_RETRIED	(1ULL << 6)
 
 /*
  * I/O parameter information.  A uio structure describes the I/O which
