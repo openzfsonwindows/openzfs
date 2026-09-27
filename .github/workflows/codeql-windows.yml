@@ -10,11 +10,13 @@ on:
   push:
     branches:
       - zfs-Windows-*-release
+      - windows
     tags-ignore:
       - '*'
   pull_request:
     branches:
       - zfs-Windows-*-release
+      - windows
   workflow_dispatch:
 
 concurrency:
