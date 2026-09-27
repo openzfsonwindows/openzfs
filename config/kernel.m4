@@ -485,30 +485,6 @@ AC_DEFUN([ZFS_AC_KERNEL], [
 	_zfs_linux_cache_checksum=$(echo ${kernelsrc} {$kernelbuild} ${kernsrcver} | cksum | cut -f1 -d' ')
 ])
 
-AC_DEFUN([ZFS_AC_KERNEL_VERSION_WARNING], [
-	AS_IF([test "x$enable_linux_experimental" = "xyes" && \
-	    test "x$kern_max_version_ok" != "xyes"], [
-		AC_MSG_WARN([
-
-	You are building OpenZFS against Linux version $kernsrcver.
-
-	This combination is considered EXPERIMENTAL by the OpenZFS project.
-	Even if it appears to build and run correctly, there may be bugs that
-	can cause SERIOUS DATA LOSS.
-
-	YOU HAVE BEEN WARNED!
-
-	If you choose to continue, we'd appreciate if you could report your
-	results on the OpenZFS issue tracker at:
-
-	    https://github.com/openzfs/zfs/issues/new
-
-	Your feedback will help us prepare a new OpenZFS release that supports
-	this version of Linux.
-		])
-	])
-])
-
 dnl #
 dnl # Detect the QAT module to be built against, QAT provides hardware
 dnl # acceleration for data compression:

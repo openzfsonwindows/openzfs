@@ -13,6 +13,21 @@
  * Copyright (c) 2017, Datto, Inc. All rights reserved.
  */
 
+/*
+ * __init/__exit normally come from the platform's kernel-side
+ * sys/mod.h (e.g. os/linux/spl/sys/mod.h -> linux/mod_compat.h,
+ * os/windows/spl/sys/mod.h).  The userland sys/mod.h doesn't define
+ * them, and icp_init()/icp_fini() below are compiled into userland
+ * (libicp) as well as into the kernel module, so fall back to a
+ * no-op definition rather than leaving them undefined there.
+ */
+#ifndef __init
+#define	__init
+#endif
+#ifndef __exit
+#define	__exit
+#endif
+
 #include <sys/crypto/common.h>
 #include <sys/crypto/api.h>
 #include <sys/crypto/impl.h>
