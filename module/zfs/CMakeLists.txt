@@ -135,6 +135,8 @@ wdk_add_library(zfskern
   zio.c
   zio_checksum.c
   zio_compress.c
+  zio_crypt.c
+  zio_crypt_os_icp.c
   zio_inject.c
   zle.c
   zrlock.c
