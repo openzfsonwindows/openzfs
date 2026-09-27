@@ -25,7 +25,7 @@
 
 #endif
 
-#if defined(__aarch64__)
+#if defined(__aarch64__) && defined(_WIN32)
 
 #include <sys/aarch64/asm_linkage.h>	/* ARM64 /sys/asm_linkage.h */
 
