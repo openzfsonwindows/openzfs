@@ -189,18 +189,13 @@ zfs_uio_advance(zfs_uio_t *uio, size_t size)
 	uio->uio_loffset += size;
 }
 
-/* zfs_uio_iovlen(uio, 0) = uio_curriovlen() */
-static inline uint64_t
-zfs_uio_iovlen(zfs_uio_t *uio, unsigned int idx)
-{
-	return (uio->uio_iov[idx].iov_len);
-}
-
-static inline void *
-zfs_uio_iovbase(zfs_uio_t *uio, unsigned int idx)
-{
-	return (uio->uio_iov[(idx)].iov_base);
-}
+/*
+ * Not functions: zio_crypt.c assigns through these
+ * (zfs_uio_iovbase(u, i) = ..., zfs_uio_iovlen(u, i) = ...), so they
+ * have to stay lvalues.
+ */
+#define	zfs_uio_iovlen(uio, idx)	((uio)->uio_iov[(idx)].iov_len)
+#define	zfs_uio_iovbase(uio, idx)	((uio)->uio_iov[(idx)].iov_base)
 
 static inline void
 zfs_uio_iovec_init(zfs_uio_t *uio, struct iovec *iov,
