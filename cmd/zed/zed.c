@@ -285,8 +285,6 @@ int
 main(int argc, char *argv[])
 {
 	struct zed_conf zcp;
-	uint64_t saved_eid;
-	int64_t saved_etime[2];
 
 	zed_log_init(argv[0]);
 	zed_log_stderr_open(LOG_NOTICE);
