@@ -22,7 +22,7 @@
 
 #include "blake3_impl.h"
 
-#if defined(__aarch64__NOTYET) || \
+#if (defined(__aarch64__) && !defined(_WIN32)) || \
 	(defined(__x86_64) && HAVE_SIMD(SSE2)) || \
 	(defined(__PPC64__) && defined(__LITTLE_ENDIAN__))
 
@@ -88,7 +88,7 @@ const blake3_ops_t blake3_sse2_impl = {
 };
 #endif
 
-#if defined(__aarch64__NOTYET) || \
+#if (defined(__aarch64__) && !defined(_WIN32)) || \
 	(defined(__x86_64) && HAVE_SIMD(SSE2)) || \
 	(defined(__PPC64__) && defined(__LITTLE_ENDIAN__))
 
@@ -249,12 +249,12 @@ extern const blake3_ops_t blake3_generic_impl;
 
 static const blake3_ops_t *const blake3_impls[] = {
 	&blake3_generic_impl,
-#if defined(__aarch64__NOTYET) || \
+#if (defined(__aarch64__) && !defined(_WIN32)) || \
 	(defined(__x86_64) && HAVE_SIMD(SSE2)) || \
 	(defined(__PPC64__) && defined(__LITTLE_ENDIAN__))
 	&blake3_sse2_impl,
 #endif
-#if defined(__aarch64__NOTYET) || \
+#if (defined(__aarch64__) && !defined(_WIN32)) || \
 	(defined(__x86_64) && HAVE_SIMD(SSE4_1)) || \
 	(defined(__PPC64__) && defined(__LITTLE_ENDIAN__))
 	&blake3_sse41_impl,

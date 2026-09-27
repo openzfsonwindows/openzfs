@@ -179,7 +179,7 @@ static const fletcher_4_ops_t *fletcher_4_impls[] = {
 #if defined(__x86_64) && HAVE_SIMD(AVX512BW)
 	&fletcher_4_avx512bw_ops,
 #endif
-#if defined(__aarch64NOTYET__) && !defined(__FreeBSD__)
+#if (defined(__aarch64__) && !defined(_WIN32)) && !defined(__FreeBSD__)
 	&fletcher_4_aarch64_neon_ops,
 #endif
 };
