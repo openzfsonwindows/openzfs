@@ -13,21 +13,6 @@
  * Copyright (c) 2017, Datto, Inc. All rights reserved.
  */
 
-/*
- * __init/__exit normally come from the platform's kernel-side
- * sys/mod.h (e.g. os/linux/spl/sys/mod.h -> linux/mod_compat.h,
- * os/windows/spl/sys/mod.h).  The userland sys/mod.h doesn't define
- * them, and icp_init()/icp_fini() below are compiled into userland
- * (libicp) as well as into the kernel module, so fall back to a
- * no-op definition rather than leaving them undefined there.
- */
-#ifndef __init
-#define	__init
-#endif
-#ifndef __exit
-#define	__exit
-#endif
-
 #include <sys/crypto/common.h>
 #include <sys/crypto/api.h>
 #include <sys/crypto/impl.h>
@@ -109,6 +94,20 @@ icp_fini(void)
 	kcf_prov_tab_destroy();
 	kcf_destroy_mech_tabs();
 }
+
+/*
+ * __init normally comes from the platform's kernel-side sys/mod.h
+ * (e.g. os/linux/spl/sys/mod.h -> linux/mod_compat.h -> linux/module.h,
+ * os/windows/spl/sys/mod.h), which by this point in the file has
+ * already been pulled in transitively by the sys/crypto headers
+ * included above on a real kernel build.  The userland sys/mod.h doesn't
+ * define it, and icp_init() below is compiled into userland (libicp)
+ * as well as into the kernel module, so fall back to a no-op
+ * definition rather than leaving it undefined there.
+ */
+#ifndef __init
+#define	__init
+#endif
 
 /* roughly equivalent to kcf.c: _init() */
 int __init
