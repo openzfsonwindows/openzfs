@@ -97,7 +97,7 @@ const sha512_ops_t sha512_sha512ext_impl = {
 };
 #endif
 
-#elif defined(__aarch64__NOTYET) || defined(__arm__)
+#elif (defined(__aarch64__) && !defined(_WIN32)) || defined(__arm__)
 extern void zfs_sha512_block_armv7(uint64_t s[8], const void *, size_t);
 const sha512_ops_t sha512_armv7_impl = {
 	.is_supported = sha2_is_supported,
@@ -105,7 +105,7 @@ const sha512_ops_t sha512_armv7_impl = {
 	.name = "armv7"
 };
 
-#if defined(__aarch64__NOTYET)
+#if (defined(__aarch64__) && !defined(_WIN32))
 static boolean_t sha512_have_armv8ce(void)
 {
 	return (kfpu_allowed() && zfs_sha512_available());
@@ -172,9 +172,9 @@ static const sha512_ops_t *const sha512_impls[] = {
 #if defined(__x86_64) && HAVE_SIMD(SHA512EXT)
 	&sha512_sha512ext_impl,
 #endif
-#if defined(__aarch64NOTYET__) || defined(__arm__)
+#if (defined(__aarch64__) && !defined(_WIN32)) || defined(__arm__)
 	&sha512_armv7_impl,
-#if defined(__aarch64NOTYET__)
+#if (defined(__aarch64__) && !defined(_WIN32))
 	&sha512_armv8_impl,
 #endif
 #if defined(__arm__) && __ARM_ARCH > 6
