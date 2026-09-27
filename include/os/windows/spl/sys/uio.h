@@ -110,22 +110,13 @@ typedef struct zfs_uio {
 	zfs_uio_dio_t	uio_dio;
 } zfs_uio_t;
 
-static inline zfs_uio_seg_t
-zfs_uio_segflg(zfs_uio_t *uio)
-{
-	return (uio->uio_segflg);
-}
-
-static inline int
-zfs_uio_iovcnt(zfs_uio_t *uio)
-{
-	return (uio->uio_iovcnt);
-}
-
 /*
- * Not a function: zio_crypt_os_icp.c assigns through this
- * (zfs_uio_iov(u) = kmem_zalloc(...)), so it has to stay an lvalue.
+ * Not functions: zio_crypt_os_icp.c assigns through these
+ * (zfs_uio_segflg(u) = ..., zfs_uio_iovcnt(u) = ...,
+ * zfs_uio_iov(u) = kmem_zalloc(...)), so they have to stay lvalues.
  */
+#define	zfs_uio_segflg(uio)	((uio)->uio_segflg)
+#define	zfs_uio_iovcnt(uio)	((uio)->uio_iovcnt)
 #define	zfs_uio_iov(uio)	((uio)->uio_iov)
 
 static inline off_t
