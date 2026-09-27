@@ -173,10 +173,56 @@ atomic_sub_64_nv(volatile uint64_t *target, int64_t delta)
 /*
  * logical OR bits with target
  */
+static inline void
+atomic_or_32(volatile uint32_t *target, uint32_t bits)
+{
+	InterlockedOr((volatile LONG *)target, bits);
+}
+
+static inline uint32_t
+atomic_or_32_nv(volatile uint32_t *target, uint32_t bits)
+{
+	return (InterlockedOr((volatile LONG *)target, bits) | bits);
+}
+
+static inline void
+atomic_or_64(volatile uint64_t *target, uint64_t bits)
+{
+	InterlockedOr64((volatile LONG64 *)target, bits);
+}
+
+static inline uint64_t
+atomic_or_64_nv(volatile uint64_t *target, uint64_t bits)
+{
+	return (InterlockedOr64((volatile LONG64 *)target, bits) | bits);
+}
 
 /*
  * logical AND bits with target
  */
+static inline void
+atomic_and_32(volatile uint32_t *target, uint32_t bits)
+{
+	InterlockedAnd((volatile LONG *)target, bits);
+}
+
+static inline uint32_t
+atomic_and_32_nv(volatile uint32_t *target, uint32_t bits)
+{
+	return (InterlockedAnd((volatile LONG *)target, bits) & bits);
+}
+
+static inline void
+atomic_and_64(volatile uint64_t *target, uint64_t bits)
+{
+	InterlockedAnd64((volatile LONG64 *)target, bits);
+}
+
+static inline uint64_t
+atomic_and_64_nv(volatile uint64_t *target, uint64_t bits)
+{
+	return (InterlockedAnd64((volatile LONG64 *)target, bits) & bits);
+}
 
 /*
  * Compare And Set
