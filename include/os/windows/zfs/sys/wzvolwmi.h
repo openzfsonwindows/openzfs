@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #ifndef _mpwmi_h_
 #define	_mpwmi_h_
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-2-Clause
 /*	$NetBSD: regsub.c,v 1.3 2016/02/29 22:10:13 aymeric Exp $	*/
 
 /*

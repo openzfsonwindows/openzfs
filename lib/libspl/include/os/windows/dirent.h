@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 /*
  *  MIT License
  * Copyright (c) 2019 win32ports

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 
 #ifndef UTIL_LINUX_RANDUTILS
 #define	UTIL_LINUX_RANDUTILS

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 /*
  * Module Name:  scsi.c
  * Project:      CppWDKStorPortVirtualMiniport

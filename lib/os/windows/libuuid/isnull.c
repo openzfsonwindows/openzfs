@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 /*
  * isnull.c --- Check whether or not the UUID is null
  *

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 /*
  * gen_uuid.c --- generate a DCE-compatible uuid
  *

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-OpenZFS-ThirdParty-PublicDomain
 /*
  * No copyright is claimed.  This code is in the public domain; do with
  * it what you wish.

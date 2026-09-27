@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 /*
  * uuid_time.c --- Interpret the time field from a uuid.  This program
  * 	violates the UUID abstraction barrier by reaching into the guts

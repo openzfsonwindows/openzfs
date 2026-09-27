@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *
  *  zlib.h -- interface of the 'zlib' general purpose compression library
