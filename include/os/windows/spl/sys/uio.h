@@ -96,7 +96,7 @@ typedef struct {
 } zfs_uio_dio_t;
 
 typedef struct zfs_uio {
-	const struct iovec	*uio_iov;
+	struct iovec	*uio_iov;
 	int		uio_iovcnt;
 	int		uio_index;
 	off_t		uio_loffset;
@@ -121,6 +121,12 @@ zfs_uio_iovcnt(zfs_uio_t *uio)
 {
 	return (uio->uio_iovcnt);
 }
+
+/*
+ * Not a function: zio_crypt_os_icp.c assigns through this
+ * (zfs_uio_iov(u) = kmem_zalloc(...)), so it has to stay an lvalue.
+ */
+#define	zfs_uio_iov(uio)	((uio)->uio_iov)
 
 static inline off_t
 zfs_uio_offset(zfs_uio_t *uio)
@@ -197,7 +203,7 @@ zfs_uio_iovbase(zfs_uio_t *uio, unsigned int idx)
 }
 
 static inline void
-zfs_uio_iovec_init(zfs_uio_t *uio, const struct iovec *iov,
+zfs_uio_iovec_init(zfs_uio_t *uio, struct iovec *iov,
     unsigned long nr_segs, off_t offset, zfs_uio_seg_t seg, ssize_t resid,
     size_t skip)
 {
