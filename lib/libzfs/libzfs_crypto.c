@@ -1456,8 +1456,7 @@ zfs_crypto_load_key_direct(zfs_handle_t *zhp, boolean_t noop,
 	uint64_t keyformat = ZFS_KEYFORMAT_NONE;
 	char prop_encroot[MAXNAMELEN];
 	uint8_t *key_material = NULL, *key_data = NULL;
-	size_t key_material_len;
-	boolean_t is_encroot, correctible = B_FALSE;
+	boolean_t is_encroot;
 
 	(void) snprintf(errbuf, sizeof (errbuf),
 	    dgettext(TEXT_DOMAIN, "Key load error"));
@@ -1523,16 +1522,11 @@ zfs_crypto_load_key_direct(zfs_handle_t *zhp, boolean_t noop,
 	memset(key_material, 0, passlen + 1);
 	memcpy(key_material, pass, passlen);
 
-	/* fetching and deriving the key are correctable errors. set the flag */
-	correctible = B_TRUE;
-
 	/* derive a key from the key material */
 	ret = derive_key(zhp->zfs_hdl, keyformat, iters, key_material, salt,
 	    &key_data);
 	if (ret != 0)
 		goto error;
-
-	correctible = B_FALSE;
 
 	/* pass the wrapping key and noop flag to the ioctl */
 	ret = lzc_load_key(zhp->zfs_name, noop, key_data, WRAPPING_KEY_LEN);
@@ -1556,7 +1550,6 @@ zfs_crypto_load_key_direct(zfs_handle_t *zhp, boolean_t noop,
 			    "'%s' is busy."), zfs_get_name(zhp));
 			break;
 		case EACCES:
-			correctible = B_TRUE;
 			zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
 			    "Incorrect key provided for '%s'."),
 			    zfs_get_name(zhp));
