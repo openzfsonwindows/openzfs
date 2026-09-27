@@ -48,4 +48,7 @@
  */
 #define	ZEVENT_VAR_PREFIX	"ZEVENT_"
 
+struct zed_conf;
+extern void main_loop(struct zed_conf *zcp);
+
 #endif	/* !ZED_H */
