@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 /*	$NetBSD: regex.h,v 1.16 2021/02/23 17:14:42 christos Exp $	*/
 
 /*

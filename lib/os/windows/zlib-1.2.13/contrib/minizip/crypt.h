@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Zlib
 /* crypt.h -- base code for crypt/uncrypt ZIPfile
 
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-4-Clause-UC
 /*	$NetBSD: getopt.c,v 1.10 1997/07/21 14:08:51 jtc Exp $	*/
 
 /*

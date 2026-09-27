@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 /*
  * tst_uuid.c --- test program from the UUID library
  *

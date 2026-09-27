@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 /*
  * compare.c --- compare whether or not two UUIDs are the same
  *

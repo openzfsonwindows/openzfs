@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: BSD-3-Clause
 # Redistribution and use is allowed under the OSI-approved 3-clause BSD license.
 # Copyright (c) 2018 Sergey Podobry (sergey.podobry at gmail.com). All rights reserved.
 
