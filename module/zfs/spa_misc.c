@@ -241,21 +241,12 @@ static avl_tree_t spa_l2cache_avl;
 spa_mode_t spa_mode_global = SPA_MODE_UNINIT;
 
 #ifdef ZFS_DEBUG
-#ifdef _WIN32
-/*
- * The upstream catch-all default below enables assertions that fire
- * frequently during normal operation and are too noisy for Windows
- * debug builds; keep only dprintf here.
- */
-int zfs_flags = ZFS_DEBUG_DPRINTF;
-#else
 /*
  * Everything except dprintf, set_error, indirect_remap, and raidz_reconstruct
  * is on by default in debug builds.
  */
 int zfs_flags = ~(ZFS_DEBUG_DPRINTF | ZFS_DEBUG_SET_ERROR |
     ZFS_DEBUG_INDIRECT_REMAP | ZFS_DEBUG_RAIDZ_RECONSTRUCT);
-#endif
 #else
 int zfs_flags = 0;
 #endif
