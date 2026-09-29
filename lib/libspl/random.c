@@ -93,12 +93,18 @@ random_get_bytes_common(uint8_t *ptr, size_t len, int fd)
 	size_t resid = len;
 	ssize_t bytes;
 	unsigned int number;
+	errno_t err;
+
+	(void) fd;
 
 	while (resid != 0) {
-		rand_s(&number);
+		err = rand_s(&number);
+		if (err != 0) {
+			errno = err;
+			return (-1);
+		}
 		bytes = MIN(resid, sizeof (number));
 		memcpy(ptr, &number, bytes);
-		ASSERT3S(bytes, >=, 0);
 		ptr += bytes;
 		resid -= bytes;
 	}

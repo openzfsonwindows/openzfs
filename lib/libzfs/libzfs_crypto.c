@@ -109,7 +109,8 @@ static int
 pkcs11_get_urandom(uint8_t *buf, size_t bytes)
 {
 	// random_init()/random_fini() are empty
-	random_get_bytes((uint8_t *)buf, bytes);
+	if (random_get_bytes((uint8_t *)buf, bytes) != 0)
+		return (-1);
 	return (bytes);
 }
 #endif
