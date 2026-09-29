@@ -4123,7 +4123,7 @@ zfs_ioc_create(const char *fsname, nvlist_t *innvl, nvlist_t *outnvl)
 			 * need to wait, plus it always holds expect_count==1
 			 * so this hangs.
 			 */
-#ifndef WIN32
+#ifndef _WIN32
 			error2 = dsl_destroy_head(fsname);
 			while ((error2 == EBUSY) && (type == DMU_OST_ZVOL)) {
 				error2 = spa_open(fsname, &spa, FTAG);
