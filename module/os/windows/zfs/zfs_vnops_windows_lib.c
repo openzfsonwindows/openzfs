@@ -4088,6 +4088,37 @@ end:
 	return (Status);
 }
 
+/*
+ * The paging-write dispatch path holds PagingIoResource EXCLUSIVE for
+ * the lifetime of the write IRP.  Blocking in dmu_tx_wait() while that
+ * resource is held serialises all paging writes for this file: if
+ * another paging write (e.g. from CcFlushCache cleanup on a second
+ * handle to the same file) arrives while we wait, it blocks at
+ * MiWaitForPageWriteCompletion.  If simultaneously a concurrent write
+ * to a different file holds tc_count in the TXG being quiesced,
+ * txg_quiesce cannot complete, dmu_tx_wait() never returns, and the
+ * result is a permanent livelock.
+ * Release PagingIoResource before the wait (the range lock is already
+ * dropped by the caller) and re-acquire after.
+ */
+void
+zfs_write_dmu_tx_wait_os(znode_t *zp, dmu_tx_t *tx)
+{
+	vnode_t *vp = ZTOV(zp);
+	boolean_t had_pagingio =
+	    ExIsResourceAcquiredExclusiveLite(vp->FileHeader.PagingIoResource)
+	    != 0;
+
+	if (had_pagingio)
+		ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
+
+	dmu_tx_wait(tx);
+
+	if (had_pagingio)
+		ExAcquireResourceExclusiveLite(vp->FileHeader.PagingIoResource,
+		    TRUE);
+}
+
 NTSTATUS
 set_file_endoffile_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp, boolean_t advance_only, boolean_t prealloc)
