@@ -71,19 +71,17 @@ struct sigaction {
 	int sa_flags;
 };
 
+union sigval {
+	int	sival_int;
+	void	*sival_ptr;
+};
+
 struct sigevent {
 	int	sigev_notify;		/* Notification type */
 	int	sigev_signo;		/* Signal number */
-	// union sigval sigev_value;	/* Signal value */
-	union {
-		// __lwpid_t	_threadid;
-		struct {
-			void (*_function)(union sigval);
-			struct pthread_attr **_attribute;
-		} _sigev_thread;
-		unsigned short _kevent_flags;
-		long __spare__[8];
-	} _sigev_un;
+	union sigval sigev_value;	/* Signal value */
+	void	(*sigev_notify_function)(union sigval);
+	void	*sigev_notify_attributes;
 };
 
 /*
