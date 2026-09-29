@@ -9463,7 +9463,6 @@ main(int argc, char **argv)
 
 	(void) setlocale(LC_ALL, "");
 	(void) setlocale(LC_NUMERIC, "C");
-	(void) textdomain(TEXT_DOMAIN);
 #ifdef _WIN32
 	windows_elevate_child_init(&argc, argv);
 #endif
