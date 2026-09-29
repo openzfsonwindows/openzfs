@@ -24,6 +24,7 @@
 #include <sys/stat.h>
 #include <sys/mntent.h>
 #include <sys/mount.h>
+#include <signal.h>
 #include <fcntl.h>
 // #include <sys/zfs_ioctl.h>
 #include <pthread.h>
@@ -2383,28 +2384,81 @@ wosix_freopen(const char *path, const char *mode, FILE *stream)
 	return ((FILE *)path); // Anything not NULL
 }
 
+/*
+ * Minimal SIGEV_THREAD-only timer_create()/timer_settime() backed by
+ * CreateTimerQueueTimer(), just enough to support the one-shot,
+ * disarm-then-callback pattern fmd_api.c's fmd_timer_install() /
+ * _timer_notify() use. Periodic (it_interval != 0) rearming and
+ * SIGEV_SIGNAL/SIGEV_NONE notification are not implemented.
+ */
+typedef struct wosix_timer {
+	HANDLE wt_handle;	/* NULL when disarmed */
+	struct sigevent wt_sev;
+	struct itimerspec wt_its;
+} wosix_timer_t;
+
+static void CALLBACK
+wosix_timer_callback(PVOID param, BOOLEAN timedOut)
+{
+	wosix_timer_t *wt = (wosix_timer_t *)param;
+	void (*notify_function)(union sigval);
+	union sigval value;
+
+	notify_function = wt->wt_sev.sigev_notify_function;
+	value = wt->wt_sev.sigev_value;
+
+	(void) timedOut;
+
+	if (notify_function != NULL)
+		notify_function(value);
+}
+
 int
 timer_create(clockid_t id, struct sigevent *__restrict se,
     timer_t *__restrict t)
 {
+	wosix_timer_t *wt;
+
+	(void) id;
+
+	wt = calloc(1, sizeof (*wt));
+	if (wt == NULL) {
+		errno = ENOMEM;
+		return (-1);
+	}
+
+	if (se != NULL)
+		wt->wt_sev = *se;
+
+	*t = (timer_t)wt;
 	return (0);
 }
 
 int
 timer_delete(timer_t t)
 {
+	wosix_timer_t *wt = (wosix_timer_t *)t;
+
+	if (wt->wt_handle != NULL)
+		DeleteTimerQueueTimer(NULL, wt->wt_handle, NULL);
+
+	free(wt);
 	return (0);
 }
 
 int
 timer_gettime(timer_t t, struct itimerspec *v)
 {
+	wosix_timer_t *wt = (wosix_timer_t *)t;
+
+	*v = wt->wt_its;
 	return (0);
 }
 
 int
 timer_getoverrun(timer_t t)
 {
+	(void) t;
 	return (0);
 }
 
@@ -2412,6 +2466,39 @@ int
 timer_settime(timer_t t, int x, const struct itimerspec *tv,
     struct itimerspec *itv)
 {
+	wosix_timer_t *wt = (wosix_timer_t *)t;
+	DWORD due, period;
+
+	(void) x;
+
+	if (itv != NULL)
+		*itv = wt->wt_its;
+
+	if (wt->wt_handle != NULL) {
+		DeleteTimerQueueTimer(NULL, wt->wt_handle, NULL);
+		wt->wt_handle = NULL;
+	}
+
+	if (tv == NULL ||
+	    (tv->it_value.tv_sec == 0 && tv->it_value.tv_nsec == 0)) {
+		memset(&wt->wt_its, 0, sizeof (wt->wt_its));
+		return (0);
+	}
+
+	wt->wt_its = *tv;
+
+	due = (DWORD)(tv->it_value.tv_sec * 1000 +
+	    tv->it_value.tv_nsec / 1000000);
+	period = (DWORD)(tv->it_interval.tv_sec * 1000 +
+	    tv->it_interval.tv_nsec / 1000000);
+
+	if (!CreateTimerQueueTimer(&wt->wt_handle, NULL,
+	    wosix_timer_callback, wt, due, period, WT_EXECUTEDEFAULT)) {
+		wt->wt_handle = NULL;
+		errno = EINVAL;
+		return (-1);
+	}
+
 	return (0);
 }
 
