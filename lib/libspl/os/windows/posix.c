@@ -40,6 +40,8 @@
 #include <pwd.h>
 #include <grp.h>
 #include <search.h>
+#include <process.h>
+#include <stdarg.h>
 
 /* Magic instruction to compiler to add library */
 #pragma comment(lib, "ws2_32.lib")
@@ -2519,6 +2521,68 @@ timer_settime(timer_t t, int x, const struct itimerspec *tv,
 	}
 
 	return (0);
+}
+
+/*
+ * "man" doesn't exist on a stock Windows install, and zfs_do_help()/
+ * zpool_do_help() (cmd/zfs/zfs_main.c, cmd/zpool/zpool_main.c) call
+ * execlp("man", "man", page, NULL) unconditionally, matching upstream
+ * unchanged. Intercept that one target here instead of shipping a
+ * fake man.exe: point at OpenZFS's hosted HTML man pages, using the
+ * same section-number convention as the man/ tree (concepts/props
+ * pages are section 7; zfs, zpool, and every zfs- or zpool-prefixed
+ * subcommand page is section 8).
+ */
+static void
+wosix_exec_man(int argc, char *const argv[])
+{
+	const char *page = (argc > 1) ? argv[1] : NULL;
+	const char *section = "8";
+	size_t len;
+
+	if (page == NULL) {
+		fprintf(stderr, "usage: man <page>\n");
+		exit(1);
+	}
+
+	len = strlen(page);
+	if ((len > 8 && strcmp(page + len - 8, "concepts") == 0) ||
+	    (len > 5 && strcmp(page + len - 5, "props") == 0))
+		section = "7";
+
+	printf("No local man pages on Windows; see:\n"
+	    "    https://openzfs.github.io/openzfs-docs/man/master/"
+	    "%s/%s.%s.html\n", section, page, section);
+	exit(0);
+}
+
+/*
+ * See the declaration's comment in unistd.h: a real execlp() replaces
+ * the process image and never returns on success, so every path here
+ * either exits or forwards to _execvp() (whose own spawn+wait+exit()
+ * fakes that same never-returns-on-success contract).
+ */
+intptr_t
+execlp(const char *file, const char *arg0, ...)
+{
+	char *argv[32];
+	int argc = 0;
+	va_list ap;
+	char *a;
+
+	argv[argc++] = (char *)arg0;
+	va_start(ap, arg0);
+	while ((a = va_arg(ap, char *)) != NULL) {
+		if (argc < (int)(sizeof (argv) / sizeof (argv[0])) - 1)
+			argv[argc++] = a;
+	}
+	va_end(ap);
+	argv[argc] = NULL;
+
+	if (strcmp(file, "man") == 0)
+		wosix_exec_man(argc, argv);
+
+	return ((int)_execvp(file, argv));
 }
 
 int

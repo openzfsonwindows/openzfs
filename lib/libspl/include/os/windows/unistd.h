@@ -104,6 +104,16 @@ static inline pid_t fork(void)
 	return (0); // Return as child.
 }
 
+/*
+ * Real POSIX execlp() replaces the calling process image and never
+ * returns on success. Windows has no equivalent syscall, so this
+ * forwards to the CRT's _execvp() (itself spawn+wait+exit(), faking
+ * exec semantics), except for "man": no such program exists on a
+ * stock Windows install, so that specific target is intercepted and
+ * handled directly -- see execlp() in posix.c.
+ */
+extern intptr_t execlp(const char *file, const char *arg0, ...);
+
 extern int mkostemps(char *templ, int suffixlen, DWORD flags);
 void *reallocarray(void *optr, size_t nmemb, size_t size);
 extern unsigned int alarm(unsigned int seconds);
