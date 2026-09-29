@@ -81,3 +81,5 @@ AC_CONFIG_FILES([
 AC_CONFIG_FILES([scripts/objtool-wrapper], [chmod +x scripts/objtool-wrapper])
 
 AC_OUTPUT
+
+ZFS_AC_KERNEL_VERSION_WARNING
