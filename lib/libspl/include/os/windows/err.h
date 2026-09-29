@@ -15,6 +15,7 @@
 
 #include <sys/debug.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
 #include <errno.h>
@@ -57,6 +58,8 @@ errx(int x, const char *f, ...)
 inline static void
 err(int x, const char *f, ...)
 {
+	int saved_errno = errno;
+
 	if (f != NULL) {
 		va_list ap;
 		va_start(ap, f);
@@ -64,7 +67,7 @@ err(int x, const char *f, ...)
 		va_end(ap);
 		fprintf(stderr, ": ");
 	}
-	fprintf(stderr, "%s\n", strerror(errno));
+	fprintf(stderr, "%s\n", strerror(saved_errno));
 	exit(x);
 }
 
