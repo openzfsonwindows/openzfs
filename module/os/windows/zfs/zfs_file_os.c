@@ -121,7 +121,8 @@ zfs_file_open(const char *path, int flags, int mode, cred_t *cr,
 	}
 #endif
 
-	mbstowcs(buf, FileName, sizeof (buf));
+	mbstowcs(buf, FileName, PATH_MAX);
+	buf[PATH_MAX - 1] = L'\0';
 
 	RtlInitUnicodeString(&uniName, buf);
 	InitializeObjectAttributes(&objAttr, &uniName,

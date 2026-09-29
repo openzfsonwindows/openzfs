@@ -103,7 +103,8 @@ MOUNTMGR_IS_DRIVE_LETTER_A(char *mountpoint)
 {
 	UNICODE_STRING wc_mpt;
 	wchar_t buf[PATH_MAX];
-	mbstowcs(buf, mountpoint, sizeof (buf));
+	mbstowcs(buf, mountpoint, PATH_MAX);
+	buf[PATH_MAX - 1] = L'\0';
 	RtlInitUnicodeString(&wc_mpt, buf);
 	return (MOUNTMGR_IS_DRIVE_LETTER(&wc_mpt));
 }
@@ -116,7 +117,8 @@ MOUNTMGR_IS_VOLUME_NAME_A(char *mountpoint)
 {
 	UNICODE_STRING wc_mpt;
 	wchar_t buf[PATH_MAX];
-	mbstowcs(buf, mountpoint, sizeof (buf));
+	mbstowcs(buf, mountpoint, PATH_MAX);
+	buf[PATH_MAX - 1] = L'\0';
 	RtlInitUnicodeString(&wc_mpt, buf);
 	return (MOUNTMGR_IS_VOLUME_NAME(&wc_mpt));
 }
