@@ -23,6 +23,7 @@
 #include <sys/cred.h>
 #include <sys/fcntl.h>
 #include <sys/pathname.h>
+#include <sys/dmu_tx.h>
 #include <sys/zfs_windows.h>
 
 #ifdef	__cplusplus
@@ -122,6 +123,7 @@ extern int zpl_xattr_set(struct vnode *, const char *, zfs_uio_t *uio,
 
 extern uint32_t getuseraccess(znode_t *zp, vfs_context_t ctx);
 extern void zfs_zrele_async(znode_t *zp);
+extern void zfs_write_dmu_tx_wait_os(znode_t *zp, dmu_tx_t *tx);
 
 extern int zfsctl_readdir(vnode_t *vp, emitdir_ptr_t *ctx, cred_t *cr,
     zfs_ccb_t *zccb, int flags);

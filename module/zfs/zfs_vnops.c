@@ -53,6 +53,9 @@
 #include <sys/zfs_quota.h>
 #include <sys/zfs_vfsops.h>
 #include <sys/zfs_znode.h>
+#ifdef _WIN32
+#include <sys/zfs_vnops_os.h>
+#endif
 
 
 /*
@@ -951,20 +954,12 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 			 * on a new tx whose tx_dirty_delayed is reset to
 			 * FALSE.
 			 *
-			 * On Windows, the paging-write dispatch path holds
-			 * PagingIoResource EXCLUSIVE for the lifetime of the
-			 * write IRP.  Blocking in dmu_tx_wait() while that
-			 * resource is held serialises all paging writes for
-			 * this file: if another paging write (e.g. from
-			 * CcFlushCache cleanup on a second handle to the same
-			 * file) arrives while we wait, it blocks at
-			 * MiWaitForPageWriteCompletion.  If simultaneously a
-			 * concurrent write to a different file holds tc_count
-			 * in the TXG being quiesced, txg_quiesce cannot
-			 * complete, dmu_tx_wait() never returns, and the
-			 * result is a permanent livelock.
-			 * Release PagingIoResource before the wait (range
-			 * lock is already dropped) and re-acquire after.
+			 * On Windows, dmu_tx_wait() must not be called while
+			 * holding PagingIoResource, or it can deadlock
+			 * against a concurrent CcFlushCache on a second
+			 * handle to the same file; see
+			 * zfs_write_dmu_tx_wait_os()'s own comment for the
+			 * full explanation.
 			 */
 			if (abuf != NULL) {
 				dmu_return_arcbuf(abuf);
@@ -973,19 +968,7 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 			}
 			zfs_rangelock_exit(lr);
 #ifdef _WIN32
-			{
-			vnode_t *__vp = ZTOV(zp);
-			boolean_t __had_pagingio =
-			    ExIsResourceAcquiredExclusiveLite(
-			    __vp->FileHeader.PagingIoResource) != 0;
-			if (__had_pagingio)
-				ExReleaseResourceLite(
-				    __vp->FileHeader.PagingIoResource);
-			dmu_tx_wait(tx);
-			if (__had_pagingio)
-				ExAcquireResourceExclusiveLite(
-				    __vp->FileHeader.PagingIoResource, TRUE);
-			}
+			zfs_write_dmu_tx_wait_os(zp, tx);
 #else
 			dmu_tx_wait(tx);
 #endif
