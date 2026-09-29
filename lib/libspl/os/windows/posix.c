@@ -2439,8 +2439,20 @@ timer_delete(timer_t t)
 {
 	wosix_timer_t *wt = (wosix_timer_t *)t;
 
+	/*
+	 * INVALID_HANDLE_VALUE makes this block until any callback
+	 * already in flight for this timer has finished, so it's safe
+	 * to free(wt) right after: fmd_api.c's fmd_timer_remove() relies
+	 * on this to free its fmd_timer_t without racing _timer_notify()
+	 * on another thread. This cannot self-deadlock against our own
+	 * callback: _timer_notify() always disarms (clearing wt_handle
+	 * via timer_settime()) before it can reenter timer_delete() via
+	 * fmdo_timeout(), so a reentrant call always sees wt_handle ==
+	 * NULL and never reaches DeleteTimerQueueTimer() at all.
+	 */
 	if (wt->wt_handle != NULL)
-		DeleteTimerQueueTimer(NULL, wt->wt_handle, NULL);
+		DeleteTimerQueueTimer(NULL, wt->wt_handle,
+		    INVALID_HANDLE_VALUE);
 
 	free(wt);
 	return (0);
@@ -2475,6 +2487,13 @@ timer_settime(timer_t t, int x, const struct itimerspec *tv,
 		*itv = wt->wt_its;
 
 	if (wt->wt_handle != NULL) {
+		/*
+		 * Must stay non-blocking (NULL, not INVALID_HANDLE_VALUE):
+		 * _timer_notify() calls us reentrantly, from its own
+		 * callback thread, to disarm itself before invoking
+		 * fmdo_timeout(); blocking here would deadlock waiting
+		 * for that same in-flight callback to finish.
+		 */
 		DeleteTimerQueueTimer(NULL, wt->wt_handle, NULL);
 		wt->wt_handle = NULL;
 	}
