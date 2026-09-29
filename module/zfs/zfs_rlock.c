@@ -664,11 +664,11 @@ zfs_rangelock_reduce(zfs_locked_range_t *lr, uint64_t off, uint64_t len)
 	mutex_enter(&rl->rl_lock);
 	lr->lr_offset = off;
 	lr->lr_length = len;
+	mutex_exit(&rl->rl_lock);
 	if (lr->lr_write_wanted)
 		cv_broadcast(&lr->lr_write_cv);
 	if (lr->lr_read_wanted)
 		cv_broadcast(&lr->lr_read_cv);
-	mutex_exit(&rl->rl_lock);
 }
 
 EXPORT_SYMBOL(zfs_rangelock_init);
