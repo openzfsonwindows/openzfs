@@ -919,6 +919,23 @@ zfs_write(znode_t *zp, zfs_uio_t *uio, int ioflag, cred_t *cr)
 		if (tx_waited)
 			tx_flags |= DMU_TX_NOTHROTTLE;
 		error = dmu_tx_assign(tx, tx_flags);
+		/*
+		 * dmu_tx_assign(DMU_TX_WAIT) converts a suspended pool's
+		 * ESHUTDOWN to EIO when failmode=continue, to avoid
+		 * retrying indefinitely against a pool that will not
+		 * resume on its own; that logic lives in dmu_tx_assign()'s
+		 * own internal retry loop, which we never reach since we
+		 * always use DMU_TX_NOWAIT (to avoid blocking in
+		 * dmu_tx_wait() while holding the Windows
+		 * PagingIoResource). Replicate it here so a suspended pool
+		 * doesn't just spin through this loop forever instead of
+		 * erroring out.
+		 */
+		if (error == ERESTART &&
+		    spa_get_failmode(dmu_objset_spa(zfsvfs->z_os)) ==
+		    ZIO_FAILURE_MODE_CONTINUE &&
+		    spa_suspended(dmu_objset_spa(zfsvfs->z_os)))
+			error = SET_ERROR(EIO);
 		if (error == ERESTART) {
 			/*
 			 * TXG is quiescing; we must not block while holding
