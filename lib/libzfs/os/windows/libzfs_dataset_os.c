@@ -44,7 +44,7 @@ zfs_prop_get_driveletter_os(zfs_handle_t *zhp, char *propbuf, size_t proplen,
 	(void) proplen;
 
 	if (libzfs_mnttab_find(zhp->zfs_hdl, zhp->zfs_name, &mntent) != 0 ||
-	    mntent.mnt_mountp[1] != ':')
+	    mntent.mnt_mountp[0] == '\0' || mntent.mnt_mountp[1] != ':')
 		return (B_FALSE);
 
 	char actual = (char)tolower((unsigned char)mntent.mnt_mountp[0]);
