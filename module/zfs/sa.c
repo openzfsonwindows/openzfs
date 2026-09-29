@@ -2036,9 +2036,8 @@ sa_modify_attrs(sa_handle_t *hdl, sa_attr_type_t newattr,
 		    datastart, buflen);
 	}
 
-	if (action != SA_REMOVE) {
-		ASSERT3U(j, ==, attr_count);
-	}
+	ASSERT3U(j, ==, attr_count);
+
 	error = sa_build_layouts(hdl, attr_desc, attr_count, tx);
 
 	if (old_data[0])
