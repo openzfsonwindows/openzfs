@@ -8,11 +8,11 @@ This repository contains the code for running OpenZFS on Linux and FreeBSD.
 The Windows port is still in Beta, it's true,<br>
 Though your ZFS data should safely pull through.<br>
 But crashes might happen, bugs may arise,<br>
-From upstream or here—there could be surprise.<br>
+From upstream or hereâ€”there could be surprise.<br>
 So, start with some test data, give it a try,<br>
 Build up your trust before reaching the sky.<br>
-If issues appear, don’t let them persist,<br>
-Just file a report on GitHub’s bug list!<br>
+If issues appear, don't let them persist,<br>
+Just file a report on GitHub's bug list!<br>
 
 Developers for Windows, please see [Windows ReadMe](https://github.com/openzfsonwindows/openzfs/tree/windows/module/os/windows).
 

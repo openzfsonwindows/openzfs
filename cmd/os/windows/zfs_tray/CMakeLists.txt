@@ -23,6 +23,7 @@ target_link_libraries(zfs_tray PRIVATE
 	user32
 	shell32
 	comctl32
+	advapi32
 )
 
 install(TARGETS zfs_tray RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")

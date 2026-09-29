@@ -23,6 +23,7 @@ target_link_libraries(zed PRIVATE
 	libzfs
 #	libzfs_core
 	libzpool
+	advapi32
 )
 
 target_include_directories(zed PRIVATE "${CMAKE_SOURCE_DIR}/cmd/zed" "${CMAKE_SOURCE_DIR}/include")
