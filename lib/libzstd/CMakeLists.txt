@@ -23,12 +23,17 @@ add_library(libzstd
 	"${ZSTD_MODULE_DIR}/lib/compress/zstd_opt.c"
 	"${ZSTD_MODULE_DIR}/lib/compress/zstd_preSplit.c"
 	"${ZSTD_MODULE_DIR}/lib/decompress/huf_decompress.c"
-	"${ZSTD_MODULE_DIR}/lib/decompress/huf_decompress_amd64.S"
 	"${ZSTD_MODULE_DIR}/lib/decompress/zstd_ddict.c"
 	"${ZSTD_MODULE_DIR}/lib/decompress/zstd_decompress.c"
 	"${ZSTD_MODULE_DIR}/lib/decompress/zstd_decompress_block.c"
 	"${ZSTD_MODULE_DIR}/zfs_zstd.c"
 )
+
+if (CMAKE_C_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
+	target_sources(libzstd PRIVATE
+	  "${ZSTD_MODULE_DIR}/lib/decompress/huf_decompress_amd64.S"
+	)
+endif()
 
 target_compile_definitions(libzstd PRIVATE -D_CRT_ALLOCATION_DEFINED)
 target_compile_options(libzstd PRIVATE /FI${CMAKE_SOURCE_DIR}/module/zstd/include/zstd_compat_wrapper.h)

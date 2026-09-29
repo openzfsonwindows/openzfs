@@ -14,6 +14,10 @@
 #define	_SPL_ERR_H
 
 #include <sys/debug.h>
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+#include <errno.h>
 
 #ifdef _MSC_VER
 #define	_Noreturn
@@ -26,20 +30,42 @@ void errx(int, const char *, ...) _Noreturn __printf0like(2, 3);
 void warnx(const char *, ...) __printflike(1, 2);
 
 inline static void
-err(int x, const char *f, ...)
+warnx(const char *f, ...)
 {
+	if (f != NULL) {
+		va_list ap;
+		va_start(ap, f);
+		vfprintf(stderr, f, ap);
+		va_end(ap);
+	}
+	fprintf(stderr, "\n");
 }
 
 inline static void
 errx(int x, const char *f, ...)
 {
+	if (f != NULL) {
+		va_list ap;
+		va_start(ap, f);
+		vfprintf(stderr, f, ap);
+		va_end(ap);
+	}
+	fprintf(stderr, "\n");
 	exit(x);
 }
 
 inline static void
-warnx(const char *f, ...)
+err(int x, const char *f, ...)
 {
-	exit(1);
+	if (f != NULL) {
+		va_list ap;
+		va_start(ap, f);
+		vfprintf(stderr, f, ap);
+		va_end(ap);
+		fprintf(stderr, ": ");
+	}
+	fprintf(stderr, "%s\n", strerror(errno));
+	exit(x);
 }
 
 #endif

@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Notify IRC
-        uses: openzfsonwindows/notify-irc@v3
+        uses: openzfsonwindows/notify-irc@e7881cdcfc1d6eed0b928ec63aaff1b00e7b38ac # v3
         with:
           channel: "#OpenZFS-Windows"
           # Tried in order, so one stalled libera node doesn't fail the run
