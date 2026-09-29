@@ -8275,7 +8275,7 @@ zfs_bookmark_perror(const char *bookname, int err)
 	char errbuf[1024];
 
 	(void) snprintf(errbuf, sizeof (errbuf),
-	    dgettext(TEXT_DOMAIN, "cannot create bookmark '%s'"), bookname);
+	    "cannot create bookmark '%s'", bookname);
 
 	switch (err) {
 	case EXDEV:
@@ -8306,7 +8306,7 @@ zfs_bookmark_perror(const char *bookname, int err)
 	}
 	if (err_msg != NULL) {
 		(void) fprintf(stderr, "%s: %s\n", errbuf,
-		    dgettext(TEXT_DOMAIN, err_msg));
+		    err_msg);
 	}
 }
 
