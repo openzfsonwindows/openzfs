@@ -16,6 +16,7 @@ add_library(libzfs
 	libzfs_share.c
 	libzfs_status.c
 	libzfs_util.c
+	os/windows/libzfs_dataset_os.c
 	os/windows/libzfs_share_nfs.c
 	os/windows/libzfs_share_smb.c
 	os/windows/libzfs_disk_os.cpp
