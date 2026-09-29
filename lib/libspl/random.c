@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <fcntl.h>
 #include <assert.h>
+#include <string.h>
 #include <sys/random.h>
 #include "libspl_impl.h"
 
@@ -96,6 +97,19 @@ random_get_bytes_common(uint8_t *ptr, size_t len, int fd)
 	errno_t err;
 
 	(void) fd;
+
+	/*
+	 * Most callers of random_get_bytes()/random_get_pseudo_bytes()
+	 * discard the return value and rely on the buffer having been
+	 * fully written (e.g. spa_generate_guid(), unique_insert()'s
+	 * retry loop). Zero up front so a mid-loop rand_s() failure
+	 * still leaves the untouched tail deterministic rather than
+	 * uninitialized stack garbage; callers with a zero-guard retry
+	 * loop will simply retry instead of accepting garbage as a
+	 * real value. Callers that do check the return value (e.g.
+	 * pkcs11_get_urandom()) still see the failure via -1/errno.
+	 */
+	memset(ptr, 0, len);
 
 	while (resid != 0) {
 		err = rand_s(&number);
