@@ -44,6 +44,7 @@ static void sig_handler(int signo)
 	action.sa_flags = 0;
 	(void) sigaction(signo, &action, NULL);
 
+#ifndef _WIN32
 	if (rto_opts.rto_gdb) {
 		pid_t pid = fork();
 		if (pid == 0) {
@@ -54,6 +55,7 @@ static void sig_handler(int signo)
 			while (waitpid(pid, NULL, 0) == -1 && errno == EINTR)
 				;
 	}
+#endif
 
 	raise(signo);
 	errno = old_errno;
