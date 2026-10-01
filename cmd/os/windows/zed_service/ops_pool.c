@@ -628,14 +628,44 @@ zed_create_pool_json(uint32_t flags, uint32_t topology, uint32_t ndisks,
 		fnvlist_add_nvlist_array(nvroot, ZPOOL_CONFIG_CHILDREN,
 		    (const nvlist_t **)leaves, ndisks);
 	} else {
+		boolean_t is_draid = (topology >= 5 && topology <= 7);
+
+		// draid1/2/3: no UI yet for explicit data-disks/children/
+		// spares - mirror the CLI's bare "draid[parity]" defaults
+		// (draid_config_by_type(), cmd/zpool/zpool_vdev.c): every
+		// selected disk forms a single group, 0 distributed spares,
+		// up to 8 data disks per group. An advanced layout (explicit
+		// spares/groups) is left to the CLI.
+		uint64_t nparity = is_draid ? topology - 4 : 0;
+		if (is_draid && ndisks <= nparity) {
+			fnvlist_add_string(res, "err", "not enough disks "
+			    "for the selected dRAID parity level");
+			for (uint32_t i = 0; i < ndisks; i++)
+				fnvlist_free(leaves[i]);
+			HeapFree(GetProcessHeap(), 0, leaves);
+			fnvlist_free(nvroot);
+			goto serialize;
+		}
+
 		const char *gtype = (topology == 1) ? VDEV_TYPE_MIRROR :
-		    VDEV_TYPE_RAIDZ;
+		    is_draid ? VDEV_TYPE_DRAID : VDEV_TYPE_RAIDZ;
 		nvlist_t *grp = fnvlist_alloc();
 		fnvlist_add_string(grp, ZPOOL_CONFIG_TYPE, gtype);
 		fnvlist_add_uint64(grp, ZPOOL_CONFIG_IS_LOG, 0);
 		if (topology >= 2 && topology <= 4) {
 			fnvlist_add_uint64(grp, ZPOOL_CONFIG_NPARITY,
 			    topology - 1);
+		} else if (is_draid) {
+			uint64_t ndata = ndisks - nparity;
+			if (ndata > 8)
+				ndata = 8;
+			fnvlist_add_uint64(grp, ZPOOL_CONFIG_NPARITY, nparity);
+			fnvlist_add_uint64(grp, ZPOOL_CONFIG_DRAID_NDATA,
+			    ndata);
+			fnvlist_add_uint64(grp, ZPOOL_CONFIG_DRAID_NSPARES, 0);
+			fnvlist_add_uint64(grp, ZPOOL_CONFIG_DRAID_NCHILDREN,
+			    ndisks);
+			fnvlist_add_uint64(grp, ZPOOL_CONFIG_DRAID_NGROUPS, 1);
 		}
 		fnvlist_add_nvlist_array(grp, ZPOOL_CONFIG_CHILDREN,
 		    (const nvlist_t **)leaves, ndisks);

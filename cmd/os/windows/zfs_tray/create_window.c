@@ -274,6 +274,9 @@ InitTopologyCombo(HWND hDlg)
 	ComboBox_AddString(h, L"raidz1");
 	ComboBox_AddString(h, L"raidz2");
 	ComboBox_AddString(h, L"raidz3");
+	ComboBox_AddString(h, L"draid1");
+	ComboBox_AddString(h, L"draid2");
+	ComboBox_AddString(h, L"draid3");
 	ComboBox_SetCurSel(h, 0);
 }
 
