@@ -591,7 +591,11 @@ skip_open:
 		if (NT_SUCCESS(zfs_win_interface_link_from_devobj(DeviceObject,
 		    &iface))) {
 
-			spa_strfree(vd->vdev_physpath);
+			// vdev_physpath is NULL the first time a freshly
+			// created (not yet imported/reopened) vdev is
+			// opened - only free it if a prior value exists.
+			if (vd->vdev_physpath != NULL)
+				spa_strfree(vd->vdev_physpath);
 
 			if (dvd->vdev_win_offset || dvd->vdev_win_length)
 				vd->vdev_physpath =
