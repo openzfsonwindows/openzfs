@@ -2809,14 +2809,106 @@ env_array_to_block(char *env[])
 }
 
 /*
+ * Same output format as env_array_to_block(), but layers env[] onto our
+ * own current environment instead of replacing it outright: each env[]
+ * entry overrides any existing variable of the same name (matched
+ * case-insensitively, as Windows itself treats env var names), and
+ * everything else we currently have is kept.
+ *
+ * Needed because callers of libzfs_run_process_get_stdout() (e.g.
+ * zpool_vdev_script_alloc_env(), lib/libzfs/libzfs_util.c) build a
+ * minimal, Unix-flavored env[] - just a bare PATH plus a few VDEV_*
+ * vars, enough for a #!/bin/sh script on other platforms - that omits
+ * variables (SystemRoot, windir, TEMP, ...) a real Windows program
+ * needs just to start up. A plain native binary (no CRT/runtime
+ * dependency on them) can tolerate their absence; a .NET-hosted one
+ * like powershell.exe cannot and fails during its own startup, before
+ * ever reaching argv[0]'s actual target script.
+ */
+static char *
+merged_env_block(char *env[])
+{
+	char *cur = GetEnvironmentStringsA();
+	if (cur == NULL)
+		return (env_array_to_block(env));
+
+	int n_cur = 0;
+	for (char *p = cur; *p != '\0'; p += strlen(p) + 1)
+		n_cur++;
+
+	int n_env;
+	for (n_env = 0; env[n_env] != NULL; n_env++)
+		;
+
+	char *overridden = calloc(n_cur, 1);
+	if (overridden == NULL) {
+		FreeEnvironmentStringsA(cur);
+		return (NULL);
+	}
+
+	char *p;
+	int idx;
+	for (p = cur, idx = 0; *p != '\0'; p += strlen(p) + 1, idx++) {
+		char *eq = strchr(p, '=');
+		size_t klen = eq ? (size_t)(eq - p) : strlen(p);
+		for (int i = 0; i < n_env; i++) {
+			char *eq2 = strchr(env[i], '=');
+			size_t klen2 = eq2 ? (size_t)(eq2 - env[i]) :
+			    strlen(env[i]);
+			if (klen == klen2 &&
+			    _strnicmp(p, env[i], klen) == 0) {
+				overridden[idx] = 1;
+				break;
+			}
+		}
+	}
+
+	size_t len = 1;
+	for (p = cur, idx = 0; *p != '\0'; p += strlen(p) + 1, idx++)
+		if (!overridden[idx])
+			len += strlen(p) + 1;
+	for (int i = 0; i < n_env; i++)
+		len += strlen(env[i]) + 1;
+
+	char *block = malloc(len);
+	if (block == NULL) {
+		free(overridden);
+		FreeEnvironmentStringsA(cur);
+		return (NULL);
+	}
+
+	size_t pos = 0;
+	for (p = cur, idx = 0; *p != '\0'; p += strlen(p) + 1, idx++) {
+		if (!overridden[idx]) {
+			size_t l = strlen(p) + 1;
+			memcpy(block + pos, p, l);
+			pos += l;
+		}
+	}
+	for (int i = 0; i < n_env; i++) {
+		size_t l = strlen(env[i]) + 1;
+		memcpy(block + pos, env[i], l);
+		pos += l;
+	}
+	block[pos] = '\0';
+
+	free(overridden);
+	FreeEnvironmentStringsA(cur);
+	return (block);
+}
+
+/*
  * Run argv[0] with the given argv/env, wait for it to exit, and return
  * its exit code (or -1 if the process itself could not be created).
  *
- * env, when non-NULL, entirely replaces the child's environment (rather
- * than being merged with ours), matching execve()/execvpe() on other
- * platforms - the caller is expected to build a complete environment.
- * When NULL, the child inherits our environment, matching execv()/
- * execvp().
+ * env, when non-NULL, is layered onto the child's environment on top of
+ * our own (see merged_env_block()) - unlike execve()/execvpe() on other
+ * platforms, which replace it outright; a bare "just enough for a shell
+ * script" env[] (as libzfs_run_process_get_stdout() callers tend to
+ * build, matching that other-platforms contract) would otherwise starve
+ * a real Windows program of basics like SystemRoot it needs just to
+ * start up. When NULL, the child inherits our environment unchanged,
+ * matching execv()/execvp().
  *
  * If capture_stdout_fd is non-NULL, the child's stdout is captured
  * through a pipe and a CRT file descriptor for the read end is handed
@@ -2834,13 +2926,44 @@ wosix_run_process(char *argv[], char *env[], boolean_t stdout_verbose,
 	HANDLE stdout_devnull = NULL, stderr_devnull = NULL;
 	char *cmdline, *envblock = NULL;
 	DWORD exit_code = (DWORD)-1;
+	char *ps1_argv[64];
+
+	/*
+	 * CreateProcess() has no shebang support, so a .ps1 can't be
+	 * launched directly - transparently reroute it through the
+	 * PowerShell interpreter that ships with every supported Windows
+	 * version, the same way execlp() above intercepts "man": the
+	 * caller (e.g. zpool_prepare_disk(), lib/libzfs/libzfs_util.c)
+	 * stays unaware this is Windows-specific. "-File" runs argv[0];
+	 * the rest avoid profile-script overhead and ignore the host's
+	 * execution-policy setting (a stock "Restricted" policy would
+	 * otherwise block even an empty script).
+	 */
+	if (argv[0] != NULL) {
+		size_t len = strlen(argv[0]);
+		if (len > 4 && _stricmp(argv[0] + len - 4, ".ps1") == 0) {
+			int i = 0, j;
+			ps1_argv[i++] = "powershell.exe";
+			ps1_argv[i++] = "-NoProfile";
+			ps1_argv[i++] = "-NonInteractive";
+			ps1_argv[i++] = "-ExecutionPolicy";
+			ps1_argv[i++] = "Bypass";
+			ps1_argv[i++] = "-File";
+			for (j = 0; argv[j] != NULL &&
+			    i < (int)(sizeof (ps1_argv) /
+			    sizeof (ps1_argv[0])) - 1; j++, i++)
+				ps1_argv[i] = argv[j];
+			ps1_argv[i] = NULL;
+			argv = ps1_argv;
+		}
+	}
 
 	cmdline = argv_to_cmdline(argv);
 	if (cmdline == NULL)
 		return (-1);
 
 	if (env != NULL) {
-		envblock = env_array_to_block(env);
+		envblock = merged_env_block(env);
 		if (envblock == NULL) {
 			free(cmdline);
 			return (-1);
@@ -2905,7 +3028,7 @@ wosix_run_process(char *argv[], char *env[], boolean_t stdout_verbose,
 	}
 
 	WaitForSingleObject(pi.hProcess, INFINITE);
-	GetExitCodeProcess(pi.hProcess, &exit_code);
+	int rc = GetExitCodeProcess(pi.hProcess, &exit_code);
 	CloseHandle(pi.hProcess);
 
 out:

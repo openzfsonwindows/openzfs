@@ -2397,7 +2397,12 @@ int
 zpool_prepare_disk(zpool_handle_t *zhp, nvlist_t *vdev_nv,
     const char *prepare_str, char **lines[], int *lines_cnt)
 {
+#ifdef _WIN32
+	/* CreateProcess() has no shebang support - see wosix_run_process() */
+	const char *script_path = ZFSEXECDIR "/zfs_prepare_disk.ps1";
+#else
 	const char *script_path = ZFSEXECDIR "/zfs_prepare_disk";
+#endif
 	const char *pool_name;
 	int rc = 0;
 
@@ -2469,9 +2474,6 @@ zpool_prepare_and_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp,
     char **lines[], int *lines_cnt)
 {
 	int rc;
-	char vdev_path[MAXPATHLEN];
-	(void) snprintf(vdev_path, sizeof (vdev_path), "%s/%s", DISK_ROOT,
-	    name);
 
 	/* zhp will be NULL when creating a pool */
 	rc = zpool_prepare_disk(zhp, vdev_nv, prepare_str, lines, lines_cnt);
