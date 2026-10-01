@@ -534,8 +534,23 @@ label_whole_disk(const char *name_utf8, char *encoded_out, size_t encoded_cch)
 	char **lines = NULL;
 	int lines_cnt = 0;
 
-	if (zpool_prepare_and_label_disk(g_lzh, NULL, name_utf8, NULL,
-	    "create", &lines, &lines_cnt) != 0) {
+	// zpool_prepare_disk() (lib/libzfs/libzfs_util.c) reads
+	// ZPOOL_CONFIG_PATH out of vdev_nv to populate the optional
+	// zfs_prepare_disk script's VDEV_PATH/VDEV_UPATH env vars - passing
+	// NULL here (as opposed to the CLI's make_disks(), which always hands
+	// in the real leaf nvlist) leaves that path NULL for the whole
+	// prepare-script hook.
+	char path_buf[MAXPATHLEN];
+	_snprintf_s(path_buf, sizeof (path_buf), _TRUNCATE, "%s%s", DISK_ROOT,
+	    name_utf8);
+	nvlist_t *vdev_nv = fnvlist_alloc();
+	fnvlist_add_string(vdev_nv, ZPOOL_CONFIG_PATH, path_buf);
+
+	int rc = zpool_prepare_and_label_disk(g_lzh, NULL, name_utf8, vdev_nv,
+	    "create", &lines, &lines_cnt);
+	fnvlist_free(vdev_nv);
+
+	if (rc != 0) {
 		if (lines)
 			libzfs_free_str_array(lines, lines_cnt);
 		return (FALSE);

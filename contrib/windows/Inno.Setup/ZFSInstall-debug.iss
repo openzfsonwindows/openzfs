@@ -206,7 +206,7 @@ Source: "{#SourcePath}\HowToDebug.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\contrib\windows\parsedump\*.*"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\contrib\windows\EnableOpenZFSLocalCrashDumps.reg"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\contrib\windows\DisableOpenZFSLocalCrashDumps.reg"; DestDir: "{app}\symbols"; Flags: ignoreversion
-Source: "{#Root}\scripts\zfs_prepare_disk"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\contrib\windows\zfs_prepare_disk.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\cmd\zpool\compatibility.d\*"; DestDir: "{app}\compatibility.d"; Flags: ignoreversion
 Source: "{#Root}\cmd\zpool\zpool.d\*"; DestDir: "{app}\zpool.d"; Flags: ignoreversion
 Source: "{#Root}\cmd\zed\os\windows\zed.d\*"; DestDir: "{app}\zed.d"; Flags: ignoreversion
