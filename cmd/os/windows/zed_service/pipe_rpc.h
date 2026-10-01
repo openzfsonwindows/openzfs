@@ -47,6 +47,9 @@ typedef enum {
     OP_UNMOUNT_POOL = 10,
     OP_MOUNT_PREFLIGHT = 11,
     OP_LOAD_KEY_ONE = 12,
+    OP_LIST_DISKS = 13,
+    OP_CREATE_POOL = 14,
+    OP_DESTROY_POOL = 15,
 } op_t;
 
 typedef struct {
@@ -112,7 +115,7 @@ typedef struct {
 
 typedef struct {
     uint32_t flags; // ZEXP_*
-    uint64_t guid; // pool to export (we’ll resolve to a handle)
+    uint64_t guid; // pool to export (weï¿½ll resolve to a handle)
 } op_export_one_req_t;
 #pragma pack(pop)
 
@@ -144,6 +147,34 @@ typedef struct {
     char dataset[512]; // UTF-8 encroot name
     uint32_t passlen; // trailing bytes
 } op_load_key_one_req_t;
+#pragma pack(pop)
+
+// OP_LIST_DISKS: no request body. Response JSON:
+// { "disks": [ { "path": "\\\\.\\PhysicalDrive2", "size": "2000398934016",
+// "model": "Samsung SSD 990", "is_boot": false, "has_pool": false }, ... ] }
+
+enum {
+	ZCREATE_FORCE = 0x01, // reserved; allows selecting an in-use disk in UI
+};
+
+#pragma pack(push, 1)
+typedef struct {
+	uint32_t flags; // ZCREATE_*
+	uint32_t topology; // 0=stripe 1=mirror 2=raidz1 3=raidz2 4=raidz3
+	uint32_t ndisks;
+	// followed by, all UTF-8 NUL-terminated, back to back:
+	//   ndisks x disk path (e.g. "\\\\.\\PhysicalDrive2")
+	//   pool name
+	//   free-text "key=value\n" props blob (pool + dataset props; may be
+	//   empty)
+	//   encryption passphrase (may be empty == no encryption requested)
+} op_create_pool_req_t;
+
+typedef struct {
+	uint32_t flags; // reserved
+	uint64_t pool_guid; // 0 if using pool_name
+	char pool_name[128]; // UTF-8
+} op_destroy_pool_req_t;
 #pragma pack(pop)
 
 // Writes header + optional payload. Frees payload if 'do_free' is true.

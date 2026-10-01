@@ -34,6 +34,7 @@
 #include "import_window.h"
 #include "pass_prompt.h"
 #include "dlg_util.h"
+#include "create_window.h"
 
 #define	strlcpy(dest, src, siz) \
 	_snprintf_s(dest, siz, _TRUNCATE, "%s", src)
@@ -58,10 +59,12 @@
 
 #define	IDM_IMPORT_ALL	2201
 #define	IDM_IMPORT_WIN  2202
+#define	IDM_CREATE_POOL	2203
 
 #define	IDM_EXPORT_ALL 2301
 
 #define	IDM_EXPORT_BASE 3100
+#define	IDM_DESTROY_BASE 3200
 
 static HINSTANCE g_hInst;
 static HWND g_hWnd;
@@ -333,6 +336,74 @@ ShowPoolSummary(HWND hWnd, const PoolSummary *ps)
 	_snwprintf_s(msg, _countof(msg), _TRUNCATE, L"%s\n\n%s", mainInstr,
 	    content);
 	MessageBoxW(hWnd, msg, L"OpenZFS", MB_OK | MB_ICONINFORMATION);
+}
+
+typedef struct {
+    const wchar_t *poolNameW;
+} DestroyConfirmCtx;
+
+static INT_PTR CALLBACK
+DestroyConfirmDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+	switch (msg) {
+	case WM_INITDIALOG: {
+		DestroyConfirmCtx *cc = (DestroyConfirmCtx *)lParam;
+		SetWindowLongPtrW(hDlg, GWLP_USERDATA, (LONG_PTR)cc);
+
+		wchar_t title[80];
+		_snwprintf_s(title, _countof(title), _TRUNCATE,
+		    L"Destroy \"%s\"", cc->poolNameW);
+		SetDlgItemTextW(hDlg, IDC_TITLE, title);
+
+		wchar_t hint[300];
+		_snwprintf_s(hint, _countof(hint), _TRUNCATE,
+		    L"This permanently destroys pool \"%s\" and all data on "
+		    "it.\r\n\r\nType the pool name to confirm:",
+		    cc->poolNameW);
+		SetDlgItemTextW(hDlg, IDC_LBL_CONFIRM_HINT, hint);
+
+		SetDlgIcon(hDlg, IDC_ICON_HDR, IDI_APP_WARN, 24, 24);
+		ApplyThemeFollowSystem(hDlg);
+		PositionNearCursor(hDlg);
+
+		EnableWindow(GetDlgItem(hDlg, IDOK), FALSE);
+		return (TRUE);
+	}
+
+	case WM_COMMAND:
+		switch (LOWORD(wParam)) {
+		case IDC_ED_CONFIRM_NAME:
+			if (HIWORD(wParam) == EN_CHANGE) {
+				DestroyConfirmCtx *cc = (DestroyConfirmCtx *)
+				    GetWindowLongPtrW(hDlg, GWLP_USERDATA);
+				wchar_t typed[128] = L"";
+				GetDlgItemTextW(hDlg, IDC_ED_CONFIRM_NAME,
+				    typed, _countof(typed));
+				EnableWindow(GetDlgItem(hDlg, IDOK),
+				    cc && wcscmp(typed, cc->poolNameW) == 0);
+			}
+			return (TRUE);
+		case IDOK:
+			EndDialog(hDlg, IDOK);
+			return (TRUE);
+		case IDCANCEL:
+			EndDialog(hDlg, IDCANCEL);
+			return (TRUE);
+		}
+		break;
+	}
+	return (FALSE);
+}
+
+// Modal; returns TRUE only if the user typed the pool name exactly.
+static BOOL
+ConfirmDestroyPool(HWND owner, const wchar_t *poolNameW)
+{
+	DestroyConfirmCtx cc = { poolNameW };
+	INT_PTR r = DialogBoxParamW(GetModuleHandleW(NULL),
+	    MAKEINTRESOURCEW(IDD_CONFIRM_DESTROY), owner,
+	    DestroyConfirmDlgProc, (LPARAM)&cc);
+	return (r == IDOK);
 }
 
 static HICON
@@ -780,6 +851,8 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			AppendMenuW(m, MF_STRING, IDM_IMPORT_ALL,
 			    L"Import (All)…");
 			AppendMenuW(m, MF_STRING, IDM_IMPORT_WIN, L"Import…");
+			AppendMenuW(m, MF_STRING, IDM_CREATE_POOL,
+			    L"Create Pool…");
 
 			AppendMenuW(m, MF_STRING, IDM_EXPORT_ALL,
 			    L"Export (All)…");
@@ -790,6 +863,17 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			for (int i = 0; i < g_pool_count; ++i)
 				AppendMenuW(ex, MF_STRING, IDM_EXPORT_BASE + i,
 				    g_pool_names[i]);
+
+			HMENU dx = CreatePopupMenu();
+			if (g_pool_count == 0) {
+				AppendMenuW(dx, MF_GRAYED, 0, L"(no pools)");
+			} else {
+				for (int i = 0; i < g_pool_count; ++i)
+					AppendMenuW(dx, MF_STRING,
+					    IDM_DESTROY_BASE + i,
+					    g_pool_names[i]);
+			}
+			AppendMenuW(m, MF_POPUP, (UINT_PTR)dx, L"Destroy ▶");
 
 			AppendMenuW(m, MF_SEPARATOR, 0, NULL);
 			AppendMenuW(m, MF_STRING, IDM_EXIT, L"Exit");
@@ -887,6 +971,12 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			break;
 		}
 
+		case IDM_CREATE_POOL:
+		{
+			CreateCreatePoolWindow(hWnd, &g_rpc);
+			break;
+		}
+
 		case IDM_EXPORT_ALL:
 		{
 			if (MessageBoxW(hWnd, L"Export ALL imported pools?\n"
@@ -963,6 +1053,59 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			MessageBoxW(hWnd,
 			    L"Export failed or service unavailable.",
 			    L"OpenZFS", MB_OK | MB_ICONERROR);
+					}
+				}
+				return (0);
+			}
+
+			// Destroy ▶ items
+			if (id >= IDM_DESTROY_BASE &&
+			    id < IDM_DESTROY_BASE + IDM_POOLS_MAX) {
+				int idx = id - IDM_DESTROY_BASE;
+				if (idx < g_pool_count) {
+					if (!ConfirmDestroyPool(hWnd,
+					    g_pool_names[idx]))
+						return (0);
+
+					op_destroy_pool_req_t rq = { 0 };
+					rq.pool_guid = g_pool_guids[idx];
+					const char *pool =
+					    utf16_to_utf8_alloc(
+					    g_pool_names[idx]);
+					if (pool) {
+						strlcpy(rq.pool_name,
+						    pool,
+						    sizeof (rq.pool_name));
+						HeapFree(GetProcessHeap(), 0,
+						    (void *)pool);
+					}
+
+					uint8_t *out = NULL;
+					uint32_t st = 0, outlen = 0;
+					if (zrpc_call(&g_rpc, OP_DESTROY_POOL,
+					    &rq, sizeof (rq), &st, &out,
+					    &outlen) && st == 0 && out) {
+						wchar_t w[1024] = { 0 };
+						MultiByteToWideChar(CP_UTF8, 0,
+						    (char *)out, (int)outlen,
+						    w, 1023);
+						MessageBoxW(hWnd, w,
+						    L"Destroy",
+						    MB_OK |
+						    MB_ICONINFORMATION);
+						HeapFree(GetProcessHeap(), 0,
+						    out);
+						RefreshPoolsFromService();
+					} else {
+						if (out)
+							HeapFree(
+							    GetProcessHeap(),
+							    0, out);
+						MessageBoxW(hWnd,
+						    L"Destroy failed or "
+						    L"service unavailable.",
+						    L"OpenZFS",
+						    MB_OK | MB_ICONERROR);
 					}
 				}
 				return (0);

@@ -6,6 +6,7 @@ um_add_executable(zfs_tray WIN32
 	rpc_client.c
 	pool_json.c
 	import_window.c
+	create_window.c
 	pass_prompt.c
 	resource.rc
 )

@@ -29,6 +29,7 @@
 #include "ops_mount.h"
 #include "ops_crypto.h"
 #include "ops_common.h"
+#include "ops_pool.h"
 
 // #include "rpc_dispatch.h" // your pipe dispatch function prototypes
 
@@ -699,6 +700,125 @@ ClientWorker(HANDLE client, HANDLE event)
 			break;
 		}
 
+
+	case OP_LIST_DISKS:
+		{
+			dprintf("OP_LIST_DISKS\n");
+			size_t jlen = 0;
+			char *json = zed_list_disks_json(&jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
+	case OP_CREATE_POOL:
+		{
+			dprintf("OP_CREATE_POOL\n");
+			// body:
+			// op_create_pool_req_t + ndisks x path(NUL) +
+			// poolname(NUL) + props_blob(NUL) + passphrase(NUL)
+			if (rh.len < sizeof (op_create_pool_req_t)) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+
+			const op_create_pool_req_t *req = (const void *)payload;
+			const char *p = (const char *)payload + sizeof (*req);
+			size_t remain = rh.len - sizeof (*req);
+
+			if (req->ndisks == 0 || req->ndisks > 64) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+
+			const char **disk_paths = (const char **)HeapAlloc(
+			    GetProcessHeap(), 0,
+			    req->ndisks * sizeof (const char *));
+			if (!disk_paths) {
+				RESP_ERR(client, ERROR_OUTOFMEMORY);
+				break;
+			}
+
+			BOOL bad = FALSE;
+			for (uint32_t i = 0; i < req->ndisks; i++) {
+				size_t n;
+				if (remain == 0) { bad = TRUE; break; }
+				disk_paths[i] = p;
+				n = strnlen(p, remain);
+				if (n >= remain) { bad = TRUE; break; }
+				p += n + 1;
+				remain -= n + 1;
+			}
+
+			const char *poolname = NULL, *props_blob = NULL;
+			const char *pass = NULL;
+			if (!bad) {
+				size_t n;
+				if (remain == 0) { bad = TRUE; }
+				else {
+					poolname = p;
+					n = strnlen(p, remain);
+					if (n >= remain) { bad = TRUE; }
+					else { p += n + 1; remain -= n + 1; }
+				}
+			}
+			if (!bad) {
+				size_t n;
+				if (remain == 0) { bad = TRUE; }
+				else {
+					props_blob = p;
+					n = strnlen(p, remain);
+					if (n >= remain) { bad = TRUE; }
+					else { p += n + 1; remain -= n + 1; }
+				}
+			}
+			if (!bad && remain > 0) {
+				size_t n = strnlen(p, remain);
+				if (n >= remain) { bad = TRUE; }
+				else { pass = p; }
+			}
+
+			if (bad) {
+				HeapFree(GetProcessHeap(), 0, disk_paths);
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+
+			size_t jlen = 0;
+			char *json = zed_create_pool_json(req->flags,
+			    req->topology, req->ndisks, disk_paths, poolname,
+			    props_blob, pass, &jlen);
+			HeapFree(GetProcessHeap(), 0, disk_paths);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
+	case OP_DESTROY_POOL:
+		{
+			dprintf("OP_DESTROY_POOL\n");
+			if (rh.len < sizeof (op_destroy_pool_req_t)) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			const op_destroy_pool_req_t *req =
+			    (const void *)payload;
+			size_t jlen = 0;
+			char *json = zed_destroy_pool_json(req->flags,
+			    req->pool_guid, req->pool_name, &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
 
 	case OP_SUBSCRIBE_EVENTS:
 		{
