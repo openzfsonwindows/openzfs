@@ -62,13 +62,13 @@ zfs_file_open(const char *path, int flags, int mode, cred_t *cr,
 		(void) umask(old_umask);
 
 	if (vn_dumpdir != NULL) {
-		char *dumppath = umem_zalloc(MAXPATHLEN, UMEM_NOFAIL);
+		char *dumppath = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
 		const char *inpath = zfs_basename(path);
 
 		(void) snprintf(dumppath, MAXPATHLEN,
 		    "%s/%s", vn_dumpdir, inpath);
 		dump_fd = open64(dumppath, O_CREAT | O_WRONLY, 0666);
-		umem_free(dumppath, MAXPATHLEN);
+		kmem_free(dumppath, MAXPATHLEN);
 		if (dump_fd == -1) {
 			err = errno;
 			close(fd);
@@ -80,7 +80,7 @@ zfs_file_open(const char *path, int flags, int mode, cred_t *cr,
 
 	(void) fcntl(fd, F_SETFD, FD_CLOEXEC);
 
-	fp = umem_zalloc(sizeof (zfs_file_t), UMEM_NOFAIL);
+	fp = kmem_zalloc(sizeof (zfs_file_t), KM_SLEEP);
 	fp->f_fd = fd;
 	fp->f_dump_fd = dump_fd;
 	*fpp = fp;
@@ -95,7 +95,7 @@ zfs_file_close(zfs_file_t *fp)
 	if (fp->f_dump_fd != -1)
 		close(fp->f_dump_fd);
 
-	umem_free(fp, sizeof (zfs_file_t));
+	kmem_free(fp, sizeof (zfs_file_t));
 }
 
 /*
@@ -398,7 +398,7 @@ zfs_file_get(int fd)
 	 * its not valid for some operation, then that operation will fail when
 	 * attempted.
 	 */
-	zfs_file_t *fp = umem_zalloc(sizeof (zfs_file_t), UMEM_NOFAIL);
+	zfs_file_t *fp = kmem_zalloc(sizeof (zfs_file_t), KM_SLEEP);
 	fp->f_fd = fd;
 	fp->f_dump_fd = -1;
 	return (fp);
@@ -411,5 +411,5 @@ zfs_file_get(int fd)
 void
 zfs_file_put(zfs_file_t *fp)
 {
-	umem_free(fp, sizeof (zfs_file_t));
+	kmem_free(fp, sizeof (zfs_file_t));
 }

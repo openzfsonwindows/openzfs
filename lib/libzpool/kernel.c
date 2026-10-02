@@ -188,7 +188,7 @@ __dprintf(boolean_t dprint, const char *file, const char *func,
 		int i;
 
 		size = 1024;
-		buf = umem_alloc(size, UMEM_NOFAIL);
+		buf = kmem_alloc(size, KM_SLEEP);
 		i = snprintf(buf, size, "%s:%d:%s(): ", newfile, line, func);
 
 		if (i < size) {
@@ -199,7 +199,7 @@ __dprintf(boolean_t dprint, const char *file, const char *func,
 
 		__zfs_dbgmsg(buf);
 
-		umem_free(buf, size);
+		kmem_free(buf, size);
 	}
 }
 
