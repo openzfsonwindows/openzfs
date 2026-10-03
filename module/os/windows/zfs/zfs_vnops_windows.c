@@ -4809,10 +4809,20 @@ top:
 	(void) sa_update(zp->z_sa_hdl, SA_ZPL_FLAGS(zfsvfs),
 	    &zp->z_pflags, sizeof (zp->z_pflags), tx);
 
-	if (zp->z_is_sa)
-		error = sa_remove(zp->z_sa_hdl, SA_ZPL_SYMLINK(zfsvfs),
-		    tx);
-	else
+	if (zp->z_is_sa) {
+		int symsize;
+		/*
+		 * z_is_sa only means this znode uses the SA framework, not
+		 * that it actually has a SYMLINK attribute -- some reparse
+		 * points reach here without one.  sa_remove() asserts the
+		 * attribute is present (matches upstream), so only call it
+		 * when sa_size() confirms it's actually there.
+		 */
+		if (sa_size(zp->z_sa_hdl, SA_ZPL_SYMLINK(zfsvfs),
+		    &symsize) == 0)
+			error = sa_remove(zp->z_sa_hdl, SA_ZPL_SYMLINK(zfsvfs),
+			    tx);
+	} else
 		zfs_sa_symlink(zp, buffer, 0, tx);
 
 	zp->z_size = 0;	// If dir size > 2 -> ENOTEMPTY
