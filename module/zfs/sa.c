@@ -1926,6 +1926,49 @@ sa_modify_attrs(sa_handle_t *hdl, sa_attr_type_t newattr,
 
 	ASSERT(MUTEX_HELD(&hdl->sa_lock));
 
+	/*
+	 * SA_REMOVE assumes newattr is present in the object's current
+	 * layout: attr_count below is pre-decremented for its removal,
+	 * and the ASSERT3U(j, ==, attr_count) later in this function is
+	 * unconditional.  If a caller invokes sa_remove() for an
+	 * attribute that was never actually set, the removal loop never
+	 * skips an entry, j overruns attr_count by one, and the final
+	 * SA_ADD_BULK_ATTR() call writes past the end of attr_desc[]
+	 * (which is sized for the removal succeeding).  Verify presence
+	 * up front so that case returns ENOENT instead of corrupting the
+	 * heap.
+	 */
+	if (action == SA_REMOVE) {
+		boolean_t found = B_FALSE;
+
+		idx_tab = hdl->sa_bonus_tab;
+		count = idx_tab->sa_layout->lot_attr_count;
+		for (i = 0; i != count; i++) {
+			if (idx_tab->sa_layout->lot_attrs[i] == newattr) {
+				found = B_TRUE;
+				break;
+			}
+		}
+		if (!found) {
+			error = sa_get_spill(hdl);
+			if (error == 0) {
+				idx_tab = hdl->sa_spill_tab;
+				count = idx_tab->sa_layout->lot_attr_count;
+				for (i = 0; i != count; i++) {
+					if (idx_tab->sa_layout->lot_attrs[i] ==
+					    newattr) {
+						found = B_TRUE;
+						break;
+					}
+				}
+			} else if (error != ENOENT) {
+				return (error);
+			}
+		}
+		if (!found)
+			return (SET_ERROR(ENOENT));
+	}
+
 	/* First make of copy of the old data */
 
 	DB_DNODE_ENTER(db);
