@@ -552,6 +552,19 @@ zfs_znode_alloc(zfsvfs_t *zfsvfs, dmu_buf_t *db, int blksz,
 	zp->z_blksz = blksz;
 	zp->z_seq = 0x7A4653;
 	zp->z_sync_cnt = 0;
+	/*
+	 * znode_cache has no constructor-time memset (locks/lists are
+	 * init'd once per slab slot, not per logical alloc), so any field
+	 * not explicitly set here carries over stale garbage from this
+	 * slot's previous occupant.  z_has_seq must default to FALSE: a
+	 * stale TRUE on a znode whose on-disk SA layout doesn't actually
+	 * have SA_ZPL_SEQ yet makes ZFS_SEQ_MAY_GROW() skip
+	 * dmu_tx_hold_spill() on its first write, so sa_bulk_update()'s
+	 * unconditional SA_ZPL_SEQ add (zfs_vnops.c) then tries to grow
+	 * the layout and dirty a spill block nothing held -- VERIFY3U
+	 * (dn->dn_assigned_txg == tx->tx_txg) panic in dmu_tx_dirty_buf().
+	 */
+	zp->z_has_seq = B_FALSE;
 
 	zp->z_is_mapped = 0;
 	zp->z_is_ctldir = 0;
