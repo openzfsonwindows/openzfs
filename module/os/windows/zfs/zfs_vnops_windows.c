@@ -7514,10 +7514,21 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		 * exclusive access. Only a paging write that extends the
 		 * file (FileSize growing under it, same condition the
 		 * non-paging branch below checks) needs exclusive.
+		 *
+		 * Paging I/O is page-rounded, so its end can land past
+		 * FileSize purely from rounding a write that lands exactly
+		 * at EOF -- not because the file is actually growing. Round
+		 * FileSize up to a page boundary before comparing, or every
+		 * such flush falsely demands exclusive and self-deadlocks
+		 * against the shared hold this same thread's outer
+		 * non-paging write (below) took to get here: confirmed live
+		 * via a Steam download's CcCopyWrite -> CcFlushCachePriv ->
+		 * MmFlushSection synchronous paging write on the same thread
+		 * as the outer write still holding PagingIoResource shared.
 		 */
 		boolean_t need_excl = pagefile ||
 		    (offset.QuadPart + (LONGLONG)*length >
-		    vp->FileHeader.FileSize.QuadPart);
+		    P2ROUNDUP(vp->FileHeader.FileSize.QuadPart, PAGE_SIZE));
 
 		if (need_excl) {
 			if (!ExAcquireResourceExclusiveLite(
