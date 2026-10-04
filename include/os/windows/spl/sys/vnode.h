@@ -24,6 +24,7 @@
 #include <sys/mount.h>
 #include <sys/kmem.h>
 #include <sys/mutex.h>
+#include <sys/condvar.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/uio.h>
@@ -48,7 +49,15 @@
 #define	VNODE_SIZECHANGE    16
 #define	VNODE_EASIZE	    32
 #define	VNODE_FLUSHING		64
-#define	VNODE_VALIDBITS		127
+/*
+ * Set while zfs_inactive() is running for this vnode with v_mutex
+ * dropped (v_iocount/v_usecount already at 0, so the vnode otherwise
+ * looks idle).  vnode_recycle_int() waits on v_inactive_cv while this
+ * is set, so a concurrent vflush()/reclaim can't free zp->z_sa_hdl out
+ * from under the in-flight zfs_inactive() call.
+ */
+#define	VNODE_INACTIVE_INPROGRESS	128
+#define	VNODE_VALIDBITS		255
 
 /* v_unlink flags */
 #define	UNLINK_DELETE_ON_CLOSE	(1 << 0) // 1
@@ -78,6 +87,8 @@ struct vnode {
 	// Our implementation data fields
 	// KSPIN_LOCK v_spinlock;
 	kmutex_t v_mutex;
+	kcondvar_t v_inactive_cv;	/* see VNODE_INACTIVE_INPROGRESS */
+	void *v_inactive_thread;	/* owner of VNODE_INACTIVE_INPROGRESS */
 
 	mount_t *v_mount;
 	struct vnode *v_parent;

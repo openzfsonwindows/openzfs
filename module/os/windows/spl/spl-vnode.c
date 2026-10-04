@@ -500,6 +500,7 @@ zfs_vnode_cache_constructor(void *buf, void *arg, int kmflags)
 	memset(vp, 0, sizeof (*vp));
 
 	mutex_init(&vp->v_mutex, NULL, MUTEX_DEFAULT, NULL);
+	cv_init(&vp->v_inactive_cv, NULL, CV_DEFAULT, NULL);
 	avl_create(&vp->v_fileobjects, vnode_fileobject_compare,
 	    sizeof (vnode_fileobjects_t), offsetof(vnode_fileobjects_t,
 	    avlnode));
@@ -519,6 +520,7 @@ zfs_vnode_cache_destructor(void *buf, void *arg)
 	ExDeleteResourceLite(&vp->resource);
 
 	avl_destroy(&vp->v_fileobjects);
+	cv_destroy(&vp->v_inactive_cv);
 	mutex_destroy(&vp->v_mutex);
 }
 
@@ -1146,9 +1148,22 @@ vnode_put(vnode_t *vp)
 	if ((vp->v_usecount == 0) && (vp->v_iocount == 0)) {
 		// XNU always calls inactive in vnode_put
 		vp->v_flags &= ~VNODE_NEEDINACTIVE;
+		/*
+		 * v_iocount/v_usecount are both 0 here, so this vnode looks
+		 * idle to anyone else inspecting it.  Mark it busy for the
+		 * duration of zfs_inactive() so a concurrent vflush() (e.g.
+		 * unmount, which forces reclaim regardless of iocount) can't
+		 * also drive it through vnode_recycle_int() -> zfs_zinactive()
+		 * and free zp->z_sa_hdl while we're still using it below.
+		 */
+		vp->v_flags |= VNODE_INACTIVE_INPROGRESS;
+		vp->v_inactive_thread = current_thread();
 		mutex_exit(&vp->v_mutex);
 		zfs_inactive(vp, NULL, NULL);
 		mutex_enter(&vp->v_mutex);
+		vp->v_inactive_thread = NULL;
+		vp->v_flags &= ~VNODE_INACTIVE_INPROGRESS;
+		cv_broadcast(&vp->v_inactive_cv);
 	}
 
 	vp->v_flags &= ~VNODE_NEEDINACTIVE;
@@ -1180,6 +1195,23 @@ vnode_recycle_int(vnode_t *vp, int flags)
 		mutex_enter(&vp->v_mutex);
 	}
 
+	/*
+	 * If vnode_put() is concurrently running zfs_inactive() for this
+	 * vnode (with v_mutex dropped, see VNODE_INACTIVE_INPROGRESS),
+	 * wait for it to finish before we go anywhere near z_sa_hdl --
+	 * including the FORCECLOSE path below, which otherwise reclaims
+	 * regardless of v_iocount/v_usecount.
+	 *
+	 * Reentrant case: zfs_inactive() itself calls vnode_recycle() on
+	 * this same vp (the z_sa_hdl == NULL / z_unlinked fast paths), so
+	 * the thread that set VNODE_INACTIVE_INPROGRESS can land right
+	 * back here before clearing it.  Waiting on our own flag would be
+	 * a guaranteed deadlock -- skip the wait when we're that thread.
+	 */
+	while ((vp->v_flags & VNODE_INACTIVE_INPROGRESS) &&
+	    vp->v_inactive_thread != current_thread())
+		cv_wait(&vp->v_inactive_cv, &vp->v_mutex);
+
 	// Mark it for recycle, if we are not ROOT.
 	if (!(vp->v_flags&VNODE_MARKROOT)) {
 
@@ -1191,9 +1223,16 @@ vnode_recycle_int(vnode_t *vp, int flags)
 			    __func__, vp);
 
 			// Call inactive?
-			mutex_exit(&vp->v_mutex);
-			if (vp->v_flags & VNODE_NEEDINACTIVE) {
+			boolean_t do_inactive =
+			    (vp->v_flags & VNODE_NEEDINACTIVE) != 0;
+			if (do_inactive) {
 				vp->v_flags &= ~VNODE_NEEDINACTIVE;
+				/* see VNODE_INACTIVE_INPROGRESS, vnode_put() */
+				vp->v_flags |= VNODE_INACTIVE_INPROGRESS;
+				vp->v_inactive_thread = current_thread();
+			}
+			mutex_exit(&vp->v_mutex);
+			if (do_inactive) {
 				zfs_inactive(vp, NULL, NULL);
 				VERIFY3U(vp->v_iocount, ==, 1);
 			}
@@ -1202,6 +1241,11 @@ vnode_recycle_int(vnode_t *vp, int flags)
 			// zfs_fsync(vp, 0, NULL, NULL);
 
 			mutex_enter(&vp->v_mutex);
+			if (do_inactive) {
+				vp->v_inactive_thread = NULL;
+				vp->v_flags &= ~VNODE_INACTIVE_INPROGRESS;
+				cv_broadcast(&vp->v_inactive_cv);
+			}
 		}
 	}
 
