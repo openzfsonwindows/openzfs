@@ -49,14 +49,30 @@ extern libzfs_handle_t *g_lzh;
 // direct bounded probe is both simpler and more reliable here.
 #define	ZED_MAX_PHYSICAL_DRIVE 63
 
+// One entry per whole disk, immediately followed by one entry per usable
+// partition on that disk (part_number > 0). Partition entries carry the
+// "HarddiskNPartitionM" name that zpool_create() accepts as-is.
 typedef struct {
-    char path[64]; // "\\\\.\\PhysicalDriveN"
+    char path[64]; // "PhysicalDriveN" or "HarddiskNPartitionM"
     int  disk_number;
+    int  part_number; // 0 == whole disk
+    uint64_t offset; // partition start in bytes (part_number > 0 only)
     uint64_t size;
-    char model[128];
+    char model[128]; // partition entries: GPT partition name, if any
     BOOL is_boot;
     BOOL has_pool;
 } disk_info_t;
+
+// Partition types never offered as pool members: they have no business
+// holding a pool, and listing them only invites mistakes.
+static const GUID zed_guid_msr = {
+	0xE3C9E316, 0x0B5C, 0x4DB8,
+	{ 0x81, 0x7D, 0xF9, 0x2D, 0xF0, 0x02, 0x15, 0xAE }
+};
+static const GUID zed_guid_esp = {
+	0xC12A7328, 0xF81F, 0x11D2,
+	{ 0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B }
+};
 
 static void
 query_disk_model(HANDLE h, char *model, size_t modelsz)
@@ -103,6 +119,99 @@ query_disk_model(HANDLE h, char *model, size_t modelsz)
 	_snprintf_s(model, modelsz, _TRUNCATE, "%s", tmp);
 }
 
+// Makes room for at least one more entry. Returns FALSE (arr untouched) on
+// allocation failure.
+static BOOL
+reserve_entry(disk_info_t **arr, int *cap, int count)
+{
+	if (count < *cap)
+		return (TRUE);
+	disk_info_t *na = (disk_info_t *)HeapReAlloc(GetProcessHeap(),
+	    HEAP_ZERO_MEMORY, *arr, (*cap * 2) * sizeof (disk_info_t));
+	if (!na)
+		return (FALSE);
+	*arr = na;
+	*cap *= 2;
+	return (TRUE);
+}
+
+// Reads the disk's partition table and appends one entry per partition that
+// could sensibly hold a pool. Failure to read the layout (e.g. a RAW disk)
+// just means no partition entries.
+static void
+append_partitions(HANDLE h, int disk_number, disk_info_t **arr, int *cap,
+    int *count)
+{
+	DWORD bufsz = sizeof (DRIVE_LAYOUT_INFORMATION_EX) +
+	    128 * sizeof (PARTITION_INFORMATION_EX);
+	DRIVE_LAYOUT_INFORMATION_EX *dl = NULL;
+	DWORD ret = 0;
+	BOOL ok = FALSE;
+
+	// Grow until it fits; 128 GPT entries is the common case but MBR/EBR
+	// chains and larger GPT tables can exceed that.
+	while (bufsz <= 1024 * 1024) {
+		dl = (DRIVE_LAYOUT_INFORMATION_EX *)HeapAlloc(
+		    GetProcessHeap(), 0, bufsz);
+		if (!dl)
+			return;
+		if (DeviceIoControl(h, IOCTL_DISK_GET_DRIVE_LAYOUT_EX, NULL, 0,
+		    dl, bufsz, &ret, NULL)) {
+			ok = TRUE;
+			break;
+		}
+		HeapFree(GetProcessHeap(), 0, dl);
+		dl = NULL;
+		if (GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+			return;
+		bufsz *= 2;
+	}
+	if (!ok)
+		return;
+
+	for (DWORD i = 0; i < dl->PartitionCount; i++) {
+		const PARTITION_INFORMATION_EX *p = &dl->PartitionEntry[i];
+
+		if (p->PartitionNumber == 0 || p->PartitionLength.QuadPart <= 0)
+			continue;
+
+		char name[128] = "";
+		if (p->PartitionStyle == PARTITION_STYLE_GPT) {
+			if (IsEqualGUID(&p->Gpt.PartitionType, &zed_guid_msr) ||
+			    IsEqualGUID(&p->Gpt.PartitionType, &zed_guid_esp))
+				continue;
+			WideCharToMultiByte(CP_UTF8, 0, p->Gpt.Name, -1, name,
+			    sizeof (name), NULL, NULL);
+		} else if (p->PartitionStyle == PARTITION_STYLE_MBR) {
+			// Extended partition containers hold other partitions,
+			// not data.
+			if (p->Mbr.PartitionType == PARTITION_EXTENDED ||
+			    p->Mbr.PartitionType == 0x0F ||
+			    p->Mbr.PartitionType == 0x85 ||
+			    p->Mbr.PartitionType == PARTITION_ENTRY_UNUSED)
+				continue;
+		} else {
+			continue;
+		}
+
+		if (!reserve_entry(arr, cap, *count))
+			break;
+
+		disk_info_t *d = &(*arr)[*count];
+		ZeroMemory(d, sizeof (*d));
+		d->disk_number = disk_number;
+		d->part_number = (int)p->PartitionNumber;
+		d->offset = (uint64_t)p->StartingOffset.QuadPart;
+		d->size = (uint64_t)p->PartitionLength.QuadPart;
+		_snprintf_s(d->path, sizeof (d->path), _TRUNCATE,
+		    "Harddisk%dPartition%d", disk_number, d->part_number);
+		_snprintf_s(d->model, sizeof (d->model), _TRUNCATE, "%s", name);
+		(*count)++;
+	}
+
+	HeapFree(GetProcessHeap(), 0, dl);
+}
+
 static int
 enumerate_physical_disks(disk_info_t **out, int *out_count)
 {
@@ -135,16 +244,9 @@ enumerate_physical_disks(disk_info_t **out, int *out_count)
 			continue;
 		}
 
-		if (count == cap) {
-			cap *= 2;
-			disk_info_t *na = (disk_info_t *)HeapReAlloc(
-			    GetProcessHeap(), HEAP_ZERO_MEMORY, arr,
-			    cap * sizeof (disk_info_t));
-			if (!na) {
-				CloseHandle(h);
-				break;
-			}
-			arr = na;
+		if (!reserve_entry(&arr, &cap, count)) {
+			CloseHandle(h);
+			break;
 		}
 
 		disk_info_t *d = &arr[count];
@@ -167,8 +269,12 @@ enumerate_physical_disks(disk_info_t **out, int *out_count)
 
 		query_disk_model(h, d->model, sizeof (d->model));
 
-		CloseHandle(h);
 		count++;
+		// Partitions follow their disk. Note arr may move here, so d is
+		// not used after this call.
+		append_partitions(h, n, &arr, &cap, &count);
+
+		CloseHandle(h);
 	}
 
 	*out = arr;
@@ -177,7 +283,7 @@ enumerate_physical_disks(disk_info_t **out, int *out_count)
 }
 
 static BOOL
-get_boot_disk_number(int *out_disknum)
+get_boot_disk_number(int *out_disknum, uint64_t *out_offset)
 {
 	wchar_t sysdir[MAX_PATH];
 	if (!GetSystemDirectoryW(sysdir, MAX_PATH) || sysdir[1] != L':')
@@ -206,30 +312,59 @@ get_boot_disk_number(int *out_disknum)
 		return (FALSE);
 
 	*out_disknum = (int)vde->Extents[0].DiskNumber;
+	*out_offset = (uint64_t)vde->Extents[0].StartingOffset.QuadPart;
 	return (TRUE);
 }
 
-// Extract a trailing "physicaldriveN" disk number from a vdev path, which
-// may be a raw "\\.\PhysicalDriveN" or the "#offset#size#PHYSICALDRIVEn"
-// encoding zfs_append_partition() produces once a disk has been labeled
-// (see lib/libzutil/os/windows/zutil_device_path_os.c). Returns -1 if no
-// such suffix is present.
-static int
-disk_number_from_vdev_path(const char *path)
+// Finds "needle" (lower case) in path, case-insensitively, and returns a
+// pointer to the character after it, or NULL.
+static const char *
+find_after(const char *path, const char *needle)
 {
-	if (!path)
-		return (-1);
-	const char *needle = "physicaldrive";
 	size_t nlen = strlen(needle);
 	size_t plen = strlen(path);
 
 	for (size_t i = 0; i + nlen <= plen; i++) {
-		if (_strnicmp(path + i, needle, nlen) == 0) {
-			const char *digits = path + i + nlen;
-			if (!isdigit((unsigned char)*digits))
-				continue;
-			return (atoi(digits));
-		}
+		if (_strnicmp(path + i, needle, nlen) == 0)
+			return (path + i + nlen);
+	}
+	return (NULL);
+}
+
+// Works out which disk, and which partition of it, a vdev path refers to.
+// Recognised forms:
+// - "\\.\PhysicalDriveN" or "PhysicalDriveN": whole disk
+// - "#offset#size#PHYSICALDRIVEn": partition by byte offset, as
+//   zfs_append_partition() produces once a disk has been labeled (see
+//   lib/libzutil/os/windows/zutil_device_path_os.c)
+// - "\\?\HarddiskNPartitionM": partition by number
+// Returns the disk number, or -1 if the path is none of these. *part is the
+// partition number (0 if unknown/whole disk) and *offset the byte offset
+// (0 if unknown).
+static int
+parse_vdev_path(const char *path, int *part, uint64_t *offset)
+{
+	*part = 0;
+	*offset = 0;
+	if (!path)
+		return (-1);
+
+	const char *p = find_after(path, "harddisk");
+	if (p && isdigit((unsigned char)*p)) {
+		int dn = atoi(p);
+		while (isdigit((unsigned char)*p))
+			p++;
+		if (_strnicmp(p, "partition", 9) == 0 &&
+		    isdigit((unsigned char)p[9]))
+			*part = atoi(p + 9);
+		return (dn);
+	}
+
+	p = find_after(path, "physicaldrive");
+	if (p && isdigit((unsigned char)*p)) {
+		if (path[0] == '#')
+			*offset = _strtoui64(path + 1, NULL, 10);
+		return (atoi(p));
 	}
 	return (-1);
 }
@@ -239,11 +374,22 @@ mark_disk_path(nvlist_t *vdev, disk_info_t *disks, int ndisks)
 {
 	const char *path = NULL;
 	if (nvlist_lookup_string(vdev, ZPOOL_CONFIG_PATH, &path) == 0) {
-		int dn = disk_number_from_vdev_path(path);
+		int part = 0;
+		uint64_t off = 0;
+		int dn = parse_vdev_path(path, &part, &off);
 		if (dn >= 0) {
 			for (int i = 0; i < ndisks; i++) {
-				if (disks[i].disk_number == dn)
+				if (disks[i].disk_number != dn)
+					continue;
+				if (disks[i].part_number == 0) {
+					// A pool anywhere on the disk, in a
+					// partition or not: using the whole
+					// disk would destroy it.
 					disks[i].has_pool = TRUE;
+				} else if ((part && disks[i].part_number ==
+				    part) || (off && disks[i].offset == off)) {
+					disks[i].has_pool = TRUE;
+				}
 			}
 		}
 	}
@@ -301,10 +447,17 @@ zed_list_disks_json(size_t *out_len)
 	if (enumerate_physical_disks(&disks, &ndisks) != 0 || !disks)
 		goto serialize;
 
+	// The boot disk is flagged as a whole; only the partition actually
+	// holding the system volume is flagged among its partitions, so a
+	// data partition on the boot disk stays selectable.
 	int boot_disk = -1;
-	if (get_boot_disk_number(&boot_disk)) {
+	uint64_t boot_off = 0;
+	if (get_boot_disk_number(&boot_disk, &boot_off)) {
 		for (int i = 0; i < ndisks; i++) {
-			if (disks[i].disk_number == boot_disk)
+			if (disks[i].disk_number != boot_disk)
+				continue;
+			if (disks[i].part_number == 0 ||
+			    disks[i].offset == boot_off)
 				disks[i].is_boot = TRUE;
 		}
 	}
@@ -330,6 +483,14 @@ zed_list_disks_json(size_t *out_len)
 		    (unsigned long long)disks[i].size);
 		fnvlist_add_string(ent, "size", sz);
 		fnvlist_add_string(ent, "model", disks[i].model);
+		// "part" is 0 for a whole disk. Partition entries directly
+		// follow their disk, which is how the UI nests them.
+		_snprintf_s(sz, sizeof (sz), _TRUNCATE, "%d",
+		    disks[i].disk_number);
+		fnvlist_add_string(ent, "disk", sz);
+		_snprintf_s(sz, sizeof (sz), _TRUNCATE, "%d",
+		    disks[i].part_number);
+		fnvlist_add_string(ent, "part", sz);
 		fnvlist_add_boolean_value(ent, "is_boot",
 		    disks[i].is_boot ? B_TRUE : B_FALSE);
 		fnvlist_add_boolean_value(ent, "has_pool",
@@ -587,6 +748,26 @@ zed_create_pool_json(uint32_t flags, uint32_t topology, uint32_t ndisks,
 		goto serialize;
 	}
 
+	// Relabeling a whole disk destroys its partitions, so a disk and one of
+	// its own partitions can't both be members. Check before touching
+	// anything.
+	for (uint32_t i = 0; i < ndisks; i++) {
+		int pi = 0;
+		uint64_t oi = 0;
+		int di = parse_vdev_path(disk_paths_utf8[i], &pi, &oi);
+		for (uint32_t j = 0; j < ndisks; j++) {
+			int pj = 0;
+			uint64_t oj = 0;
+			int dj = parse_vdev_path(disk_paths_utf8[j], &pj, &oj);
+			if (di >= 0 && di == dj && pi == 0 && pj > 0) {
+				fnvlist_add_string(res, "err",
+				    "a disk and one of its own partitions "
+				    "cannot both be selected");
+				goto serialize;
+			}
+		}
+	}
+
 	nvlist_t **leaves = (nvlist_t **)HeapAlloc(GetProcessHeap(),
 	    HEAP_ZERO_MEMORY, ndisks * sizeof (nvlist_t *));
 	if (!leaves) {
@@ -595,6 +776,28 @@ zed_create_pool_json(uint32_t flags, uint32_t topology, uint32_t ndisks,
 	}
 	for (uint32_t i = 0; i < ndisks; i++) {
 		char encoded[MAXPATHLEN];
+		int pdisk = 0, ppart = 0, pend = 0;
+
+		// An existing partition ("HarddiskNPartitionM") is used as-is,
+		// exactly like "zpool create pool \\?\HarddiskNPartitionM":
+		// no relabeling, and not a whole-disk vdev. The strict match
+		// keeps anything else from being passed through unlabeled.
+		if (sscanf_s(disk_paths_utf8[i], "Harddisk%dPartition%d%n",
+		    &pdisk, &ppart, &pend) == 2 && pend > 0 &&
+		    disk_paths_utf8[i][pend] == '\0' && pdisk >= 0 &&
+		    ppart > 0) {
+			_snprintf_s(encoded, sizeof (encoded), _TRUNCATE,
+			    "\\\\?\\Harddisk%dPartition%d", pdisk, ppart);
+			leaves[i] = fnvlist_alloc();
+			fnvlist_add_string(leaves[i], ZPOOL_CONFIG_PATH,
+			    encoded);
+			fnvlist_add_string(leaves[i], ZPOOL_CONFIG_TYPE,
+			    VDEV_TYPE_DISK);
+			fnvlist_add_uint64(leaves[i], ZPOOL_CONFIG_WHOLE_DISK,
+			    0);
+			continue;
+		}
+
 		if (!label_whole_disk(disk_paths_utf8[i], encoded,
 		    sizeof (encoded))) {
 			const char *desc = libzfs_error_description(g_lzh);

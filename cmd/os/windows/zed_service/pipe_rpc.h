@@ -150,8 +150,14 @@ typedef struct {
 #pragma pack(pop)
 
 // OP_LIST_DISKS: no request body. Response JSON:
-// { "disks": [ { "path": "\\\\.\\PhysicalDrive2", "size": "2000398934016",
-// "model": "Samsung SSD 990", "is_boot": false, "has_pool": false }, ... ] }
+// { "disks": [ { "path": "PhysicalDrive2", "size": "2000398934016",
+// "model": "Samsung SSD 990", "disk": "2", "part": "0", "is_boot": false,
+// "has_pool": false }, ... ] }
+// Each disk is directly followed by its usable partitions ("part" > 0, path
+// "HarddiskNPartitionM", "model" is the GPT partition name). has_pool on a
+// disk means a pool lives anywhere on it, including inside a partition.
+// OP_CREATE_POOL accepts either form; a partition is used as-is, a whole
+// disk is relabeled.
 
 enum {
 	ZCREATE_FORCE = 0x01, // reserved; allows selecting an in-use disk in UI

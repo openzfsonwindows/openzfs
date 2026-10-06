@@ -791,12 +791,15 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		g_nid.cbSize = sizeof (g_nid);
 		g_nid.hWnd = hWnd;
 		g_nid.uID = ID_TRAY_ICON;
-		g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+		// NIF_SHOWTIP is required: with NOTIFYICON_VERSION_4 the shell
+		// suppresses the standard hover tooltip without it.
+		g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
 		g_nid.uCallbackMessage = WM_TRAYICON;
 		g_nid.hIcon = LoadAppIconForTray((HINSTANCE)GetWindowLongPtrW(
 		    hWnd, GWLP_HINSTANCE));
 		g_nid.uVersion = NOTIFYICON_VERSION_4;
-		lstrcpynW(g_nid.szTip, L"OpenZFS", ARRAYSIZE(g_nid.szTip));
+		lstrcpynW(g_nid.szTip, L"OpenZFS on Windows",
+		    ARRAYSIZE(g_nid.szTip));
 		// NOTE: NIM_ADD must be called exactly once per icon; a
 		// second NIM_ADD for the same hWnd/uID is invalid (unlike
 		// NIM_MODIFY, which is what you'd use to change the tip
@@ -1261,7 +1264,7 @@ EventThread(LPVOID)
 static void
 ShowBalloon(LPCWSTR title, LPCWSTR msg)
 {
-	g_nid.uFlags = NIF_INFO;
+	g_nid.uFlags = NIF_INFO | NIF_SHOWTIP;
 	lstrcpynW(g_nid.szInfoTitle, title, ARRAYSIZE(g_nid.szInfoTitle));
 	lstrcpynW(g_nid.szInfo, msg, ARRAYSIZE(g_nid.szInfo));
 	g_nid.dwInfoFlags = NIIF_INFO;

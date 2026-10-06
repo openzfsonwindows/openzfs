@@ -51,7 +51,8 @@
 
 // ---- data types
 typedef struct {
-	char path[64]; // UTF-8, "\\.\PhysicalDriveN"
+	char path[64]; // UTF-8, "PhysicalDriveN" or "HarddiskNPartitionM"
+	int part; // 0 == whole disk; else a partition nested under its disk
 	wchar_t sizeW[32];
 	wchar_t modelW[128];
 	BOOL is_boot;
@@ -149,6 +150,11 @@ ParseDisksJSON(const char *json, int json_len)
 					jsmn_copy_string(json, v, sbuf,
 					    sizeof (sbuf));
 					size = _strtoui64(sbuf, NULL, 10);
+				} else if (jsmn_eq(json, k, "part")) {
+					char pbuf[16] = { 0 };
+					jsmn_copy_string(json, v, pbuf,
+					    sizeof (pbuf));
+					d->part = atoi(pbuf);
 				} else if (jsmn_eq(json, k, "model")) {
 					char mbuf[128] = { 0 };
 					jsmn_copy_string(json, v, mbuf,
@@ -213,8 +219,8 @@ AddDiskListColumns(HWND hList)
 {
 	LVCOLUMNW col = { 0 };
 	col.mask = LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM;
-	col.pszText = L"Disk";
-	col.cx = 150;
+	col.pszText = L"Disk / Partition";
+	col.cx = 190;
 	col.iSubItem = 0;
 	ListView_InsertColumn(hList, 0, &col);
 	col.pszText = L"Size";
@@ -240,9 +246,15 @@ PopulateDiskList(HWND hList, const DiskList *dl)
 
 	for (int i = 0; i < dl->count; i++) {
 		const DiskEntry *d = &dl->items[i];
-		wchar_t pathW[64];
-		MultiByteToWideChar(CP_UTF8, 0, d->path, -1, pathW,
-		    (int)ARRAYSIZE(pathW));
+		wchar_t pathW[80];
+		// Partitions arrive right after their disk; indent them with a
+		// tree glyph (LVITEM.iIndent needs an image list to show).
+		int pre = 0;
+		if (d->part > 0)
+			pre = _snwprintf_s(pathW, ARRAYSIZE(pathW), _TRUNCATE,
+			    L"   \x2514\x2500 ");
+		MultiByteToWideChar(CP_UTF8, 0, d->path, -1, pathW + pre,
+		    (int)ARRAYSIZE(pathW) - pre);
 
 		LVITEMW it = { 0 };
 		it.mask = LVIF_TEXT | LVIF_PARAM;
@@ -557,8 +569,9 @@ CreatePoolDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 
 			if (anyFlagged) {
 				if (MessageBoxW(hDlg,
-				    L"One or more selected disks is the boot "
-				    "disk or already has a ZFS pool on it.\n\n"
+				    L"One or more selected disks or partitions "
+				    "is the boot volume or already has a ZFS "
+				    "pool on it.\n\n"
 				    "Continuing will ERASE it. Proceed?",
 				    L"OpenZFS", MB_YESNO | MB_ICONWARNING |
 				    MB_DEFBUTTON2) != IDYES) {
@@ -712,7 +725,8 @@ CreatePoolDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 			    L"No candidate disks found.");
 		} else {
 			SetDlgItemTextW(hDlg, IDC_STATUS_CREATE,
-			    L"Select disk(s), set options, and click Create.");
+			    L"Select disk(s) or partition(s), set options, "
+			    L"and click Create.");
 			PopulateDiskList(hList, dl);
 		}
 		return (TRUE);
