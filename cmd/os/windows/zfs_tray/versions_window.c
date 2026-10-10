@@ -56,6 +56,7 @@
 #define	IDC_VRESTORE	3004
 #define	IDC_VCHANGED	3005
 #define	IDC_VINFO	3006
+#define	IDC_VDELETED	3007
 
 typedef struct {
 	wchar_t snap[128];
@@ -557,12 +558,43 @@ Layout(VCtx *c)
 	    TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_VCHANGED), pad, h - bh - pad / 2 -
 	    2, 190, bh, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_VDELETED), 2 * pad + 190,
+	    h - bh - pad, 130, bh, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_VRESTORE), w - pad - 100,
 	    h - bh - pad, 100, bh, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_VCOPY), w - 2 * (pad + 100),
 	    h - bh - pad, 100, bh, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_VOPEN), w - 3 * (pad + 100),
 	    h - bh - pad, 100, bh, TRUE);
+}
+
+// Open the deleted-items window as a separate zfs_tray process.
+static void
+LaunchDeleted(const wchar_t *dir)
+{
+	wchar_t exe[MAX_PATH];
+	wchar_t cmd[MAX_PATH * 3];
+	STARTUPINFOW si = { sizeof (si) };
+	PROCESS_INFORMATION pi;
+	size_t n;
+
+	if (GetModuleFileNameW(NULL, exe, ARRAYSIZE(exe)) == 0)
+		return;
+	// A trailing \ would escape the closing quote.
+	_snwprintf_s(cmd, ARRAYSIZE(cmd), _TRUNCATE,
+	    L"\"%s\" --deleted \"%s\"", exe, dir);
+	n = wcslen(cmd);
+	if (n > 2 && cmd[n - 2] == L'\\' && cmd[n - 1] == L'"' &&
+	    n + 1 < ARRAYSIZE(cmd)) {
+		cmd[n - 1] = L'.';
+		cmd[n] = L'"';
+		cmd[n + 1] = L'\0';
+	}
+	if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si,
+	    &pi)) {
+		CloseHandle(pi.hThread);
+		CloseHandle(pi.hProcess);
+	}
 }
 
 static LRESULT CALLBACK
@@ -621,6 +653,9 @@ VersionsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		case IDC_VRESTORE:
 			if ((v = Selected(c)) != NULL)
 				DoRestore(c, v);
+			break;
+		case IDC_VDELETED:
+			LaunchDeleted(c->path);
 			break;
 		case IDCANCEL:
 			DestroyWindow(hWnd);
@@ -749,6 +784,11 @@ RunVersionsWindow(HINSTANCE hInst, const wchar_t *path)
 	    (WPARAM)font, TRUE);
 	SendDlgItemMessageW(ctx.hWnd, IDC_VCHANGED, BM_SETCHECK, BST_CHECKED,
 	    0);
+	if (ctx.is_dir) {
+		SendMessageW(MakeChild(ctx.hWnd, L"BUTTON",
+		    L"Deleted items...", BS_PUSHBUTTON | WS_TABSTOP,
+		    IDC_VDELETED), WM_SETFONT, (WPARAM)font, TRUE);
+	}
 	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Open",
 	    BS_PUSHBUTTON | WS_TABSTOP, IDC_VOPEN), WM_SETFONT, (WPARAM)font,
 	    TRUE);
@@ -777,5 +817,595 @@ RunVersionsWindow(HINSTANCE hInst, const wchar_t *path)
 		DeleteObject(ctx.hHeaderFont);
 	if (ctx.vers)
 		HeapFree(GetProcessHeap(), 0, ctx.vers);
+	return (0);
+}
+
+/* -------------------- deleted items window -------------------- */
+
+#define	IDC_DLIST	3101
+#define	IDC_DOPEN	3102
+#define	IDC_DCOPY	3103
+#define	IDC_DRESTORE	3104
+#define	IDC_DINFO	3105
+
+typedef struct {
+	wchar_t name[MAX_PATH];
+	wchar_t snap[128];
+	wchar_t path[MAX_PATH * 2];	// the version, inside a snapshot
+	BOOL is_dir;
+	uint64_t size;
+	uint64_t mtime;
+} DelRow;
+
+typedef struct {
+	HWND hWnd;
+	HWND hList;
+	HFONT hHeaderFont;
+	wchar_t dir[MAX_PATH * 2];	// the directory that was asked about
+	DelRow *rows;
+	int nrows;
+	int caprows;
+	BOOL truncated;
+	uint64_t snapshots;
+} DCtx;
+
+static BOOL
+AddRow(DCtx *c, const DelRow *r)
+{
+	if (c->nrows == c->caprows) {
+		int ncap = c->caprows ? c->caprows * 2 : 64;
+		DelRow *t;
+
+		if (c->rows == NULL)
+			t = (DelRow *)HeapAlloc(GetProcessHeap(),
+			    HEAP_ZERO_MEMORY, ncap * sizeof (DelRow));
+		else
+			t = (DelRow *)HeapReAlloc(GetProcessHeap(),
+			    HEAP_ZERO_MEMORY, c->rows,
+			    ncap * sizeof (DelRow));
+		if (t == NULL)
+			return (FALSE);
+		c->rows = t;
+		c->caprows = ncap;
+	}
+	c->rows[c->nrows++] = *r;
+	return (TRUE);
+}
+
+// Parse { ok, truncated, snapshots, items:[ {name,is_dir,versions:[..]} ] }
+static BOOL
+ParseDeleted(DCtx *c, const char *json, int json_len, wchar_t *err,
+    int errcch)
+{
+	jsmn_parser p;
+	jsmntok_t *tok;
+	int r, i, ntok = json_len / 2 + 16;
+	BOOL ok = FALSE, got_ok = FALSE;
+
+	tok = (jsmntok_t *)HeapAlloc(GetProcessHeap(), 0,
+	    ntok * sizeof (jsmntok_t));
+	if (!tok)
+		return (FALSE);
+	jsmn_init(&p);
+	r = jsmn_parse(&p, json, json_len, tok, ntok);
+	if (r < 1 || tok[0].type != JSMN_OBJECT) {
+		HeapFree(GetProcessHeap(), 0, tok);
+		return (FALSE);
+	}
+
+	i = 1;
+	while (i + 1 < r && tok[i].start < tok[0].end) {
+		const jsmntok_t *k = &tok[i], *v = &tok[i + 1];
+
+		if (jsmn_eq(json, k, "ok")) {
+			got_ok = TRUE;
+			ok = PrimTrue(json, v);
+		} else if (jsmn_eq(json, k, "err")) {
+			TokWide(json, v, err, errcch);
+		} else if (jsmn_eq(json, k, "truncated")) {
+			c->truncated = PrimTrue(json, v);
+		} else if (jsmn_eq(json, k, "snapshots")) {
+			c->snapshots = TokU64(json, v);
+		} else if (jsmn_eq(json, k, "items") && v->type == JSMN_ARRAY) {
+			int n = v->size, e, j = i + 2;
+
+			for (e = 0; e < n && j < r; e++) {
+				int oend = tok[j].end, q = j + 1;
+				DelRow base;
+				int vstart = -1;
+
+				ZeroMemory(&base, sizeof (base));
+				while (q + 1 < r && tok[q].start < oend) {
+					const jsmntok_t *kk = &tok[q];
+					const jsmntok_t *vv = &tok[q + 1];
+
+					if (jsmn_eq(json, kk, "name")) {
+						TokWide(json, vv, base.name,
+						    ARRAYSIZE(base.name));
+					} else if (jsmn_eq(json, kk,
+					    "is_dir")) {
+						base.is_dir =
+						    PrimTrue(json, vv);
+					} else if (jsmn_eq(json, kk,
+					    "versions") &&
+					    vv->type == JSMN_ARRAY) {
+						vstart = q + 1;
+					}
+					q = SkipValue(tok, q + 1, r);
+				}
+
+				// Now the versions of this item.
+				if (vstart >= 0) {
+					int nv = tok[vstart].size, x;
+					int y = vstart + 1;
+
+					for (x = 0; x < nv && y < r; x++) {
+						int vend = tok[y].end;
+						int z = y + 1;
+						DelRow row = base;
+
+						while (z + 1 < r &&
+						    tok[z].start < vend) {
+							const jsmntok_t *a =
+							    &tok[z];
+							const jsmntok_t *b =
+							    &tok[z + 1];
+
+							if (jsmn_eq(json, a,
+							    "snap")) {
+								TokWide(json, b,
+								    row.snap,
+								    ARRAYSIZE(
+								    row.snap));
+							} else if (jsmn_eq(
+							    json, a, "path")) {
+								TokWide(json, b,
+								    row.path,
+								    ARRAYSIZE(
+								    row.path));
+								Unescape(
+								    row.path);
+							} else if (jsmn_eq(
+							    json, a, "size")) {
+								row.size =
+								    TokU64(json,
+								    b);
+							} else if (jsmn_eq(
+							    json, a, "mtime")) {
+								row.mtime =
+								    TokU64(json,
+								    b);
+							}
+							z = SkipValue(tok,
+							    z + 1, r);
+						}
+						(void) AddRow(c, &row);
+						y = z;
+					}
+				}
+				j = q;
+			}
+			i = j;
+			continue;
+		}
+		i = SkipValue(tok, i + 1, r);
+	}
+
+	HeapFree(GetProcessHeap(), 0, tok);
+	return (got_ok && ok);
+}
+
+static const DelRow *
+DelSelected(DCtx *c)
+{
+	int sel = ListView_GetNextItem(c->hList, -1, LVNI_SELECTED);
+	LVITEMW it = { 0 };
+
+	if (sel < 0)
+		return (NULL);
+	it.mask = LVIF_PARAM;
+	it.iItem = sel;
+	if (!ListView_GetItem(c->hList, &it))
+		return (NULL);
+	return (&c->rows[it.lParam]);
+}
+
+static void
+DelButtons(DCtx *c)
+{
+	BOOL have = (DelSelected(c) != NULL);
+
+	EnableWindow(GetDlgItem(c->hWnd, IDC_DOPEN), have);
+	EnableWindow(GetDlgItem(c->hWnd, IDC_DCOPY), have);
+	EnableWindow(GetDlgItem(c->hWnd, IDC_DRESTORE), have);
+}
+
+static void
+DelPopulate(DCtx *c)
+{
+	wchar_t buf[96];
+	int i;
+
+	ListView_DeleteAllItems(c->hList);
+	for (i = 0; i < c->nrows; i++) {
+		const DelRow *r = &c->rows[i];
+		LVITEMW it = { 0 };
+
+		it.mask = LVIF_TEXT | LVIF_PARAM;
+		it.iItem = i;
+		it.pszText = (LPWSTR)r->name;
+		it.lParam = i;
+		ListView_InsertItem(c->hList, &it);
+		ListView_SetItemText(c->hList, i, 1, (LPWSTR)r->snap);
+		FormatTimeW(r->mtime, buf, ARRAYSIZE(buf));
+		ListView_SetItemText(c->hList, i, 2, buf);
+		FormatAgeW(r->mtime, buf, ARRAYSIZE(buf));
+		ListView_SetItemText(c->hList, i, 3, buf);
+		if (r->is_dir)
+			lstrcpynW(buf, L"folder", ARRAYSIZE(buf));
+		else
+			FormatBytesW(r->size, buf, ARRAYSIZE(buf));
+		ListView_SetItemText(c->hList, i, 4, buf);
+	}
+}
+
+static void
+DelOpen(DCtx *c, const DelRow *r)
+{
+	HINSTANCE h = ShellExecuteW(c->hWnd, L"open", r->path, NULL, NULL,
+	    SW_SHOWNORMAL);
+
+	if ((INT_PTR)h <= 32)
+		MessageBoxW(c->hWnd, L"Could not open this item.",
+		    L"ZFS deleted items", MB_ICONERROR);
+}
+
+// Copy src to dest (a file, or a folder tree); TRUE on success.
+static BOOL
+DelCopy(HWND hWnd, const DelRow *r, const wchar_t *dest, BOOL overwrite)
+{
+	if (!r->is_dir) {
+		if (CopyFileW(r->path, dest, !overwrite))
+			return (TRUE);
+		{
+			wchar_t m[MAX_PATH * 2];
+			DWORD gle = GetLastError();
+
+			if (gle == ERROR_FILE_EXISTS)
+				_snwprintf_s(m, ARRAYSIZE(m), _TRUNCATE,
+				    L"\"%s\" already exists here. Use "
+				    L"\"Copy to...\" to choose another name.",
+				    r->name);
+			else
+				_snwprintf_s(m, ARRAYSIZE(m), _TRUNCATE,
+				    L"Copy failed (error %lu).",
+				    (unsigned long)gle);
+			MessageBoxW(hWnd, m, L"ZFS deleted items",
+			    MB_ICONWARNING);
+		}
+		return (FALSE);
+	}
+
+	{
+		SHFILEOPSTRUCTW fo = { 0 };
+		wchar_t from[MAX_PATH * 2 + 2] = { 0 };
+		wchar_t to[MAX_PATH * 2 + 2] = { 0 };
+
+		lstrcpynW(from, r->path, ARRAYSIZE(from) - 1);
+		lstrcpynW(to, dest, ARRAYSIZE(to) - 1);
+		fo.hwnd = hWnd;
+		fo.wFunc = FO_COPY;
+		fo.pFrom = from;
+		fo.pTo = to;
+		fo.fFlags = FOF_NOCONFIRMMKDIR;
+		return (SHFileOperationW(&fo) == 0 &&
+		    !fo.fAnyOperationsAborted);
+	}
+}
+
+static void
+DelRestore(DCtx *c, const DelRow *r)
+{
+	wchar_t dest[MAX_PATH * 3];
+	DWORD attr;
+
+	_snwprintf_s(dest, ARRAYSIZE(dest), _TRUNCATE, L"%s\\%s", c->dir,
+	    r->name);
+	attr = GetFileAttributesW(dest);
+	if (attr != INVALID_FILE_ATTRIBUTES) {
+		wchar_t m[MAX_PATH * 2];
+		_snwprintf_s(m, ARRAYSIZE(m), _TRUNCATE,
+		    L"\"%s\" exists again in this folder. Use \"Copy to...\" "
+		    L"to restore it under another name.", r->name);
+		MessageBoxW(c->hWnd, m, L"ZFS deleted items", MB_ICONWARNING);
+		return;
+	}
+	if (DelCopy(c->hWnd, r, dest, FALSE))
+		MessageBoxW(c->hWnd, L"Restored.", L"ZFS deleted items",
+		    MB_ICONINFORMATION);
+}
+
+static void
+DelCopyTo(DCtx *c, const DelRow *r)
+{
+	wchar_t dest[MAX_PATH * 2] = L"";
+	OPENFILENAMEW ofn = { 0 };
+
+	if (r->is_dir) {
+		BROWSEINFOW bi = { 0 };
+		PIDLIST_ABSOLUTE pidl;
+		wchar_t folder[MAX_PATH];
+		wchar_t to[MAX_PATH * 3];
+
+		bi.hwndOwner = c->hWnd;
+		bi.lpszTitle = L"Copy this folder into:";
+		bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+		pidl = SHBrowseForFolderW(&bi);
+		if (pidl == NULL)
+			return;
+		if (!SHGetPathFromIDListW(pidl, folder)) {
+			CoTaskMemFree(pidl);
+			return;
+		}
+		CoTaskMemFree(pidl);
+		_snwprintf_s(to, ARRAYSIZE(to), _TRUNCATE, L"%s\\%s", folder,
+		    r->name);
+		if (DelCopy(c->hWnd, r, to, TRUE))
+			MessageBoxW(c->hWnd, L"Copied.", L"ZFS deleted items",
+			    MB_ICONINFORMATION);
+		return;
+	}
+
+	lstrcpynW(dest, r->name, ARRAYSIZE(dest));
+	ofn.lStructSize = sizeof (ofn);
+	ofn.hwndOwner = c->hWnd;
+	ofn.lpstrFile = dest;
+	ofn.nMaxFile = ARRAYSIZE(dest);
+	ofn.lpstrTitle = L"Copy this version to";
+	ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+	if (!GetSaveFileNameW(&ofn))
+		return;
+	if (DelCopy(c->hWnd, r, dest, TRUE))
+		MessageBoxW(c->hWnd, L"Copied.", L"ZFS deleted items",
+		    MB_ICONINFORMATION);
+}
+
+static void
+DelLayout(DCtx *c)
+{
+	RECT rc;
+	int w, h, bh = 28, pad = 10, top = 64;
+
+	GetClientRect(c->hWnd, &rc);
+	w = rc.right;
+	h = rc.bottom;
+	MoveWindow(GetDlgItem(c->hWnd, IDC_DINFO), pad, 36, w - 2 * pad, 20,
+	    TRUE);
+	MoveWindow(c->hList, pad, top, w - 2 * pad, h - top - bh - 2 * pad,
+	    TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_DRESTORE), w - pad - 100,
+	    h - bh - pad, 100, bh, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_DCOPY), w - 2 * (pad + 100),
+	    h - bh - pad, 100, bh, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_DOPEN), w - 3 * (pad + 100),
+	    h - bh - pad, 100, bh, TRUE);
+}
+
+static LRESULT CALLBACK
+DeletedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+	DCtx *c = (DCtx *)GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+
+	switch (msg) {
+	case WM_NCCREATE: {
+		CREATESTRUCTW *cs = (CREATESTRUCTW *)lParam;
+		SetWindowLongPtrW(hWnd, GWLP_USERDATA,
+		    (LONG_PTR)cs->lpCreateParams);
+		break;
+	}
+	case WM_SIZE:
+		if (c != NULL)
+			DelLayout(c);
+		return (0);
+	case WM_GETMINMAXINFO: {
+		MINMAXINFO *mm = (MINMAXINFO *)lParam;
+		mm->ptMinTrackSize.x = 560;
+		mm->ptMinTrackSize.y = 300;
+		return (0);
+	}
+	case WM_NOTIFY: {
+		NMHDR *nh = (NMHDR *)lParam;
+		if (c != NULL && nh->idFrom == IDC_DLIST) {
+			if (nh->code == LVN_ITEMCHANGED) {
+				DelButtons(c);
+			} else if (nh->code == NM_DBLCLK) {
+				const DelRow *r = DelSelected(c);
+				if (r != NULL)
+					DelOpen(c, r);
+			}
+		}
+		return (0);
+	}
+	case WM_COMMAND: {
+		const DelRow *r;
+
+		if (c == NULL)
+			break;
+		r = DelSelected(c);
+		switch (LOWORD(wParam)) {
+		case IDC_DOPEN:
+			if (r != NULL)
+				DelOpen(c, r);
+			break;
+		case IDC_DCOPY:
+			if (r != NULL)
+				DelCopyTo(c, r);
+			break;
+		case IDC_DRESTORE:
+			if (r != NULL)
+				DelRestore(c, r);
+			break;
+		case IDCANCEL:
+			DestroyWindow(hWnd);
+			break;
+		}
+		return (0);
+	}
+	case WM_CLOSE:
+		DestroyWindow(hWnd);
+		return (0);
+	case WM_DESTROY:
+		PostQuitMessage(0);
+		return (0);
+	}
+	return (DefWindowProcW(hWnd, msg, wParam, lParam));
+}
+
+int
+RunDeletedWindow(HINSTANCE hInst, const wchar_t *path)
+{
+	static const struct { const wchar_t *name; int cx; } cols[] = {
+		{ L"Name", 200 }, { L"Last seen in", 120 },
+		{ L"Modified", 130 }, { L"Age", 90 }, { L"Size", 80 },
+	};
+	DCtx ctx;
+	zrpc_t rpc;
+	char u8[MAX_PATH * 6];
+	uint8_t *out = NULL;
+	uint32_t st = 0, outlen = 0;
+	wchar_t err[256] = L"";
+	wchar_t info[320];
+	WNDCLASSW wc = { 0 };
+	HFONT font;
+	MSG m;
+	INITCOMMONCONTROLSEX icc = { sizeof (icc), ICC_LISTVIEW_CLASSES };
+	size_t n;
+	int i;
+
+	ZeroMemory(&ctx, sizeof (ctx));
+	lstrcpynW(ctx.dir, path, ARRAYSIZE(ctx.dir));
+	// Strip a trailing '\' (but keep "E:\" meaning the volume root form).
+	n = wcslen(ctx.dir);
+	while (n > 3 && ctx.dir[n - 1] == L'\\')
+		ctx.dir[--n] = L'\0';
+	if (n == 3 && ctx.dir[1] == L':' && ctx.dir[2] == L'\\')
+		ctx.dir[--n] = L'\0';
+
+	InitCommonControlsEx(&icc);
+	CoInitialize(NULL);
+
+	if (WideCharToMultiByte(CP_UTF8, 0, path, -1, u8, sizeof (u8), NULL,
+	    NULL) <= 0) {
+		ErrorBox(L"Invalid path.");
+		return (1);
+	}
+
+	zrpc_init(&rpc, L"\\\\.\\pipe\\openzfs_zed", 300000);
+	SetCursor(LoadCursorW(NULL, IDC_WAIT));
+	if (!zrpc_call(&rpc, OP_DELETED_ITEMS, u8, (uint32_t)strlen(u8) + 1,
+	    &st, &out, &outlen)) {
+		ErrorBox(L"Could not reach the OpenZFS service.");
+		return (1);
+	}
+	if (st != 0 || out == NULL) {
+		_snwprintf_s(err, ARRAYSIZE(err), _TRUNCATE,
+		    st == ERROR_ACCESS_DENIED ?
+		    L"Administrator rights are needed to list deleted items." :
+		    L"The OpenZFS service could not list deleted items (%lu).",
+		    (unsigned long)st);
+		ErrorBox(err);
+		return (1);
+	}
+	if (!ParseDeleted(&ctx, (const char *)out, (int)outlen, err,
+	    ARRAYSIZE(err))) {
+		if (err[0] == L'\0')
+			lstrcpynW(err, L"Unexpected reply from the service.",
+			    ARRAYSIZE(err));
+		HeapFree(GetProcessHeap(), 0, out);
+		ErrorBox(err);
+		return (1);
+	}
+	HeapFree(GetProcessHeap(), 0, out);
+
+	wc.lpfnWndProc = DeletedWndProc;
+	wc.hInstance = hInst;
+	wc.lpszClassName = L"ZfsDeletedWnd";
+	wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+	wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+	wc.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(1));
+	RegisterClassW(&wc);
+
+	ctx.hWnd = CreateWindowExW(0, wc.lpszClassName, L"ZFS deleted items",
+	    WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 760, 420, NULL,
+	    NULL, hInst, &ctx);
+	if (ctx.hWnd == NULL)
+		return (1);
+
+	font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+	ctx.hHeaderFont = CreateHeaderFont(ctx.hWnd);
+
+	{
+		HWND h = CreateWindowExW(0, L"STATIC", L"Deleted items",
+		    WS_CHILD | WS_VISIBLE | SS_LEFT, 10, 8, 400, 26, ctx.hWnd,
+		    NULL, hInst, NULL);
+		SendMessageW(h, WM_SETFONT, (WPARAM)ctx.hHeaderFont, TRUE);
+	}
+	if (ctx.nrows == 0)
+		_snwprintf_s(info, ARRAYSIZE(info), _TRUNCATE,
+		    L"%s: nothing was deleted from this folder in the %llu "
+		    L"snapshots searched.", ctx.dir,
+		    (unsigned long long)ctx.snapshots);
+	else
+		_snwprintf_s(info, ARRAYSIZE(info), _TRUNCATE,
+		    L"%s: in %llu snapshots%s", ctx.dir,
+		    (unsigned long long)ctx.snapshots,
+		    ctx.truncated ? L" (only the newest were searched)" : L"");
+	SendMessageW(MakeChild(ctx.hWnd, L"STATIC", info,
+	    SS_LEFT | SS_PATHELLIPSIS, IDC_DINFO), WM_SETFONT, (WPARAM)font,
+	    TRUE);
+
+	ctx.hList = MakeChild(ctx.hWnd, WC_LISTVIEWW, L"",
+	    LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER |
+	    WS_TABSTOP, IDC_DLIST);
+	ListView_SetExtendedListViewStyle(ctx.hList,
+	    LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+	SendMessageW(ctx.hList, WM_SETFONT, (WPARAM)font, TRUE);
+	for (i = 0; i < (int)ARRAYSIZE(cols); i++) {
+		LVCOLUMNW col = { 0 };
+		col.mask = LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM;
+		col.pszText = (LPWSTR)cols[i].name;
+		col.cx = cols[i].cx;
+		col.iSubItem = i;
+		ListView_InsertColumn(ctx.hList, i, &col);
+	}
+
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Open",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_DOPEN), WM_SETFONT, (WPARAM)font,
+	    TRUE);
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Copy to...",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_DCOPY), WM_SETFONT, (WPARAM)font,
+	    TRUE);
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Restore",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_DRESTORE), WM_SETFONT,
+	    (WPARAM)font, TRUE);
+
+	ApplyThemeFollowSystem(ctx.hWnd);
+	DelLayout(&ctx);
+	DelPopulate(&ctx);
+	DelButtons(&ctx);
+	ShowWindow(ctx.hWnd, SW_SHOWNORMAL);
+	SetForegroundWindow(ctx.hWnd);
+
+	while (GetMessageW(&m, NULL, 0, 0) > 0) {
+		if (!IsDialogMessageW(ctx.hWnd, &m)) {
+			TranslateMessage(&m);
+			DispatchMessageW(&m);
+		}
+	}
+
+	if (ctx.hHeaderFont)
+		DeleteObject(ctx.hHeaderFont);
+	if (ctx.rows)
+		HeapFree(GetProcessHeap(), 0, ctx.rows);
 	return (0);
 }

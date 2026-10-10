@@ -187,9 +187,18 @@ print_cmn(FILE *fp, differ_info_t *di, const char *file)
 }
 
 static void
+print_obj(FILE *fp, differ_info_t *di)
+{
+	if (di->objnum)
+		(void) fprintf(fp, "%llu\t",
+		    (unsigned long long)di->curobj);
+}
+
+static void
 print_rename(FILE *fp, differ_info_t *di, const char *old, const char *new,
     zfs_stat_t *isb)
 {
+	print_obj(fp, di);
 	if (isatty(fileno(fp)))
 		color_start(ZDIFF_RENAMED_COLOR);
 	if (di->timestamped)
@@ -212,6 +221,7 @@ static void
 print_link_change(FILE *fp, differ_info_t *di, int delta, const char *file,
     zfs_stat_t *isb)
 {
+	print_obj(fp, di);
 	if (isatty(fileno(fp)))
 		color_start(ZDIFF_MODIFIED_COLOR);
 
@@ -232,6 +242,7 @@ static void
 print_file(FILE *fp, differ_info_t *di, char type, const char *file,
     zfs_stat_t *isb)
 {
+	print_obj(fp, di);
 	if (isatty(fileno(fp)))
 		color_start(type_to_color(type));
 
@@ -261,6 +272,8 @@ write_inuse_diffs_one(FILE *fp, differ_info_t *di, uint64_t dobj)
 
 	if (dobj == di->shares)
 		return (0);
+
+	di->curobj = dobj;
 
 	/*
 	 * Check the from and to snapshots for info on the object. If
@@ -371,6 +384,7 @@ describe_free(FILE *fp, differ_info_t *di, uint64_t object, char *namebuf,
 {
 	struct zfs_stat sb;
 
+	di->curobj = object;
 	(void) get_stats_for_obj(di, di->fromsnap, object, namebuf,
 	    maxlen, &sb);
 
@@ -767,6 +781,7 @@ zfs_show_diffs(zfs_handle_t *zhp, int outfd, const char *fromsnap,
 	di.classify = (flags & ZFS_DIFF_CLASSIFY);
 	di.timestamped = (flags & ZFS_DIFF_TIMESTAMP);
 	di.no_mangle = (flags & ZFS_DIFF_NO_MANGLE);
+	di.objnum = (flags & ZFS_DIFF_OBJNUM) != 0;
 
 	di.outputfd = outfd;
 	di.datafd = pipefd[0];

@@ -1144,7 +1144,9 @@ wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
 		int argc = 0;
 		LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 		if (argv != NULL && argc >= 3 &&
-		    lstrcmpiW(argv[1], L"--versions") == 0) {
+		    (lstrcmpiW(argv[1], L"--versions") == 0 ||
+		    lstrcmpiW(argv[1], L"--deleted") == 0)) {
+			BOOL deleted = (lstrcmpiW(argv[1], L"--deleted") == 0);
 			wchar_t path[MAX_PATH * 2];
 			wchar_t *q;
 			size_t n;
@@ -1162,7 +1164,8 @@ wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
 				path[n] = L'\\';
 				path[n + 1] = L'\0';
 			}
-			rc = RunVersionsWindow(hInst, path);
+			rc = deleted ? RunDeletedWindow(hInst, path) :
+			    RunVersionsWindow(hInst, path);
 			LocalFree(argv);
 			return (rc);
 		}

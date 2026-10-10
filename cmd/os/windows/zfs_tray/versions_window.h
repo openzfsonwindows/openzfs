@@ -20,3 +20,7 @@
 // Shows the versions window for "path" and runs its message loop until it
 // is closed. Used for "zfs_tray.exe --versions <path>"; returns an exit code.
 int RunVersionsWindow(HINSTANCE hInst, const wchar_t *path);
+
+// "zfs_tray.exe --deleted <dir>": names that exist only in snapshots of a
+// directory, with open / copy / restore.
+int RunDeletedWindow(HINSTANCE hInst, const wchar_t *path);
