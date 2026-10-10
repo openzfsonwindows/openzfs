@@ -230,17 +230,42 @@ zfs_file_close(zfs_file_t *fp)
 int
 zfs_file_write(zfs_file_t *fp, const void *buf, size_t count, ssize_t *resid)
 {
-	NTSTATUS ntstatus;
-	IO_STATUS_BLOCK ioStatusBlock;
+	const char *p = buf;
+	size_t left = count;
 
-	ntstatus = ZwWriteFile(fp->f_handle, NULL, NULL, NULL,
-	    &ioStatusBlock, buf, count, NULL, NULL);
+	/*
+	 * The handle may be a socket or other overlapped file, for which
+	 * ZwWriteFile() returns STATUS_PENDING rather than completing in
+	 * line. Treating that as failure (EIO) is wrong, and worse leaves
+	 * the I/O in flight writing to our on-stack IO_STATUS_BLOCK, so wait
+	 * for completion, and loop on short writes.
+	 */
+	while (left > 0) {
+		NTSTATUS ntstatus;
+		IO_STATUS_BLOCK ioStatusBlock = { 0 };
+		ULONG chunk = (left > 0x40000000) ? 0x40000000 : (ULONG)left;
+
+		ntstatus = ZwWriteFile(fp->f_handle, NULL, NULL, NULL,
+		    &ioStatusBlock, (PVOID)p, chunk, NULL, NULL);
+		if (ntstatus == STATUS_PENDING) {
+			ntstatus = ZwWaitForSingleObject(fp->f_handle, FALSE,
+			    NULL);
+			if (NT_SUCCESS(ntstatus))
+				ntstatus = ioStatusBlock.Status;
+		}
+
+		if (!NT_SUCCESS(ntstatus) || ioStatusBlock.Information == 0) {
+			if (resid)
+				*resid = left;
+			return (EIO);
+		}
+
+		p += ioStatusBlock.Information;
+		left -= ioStatusBlock.Information;
+	}
 
 	if (resid)
 		*resid = 0;
-
-	if (STATUS_SUCCESS != ntstatus)
-		return (EIO);
 	return (0);
 }
 
@@ -269,6 +294,13 @@ zfs_file_read(zfs_file_t *fp, void *buf, size_t count, ssize_t *resid)
 		ntstatus = ZwReadFile(fp->f_handle, NULL, NULL, NULL,
 		    &ioStatusBlock, (PUCHAR)buf + bytesRead, remainingLength,
 		    NULL, NULL);
+		/* Overlapped handles (sockets) complete asynchronously. */
+		if (ntstatus == STATUS_PENDING) {
+			ntstatus = ZwWaitForSingleObject(fp->f_handle, FALSE,
+			    NULL);
+			if (NT_SUCCESS(ntstatus))
+				ntstatus = ioStatusBlock.Status;
+		}
 		if (STATUS_SUCCESS != ntstatus)
 			return (EIO);
 
