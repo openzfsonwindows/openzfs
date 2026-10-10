@@ -256,3 +256,14 @@ Filename: "{app}\ZFSInstaller.exe"; Parameters: "uninstall -z .\OpenZFS.inf .\Op
 [Registry]
 Root: HKLM; Subkey: "Software\{#MyAppPublisher}\{#MyAppName}"; Flags: uninsdeletekeyifempty
 Root: HKLM; Subkey: "Software\{#MyAppPublisher}\{#MyAppName}"; ValueType: string; ValueName: "InstallLocation"; ValueData: "{app}"
+; Explorer right-click "ZFS versions..." (static verb; on Win11 it is under
+; "Show more options"). Lists snapshots holding older versions of the item.
+Root: HKLM; Subkey: "Software\Classes\*\shell\OpenZFS.Versions"; ValueType: string; ValueData: "ZFS versions..."; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\*\shell\OpenZFS.Versions"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\zfs_tray.exe"",0"
+Root: HKLM; Subkey: "Software\Classes\*\shell\OpenZFS.Versions\command"; ValueType: string; ValueData: """{app}\zfs_tray.exe"" --versions ""%1"""
+Root: HKLM; Subkey: "Software\Classes\Directory\shell\OpenZFS.Versions"; ValueType: string; ValueData: "ZFS versions..."; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\Directory\shell\OpenZFS.Versions"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\zfs_tray.exe"",0"
+Root: HKLM; Subkey: "Software\Classes\Directory\shell\OpenZFS.Versions\command"; ValueType: string; ValueData: """{app}\zfs_tray.exe"" --versions ""%1"""
+Root: HKLM; Subkey: "Software\Classes\Drive\shell\OpenZFS.Versions"; ValueType: string; ValueData: "ZFS versions..."; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\Drive\shell\OpenZFS.Versions"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\zfs_tray.exe"",0"
+Root: HKLM; Subkey: "Software\Classes\Drive\shell\OpenZFS.Versions\command"; ValueType: string; ValueData: """{app}\zfs_tray.exe"" --versions ""%1"""
