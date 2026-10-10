@@ -951,6 +951,20 @@ pipe(int fildes[2])
 	return (wosix_socketpair(AF_UNIX, SOCK_STREAM, 0, fildes));
 }
 
+int
+wosix_anon_pipe(int fildes[2])
+{
+	HANDLE rd, wr;
+
+	if (!CreatePipe(&rd, &wr, NULL, 0)) {
+		errno = EMFILE;
+		return (-1);
+	}
+	fildes[0] = HTOI(rd);
+	fildes[1] = HTOI(wr);
+	return (0);
+}
+
 struct group *
 getgrgid(gid_t gid)
 {
@@ -1428,8 +1442,12 @@ wosix_read(int fd, void *data, uint32_t len)
 	OVERLAPPED ow = {0};
 
 	if (GetFileType(ITOH(fd)) == FILE_TYPE_PIPE) {
-		if (!ReadFile(ITOH(fd), data, len, &red, &ow))
+		if (!ReadFile(ITOH(fd), data, len, &red, &ow)) {
+			/* Writer closed: POSIX read() reports that as EOF. */
+			if (GetLastError() == ERROR_BROKEN_PIPE)
+				return (0);
 			return (-1);
+		}
 	} else {
 		if (!ReadFile(ITOH(fd), data, len, &red, NULL))
 			return (-1);

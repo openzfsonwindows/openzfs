@@ -752,7 +752,12 @@ zfs_show_diffs(zfs_handle_t *zhp, int outfd, const char *fromsnap,
 		return (-1);
 	}
 
+#ifdef _WIN32
+	/* The kernel writes the records; a socket pair would complete async */
+	if (wosix_anon_pipe(pipefd)) {
+#else
 	if (pipe2(pipefd, O_CLOEXEC)) {
+#endif
 		zfs_error_aux(zhp->zfs_hdl, "%s", zfs_strerror(errno));
 		teardown_differ_info(&di);
 		return (zfs_error(zhp->zfs_hdl, EZFS_PIPEFAILED, errbuf));
