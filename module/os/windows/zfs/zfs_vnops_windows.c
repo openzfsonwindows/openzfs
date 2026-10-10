@@ -7723,6 +7723,8 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 				    &Irp->MdlAddress, &Irp->IoStatus);
 
 				Status = Irp->IoStatus.Status;
+				if (NT_SUCCESS(Status) && ccb != NULL)
+					ccb->write_time_dirty = TRUE;
 				goto end;
 			} else {
 /*
@@ -7747,6 +7749,8 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 				}
 #endif
 				Irp->IoStatus.Information = *length;
+				if (ccb != NULL)
+					ccb->write_time_dirty = TRUE;
 			}
 		} except(EXCEPTION_EXECUTE_HANDLER) {
 			Status = GetExceptionCode();
@@ -8888,6 +8892,70 @@ volume_close(PDEVICE_OBJECT DeviceObject, PFILE_OBJECT FileObject)
 }
 
 /*
+ * Cache Manager writes (CcCopyWrite) only dirty cache pages, and the later
+ * paging writes deliberately skip mtime/ctime, so without this a file
+ * written through the cache would keep its creation-time mtime forever.
+ * Stamp mtime/ctime once, here at cleanup of a handle that wrote, unless the
+ * user pinned them with SetFileInformation(-1).
+ */
+static void
+zfs_cleanup_write_time(znode_t *zp, zfs_ccb_t *zccb)
+{
+	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
+	sa_bulk_attr_t bulk[5];
+	uint64_t mtime[2], ctime[2];
+	uint_t flag = 0;
+	dmu_tx_t *tx;
+	int count = 0;
+	int error;
+
+	if (zccb->user_set_write_time && zccb->user_set_change_time)
+		return;
+
+	if (zfs_enter(zfsvfs, FTAG) != 0)
+		return;
+
+	if (zp->z_sa_hdl == NULL || zfs_is_readonly(zfsvfs)) {
+		zfs_exit(zfsvfs, FTAG);
+		return;
+	}
+
+	tx = dmu_tx_create(zfsvfs->z_os);
+	dmu_tx_hold_sa(tx, zp->z_sa_hdl, B_FALSE);
+	zfs_sa_upgrade_txholds(tx, zp);
+	error = dmu_tx_assign(tx, DMU_TX_WAIT);
+	if (error != 0) {
+		dmu_tx_abort(tx);
+		zfs_exit(zfsvfs, FTAG);
+		return;
+	}
+
+	if (!zccb->user_set_write_time) {
+		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_MTIME(zfsvfs), NULL,
+		    &mtime, 16);
+		flag |= ATTR_MTIME;
+	}
+	if (!zccb->user_set_change_time) {
+		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_CTIME(zfsvfs), NULL,
+		    &ctime, 16);
+		flag |= ATTR_CTIME;
+	}
+	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_FLAGS(zfsvfs), NULL,
+	    &zp->z_pflags, 8);
+	if (zp->z_is_sa)
+		SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_SEQ(zfsvfs), NULL,
+		    &zp->z_seq, 8);
+
+	zfs_tstamp_update_setup(zp, flag, mtime, ctime);
+	if (zp->z_is_sa)
+		zp->z_has_seq = B_TRUE;
+
+	(void) sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
+	dmu_tx_commit(tx);
+	zfs_exit(zfsvfs, FTAG);
+}
+
+/*
  * IRP_MJ_CLEANUP - sent when Windows is done with FileObject HANDLE
  * (one of many)
  * the vp is not released here, just decrease a count of vp.
@@ -9091,6 +9159,12 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		CcFlushCache(FileObject->SectionObjectPointer, NULL, 0, &iosb);
 		dprintf("CcFlushCache done: status %08lx info %Iu\n",
 		    iosb.Status, iosb.Information);
+	}
+
+	if (zccb && zccb->write_time_dirty && zp != NULL && !need_delete &&
+	    !vnode_unlink(vp)) {
+		zccb->write_time_dirty = FALSE;
+		zfs_cleanup_write_time(zp, zccb);
 	}
 
 	if (need_purge) {
@@ -11951,6 +12025,9 @@ fastio_write(PFILE_OBJECT FileObject, PLARGE_INTEGER FileOffset,
 			if (new_end > zp->z_size)
 				zp->z_size = new_end;
 		}
+		if (FileObject->FsContext2 != NULL)
+			((zfs_ccb_t *)FileObject->FsContext2)->
+			    write_time_dirty = TRUE;
 	}
 
 	ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
