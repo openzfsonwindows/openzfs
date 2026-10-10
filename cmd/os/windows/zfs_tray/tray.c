@@ -1145,7 +1145,24 @@ wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
 		LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 		if (argv != NULL && argc >= 3 &&
 		    lstrcmpiW(argv[1], L"--versions") == 0) {
-			int rc = RunVersionsWindow(hInst, argv[2]);
+			wchar_t path[MAX_PATH * 2];
+			wchar_t *q;
+			size_t n;
+			int rc;
+
+			// Explorer passes a drive root as "E:\" and the shell
+			// verb quotes it, so the closing quote is escaped by
+			// the backslash and arrives as E:" -- drop quotes, and
+			// make a bare drive a root path.
+			lstrcpynW(path, argv[2], ARRAYSIZE(path));
+			while ((q = wcschr(path, L'"')) != NULL)
+				*q = L'\0';
+			n = wcslen(path);
+			if (n == 2 && path[1] == L':') {
+				path[n] = L'\\';
+				path[n + 1] = L'\0';
+			}
+			rc = RunVersionsWindow(hInst, path);
 			LocalFree(argv);
 			return (rc);
 		}
