@@ -841,6 +841,26 @@ ClientWorker(HANDLE client, HANDLE event)
 			break;
 		}
 
+	case OP_DELETED_ITEMS:
+		{
+			dprintf("OP_DELETED_ITEMS\n");
+			// body: UTF-8 directory path, NUL-terminated
+			if (rh.len == 0 || payload == NULL ||
+			    strnlen((const char *)payload, rh.len) >= rh.len) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			size_t jlen = 0;
+			char *json = zed_deleted_items_json(client,
+			    (const char *)payload, &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
 	case OP_SUBSCRIBE_EVENTS:
 		{
 			err = 0;

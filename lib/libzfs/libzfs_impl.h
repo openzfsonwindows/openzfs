@@ -221,6 +221,8 @@ typedef struct differ_info {
 	boolean_t classify;
 	boolean_t timestamped;
 	boolean_t no_mangle;
+	boolean_t objnum;	/* ZFS_DIFF_OBJNUM: prefix lines with object */
+	uint64_t curobj;	/* object being described, for objnum */
 	uint64_t shares;
 	int zerr;
 	int cleanupfd;

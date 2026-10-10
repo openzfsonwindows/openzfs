@@ -267,3 +267,6 @@ Root: HKLM; Subkey: "Software\Classes\Directory\shell\OpenZFS.Versions\command";
 Root: HKLM; Subkey: "Software\Classes\Drive\shell\OpenZFS.Versions"; ValueType: string; ValueData: "ZFS versions..."; Flags: uninsdeletekey
 Root: HKLM; Subkey: "Software\Classes\Drive\shell\OpenZFS.Versions"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\zfs_tray.exe"",0"
 Root: HKLM; Subkey: "Software\Classes\Drive\shell\OpenZFS.Versions\command"; ValueType: string; ValueData: """{app}\zfs_tray.exe"" --versions ""%1"""
+Root: HKLM; Subkey: "Software\Classes\Directory\Background\shell\OpenZFS.Versions"; ValueType: string; ValueData: "ZFS versions..."; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\Directory\Background\shell\OpenZFS.Versions"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\zfs_tray.exe"",0"
+Root: HKLM; Subkey: "Software\Classes\Directory\Background\shell\OpenZFS.Versions\command"; ValueType: string; ValueData: """{app}\zfs_tray.exe"" --versions ""%V"""

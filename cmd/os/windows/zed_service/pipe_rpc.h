@@ -51,6 +51,7 @@ typedef enum {
     OP_CREATE_POOL = 14,
     OP_DESTROY_POOL = 15,
     OP_FILE_VERSIONS = 16,
+    OP_DELETED_ITEMS = 17,
 } op_t;
 
 typedef struct {
@@ -163,6 +164,8 @@ typedef struct {
 // OP_FILE_VERSIONS: body is the UTF-8 NUL-terminated path of a file or
 // directory. Response JSON, see ops_versions.h. The service opens the path
 // as the calling user, so only objects that user can open are reported.
+// OP_DELETED_ITEMS: same body (a directory); lists names that exist only in
+// snapshots, see ops_versions.h.
 
 enum {
 	ZCREATE_FORCE = 0x01, // reserved; allows selecting an in-use disk in UI

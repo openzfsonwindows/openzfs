@@ -31,6 +31,13 @@ extern "C" {
 char *zed_file_versions_json(void *client, const char *path_utf8,
     size_t *out_len);
 
+// { "ok":true, "dataset", "truncated", "snapshots", "items":[ {"name",
+//   "is_dir", "versions":[ {"snap","oldest_snap","creation","size","mtime",
+//   "path"}, .. newest first ]}, .. ] } for names in the directory that exist
+// only in snapshots, or { "ok":false, "err":"<msg>" }.
+char *zed_deleted_items_json(void *client, const char *path_utf8,
+    size_t *out_len);
+
 #ifdef __cplusplus
 }
 #endif
