@@ -10,6 +10,7 @@ um_add_executable(zed_service
 	ops_mount.c
 	ops_common.c
 	ops_pool.c
+	ops_versions.c
 	# resource.rc
 )
 

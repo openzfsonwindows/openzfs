@@ -30,6 +30,7 @@
 #include "ops_crypto.h"
 #include "ops_common.h"
 #include "ops_pool.h"
+#include "ops_versions.h"
 
 // #include "rpc_dispatch.h" // your pipe dispatch function prototypes
 
@@ -812,6 +813,26 @@ ClientWorker(HANDLE client, HANDLE event)
 			size_t jlen = 0;
 			char *json = zed_destroy_pool_json(req->flags,
 			    req->pool_guid, req->pool_name, &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
+	case OP_FILE_VERSIONS:
+		{
+			dprintf("OP_FILE_VERSIONS\n");
+			// body: UTF-8 path, NUL-terminated
+			if (rh.len == 0 || payload == NULL ||
+			    strnlen((const char *)payload, rh.len) >= rh.len) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			size_t jlen = 0;
+			char *json = zed_file_versions_json(client,
+			    (const char *)payload, &jlen);
 			if (!json) {
 				RESP_ERR(client, ERROR_GEN_FAILURE);
 			} else {

@@ -7,6 +7,7 @@ um_add_executable(zfs_tray WIN32
 	pool_json.c
 	import_window.c
 	create_window.c
+	versions_window.c
 	pass_prompt.c
 	resource.rc
 )
@@ -24,6 +25,8 @@ target_link_libraries(zfs_tray PRIVATE
 	user32
 	shell32
 	comctl32
+	comdlg32
+	ole32
 	advapi32
 )
 

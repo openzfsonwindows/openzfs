@@ -284,10 +284,26 @@ zfs_obj_type_name(dmu_object_type_t type)
 }
 
 static void
-zfs_obj_to_stats_extended(sa_handle_t *hdl, nvlist_t *nv)
+zfs_obj_to_stats_extended(sa_handle_t *hdl, sa_attr_type_t *sa_table,
+    nvlist_t *nv)
 {
 	dmu_object_info_t doi;
+	sa_bulk_attr_t bulk[2];
+	uint64_t size = 0;
+	uint64_t mtime[2] = { 0, 0 };
+	int count = 0;
+
 	sa_object_info(hdl, &doi);
+
+	/* File size and mtime (best effort, omitted if not retrievable). */
+	SA_ADD_BULK_ATTR(bulk, count, sa_table[ZPL_SIZE], NULL,
+	    &size, sizeof (size));
+	SA_ADD_BULK_ATTR(bulk, count, sa_table[ZPL_MTIME], NULL,
+	    &mtime, sizeof (mtime));
+	if (sa_bulk_lookup(hdl, bulk, count) == 0) {
+		fnvlist_add_uint64(nv, ZFS_OBJ_STAT_SIZE, size);
+		fnvlist_add_uint64_array(nv, ZFS_OBJ_STAT_MTIME, mtime, 2);
+	}
 
 	fnvlist_add_uint32(nv, ZFS_OBJ_STAT_DATA_BLOCK_SIZE,
 	    doi.doi_data_block_size);
@@ -337,7 +353,7 @@ zfs_obj_to_stats(objset_t *osp, uint64_t obj, zfs_stat_t *sb,
 	}
 
 	if (nv != NULL)
-		zfs_obj_to_stats_extended(hdl, nv);
+		zfs_obj_to_stats_extended(hdl, sa_table, nv);
 
 	error = zfs_obj_to_path_impl(osp, obj, hdl, sa_table, buf, len);
 

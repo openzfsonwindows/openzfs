@@ -872,6 +872,19 @@ _LIBZFS_H int zfs_hold_nvl(zfs_handle_t *, int, nvlist_t *);
 _LIBZFS_H int zfs_release(zfs_handle_t *, const char *, const char *,
     boolean_t);
 _LIBZFS_H int zfs_get_holds(zfs_handle_t *, nvlist_t **);
+
+/* ZPL stats of one object in a dataset/snapshot, see zfs_get_obj_version() */
+typedef struct zfs_obj_version {
+	uint64_t zov_gen;
+	uint64_t zov_mode;
+	uint64_t zov_links;
+	uint64_t zov_size;
+	uint64_t zov_ctime[2];	/* seconds, nanoseconds */
+	uint64_t zov_mtime[2];	/* seconds, nanoseconds */
+} zfs_obj_version_t;
+
+_LIBZFS_H int zfs_get_obj_version(libzfs_handle_t *, const char *, uint64_t,
+    zfs_obj_version_t *, char *, size_t);
 _LIBZFS_H uint64_t zvol_volsize_to_reservation(zpool_handle_t *, uint64_t,
     nvlist_t *);
 
