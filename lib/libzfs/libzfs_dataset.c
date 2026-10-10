@@ -5203,6 +5203,65 @@ zfs_get_holds(zfs_handle_t *zhp, nvlist_t **nvl)
 }
 
 /*
+ * Look up one object (by object number) in a dataset or snapshot, and return
+ * its ZPL stats and, if requested, its path relative to that dataset root.
+ * "dsname" may be a snapshot ("pool/fs@snap"), which is how one asks "what did
+ * this object look like then" without mounting the snapshot.
+ *
+ * Returns 0 on success, or an errno value (typically ENOENT when the object
+ * does not exist in that snapshot). No libzfs error state is recorded, as a
+ * missing object is an expected result when walking a list of snapshots.
+ */
+int
+zfs_get_obj_version(libzfs_handle_t *hdl, const char *dsname, uint64_t obj,
+    zfs_obj_version_t *zov, char *path, size_t pathlen)
+{
+	zfs_cmd_t zc = {"\0"};
+	nvlist_t *nv = NULL;
+	uint64_t *mtime;
+	uint_t nelem;
+	int error = 0;
+
+	(void) strlcpy(zc.zc_name, dsname, sizeof (zc.zc_name));
+	zc.zc_obj = obj;
+	zcmd_alloc_dst_nvlist(hdl, &zc, 1024);
+
+	while (zfs_ioctl(hdl, ZFS_IOC_OBJ_TO_STATS, &zc) != 0) {
+		if (errno == ENOMEM) {
+			zcmd_expand_dst_nvlist(hdl, &zc);
+		} else {
+			error = errno;
+			zcmd_free_nvlists(&zc);
+			return (error != 0 ? error : EIO);
+		}
+	}
+
+	memset(zov, 0, sizeof (*zov));
+	zov->zov_gen = zc.zc_stat.zs_gen;
+	zov->zov_mode = zc.zc_stat.zs_mode;
+	zov->zov_links = zc.zc_stat.zs_links;
+	zov->zov_ctime[0] = zc.zc_stat.zs_ctime[0];
+	zov->zov_ctime[1] = zc.zc_stat.zs_ctime[1];
+
+	if (path != NULL && pathlen != 0)
+		(void) strlcpy(path, zc.zc_value, pathlen);
+
+	if (zcmd_read_dst_nvlist(hdl, &zc, &nv) == 0) {
+		(void) nvlist_lookup_uint64(nv, ZFS_OBJ_STAT_SIZE,
+		    &zov->zov_size);
+		if (nvlist_lookup_uint64_array(nv, ZFS_OBJ_STAT_MTIME,
+		    &mtime, &nelem) == 0 && nelem == 2) {
+			zov->zov_mtime[0] = mtime[0];
+			zov->zov_mtime[1] = mtime[1];
+		}
+		nvlist_free(nv);
+	}
+
+	zcmd_free_nvlists(&zc);
+	return (0);
+}
+
+/*
  * The theory of raidz space accounting
  *
  * The "referenced" property of RAIDZ vdevs is scaled such that a 128KB block

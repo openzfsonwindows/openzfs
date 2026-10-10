@@ -50,6 +50,7 @@ typedef enum {
     OP_LIST_DISKS = 13,
     OP_CREATE_POOL = 14,
     OP_DESTROY_POOL = 15,
+    OP_FILE_VERSIONS = 16,
 } op_t;
 
 typedef struct {
@@ -158,6 +159,10 @@ typedef struct {
 // disk means a pool lives anywhere on it, including inside a partition.
 // OP_CREATE_POOL accepts either form; a partition is used as-is, a whole
 // disk is relabeled.
+
+// OP_FILE_VERSIONS: body is the UTF-8 NUL-terminated path of a file or
+// directory. Response JSON, see ops_versions.h. The service opens the path
+// as the calling user, so only objects that user can open are reported.
 
 enum {
 	ZCREATE_FORCE = 0x01, // reserved; allows selecting an in-use disk in UI

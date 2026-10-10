@@ -30,6 +30,7 @@
 #include "jsmn.h" // single-header JSON tokenizer
 #include "jsmn_utils.h"
 #include "rpc_client.h" // zrpc_t + zrpc_init/zrpc_call from earlier
+#include "versions_window.h"
 
 #include "import_window.h"
 #include "pass_prompt.h"
@@ -1136,6 +1137,22 @@ int APIENTRY
 wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
 {
 	g_hInst = hInst;
+
+	// "zfs_tray.exe --versions <path>": standalone previous-versions
+	// window (Explorer context-menu verb), no tray icon.
+	{
+		int argc = 0;
+		LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+		if (argv != NULL && argc >= 3 &&
+		    lstrcmpiW(argv[1], L"--versions") == 0) {
+			int rc = RunVersionsWindow(hInst, argv[2]);
+			LocalFree(argv);
+			return (rc);
+		}
+		if (argv != NULL)
+			LocalFree(argv);
+	}
+
 	WNDCLASSW wc = {0};
 	wc.lpfnWndProc = WndProc;
 	wc.hInstance = hInst;

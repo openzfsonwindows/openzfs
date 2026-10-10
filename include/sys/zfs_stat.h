@@ -60,6 +60,9 @@ extern int zfs_obj_to_stats(objset_t *osp, uint64_t obj, zfs_stat_t *sb,
 #define	ZFS_OBJ_STAT_PHYSICAL_BLOCKS_512	"physical_blocks_512"
 #define	ZFS_OBJ_STAT_MAX_OFFSET			"max_offset"
 #define	ZFS_OBJ_STAT_FILL_COUNT			"fill_count"
+/* ZPL file size (uint64) and mtime (uint64 array: seconds, nanoseconds) */
+#define	ZFS_OBJ_STAT_SIZE			"size"
+#define	ZFS_OBJ_STAT_MTIME			"mtime"
 
 #ifdef	__cplusplus
 }
