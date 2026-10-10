@@ -78,6 +78,12 @@ extern int wosix_socketpair(int domain, int type, int protocol,
     int socket_vector[2]);
 extern int wosix_dup2(int fildes, int fildes2);
 extern int wosix_pipe(int fildes[2]);
+/*
+ * A real anonymous pipe (synchronous handles), unlike wosix_pipe() which is
+ * a loopback socket pair. Use this when the other end is written by the
+ * kernel, as ZwWriteFile() on a socket handle is asynchronous.
+ */
+extern int wosix_anon_pipe(int fildes[2]);
 extern int wosix_run_process(char *argv[], char *env[],
     boolean_t stdout_verbose, boolean_t stderr_verbose,
     int *capture_stdout_fd);
