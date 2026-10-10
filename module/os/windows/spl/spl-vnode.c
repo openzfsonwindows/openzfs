@@ -660,7 +660,13 @@ getf(uint64_t fd)
 	 * The f_vnode ptr is used to point back to the "sfp" node itself,
 	 * as it is the only information passed to vn_rdwr.
 	 */
-	if (ObReferenceObjectByHandle((HANDLE)fd, 0, 0, KernelMode,
+	/*
+	 * The fd is a handle in the calling process's table (zfs send/recv/
+	 * diff pass one in the ioctl). Referencing a user handle as
+	 * KernelMode is a Driver Verifier violation (0xC4/0xF6), so use the
+	 * caller's mode; kernel threads still get KernelMode.
+	 */
+	if (ObReferenceObjectByHandle((HANDLE)fd, 0, 0, ExGetPreviousMode(),
 	    (void **)&fp, 0) != STATUS_SUCCESS) {
 		dprintf("%s: failed to get fd %d fp 0x\n", __func__, fd);
 	}
