@@ -57,6 +57,12 @@ struct zfs_ccb {
 	boolean_t user_set_access_time;
 	boolean_t user_set_write_time;
 	boolean_t user_set_change_time;
+	/*
+	 * Cached (Cache Manager) writes only dirty pages; paging writes skip
+	 * mtime/ctime, so nothing else would stamp them. Remember a cached
+	 * write happened and apply the time once, at IRP_MJ_CLEANUP.
+	 */
+	boolean_t write_time_dirty;
 	ACCESS_MASK access;
 
 	boolean_t HoldsOplock;
