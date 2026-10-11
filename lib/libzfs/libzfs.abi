@@ -5192,7 +5192,7 @@
       <parameter type-id='857bb57e' name='nvl'/>
       <return type-id='95e97e5e'/>
     </function-decl>
-    <class-decl name='zfs_obj_version' size-in-bits='512' is-struct='yes' naming-typedef-id='a1e0b7c5' visibility='default' id='a1e0b7c4'>
+    <class-decl name='zfs_obj_version' size-in-bits='512' is-struct='yes' visibility='default' id='a1e0b7c4'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='zov_gen' type-id='9c313c2d' visibility='default'/>
       </data-member>
