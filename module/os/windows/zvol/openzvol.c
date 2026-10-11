@@ -116,6 +116,15 @@ int zfs_flags = 0;
 PDRIVER_OBJECT Storport_DriverObject = NULL;
 static PDRIVER_OBJECT OpenZVOL_DriverObject = NULL;
 static PDRIVER_OBJECT StopUnload_DriverObject = NULL;
+/*
+ * The devices (and their symlinks) THIS image created. Unload must only
+ * delete these: if a previous copy of the driver is still loaded (reinstall
+ * without a reboot) our IoCreateDevice fails with a name collision, and the
+ * names, and the DRIVER_OBJECT that IoCreateDriver then frees, are not ours
+ * to touch.
+ */
+static PDEVICE_OBJECT OpenZVOL_DeviceObject = NULL;
+static PDEVICE_OBJECT StopUnload_DeviceObject = NULL;
 static HANDLE g_PinHandle = NULL;
 extern pHW_HBA_EXT STOR_HBAExt;
 
@@ -410,17 +419,23 @@ OpenZVOLUnloadRoutine(IN PDRIVER_OBJECT DriverObject)
 	UNICODE_STRING symbolicLinkName2;
 	RtlInitUnicodeString(&symbolicLinkName2, STOP_UNLOAD_LINK_NAME);
 
-	// Delete the symbolic link
-	IoDeleteSymbolicLink(&symbolicLinkName);
-	IoDeleteSymbolicLink(&symbolicLinkName2);
+	// Delete the symbolic links, and devices, only if they are ours
+	if (OpenZVOL_DeviceObject != NULL)
+		IoDeleteSymbolicLink(&symbolicLinkName);
+	if (StopUnload_DeviceObject != NULL)
+		IoDeleteSymbolicLink(&symbolicLinkName2);
 
-	if (StopUnload_DriverObject != NULL) {
-		IoDeleteDevice(StopUnload_DriverObject->DeviceObject);
+	if (StopUnload_DeviceObject != NULL) {
+		PDEVICE_OBJECT dev = StopUnload_DeviceObject;
+		StopUnload_DeviceObject = NULL;
 		StopUnload_DriverObject = NULL;
+		IoDeleteDevice(dev);
 	}
-	if (OpenZVOL_DriverObject != NULL) {
-		IoDeleteDevice(OpenZVOL_DriverObject->DeviceObject);
+	if (OpenZVOL_DeviceObject != NULL) {
+		PDEVICE_OBJECT dev = OpenZVOL_DeviceObject;
+		OpenZVOL_DeviceObject = NULL;
 		OpenZVOL_DriverObject = NULL;
+		IoDeleteDevice(dev);
 	}
 
 	finiDbgCircularBuffer();
@@ -434,8 +449,6 @@ OpenZVOLDriverInitialize(IN PDRIVER_OBJECT DriverObject,
 	NTSTATUS status;
 	UNICODE_STRING deviceName;
 	UNICODE_STRING symbolicLinkName;
-
-	OpenZVOL_DriverObject = DriverObject;
 
 	RtlInitUnicodeString(&deviceName, DEVICE_NAME);
 	RtlInitUnicodeString(&symbolicLinkName, SYMBOLIC_LINK_NAME);
@@ -468,6 +481,10 @@ OpenZVOLDriverInitialize(IN PDRIVER_OBJECT DriverObject,
 	DriverObject->DriverUnload = OpenZVOLUnloadRoutine;
 	deviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 
+	// Only now is it ours; a failed init frees DriverObject
+	OpenZVOL_DriverObject = DriverObject;
+	OpenZVOL_DeviceObject = deviceObject;
+
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
 	    "Created /Device/OpenZVOL\n"));
 
@@ -498,8 +515,6 @@ StopUnloadDriver(IN PDRIVER_OBJECT DriverObject,
 	UNICODE_STRING deviceName;
 	UNICODE_STRING symbolicLinkName;
 
-	StopUnload_DriverObject = DriverObject;
-
 	RtlInitUnicodeString(&deviceName, STOP_UNLOAD_NAME);
 	RtlInitUnicodeString(&symbolicLinkName, STOP_UNLOAD_LINK_NAME);
 
@@ -524,6 +539,10 @@ StopUnloadDriver(IN PDRIVER_OBJECT DriverObject,
 	}
 
 	deviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
+
+	// Only now is it ours; a failed init frees DriverObject
+	StopUnload_DriverObject = DriverObject;
+	StopUnload_DeviceObject = deviceObject;
 
 	KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
 	    "Created /Device/StopUnload\n"));
