@@ -2988,6 +2988,18 @@ zfs_vnop_lookup(PIRP Irp, PIO_STACK_LOCATION IrpSp, mount_t *zmo)
 
 	} while (status == EAGAIN);
 
+	/*
+	 * STATUS_PENDING means the create was queued on an oplock break and
+	 * the IRP now belongs to the oplock package, which may complete it at
+	 * any moment (on another thread). NT_SUCCESS() is true for it, so
+	 * without this we would go on to touch IrpSp->FileObject (already
+	 * gone) in the success handling below.
+	 */
+	if (status == STATUS_PENDING) {
+		kmem_free(filename, PATH_MAX);
+		return (STATUS_PENDING);
+	}
+
 #if defined(NTDDI_WIN10_RS5) && (NTDDI_VERSION >= NTDDI_WIN10_RS5)
 	// Did ECP ask for getattr to be returned? None, one or both can be set.
 	// This requires vnode_couplefileobject() was called
