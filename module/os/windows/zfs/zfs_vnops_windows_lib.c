@@ -3571,7 +3571,16 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp, boolean_t deleteonclose)
 
 	if (error == 0) {
 		ASSERT3P(zccb, !=, NULL);
-		if (deleteonclose)
+		/*
+		 * A hardlinked file has one vnode for all of its names, but
+		 * the disposition only applies to the name this handle
+		 * opened. Marking the vnode would make every other name
+		 * fail to open with STATUS_DELETE_PENDING, so record the
+		 * intent on the handle instead; IRP_MJ_CLEANUP then removes
+		 * just this name (need_hardlink_delete).
+		 */
+		if (deleteonclose ||
+		    (!S_ISDIR(zp->z_mode) && zp->z_links > 1))
 			zccb->deleteonclose = 1;
 		else
 			vnode_setunlink(vp, DELETE_PENDING);
@@ -3858,6 +3867,8 @@ set_file_disposition_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			    B_FALSE);
 		} else {
 			vnode_setunlink(vp, DELETE_CLEAR);
+			if (zccb != NULL)
+				zccb->deleteonclose = 0;
 			FileObject->DeletePending = FALSE;
 		}
 		// Dirs marked for Deletion should release all
