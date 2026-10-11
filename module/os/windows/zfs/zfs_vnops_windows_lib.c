@@ -4560,25 +4560,6 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	// Goto out will release this
 	VN_HOLD(fvp);
 
-	// If we have a "tvp" here, then something exists where we are to rename
-	if (tvp && !ExVariant && !ren->ReplaceIfExists) {
-		error = STATUS_OBJECT_NAME_COLLISION;
-		goto out;
-	}
-#if defined(FILE_RENAME_REPLACE_IF_EXISTS)
-	if (tvp && ExVariant && !(ren->Flags&FILE_RENAME_REPLACE_IF_EXISTS)) {
-		error = STATUS_OBJECT_NAME_COLLISION;
-		goto out;
-	}
-#endif
-	// May not rename over a file that is mmapped.
-	if (tvp &&
-	    !MmFlushImageSection(&tvp->SectionObjectPointers,
-	    MmFlushForWrite)) {
-		error = STATUS_ACCESS_DENIED;
-		goto out;
-	}
-
 	// Fetch parent, and hold
 	fdvp = zfs_parent(fvp);
 
@@ -4587,6 +4568,41 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (use_fdvp_for_tdvp) {
 		tdvp = fdvp;
 		VERIFY0(VN_HOLD(tdvp));
+	}
+
+	/*
+	 * A lookup of the target on a case-insensitive dataset finds the
+	 * file itself when only the case of the name changes ("a.txt" to
+	 * "A.txt"), or when the name is unchanged. That is not an existing
+	 * target to replace or collide with: zfs_rename() handles it as a
+	 * case-preserving rename (or does nothing). Hardlinks to the same
+	 * file under another name are not this case.
+	 */
+	boolean_t same_file = B_FALSE;
+	if (tvp != NULL && tvp == fvp && fdvp != NULL && tdvp == fdvp &&
+	    fccb->z_name_cache != NULL &&
+	    strcasecmp(&fccb->z_name_cache[fccb->z_name_offset],
+	    remainder ? remainder : filename) == 0)
+		same_file = B_TRUE;
+
+	// If we have a "tvp" here, then something exists where we are to rename
+	if (tvp && !same_file && !ExVariant && !ren->ReplaceIfExists) {
+		error = STATUS_OBJECT_NAME_COLLISION;
+		goto out;
+	}
+#if defined(FILE_RENAME_REPLACE_IF_EXISTS)
+	if (tvp && !same_file && ExVariant &&
+	    !(ren->Flags&FILE_RENAME_REPLACE_IF_EXISTS)) {
+		error = STATUS_OBJECT_NAME_COLLISION;
+		goto out;
+	}
+#endif
+	// May not rename over a file that is mmapped.
+	if (tvp && !same_file &&
+	    !MmFlushImageSection(&tvp->SectionObjectPointers,
+	    MmFlushForWrite)) {
+		error = STATUS_ACCESS_DENIED;
+		goto out;
 	}
 
 	/*
