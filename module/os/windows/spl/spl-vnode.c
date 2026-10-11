@@ -673,7 +673,25 @@ getf(uint64_t fd)
 
 	sfp->f_vnode	= sfp;
 
+	/*
+	 * The Zw*File() calls in zfs_file_read/write need a handle that is
+	 * valid from any thread and that Driver Verifier accepts for
+	 * KernelMode use. The caller's fd is a user handle, so open a kernel
+	 * handle to the same FILE_OBJECT and use that instead; we close it
+	 * in releasefp(). If that fails, fall back to the caller's fd.
+	 */
+	sfp->f_khandle	= NULL;
 	sfp->f_handle	= (HANDLE) fd;
+	if (fp != NULL) {
+		HANDLE kh = NULL;
+
+		if (ObOpenObjectByPointer(fp, OBJ_KERNEL_HANDLE, NULL,
+		    GENERIC_READ | GENERIC_WRITE, *IoFileObjectType,
+		    KernelMode, &kh) == STATUS_SUCCESS) {
+			sfp->f_khandle = kh;
+			sfp->f_handle = kh;
+		}
+	}
 	sfp->f_offset	= 0;
 	sfp->f_proc	= current_proc();
 	sfp->f_fp	= (void *)fp;
@@ -707,6 +725,8 @@ getf_vnode(void *fp)
 void
 releasefp(struct spl_fileproc *fp)
 {
+	if (fp->f_khandle != NULL)
+		ZwClose(fp->f_khandle);
 	if (fp->f_fp)
 		ObDereferenceObject(fp->f_fp);
 

@@ -35,6 +35,7 @@ struct spl_fileproc {
 	int		f_writes;
 	uint64_t	f_file;
 	HANDLE		f_handle;
+	HANDLE		f_khandle; /* kernel handle we own, or NULL */
 	void		*f_fileobject;
 	void		*f_deviceobject;
 	uint64_t	f_win_offset; /* soft partition start */
