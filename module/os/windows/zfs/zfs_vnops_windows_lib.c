@@ -4194,10 +4194,12 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	struct vnode *tdvp = NULL, *tvp = NULL, *fdvp = NULL;
 	uint64_t parent = 0;
 
-	// If given a RootDirectory Handle, lookup tdvp
+	// If given a RootDirectory Handle, lookup tdvp. It is a handle in
+	// the caller's table, so reference it with the requestor's mode
+	// (KernelMode on a user handle is a Driver Verifier violation).
 	if (link->RootDirectory != 0) {
 		if (ObReferenceObjectByHandle(link->RootDirectory,
-		    GENERIC_READ, *IoFileObjectType, KernelMode,
+		    0, *IoFileObjectType, Irp->RequestorMode,
 		    (void *)&RootFileObject, NULL) != STATUS_SUCCESS) {
 			return (STATUS_INVALID_PARAMETER);
 		}
