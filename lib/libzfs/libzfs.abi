@@ -389,6 +389,7 @@
     <elf-symbol name='zfs_get_handle' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zfs_get_holds' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zfs_get_name' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
+    <elf-symbol name='zfs_get_obj_version' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zfs_get_pool_handle' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zfs_get_pool_name' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zfs_get_recvd_props' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
@@ -5189,6 +5190,37 @@
     <function-decl name='zfs_get_holds' mangled-name='zfs_get_holds' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='zfs_get_holds'>
       <parameter type-id='9200a744' name='zhp'/>
       <parameter type-id='857bb57e' name='nvl'/>
+      <return type-id='95e97e5e'/>
+    </function-decl>
+    <class-decl name='zfs_obj_version' size-in-bits='512' is-struct='yes' naming-typedef-id='a1e0b7c5' visibility='default' id='a1e0b7c4'>
+      <data-member access='public' layout-offset-in-bits='0'>
+        <var-decl name='zov_gen' type-id='9c313c2d' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='64'>
+        <var-decl name='zov_mode' type-id='9c313c2d' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='128'>
+        <var-decl name='zov_links' type-id='9c313c2d' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='192'>
+        <var-decl name='zov_size' type-id='9c313c2d' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='256'>
+        <var-decl name='zov_ctime' type-id='c1c22e6c' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='384'>
+        <var-decl name='zov_mtime' type-id='c1c22e6c' visibility='default'/>
+      </data-member>
+    </class-decl>
+    <typedef-decl name='zfs_obj_version_t' type-id='a1e0b7c4' id='a1e0b7c5'/>
+    <pointer-type-def type-id='a1e0b7c5' size-in-bits='64' id='a1e0b7c6'/>
+    <function-decl name='zfs_get_obj_version' mangled-name='zfs_get_obj_version' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='zfs_get_obj_version'>
+      <parameter type-id='b0382bb3'/>
+      <parameter type-id='80f4b756'/>
+      <parameter type-id='9c313c2d'/>
+      <parameter type-id='a1e0b7c6'/>
+      <parameter type-id='26a90f95'/>
+      <parameter type-id='b59d7dce'/>
       <return type-id='95e97e5e'/>
     </function-decl>
     <function-decl name='zvol_volsize_to_reservation' mangled-name='zvol_volsize_to_reservation' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='zvol_volsize_to_reservation'>
