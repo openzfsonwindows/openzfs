@@ -3386,6 +3386,17 @@ zfs_parent(struct vnode *vp)
 NTSTATUS
 zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp, boolean_t deleteonclose)
 {
+	return (zfs_setunlink_ex(fo, dvp, deleteonclose, B_FALSE));
+}
+
+/*
+ * ignore_readonly is FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: the caller
+ * asks to delete a file even if FILE_ATTRIBUTE_READONLY is set.
+ */
+NTSTATUS
+zfs_setunlink_ex(FILE_OBJECT *fo, vnode_t *dvp, boolean_t deleteonclose,
+    boolean_t ignore_readonly)
+{
 	vnode_t *vp = NULL;
 	NTSTATUS Status = STATUS_UNSUCCESSFUL;
 
@@ -3442,6 +3453,17 @@ zfs_setunlink(FILE_OBJECT *fo, vnode_t *dvp, boolean_t deleteonclose)
 	// If it is a reparsepoint, deny if used as mountpoint
 	if ((zp->z_pflags & ZFS_REPARSE) && zccb &&
 	    vfs_has_mount(zccb->z_name_cache)) {
+		Status = STATUS_ACCESS_DENIED;
+		goto out;
+	}
+
+	/*
+	 * A read-only file can not be deleted (disposition or
+	 * FILE_DELETE_ON_CLOSE) unless the caller explicitly ignores the
+	 * attribute. The attribute has no effect on directories.
+	 */
+	if (!ignore_readonly && !S_ISDIR(zp->z_mode) &&
+	    (zp->z_pflags & ZFS_READONLY)) {
 		Status = STATUS_ACCESS_DENIED;
 		goto out;
 	}
@@ -3822,6 +3844,10 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (Status);
 }
 
+#ifndef FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE
+#define	FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE	0x00000010
+#endif
+
 NTSTATUS
 set_file_disposition_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp, boolean_t ex)
@@ -3863,8 +3889,11 @@ set_file_disposition_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		    &IrpSp->FileObject->FileName);
 		Status = STATUS_SUCCESS;
 		if (flags & FILE_DISPOSITION_DELETE) {
-			Status = zfs_setunlink(IrpSp->FileObject, NULL,
-			    B_FALSE);
+			boolean_t ignore_ro = ex && (flags &
+			    FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE) != 0;
+
+			Status = zfs_setunlink_ex(IrpSp->FileObject, NULL,
+			    B_FALSE, ignore_ro);
 		} else {
 			vnode_setunlink(vp, DELETE_CLEAR);
 			if (zccb != NULL)
