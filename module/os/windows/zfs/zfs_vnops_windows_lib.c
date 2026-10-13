@@ -3052,6 +3052,20 @@ zfs_attach_security(struct vnode *vp, struct vnode *dvp,
 	znode_t *zp = VTOZ(vp);
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
+	/*
+	 * zfsvfs_teardown() holds z_teardown_lock WRITE across zil_close(),
+	 * which can re-enter here via zfs_get_data()/zfs_zget()/
+	 * zfs_znode_getvnode() to materialize a vnode for a pending ZIL
+	 * write record. Loading NTSecurity calls zpl_xattr_get(), which
+	 * takes z_teardown_lock READ via zfs_enter() -- the same thread
+	 * re-acquiring the read side of an rrwlock it holds for write,
+	 * which rrw_enter_read_impl() treats as a self-deadlock and panics.
+	 * Skip attaching security on this path; the vnode is being
+	 * materialized only to flush its data, not for a real open.
+	 */
+	if (ZFS_TEARDOWN_WRITE_HELD(zfsvfs))
+		return (0);
+
 	/* First check if we can read in an existing NTSecurity */
 	zfs_load_ntsecurity(vp);
 	if (vp->security_descriptor != NULL)
