@@ -1029,7 +1029,20 @@ vnode_setparent(vnode_t *vp, vnode_t *newparent)
 	if (oldparent == newparent)
 		return;
 
-	vp->v_parent = NULL;
+	/*
+	 * Claim the oldparent->NULL transition with a CAS instead of a
+	 * plain store. v_parent is only ever set together with the
+	 * vnode_ref() below, so exactly one outstanding usecount backs
+	 * it; a plain store would let two concurrent callers (eg. two
+	 * FILE_OBJECTs on the same vnode both hitting IRP_MJ_CLEANUP
+	 * around the same time, each calling vnode_setparent(vp, NULL))
+	 * both read the same oldparent and both release it, underflowing
+	 * v_usecount. If the CAS fails here, some other thread already
+	 * made this transition and already released oldparent -- leave
+	 * it alone.
+	 */
+	if (atomic_cas_ptr(&vp->v_parent, oldparent, NULL) != oldparent)
+		return;
 
 	if (newparent) {
 		/*
@@ -1045,9 +1058,10 @@ vnode_setparent(vnode_t *vp, vnode_t *newparent)
 	// Try holding it, so we call vnode_put()
 	if (oldparent != NULL) {
 		error = VN_HOLD(oldparent);
-		vnode_rele(oldparent);
-		if (!error)
+		if (!error) {
+			vnode_rele(oldparent);
 			VN_RELE(oldparent);
+		}
 	}
 }
 
