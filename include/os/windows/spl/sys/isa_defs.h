@@ -682,7 +682,16 @@ extern "C" {
 #error "Both _ILP32 and _LP64 are defined"
 #endif
 
-#define	____cacheline_aligned	__attribute__((aligned(64)))
+/*
+ * Upstream uses ____cacheline_aligned to keep hot fields on their own cache
+ * line. The compiler then takes the whole containing structure (zio_t, ...)
+ * to be 64 byte aligned, and an optimised build will merge adjacent stores
+ * into aligned SSE moves (movaps). But kmem caches, kmem_alloc() and
+ * ExAllocatePool() only give 8 or 16 byte aligned objects, so the first such
+ * store takes a #GP (an access violation at 0xffffffffffffffff). Linux does
+ * not notice as kernel code is built without SSE. Keep it a no-op here.
+ */
+#define	____cacheline_aligned
 
 #ifdef	__cplusplus
 }
