@@ -42,7 +42,7 @@ DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 LicenseFile={#SourcePath}\OPENSOLARIS.LICENSE.txt
 InfoBeforeFile={#SourcePath}\readme.txt
-OutputBaseFilename=OpenZFSOnWindows-debug-{#MyAppVersion}
+OutputBaseFilename=OpenZFSOnWindows-ARM64-debug-{#MyAppVersion}
 SetupIconFile={#SourcePath}\openzfs.ico
 Compression=lzma
 SolidCompression=yes
@@ -58,8 +58,8 @@ WizardImageFile="{#SourcePath}\openzfs-large.bmp"
 ; SignTool=signtoola
 ; SignTool=signtoolb
 SignTool=signtoolc
-ArchitecturesInstallIn64BitMode=x64compatible
-ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=arm64
+ArchitecturesAllowed=arm64
 SetupLogging=yes
 
 [Languages]
@@ -177,31 +177,31 @@ Name: envPath; Description: "Add OpenZFS to PATH variable"
 [Files]
 Source: "{#Root}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\CODE_OF_CONDUCT.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\kstat\kstat.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zfsinstaller\zfsinstaller.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zed_service\zed_service.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zfs_tray\zfs_tray.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\zpool\zpool.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\zfs\zfs.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\zdb\zdb.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\zed\zed.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\zstream\zstreamdump.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\raidz_test\raidz_test.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.sys"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.cat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.inf"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\OpenZFS.man"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\os\windows\kstat\kstat.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\os\windows\zfsinstaller\zfsinstaller.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\os\windows\zed_service\zed_service.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\os\windows\zfs_tray\zfs_tray.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\zpool\zpool.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\zfs\zfs.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\zdb\zdb.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\zed\zed.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\zstream\zstreamdump.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\raidz_test\raidz_test.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\module\os\windows\driver\OpenZFS.sys"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\module\os\windows\driver\OpenZFS.cat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\module\os\windows\driver\OpenZFS.inf"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\module\os\windows\driver\OpenZFS.man"; DestDir: "{app}"; Flags: ignoreversion
 ;Source: "{#Root}\x64\Debug\ZFSin.cer"; DestDir: "{app}"; Flags: ignoreversion
 ;Source: "{#Root}\zfs\cmd\arcstat\arcstat.pl"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\module\os\windows\driver\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\zstream\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\zpool\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\zfs\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\zdb\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\zed\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\raidz_test\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zfsinstaller\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\kstat\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\module\os\windows\driver\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\zstream\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\zpool\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\zfs\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\zdb\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\zed\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\raidz_test\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\os\windows\zfsinstaller\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\os\windows\kstat\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#SourcePath}\HowToDebug.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\contrib\windows\parsedump\*.*"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\contrib\windows\EnableOpenZFSLocalCrashDumps.reg"; DestDir: "{app}\symbols"; Flags: ignoreversion
@@ -210,13 +210,13 @@ Source: "{#Root}\contrib\windows\zfs_prepare_disk.ps1"; DestDir: "{app}"; Flags:
 Source: "{#Root}\cmd\zpool\compatibility.d\*"; DestDir: "{app}\compatibility.d"; Flags: ignoreversion
 Source: "{#Root}\cmd\zpool\zpool.d\*"; DestDir: "{app}\zpool.d"; Flags: ignoreversion
 Source: "{#Root}\cmd\zed\os\windows\zed.d\*"; DestDir: "{app}\zed.d"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\module\os\windows\zvol\driver\OpenZVOL.sys"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\module\os\windows\zvol\driver\OpenZVOL.cat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\module\os\windows\zvol\driver\OpenZVOL.inf"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\module\os\windows\zvol\driver\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\module\os\windows\zvol\driver\OpenZVOL.sys"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\module\os\windows\zvol\driver\OpenZVOL.cat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\module\os\windows\zvol\driver\OpenZVOL.inf"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\module\os\windows\zvol\driver\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 ; VSS provider (enables Previous Versions for ZFS snapshots)
-Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zfs_vss_provider\zfs_vss_provider.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\x64-Debug\cmd\os\windows\zfs_vss_provider\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\os\windows\zfs_vss_provider\zfs_vss_provider.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\out\build\arm64-Debug\cmd\os\windows\zfs_vss_provider\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 [UninstallDelete]
