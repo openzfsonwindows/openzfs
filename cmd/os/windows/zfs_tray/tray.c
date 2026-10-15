@@ -36,6 +36,7 @@
 #include "pass_prompt.h"
 #include "dlg_util.h"
 #include "create_window.h"
+#include "update_check.h"
 
 #define	strlcpy(dest, src, siz) \
 	_snprintf_s(dest, siz, _TRUNCATE, "%s", src)
@@ -64,6 +65,10 @@
 
 #define	IDM_EXPORT_ALL 2301
 
+#define	IDM_UPDATE_AVAILABLE	2401
+#define	IDM_SET_CHECK_UPDATES	2402
+#define	IDM_SET_PRERELEASES	2403
+
 #define	IDM_EXPORT_BASE 3100
 #define	IDM_DESTROY_BASE 3200
 
@@ -80,6 +85,11 @@ static BOOL RpcGetStatus(wchar_t *out, size_t cchOut);
 static HANDLE RpcSubscribe();
 static DWORD WINAPI EventThread(LPVOID);
 static void ShowBalloon(LPCWSTR title, LPCWSTR msg);
+static BOOL ShowUpdateBalloon(const wchar_t *title, const wchar_t *msg);
+
+// Set while the balloon on screen is the "update available" one, so a click
+// on it opens the release page.
+static volatile LONG g_balloon_is_update = 0;
 
 #include "resource.h"
 
@@ -817,8 +827,19 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		    ICC_STANDARD_CLASSES };
 		InitCommonControlsEx(&icc);
 
+		// "New version available" check: first after 30s,
+		// then daily.
+		update_check_init(hWnd, ShowUpdateBalloon);
+
 		return (0);
 	}
+	case WM_TIMER:
+		if (update_check_timer(hWnd, wParam))
+			return (0);
+		break;
+	case WM_UPDATE_CHECK_DONE:
+		update_check_done(hWnd, lParam);
+		return (0);
 	case WM_TRAYICON: {
 		UINT code = LOWORD(lParam), nid = HIWORD(lParam);
 		if (nid != ID_TRAY_ICON)
@@ -836,6 +857,14 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			RefreshPoolsFromService();
 
 			HMENU m = CreatePopupMenu();
+
+			// A newer installer than the loaded driver
+			wchar_t upd[96];
+			if (update_check_menu_text(upd, _countof(upd))) {
+				AppendMenuW(m, MF_STRING,
+				    IDM_UPDATE_AVAILABLE, upd);
+				AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+			}
 
 			// Build Pools submenu
 			HMENU pools = CreatePopupMenu();
@@ -880,6 +909,22 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			AppendMenuW(m, MF_POPUP, (UINT_PTR)dx, L"Destroy ▶");
 
 			AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+
+			HMENU st = CreatePopupMenu();
+			AppendMenuW(st, MF_STRING |
+			    (update_check_enabled() ? MF_CHECKED : 0),
+			    IDM_SET_CHECK_UPDATES,
+			    L"Check for New Versions");
+			AppendMenuW(st, MF_STRING |
+			    (update_check_prereleases() ?
+			    MF_CHECKED : 0) |
+			    (update_check_enabled() ? 0 : MF_GRAYED),
+			    IDM_SET_PRERELEASES,
+			    L"Include Pre-releases");
+			AppendMenuW(m, MF_POPUP, (UINT_PTR)st,
+			    L"Settings ▶");
+
+			AppendMenuW(m, MF_SEPARATOR, 0, NULL);
 			AppendMenuW(m, MF_STRING, IDM_EXIT, L"Exit");
 
 			SetForegroundWindow(hWnd);
@@ -887,6 +932,13 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			    pt.y, 0, hWnd, NULL);
 			DestroyMenu(m);
 			PostMessageW(hWnd, WM_NULL, 0, 0);
+			return (0);
+		}
+
+		if (code == NIN_BALLOONUSERCLICK) {
+			if (InterlockedCompareExchange(
+			    &g_balloon_is_update, 0, 0))
+				update_check_open_page();
 			return (0);
 		}
 
@@ -935,6 +987,17 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		}
 
 		switch (id) {
+		case IDM_UPDATE_AVAILABLE:
+			update_check_open_page();
+			return (0);
+		case IDM_SET_CHECK_UPDATES:
+			update_check_set_enabled(hWnd,
+			    !update_check_enabled());
+			return (0);
+		case IDM_SET_PRERELEASES:
+			update_check_set_prereleases(hWnd,
+			    !update_check_prereleases());
+			return (0);
 		case IDM_STATUS:
 			// call OP_GET_STATUS, parse, show dialog/balloon…
 			return (0);
@@ -1298,12 +1361,26 @@ EventThread(LPVOID)
 	return (0);
 }
 
-static void
-ShowBalloon(LPCWSTR title, LPCWSTR msg)
+static BOOL
+ShowBalloonEx(LPCWSTR title, LPCWSTR msg, BOOL is_update)
 {
 	g_nid.uFlags = NIF_INFO | NIF_SHOWTIP;
 	lstrcpynW(g_nid.szInfoTitle, title, ARRAYSIZE(g_nid.szInfoTitle));
 	lstrcpynW(g_nid.szInfo, msg, ARRAYSIZE(g_nid.szInfo));
 	g_nid.dwInfoFlags = NIIF_INFO;
-	Shell_NotifyIconW(NIM_MODIFY, &g_nid);
+	InterlockedExchange(&g_balloon_is_update, is_update ? 1 : 0);
+	return (Shell_NotifyIconW(NIM_MODIFY, &g_nid));
+}
+
+static void
+ShowBalloon(LPCWSTR title, LPCWSTR msg)
+{
+	(void) ShowBalloonEx(title, msg, FALSE);
+}
+
+// TRUE only if the shell took it; the caller then marks the version notified
+static BOOL
+ShowUpdateBalloon(const wchar_t *title, const wchar_t *msg)
+{
+	return (ShowBalloonEx(title, msg, TRUE));
 }
