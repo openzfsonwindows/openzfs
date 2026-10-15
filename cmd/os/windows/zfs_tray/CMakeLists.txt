@@ -8,6 +8,7 @@ um_add_executable(zfs_tray WIN32
 	import_window.c
 	create_window.c
 	versions_window.c
+	update_check.c
 	pass_prompt.c
 	resource.rc
 )
@@ -28,6 +29,7 @@ target_link_libraries(zfs_tray PRIVATE
 	comdlg32
 	ole32
 	advapi32
+	winhttp
 )
 
 install(TARGETS zfs_tray RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
