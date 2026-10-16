@@ -156,9 +156,14 @@
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
     <EnableInf2cat>false</EnableInf2cat>
     <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+    <TimeStampServer>http://timestamp.digicert.com</TimeStampServer>
+    <DriverCatalog_Enable>false</DriverCatalog_Enable>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
     <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
+    <EnableInf2cat>false</EnableInf2cat>
+    <TimeStampServer>http://timestamp.digicert.com</TimeStampServer>
+    <DriverCatalog_Enable>false</DriverCatalog_Enable>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -267,11 +272,142 @@ copy /Y "$(SolutionDir)..\..\..\out\build\x64-Debug\cmd\zed\zed.exe" "$(TargetDi
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>$(SolutionDir)..\..\..\out\build\arm64-Debug\module\os\windows\spl;$(SolutionDir)..\..\..\out\build\arm64-Debug\module\os\windows\zfs;$(SolutionDir)..\..\..\out\build\arm64-Debug\module\icp;$(SolutionDir)..\..\..\out\build\arm64-Debug\module\lua;$(SolutionDir)..\..\..\out\build\arm64-Debug\module\nvpair;$(SolutionDir)..\..\..\out\build\arm64-Debug\module\unicode;$(SolutionDir)..\..\..\out\build\arm64-Debug\module\zcommon;$(SolutionDir)..\..\..\out\build\arm64-Debug\module\zfs;$(SolutionDir)..\..\..\out\build\arm64-Debug\module\zstd;$(SolutionDir)..\..\..\out\build\arm64-Debug\lib\os\windows\zlib-1.2.13;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>wdmsec.lib;Storport.lib;scsiwmi.lib;splkern.lib;icpkern.lib;luakern.lib;nvpairkern.lib;unicodekern.lib;zcommonkern.lib;zlibkern.lib;zstdkern.lib;zfskern.lib;zfskern_os.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfLdr.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfDriverEntry.lib</AdditionalDependencies>
+      <AdditionalDependencies>wdmsec.lib;Storport.lib;scsiwmi.lib;splkern.lib;icpkern.lib;luakern.lib;nvpairkern.lib;zcommonkern.lib;zlibkern.lib;zstdkern.lib;zfskern.lib;zfskern_os.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfLdr.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfDriverEntry.lib</AdditionalDependencies>
       <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
     </Link>
+    <PreBuildEvent>
+      <Command>IF NOT EXIST "$(TargetDir)OpenZFS" MKDIR "$(TargetDir)OpenZFS"</Command>
+    </PreBuildEvent>
+    <PreBuildEvent>
+      <Message>Make sure output exists</Message>
+    </PreBuildEvent>
+    <PreLinkEvent>
+      <Command>copy /Y "$(SolutionDir)..\..\..\out\build\arm64-Debug\module\os\windows\driver\OpenZFS.man" "$(TargetDir)\OpenZFS\OpenZFS.man"</Command>
+    </PreLinkEvent>
+    <PreLinkEvent>
+      <Message>Copy openzfs.man</Message>
+    </PreLinkEvent>
+    <PostBuildEvent>
+      <Command>copy /Y "$(SolutionDir)..\..\..\out\build\arm64-Debug\module\os\windows\driver\OpenZFS.sys" "$(OutDir)$(TargetName)$(TargetExt)"</Command>
+    </PostBuildEvent>
+    <Inf>
+      <SpecifyArchitecture>false</SpecifyArchitecture>
+    </Inf>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+    <PreBuildEvent>
+      <Command>IF NOT EXIST "$(TargetDir)OpenZFS" MKDIR "$(TargetDir)OpenZFS"</Command>
+    </PreBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+    <PreBuildEvent>
+      <Message>Make sure output exists</Message>
+    </PreBuildEvent>
+    <PreLinkEvent>
+      <Command>copy /Y "$(SolutionDir)..\..\..\out\build\arm64-Release\module\os\windows\driver\OpenZFS.man" "$(TargetDir)\OpenZFS\OpenZFS.man"</Command>
+    </PreLinkEvent>
+    <PreLinkEvent>
+      <Message>Copy openzfs.man</Message>
+    </PreLinkEvent>
+    <PostBuildEvent>
+      <Command>copy /Y "$(SolutionDir)..\..\..\out\build\arm64-Release\module\os\windows\driver\OpenZFS.sys" "$(OutDir)$(TargetName)$(TargetExt)"</Command>
+    </PostBuildEvent>
+    <Inf>
+      <SpecifyArchitecture>false</SpecifyArchitecture>
+    </Inf>
+    <Link>
+      <AdditionalLibraryDirectories>$(SolutionDir)..\..\..\out\build\arm64-Release\module\os\windows\spl;$(SolutionDir)..\..\..\out\build\arm64-Release\module\os\windows\zfs;$(SolutionDir)..\..\..\out\build\arm64-Release\module\icp;$(SolutionDir)..\..\..\out\build\arm64-Release\module\lua;$(SolutionDir)..\..\..\out\build\arm64-Release\module\nvpair;$(SolutionDir)..\..\..\out\build\arm64-Release\module\unicode;$(SolutionDir)..\..\..\out\build\arm64-Release\module\zcommon;$(SolutionDir)..\..\..\out\build\arm64-Release\module\zfs;$(SolutionDir)..\..\..\out\build\arm64-Release\module\zstd;$(SolutionDir)..\..\..\out\build\arm64-Release\lib\os\windows\zlib-1.2.13;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
+      <AdditionalDependencies>wdmsec.lib;Storport.lib;scsiwmi.lib;splkern.lib;icpkern.lib;luakern.lib;nvpairkern.lib;zcommonkern.lib;zlibkern.lib;zstdkern.lib;zfskern.lib;zfskern_os.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfLdr.lib;$(KMDF_LIB_PATH)$(KMDF_VER_PATH)\WdfDriverEntry.lib</AdditionalDependencies>
+    </Link>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\..\include\os\windows\spl;$(SolutionDir)..\..\..\include\os\windows\zfs;$(SolutionDir)..\..\..\include\os\windows;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_KERNEL;_KERNEL_;__aarch64__;_WIN64;%(PreprocessorDefinitions);_ARM64_;ARM64;_USE_DECLSPECS_FOR_SAL=1;STD_CALL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <WarningLevel>Level3</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+    </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Debug\cmd\os\windows\zfsinstaller\zfsinstaller.exe" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Debug\cmd\zfs\zfs.exe" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Debug\cmd\zpool\zpool.exe" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Debug\module\os\windows\driver\OpenZFS.cat" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Debug\module\os\windows\driver\OpenZFS.inf" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Debug\module\os\windows\driver\OpenZFS.man" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Debug\module\os\windows\driver\OpenZFS.sys" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Debug\module\os\windows\zvol\driver\OpenZVOL.cat" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Debug\module\os\windows\zvol\driver\OpenZVOL.inf" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Debug\module\os\windows\zvol\driver\OpenZVOL.sys" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Release\cmd\os\windows\zfsinstaller\zfsinstaller.exe" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Release\cmd\zfs\zfs.exe" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Release\cmd\zpool\zpool.exe" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Release\module\os\windows\driver\OpenZFS.cat" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Release\module\os\windows\driver\OpenZFS.inf" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Release\module\os\windows\driver\OpenZFS.man" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Release\module\os\windows\driver\OpenZFS.sys" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Release\module\os\windows\zvol\driver\OpenZVOL.cat" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Release\module\os\windows\zvol\driver\OpenZVOL.inf" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
+    <FilesToPackage Include="..\..\..\..\out\build\arm64-Release\module\os\windows\zvol\driver\OpenZVOL.sys" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+      <PackageRelativeDirectory>
+      </PackageRelativeDirectory>
+    </FilesToPackage>
     <FilesToPackage Include="..\..\..\..\out\build\x64-Debug\cmd\os\windows\zfsinstaller\zfsinstaller.exe" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
       <PackageRelativeDirectory>
       </PackageRelativeDirectory>
