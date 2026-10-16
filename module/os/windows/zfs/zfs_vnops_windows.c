@@ -7310,10 +7310,18 @@ volatile struct {
 	ULONG   code;   /* ExceptionCode */
 	ULONG   count;  /* how many times fired */
 	PVOID   addr;   /* ExceptionAddress */
-	ULONG64 rip;    /* ContextRecord->Rip */
-	ULONG64 rsp;    /* ContextRecord->Rsp */
+	ULONG64 rip;    /* ContextRecord->Rip (ARM64: Pc) */
+	ULONG64 rsp;    /* ContextRecord->Rsp (ARM64: Sp) */
 	ULONG64 stack[8]; /* raw return addrs from Rsp */
 } zfs_write_last_except;
+
+#if defined(_M_ARM64) || defined(__aarch64__)
+#define	ZFS_CTX_PC(c)	((c)->Pc)
+#define	ZFS_CTX_SP(c)	((c)->Sp)
+#else
+#define	ZFS_CTX_PC(c)	((c)->Rip)
+#define	ZFS_CTX_SP(c)	((c)->Rsp)
+#endif
 
 LONG
 zfs_write_fault_filter(PEXCEPTION_POINTERS ep)
@@ -7332,12 +7340,12 @@ zfs_write_fault_filter(PEXCEPTION_POINTERS ep)
 	if (code != STATUS_ACCESS_VIOLATION && code != STATUS_IN_PAGE_ERROR)
 		return (EXCEPTION_CONTINUE_SEARCH);
 
-	PULONG64 sp = (PULONG64)(ULONG_PTR)ep->ContextRecord->Rsp;
+	PULONG64 sp = (PULONG64)(ULONG_PTR)ZFS_CTX_SP(ep->ContextRecord);
 
 	zfs_write_last_except.code  = code;
 	zfs_write_last_except.addr  = ep->ExceptionRecord->ExceptionAddress;
-	zfs_write_last_except.rip   = ep->ContextRecord->Rip;
-	zfs_write_last_except.rsp   = ep->ContextRecord->Rsp;
+	zfs_write_last_except.rip   = ZFS_CTX_PC(ep->ContextRecord);
+	zfs_write_last_except.rsp   = ZFS_CTX_SP(ep->ContextRecord);
 	zfs_write_last_except.count++;
 	for (int i = 0; i < 8; i++)
 		zfs_write_last_except.stack[i] = sp[i];
