@@ -33,15 +33,37 @@
 
 #ifdef __aarch64__
 
+#ifdef __ELF__
+
 #define	ENTRY(sym) \
 	.text; \
 	.globl	sym; \
-	.balign	2; \
+	.balign	4; \
 	.type	sym,#function; \
 sym:
 
 #define	END(sym) \
 	.size	sym, . - sym
+
+#else
+
+/*
+ * COFF (Windows): there is no ".type sym,#function" nor ".size"; a function
+ * symbol is declared with .def/.scl/.type/.endef instead.
+ */
+#define	ENTRY(sym) \
+	.text; \
+	.globl	sym; \
+	.balign	4; \
+	.def	sym; \
+	.scl	2; \
+	.type	32; \
+	.endef; \
+sym:
+
+#define	END(sym)
+
+#endif
 
 
 ENTRY(setjmp)
