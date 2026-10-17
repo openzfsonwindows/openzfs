@@ -1857,6 +1857,8 @@ print_reclaim_stats(boolean_t init, int reclaims)
  * until deadlist is empty.
  */
 
+#define	VNODE_PURGE_BATCH	64
+
 /*
  * Force-flush and purge the Windows Cache Manager for any vnodes on mount
  * mp that are stuck in MARKTERM (pending reclaim) with a live SharedCacheMap.
@@ -1873,12 +1875,22 @@ print_reclaim_stats(boolean_t init, int reclaims)
 void
 vnode_purge_ccmgr_vnodes(struct mount *mp)
 {
+	struct vnode *batch[VNODE_PURGE_BATCH];
 	struct vnode *vp;
-	boolean_t found;
-	int max_passes = 200;
+	int n, i, cleared;
+	int stalled = 0;
 
+	/*
+	 * Work in batches. One vnode per pass with a fixed cap on the number
+	 * of passes left every vnode past the cap with its SharedCacheMap,
+	 * so their FILE_OBJECTs were never closed and the dnodes stayed
+	 * held (export hung in spa_evicting_os_wait).
+	 *
+	 * A vnode which stays cached after the purge is found again on the
+	 * next scan, so stop once a few batches in a row clear nothing.
+	 */
 	do {
-		found = B_FALSE;
+		n = 0;
 		mutex_enter(&vnode_all_list_lock);
 		for (vp = list_head(&vnode_all_list); vp;
 		    vp = list_next(&vnode_all_list, vp)) {
@@ -1902,12 +1914,15 @@ vnode_purge_ccmgr_vnodes(struct mount *mp)
 			}
 			atomic_inc_32(&vp->v_iocount);
 			vnode_unlock(vp);
-			found = B_TRUE;
-			break;
+			batch[n++] = vp;
+			if (n == VNODE_PURGE_BATCH)
+				break;
 		}
 		mutex_exit(&vnode_all_list_lock);
 
-		if (found) {
+		cleared = 0;
+		for (i = 0; i < n; i++) {
+			vp = batch[i];
 			dprintf("%s: flushing CcMgr for stuck vp %p\n",
 			    __func__, vp);
 			IO_STATUS_BLOCK iosb = { 0 };
@@ -1922,9 +1937,13 @@ vnode_purge_ccmgr_vnodes(struct mount *mp)
 			ExReleaseResourceLite(vp->FileHeader.PagingIoResource);
 			CcPurgeCacheSection(&vp->SectionObjectPointers,
 			    NULL, 0, FALSE);
+			if (vp->SectionObjectPointers.SharedCacheMap == NULL)
+				cleared++;
 			atomic_dec_32(&vp->v_iocount);
 		}
-	} while (found && --max_passes > 0);
+
+		stalled = cleared > 0 ? 0 : stalled + 1;
+	} while (n > 0 && stalled < 3);
 }
 
 int
