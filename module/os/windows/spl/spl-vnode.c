@@ -1440,6 +1440,22 @@ vnode_create(mount_t *mp, struct vnode *dvp, void *v_data, int type, int flags,
 	vp->v_reparse_size = 0;
 	vp->security_descriptor = NULL;
 
+	/*
+	 * Objects come back from the cache with the previous owner's
+	 * contents (the constructor only ran when the object was first
+	 * built).  Stale FileHeader sizes are never shrunk by the open path,
+	 * so a reused vnode kept the old file's larger FileSize and cached
+	 * reads returned zero fill past the real end of the file.  Same for
+	 * the other per-use state below.
+	 */
+	memset(&vp->FileHeader, 0, sizeof (vp->FileHeader));
+	memset(&vp->share_access, 0, sizeof (vp->share_access));
+	vp->z_eof_pending = 0;
+	vp->OplockRefCount = 0;
+	vp->v_easize = 0;
+	vp->v_age = 0;
+	vp->v_inactive_thread = NULL;
+
 	atomic_inc_64(&vnode_active);
 
 	list_link_init(&vp->v_list);
