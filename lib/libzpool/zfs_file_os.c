@@ -364,7 +364,7 @@ zfs_file_deallocate(zfs_file_t *fp, loff_t offset, loff_t len)
 loff_t
 zfs_file_off(zfs_file_t *fp)
 {
-	return (lseek(fp->f_fd, SEEK_CUR, 0));
+	return (lseek(fp->f_fd, 0, SEEK_CUR));
 }
 
 /*
