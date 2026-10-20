@@ -57,6 +57,18 @@ uint64_t zfs_disable_removablemedia = 1;
 ZFS_MODULE_RAW(zfs, disable_removablemedia, zfs_disable_removablemedia,
     U64, ZMOD_RW, 0, "Disable Removable Media");
 
+/*
+ * Root-on-ZFS: when set, a mount IRP for a partition that is not one of
+ * our DCBs is probed for a ZFS root pool label, and if found the pool is
+ * imported and its bootfs mounted. Off by default.
+ */
+uint64_t zfs_boot_import = 0;
+ZFS_MODULE_RAW(zfs, boot_import, zfs_boot_import,
+    U64, ZMOD_RW, 0, "Import and mount a ZFS root pool at boot");
+
+extern int zfs_rootpool_import(PDEVICE_OBJECT dev, char *dsname,
+    size_t dslen);
+
 extern kmem_cache_t *znode_cache;
 
 int zfs_windows_unmount_impl(const char *datasetname);
@@ -296,6 +308,10 @@ mountmgr_get_mountpoint2(PUNICODE_STRING devpath,
 	int len;
 	NTSTATUS Status;
 	int found = 0;
+
+	/* A borrowed (boot) DCB has no device_name of its own */
+	if (devpath == NULL || devpath->Buffer == NULL)
+		return (STATUS_INVALID_PARAMETER);
 
 	ppoints = &points;
 	Status = SendIoctlToMountManager(IOCTL_MOUNTMGR_QUERY_POINTS,
@@ -1881,6 +1897,32 @@ mount_volume_impl(void *arg1)
 	zfs_release_userland(dcb);
 }
 
+/*
+ * volume_create()/volume_close() read the mount_t out of the device's
+ * extension, which for a borrowed DCB is another driver's memory.
+ */
+static NTSTATUS
+dcb_volume_create(mount_t *dcb, PFILE_OBJECT FileObject, USHORT ShareAccess,
+    uint64_t AllocationSize, ACCESS_MASK DesiredAccess)
+{
+	if (!dcb->real_device_borrowed)
+		return (volume_create(dcb->PhysicalDeviceObject, FileObject,
+		    ShareAccess, AllocationSize, DesiredAccess));
+
+	atomic_inc_64(&dcb->volume_opens);
+	return (STATUS_SUCCESS);
+}
+
+static NTSTATUS
+dcb_volume_close(mount_t *dcb, PFILE_OBJECT FileObject)
+{
+	if (!dcb->real_device_borrowed)
+		return (volume_close(dcb->PhysicalDeviceObject, FileObject));
+
+	atomic_dec_64(&dcb->volume_opens);
+	return (STATUS_SUCCESS);
+}
+
 NTSTATUS
 matched_mount(PIRP Irp, PDEVICE_OBJECT DeviceToMount,
     mount_t *dcb, PIO_STACK_LOCATION IrpSp)
@@ -1949,7 +1991,12 @@ matched_mount(PIRP Irp, PDEVICE_OBJECT DeviceToMount,
 	status = zfs_vfs_mount(vcb, NULL, (user_addr_t)&mnt_args, NULL);
 	dprintf("%s: zfs_vfs_mount() returns %ld\n", __func__, status);
 
-	if (status) {
+	if (status && dcb->real_device_borrowed) {
+		/* Borrowed device: nothing of the DCB's to tear down. */
+		zfs_release_mount(vcb);
+		IoDeleteDevice(volDeviceObject);
+		return (STATUS_UNRECOGNIZED_VOLUME);
+	} else if (status) {
 		zfs_release_mount(vcb);
 		IoDeleteDevice(volDeviceObject);
 
@@ -2014,7 +2061,8 @@ matched_mount(PIRP Irp, PDEVICE_OBJECT DeviceToMount,
 	 * can resolve file paths to their drive letter instead of showing the
 	 * raw \Device\ZFS{uuid}\... NT path.
 	 */
-	vpb->RealDevice = dcb->FunctionalDeviceObject;
+	if (!dcb->real_device_borrowed)
+		vpb->RealDevice = dcb->FunctionalDeviceObject;
 	volDeviceObject->Vpb = vpb;
 	vcb->vpb = vpb;
 	vpb->ReferenceCount += 1;
@@ -2027,7 +2075,7 @@ matched_mount(PIRP Irp, PDEVICE_OBJECT DeviceToMount,
 
 		// Attach vp/zp to it. We call volume_close()
 		// when unmounting. This holds root busy/mounted.
-		status = volume_create(dcb->PhysicalDeviceObject,
+		status = dcb_volume_create(dcb,
 		    vcb->root_file,
 		    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 		    0ULL,
@@ -2093,18 +2141,88 @@ matched_mount(PIRP Irp, PDEVICE_OBJECT DeviceToMount,
 	 * in a WorkItem thread.
 	 */
 
-	tsd_set(zfs_mount_reentry_tsd, (void *) 1);
-	atomic_inc_64(&zfs_mount_reentry);
+	/*
+	 * A borrowed (boot) volume gets no MountMgr naming from us; the
+	 * kernel and MountMgr handle the system volume themselves.
+	 */
+	if (!dcb->real_device_borrowed) {
+		tsd_set(zfs_mount_reentry_tsd, (void *) 1);
+		atomic_inc_64(&zfs_mount_reentry);
 
-	dprintf("Waiting for ZFS mount to come back\n");
-	mount_volume_impl(vcb);
-	dprintf("done\n");
+		dprintf("Waiting for ZFS mount to come back\n");
+		mount_volume_impl(vcb);
+		dprintf("done\n");
 
-	atomic_dec_64(&zfs_mount_reentry);
-	tsd_set(zfs_mount_reentry_tsd, NULL);
+		atomic_dec_64(&zfs_mount_reentry);
+		tsd_set(zfs_mount_reentry_tsd, NULL);
+	}
 
 	dprintf("%s completed.\n", __func__);
 out:
+	return (status);
+}
+
+/*
+ * Root-on-ZFS. The kernel hands us the partition it wants as the boot
+ * volume (not one of our fake disks), so build a DCB around that real
+ * device instead of one we created, then take the usual matched_mount()
+ * path. Returns STATUS_UNRECOGNIZED_VOLUME if it isn't a ZFS root pool.
+ */
+static NTSTATUS
+zfs_boot_mount(PIRP Irp, PDEVICE_OBJECT DeviceToMount,
+    PIO_STACK_LOCATION IrpSp)
+{
+	static boolean_t boot_mounted = B_FALSE;
+	char dsname[ZFS_MAX_DATASET_NAME_LEN];
+	char uuid_a[UUID_PRINTABLE_STRING_LENGTH];
+	char buf[PATH_MAX];
+	mount_t *dcb;
+	NTSTATUS status;
+
+	if (!zfs_boot_import || boot_mounted)
+		return (STATUS_UNRECOGNIZED_VOLUME);
+
+	if (zfs_rootpool_import(DeviceToMount, dsname, sizeof (dsname)) != 0)
+		return (STATUS_UNRECOGNIZED_VOLUME);
+
+	dcb = kmem_zalloc(sizeof (mount_t), KM_SLEEP);
+	dcb->type = MOUNT_TYPE_DCB;
+	dcb->size = sizeof (mount_t);
+	dcb->real_device_borrowed = B_TRUE;
+
+	KeInitializeEvent((PRKEVENT)&dcb->volume_removed_event,
+	    SynchronizationEvent, FALSE);
+	KeInitializeEvent((PRKEVENT)&dcb->volume_adddevice_event,
+	    SynchronizationEvent, FALSE);
+	KeInitializeEvent((PRKEVENT)&dcb->volume_mounted_event,
+	    SynchronizationEvent, FALSE);
+
+	zfs_vfs_uuid_gen(dsname, dcb->rawuuid);
+	zfs_vfs_uuid_unparse(dcb->rawuuid, uuid_a);
+	AsciiStringToUnicodeString(uuid_a, &dcb->uuid);
+	AsciiStringToUnicodeStringNP(dsname, &dcb->name);
+	dcb->ascii_name = kmem_strdup(dsname);
+
+	/* Name for the volume device (VDO) matched_mount() creates */
+	snprintf(buf, sizeof (buf), "\\Device\\ZFS{%s}", uuid_a);
+	AsciiStringToUnicodeString(buf, &dcb->fs_name);
+
+	/* Foreign device: hold it, but it is not on our bus/mount list */
+	ObReferenceObject(DeviceToMount);
+	dcb->PhysicalDeviceObject = DeviceToMount;
+	dcb->FunctionalDeviceObject = DeviceToMount;
+
+	vfs_setfsprivate(dcb, NULL);
+
+	status = matched_mount(Irp, DeviceToMount, dcb, IrpSp);
+	if (!NT_SUCCESS(status)) {
+		zfs_release_mount(dcb);
+		ObDereferenceObject(DeviceToMount);
+		kmem_free(dcb, sizeof (mount_t));
+		return (status);
+	}
+
+	boot_mounted = B_TRUE;
 	return (status);
 }
 
@@ -2152,7 +2270,12 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		    __func__,
 		    currentDevice);
 
-		dcb = currentDevice->DeviceExtension;
+		/*
+		 * Only our own devices carry a mount_t extension; other
+		 * drivers' extensions must not be read as one.
+		 */
+		dcb = (currentDevice->DriverObject == WIN_DriverObject) ?
+		    currentDevice->DeviceExtension : NULL;
 
 		if (dcb != NULL && dcb->type == MOUNT_TYPE_DCB &&
 		    dcb->ascii_name != NULL &&
@@ -2174,8 +2297,12 @@ zfs_vnop_mount(PDEVICE_OBJECT DiskDevice, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 			break;
 	}
 
+	/* Not one of our fake disks; maybe it is a ZFS boot partition */
+	status = zfs_boot_mount(Irp, DeviceToMount, IrpSp);
+	if (status != STATUS_UNRECOGNIZED_VOLUME)
+		goto out;
+
 	dprintf("Not our object or unmounting -- ignoring\n");
-	status = STATUS_UNRECOGNIZED_VOLUME;
 
 out:
 	dprintf("%s: exit: 0x%lx\n", __func__, status);
@@ -2402,6 +2529,16 @@ zfs_windows_unmount_impl(const char *datasetname)
 			return (SET_ERROR(EBUSY));
 		}
 
+		/*
+		 * Boot volume: the DCB wraps a foreign partition device, and
+		 * the unmount path below assumes a device we own (MountMgr
+		 * notification, removal event). Not supported yet.
+		 */
+		if (((mount_t *)zmo->parent_device)->real_device_borrowed) {
+			vfs_unbusy(zmo);
+			return (SET_ERROR(EBUSY));
+		}
+
 		// Has to be called before upgrading vfs lock
 		CcWaitForCurrentLazyWriterActivity();
 
@@ -2530,8 +2667,7 @@ zfs_windows_unmount_impl(const char *datasetname)
 		if (zmo->root_file) {
 			vp = zmo->root_file->FsContext;
 			// this calls volume_close, but stop any new volume_open
-			status = volume_close(zmo_dcb->PhysicalDeviceObject,
-			    zmo->root_file);
+			status = dcb_volume_close(zmo_dcb, zmo->root_file);
 			if (vp && VN_HOLD(vp) == 0) {
 				dprintf("vp %p\n", vp);
 				zfs_decouplefileobject(vp, zmo->root_file);
@@ -2628,7 +2764,8 @@ zfs_windows_unmount_impl(const char *datasetname)
 			// Vpb should be set to NULL before Detach, or
 			// PnpFindMountableDevice() might return it as
 			// mounted (and BSOD in PnpLockMountableDevice())
-			zmo_dcb->FunctionalDeviceObject->Vpb = NULL;
+			if (!zmo_dcb->real_device_borrowed)
+				zmo_dcb->FunctionalDeviceObject->Vpb = NULL;
 			vfs_mount_remove(zmo_dcb);
 
 			if (zmo_dcb->AttachedDevice) {
@@ -2639,13 +2776,26 @@ zfs_windows_unmount_impl(const char *datasetname)
 			// Release strings in zmo, then zmo w/ IoDeleteDevice()
 			zfs_release_mount(zmo_dcb);
 
+			if (zmo_dcb->real_device_borrowed) {
+				/*
+				 * Not our device: drop the reference taken at
+				 * mount, and free the kmem-allocated DCB.
+				 */
+				if (zmo_dcb->PhysicalDeviceObject)
+					ObDereferenceObject(
+					    zmo_dcb->PhysicalDeviceObject);
+				kmem_free(zmo_dcb, sizeof (mount_t));
+				zmo_dcb = NULL;
+			}
+
 			// Physical and Functional are same for DCB
-			if (zmo_dcb->PhysicalDeviceObject !=
+			if (zmo_dcb != NULL &&
+			    zmo_dcb->PhysicalDeviceObject !=
 			    zmo_dcb->FunctionalDeviceObject) {
 				IoDeleteDevice(zmo_dcb->FunctionalDeviceObject);
 			}
 #if 1
-			if (zmo_dcb->PhysicalDeviceObject) {
+			if (zmo_dcb != NULL && zmo_dcb->PhysicalDeviceObject) {
 				zmo_dcb->PhysicalDeviceObject->Vpb = NULL;
 				IoDeleteDevice(zmo_dcb->PhysicalDeviceObject);
 			}

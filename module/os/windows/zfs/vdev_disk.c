@@ -43,6 +43,11 @@ extern void UnlockAndFreeMdl(PMDL);
 
 extern _Atomic uint64_t spl_lowest_vdev_disk_stack_remaining = 0;
 
+/* Set by zfs_rootpool_import() around spa_open() of the root pool */
+PDEVICE_OBJECT zfs_boot_devobj = NULL;
+char zfs_boot_path[64] = "";
+uint64_t zfs_boot_size = 0;
+
 static void
 vdev_disk_alloc(vdev_t *vd)
 {
@@ -292,6 +297,26 @@ vdev_disk_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	}
 
 	dprintf("%s: opening '%s'\n", __func__, FileName);
+
+	/*
+	 * Root-on-ZFS: we are inside the mount IRP for this very partition,
+	 * which holds the device's mount lock. Opening it by name would wait
+	 * on that lock forever, so use the device handed to us directly.
+	 */
+	if (zfs_boot_devobj != NULL && zfs_boot_path[0] != 0 &&
+	    strcmp(vd->vdev_path, zfs_boot_path) == 0) {
+		dvd->vd_lh = NULL;
+		dvd->vd_FileObject = NULL;
+		dvd->vd_DeviceObject = zfs_boot_devobj;
+		dvd->vd_ExclusiveObject = zfs_boot_devobj;
+		ObReferenceObject(zfs_boot_devobj);
+		ObReferenceObject(zfs_boot_devobj);
+		dvd->vdev_win_length = zfs_boot_size;
+		if (vd->vdev_wholedisk == -1ULL)
+			vd->vdev_wholedisk = 0;
+		spa_strfree(vdev_path);
+		goto skip_open;
+	}
 
 	ANSI_STRING AnsiFilespec;
 	UNICODE_STRING UnicodeFilespec;
@@ -650,6 +675,12 @@ vdev_disk_close(vdev_t *vd)
 		ZwClose(dvd->vd_lh);
 	}
 
+	if (dvd->vd_lh == NULL && dvd->vd_DeviceObject != NULL) {
+		/* Borrowed boot device: no handle or file object */
+		ObDereferenceObject(dvd->vd_DeviceObject);
+		ObDereferenceObject(dvd->vd_ExclusiveObject);
+	}
+
 	dvd->vd_lh = NULL;
 	dvd->vd_FileObject = NULL;
 	dvd->vd_DeviceObject = NULL;
@@ -808,7 +839,8 @@ vdev_disk_io_start(zio_t *zio)
 		 */
 		{
 			IO_STATUS_BLOCK iosb;
-			NTSTATUS ntstatus =
+			NTSTATUS ntstatus = dvd->vd_lh == NULL ?
+			    STATUS_SUCCESS :
 			    ZwFlushBuffersFile(dvd->vd_lh, &iosb);
 			zio->io_error = (ntstatus == STATUS_SUCCESS) ?
 			    0 : SET_ERROR(EIO);
