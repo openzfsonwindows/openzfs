@@ -2,7 +2,6 @@
 use_clang()
 
 add_library(libspl
-    atomic.c
     condvar.c
 	cred.c
 	kmem.c
