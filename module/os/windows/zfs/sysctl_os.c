@@ -243,6 +243,7 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 			void *val = NULL;
 			ULONG len = 0;
 			ULONG type = 0;
+			uint64_t wide = 0;
 
 			// _CALL style has to set 'type', so look it up first.
 			if (zt->zt_perm == ZT_ZMOD_RW) {
@@ -297,6 +298,44 @@ sysctl_os_process(PUNICODE_STRING pRegistryPath, ztunable_t *zt)
 					strval[length] = 0;
 					val = strval;
 
+				}
+
+				/*
+				 * The registry is user-writable, and
+				 * ZT_SET_VALUE trusts the length, so a value
+				 * of the wrong size (say a REG_DWORD written
+				 * by hand for a 64-bit tunable) must not be
+				 * passed on as is. Widen a 4 byte value if
+				 * that is what we were given, and ignore
+				 * anything too short.
+				 */
+				if (zt->zt_func == NULL &&
+				    (zt->zt_type == ZT_TYPE_U64 ||
+				    zt->zt_type == ZT_TYPE_S64) &&
+				    len < sizeof (uint64_t)) {
+					if (len != sizeof (uint32_t)) {
+						dprintf("%s: ignoring '%s': "
+						    "bad value size %lu\n",
+						    __func__, zt->zt_name, len);
+						goto failed;
+					}
+					if (zt->zt_type == ZT_TYPE_S64)
+						wide = (uint64_t)(int64_t)
+						    *(int32_t *)val;
+					else
+						wide = *(uint32_t *)val;
+					val = &wide;
+					len = sizeof (wide);
+				} else if (zt->zt_func == NULL &&
+				    (zt->zt_type == ZT_TYPE_INT ||
+				    zt->zt_type == ZT_TYPE_UINT ||
+				    zt->zt_type == ZT_TYPE_LONG ||
+				    zt->zt_type == ZT_TYPE_ULONG) &&
+				    len < sizeof (uint32_t)) {
+					dprintf("%s: ignoring '%s': "
+					    "bad value size %lu\n",
+					    __func__, zt->zt_name, len);
+					goto failed;
 				}
 
 				ZT_SET_VALUE(zt, &val, &len, &type);
