@@ -58,13 +58,17 @@ ZFS_MODULE_RAW(zfs, disable_removablemedia, zfs_disable_removablemedia,
     U64, ZMOD_RW, 0, "Disable Removable Media");
 
 /*
- * Root-on-ZFS: when set, a mount IRP for a partition that is not one of
- * our DCBs is probed for a ZFS root pool label, and if found the pool is
- * imported and its bootfs mounted. Off by default.
+ * Root-on-ZFS: a mount IRP for a partition that is not one of our DCBs is
+ * probed for a ZFS root pool label, and if found the pool is imported and
+ * its bootfs mounted.
+ *   0: off (the default)
+ *   1: any volume holding a ZFS root pool (for testing on a non-ZFS boot)
+ *   2: only the partition the loader booted from, as named by the ARC
+ *      boot device (see zfs_rootpool_boot_init())
  */
 uint64_t zfs_boot_import = 0;
 ZFS_MODULE_RAW(zfs, boot_import, zfs_boot_import,
-    U64, ZMOD_RW, 0, "Import and mount a ZFS root pool at boot");
+    U64, ZMOD_RW, 0, "Root pool import: 1 = any, 2 = the booted pool");
 
 extern int zfs_rootpool_import(PDEVICE_OBJECT dev, char *dsname,
     size_t dslen);

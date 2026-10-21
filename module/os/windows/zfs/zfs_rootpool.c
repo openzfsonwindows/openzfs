@@ -273,6 +273,152 @@ rp_register_rootpool(nvlist_t *config, char *namep, size_t namelen)
 }
 
 /*
+ * Which partition did the loader boot from?
+ *
+ * The loader hands the kernel the ARC name of the boot device (for us the
+ * ordinary multi(0)disk(0)rdisk(N)partition(M)), and until the boot volume
+ * has been mounted \SystemRoot is the symlink \ArcName\<ARC name>\<NtBootPath>.
+ * The kernel makes \ArcName\<ARC name> point at \Device\HarddiskN\PartitionM.
+ * Afterwards it rewrites \SystemRoot to a plain NT device name, so we have to
+ * follow the links once, at driver start.
+ */
+static boolean_t rp_boot_valid = B_FALSE;
+static ULONG rp_boot_disk = 0;
+static ULONG rp_boot_part = 0;
+
+extern uint64_t zfs_boot_import;
+
+/* Read a run of decimal digits at *sp, and step over them */
+static boolean_t
+rp_parse_ulong(const WCHAR **sp, const WCHAR *end, ULONG *out)
+{
+	const WCHAR *s = *sp;
+	ULONG v = 0;
+	unsigned int ndigits = 0;
+
+	while (s < end && *s >= L'0' && *s <= L'9') {
+		if (++ndigits > 9)
+			return (B_FALSE);
+		v = v * 10 + (*s - L'0');
+		s++;
+	}
+
+	if (ndigits == 0)
+		return (B_FALSE);
+
+	*sp = s;
+	*out = v;
+	return (B_TRUE);
+}
+
+/* "\Device\Harddisk<d>\Partition<p>", optionally followed by "\..." */
+static boolean_t
+rp_parse_partition_path(PUNICODE_STRING path, ULONG *disk, ULONG *part)
+{
+	UNICODE_STRING p1 = RTL_CONSTANT_STRING(L"\\Device\\Harddisk");
+	UNICODE_STRING p2 = RTL_CONSTANT_STRING(L"\\Partition");
+	UNICODE_STRING rest;
+	const WCHAR *s, *end;
+
+	if (!RtlPrefixUnicodeString(&p1, path, TRUE))
+		return (B_FALSE);
+
+	s = path->Buffer + p1.Length / sizeof (WCHAR);
+	end = path->Buffer + path->Length / sizeof (WCHAR);
+
+	if (!rp_parse_ulong(&s, end, disk))
+		return (B_FALSE);
+
+	rest.Buffer = (PWCH)s;
+	rest.Length = rest.MaximumLength = (USHORT)((end - s) * sizeof (WCHAR));
+	if (!RtlPrefixUnicodeString(&p2, &rest, TRUE))
+		return (B_FALSE);
+
+	s += p2.Length / sizeof (WCHAR);
+	if (!rp_parse_ulong(&s, end, part))
+		return (B_FALSE);
+
+	return (s == end || *s == L'\\');
+}
+
+/* "\ArcName\<name>\..." -> the link "\ArcName\<name>" */
+static boolean_t
+rp_arc_link(PUNICODE_STRING path, PUNICODE_STRING link)
+{
+	UNICODE_STRING prefix = RTL_CONSTANT_STRING(L"\\ArcName\\");
+	size_t n = path->Length / sizeof (WCHAR);
+	size_t plen = prefix.Length / sizeof (WCHAR);
+	size_t i;
+
+	if (!RtlPrefixUnicodeString(&prefix, path, TRUE) || n <= plen)
+		return (B_FALSE);
+
+	for (i = plen; i < n && path->Buffer[i] != L'\\'; i++)
+		;
+
+	link->Buffer = path->Buffer;
+	link->Length = link->MaximumLength = (USHORT)(i * sizeof (WCHAR));
+	return (B_TRUE);
+}
+
+static NTSTATUS
+rp_query_link(PUNICODE_STRING name, PUNICODE_STRING target)
+{
+	OBJECT_ATTRIBUTES oa;
+	HANDLE h;
+	ULONG retlen = 0;
+	NTSTATUS status;
+
+	InitializeObjectAttributes(&oa, name,
+	    OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+	status = ZwOpenSymbolicLinkObject(&h, GENERIC_READ, &oa);
+	if (!NT_SUCCESS(status))
+		return (status);
+
+	target->Length = 0;
+	status = ZwQuerySymbolicLinkObject(h, target, &retlen);
+	ZwClose(h);
+
+	return (status);
+}
+
+/* Call once, from DriverEntry, before any boot volume is mounted. */
+void
+zfs_rootpool_boot_init(void)
+{
+	UNICODE_STRING sysroot = RTL_CONSTANT_STRING(L"\\SystemRoot");
+	UNICODE_STRING t1, t2, link;
+	WCHAR b1[256], b2[256];
+
+	t1.Buffer = b1;
+	t1.Length = 0;
+	t1.MaximumLength = sizeof (b1);
+	t2.Buffer = b2;
+	t2.Length = 0;
+	t2.MaximumLength = sizeof (b2);
+
+	if (!NT_SUCCESS(rp_query_link(&sysroot, &t1)))
+		return;
+	dprintf("%s: SystemRoot is %wZ\n", __func__, &t1);
+
+	/* Not ARC based: the boot volume is already mounted, or not ours */
+	if (!rp_arc_link(&t1, &link))
+		return;
+
+	if (!NT_SUCCESS(rp_query_link(&link, &t2)))
+		return;
+	dprintf("%s: %wZ is %wZ\n", __func__, &link, &t2);
+
+	if (!rp_parse_partition_path(&t2, &rp_boot_disk, &rp_boot_part))
+		return;
+
+	rp_boot_valid = B_TRUE;
+	cmn_err(CE_NOTE, "%s: booted from Harddisk%lu Partition%lu", __func__,
+	    rp_boot_disk, rp_boot_part);
+}
+
+/*
  * Given the partition device the kernel wants mounted, import the root
  * pool held on it and return the name of its bootfs dataset in dsname.
  *
@@ -304,6 +450,16 @@ zfs_rootpool_import(PDEVICE_OBJECT dev, char *dsname, size_t dslen)
 
 	if (!NT_SUCCESS(rp_ioctl(dev, IOCTL_STORAGE_GET_DEVICE_NUMBER,
 	    &sdn, sizeof (sdn))))
+		return (ENOENT);
+
+	/*
+	 * boot_import=2: only the partition the loader booted from. Anything
+	 * else is just a data disk, so decline the mount without even reading
+	 * its labels, and let the normal import path deal with it.
+	 */
+	if (zfs_boot_import >= 2 &&
+	    (!rp_boot_valid || sdn.DeviceNumber != rp_boot_disk ||
+	    sdn.PartitionNumber != rp_boot_part))
 		return (ENOENT);
 
 	if (NT_SUCCESS(rp_ioctl(dev, IOCTL_DISK_GET_PARTITION_INFO_EX,
