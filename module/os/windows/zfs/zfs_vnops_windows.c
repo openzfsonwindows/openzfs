@@ -128,6 +128,32 @@ void __stdcall PsUpdateDiskCounters(PEPROCESS Process,
     ULONG ReadOperationCount, ULONG WriteOperationCount,
     ULONG FlushOperationCount);
 
+/*
+ * The mount_t a file object belongs to, for the Cache Manager callbacks.
+ *
+ * FILE_OBJECT.DeviceObject is the volume's real (storage) device. For a
+ * normal mount that is the DCB device we made ourselves, whose extension is
+ * a mount_t. For a borrowed (root) volume it is another driver's device
+ * (volmgr), whose extension is not ours, so go through the Vpb to our own
+ * volume device instead. Returns NULL if neither is one of ours.
+ */
+static mount_t *
+fo_mount(FILE_OBJECT *fo)
+{
+	PDEVICE_OBJECT dev = fo->DeviceObject;
+	PVPB vpb;
+
+	if (dev != NULL && dev->DriverObject == WIN_DriverObject)
+		return (dev->DeviceExtension);
+
+	vpb = fo->Vpb;
+	if (vpb != NULL && vpb->DeviceObject != NULL &&
+	    vpb->DeviceObject->DriverObject == WIN_DriverObject)
+		return (vpb->DeviceObject->DeviceExtension);
+
+	return (NULL);
+}
+
 BOOLEAN
 zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 {
@@ -139,7 +165,9 @@ zfs_AcquireForLazyWrite(void *Context, BOOLEAN Wait)
 	if (fo == NULL)
 		return (FALSE);
 
-	mount_t *zmo = fo->DeviceObject->DeviceExtension;
+	mount_t *zmo = fo_mount(fo);
+	if (zmo == NULL)
+		return (FALSE);
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	struct vnode *vp = fo->FsContext;
 
@@ -203,8 +231,7 @@ zfs_ReleaseFromLazyWrite(void *Context)
 	if (fo == NULL)
 		return;
 
-	mount_t *zmo = fo->DeviceObject->DeviceExtension;
-	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
+	mount_t *zmo = fo_mount(fo);
 	struct vnode *vp = fo->FsContext;
 
 	dprintf("vpb %s %lu\n", __func__,
@@ -233,7 +260,9 @@ zfs_AcquireForReadAhead(void *Context, BOOLEAN Wait)
 	if (fo == NULL)
 		return (FALSE);
 
-	mount_t *zmo = fo->DeviceObject->DeviceExtension;
+	mount_t *zmo = fo_mount(fo);
+	if (zmo == NULL)
+		return (FALSE);
 	zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	struct vnode *vp = fo->FsContext;
 	dprintf("vpb %s %lu\n", __func__,
@@ -283,7 +312,7 @@ zfs_ReleaseFromReadAhead(void *Context)
 	if (fo == NULL)
 		return;
 
-	mount_t *zmo = fo->DeviceObject->DeviceExtension;
+	mount_t *zmo = fo_mount(fo);
 	// zfsvfs_t *zfsvfs = vfs_fsprivate(zmo);
 	dprintf("vpb %s %lu\n", __func__,
 	    zmo && zmo->vpb ? zmo->vpb->ReferenceCount : -1);
