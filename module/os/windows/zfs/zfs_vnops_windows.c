@@ -7211,7 +7211,19 @@ fs_read(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 		goto exit;
 	}
 
-	VERIFY3U(VN_HOLD(vp), ==, 0);
+	/*
+	 * A paging read can arrive for a file that has just gone: a mapped
+	 * section keeps the FILE_OBJECT, and so FsContext, alive after the
+	 * vnode has started to terminate, and VN_HOLD() refuses a vnode in
+	 * that state. Fail the request, which the Memory Manager turns into
+	 * an in-page error for the faulting process, rather than assert.
+	 */
+	if (VN_HOLD(vp) != 0) {
+		zfs_exit(zfsvfs, FTAG);
+		Status = STATUS_FILE_DELETED;
+		Irp->IoStatus.Status = Status;
+		goto exit;
+	}
 
 #if 0
 	if (Irp->RequestorMode == UserMode && !(ccb->access & FILE_READ_DATA)) {
@@ -8205,7 +8217,17 @@ fs_write(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp)
 	if ((error = zfs_enter(zfsvfs, FTAG)) != 0)
 		return (SET_ERROR(error));
 
-	VERIFY3U(VN_HOLD(vp), ==, 0);
+	/*
+	 * As in fs_read(): the vnode can already be terminating when a
+	 * (paging) write for it arrives, and VN_HOLD() then refuses it.
+	 * Fail the write rather than assert.
+	 */
+	if (VN_HOLD(vp) != 0) {
+		zfs_exit(zfsvfs, FTAG);
+		Irp->IoStatus.Information = 0;
+		Irp->IoStatus.Status = STATUS_FILE_DELETED;
+		return (SET_ERROR(STATUS_FILE_DELETED));
+	}
 
 	Irp->IoStatus.Information = 0;
 
