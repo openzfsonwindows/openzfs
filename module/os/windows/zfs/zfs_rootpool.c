@@ -19,7 +19,9 @@
  * way spa_import_rootpool() does on FreeBSD. The pool is then opened
  * normally and bootfs gives the dataset to mount.
  *
- * Only single top-level vdev pools are supported for now.
+ * Pools with a single top-level vdev are supported: a single disk, a mirror,
+ * or a raidz. The other devices of a mirror or raidz are found by reading the
+ * labels of the partitions on every disk (see rp_find_leaves()).
  */
 
 #include <sys/zfs_context.h>
@@ -79,12 +81,23 @@ rp_read(PDEVICE_OBJECT dev, uint64_t offset, void *buf, ULONG len)
 	return (rp_wait(dev, irp, &ev, &iosb));
 }
 
+/* Read len bytes at offset, from the start of whatever ctx is */
+typedef NTSTATUS (*rp_read_fn)(void *ctx, uint64_t offset, void *buf,
+    ULONG len);
+
+/* The partition device we were handed in the mount IRP */
+static NTSTATUS
+rp_dev_read(void *ctx, uint64_t offset, void *buf, ULONG len)
+{
+	return (rp_read((PDEVICE_OBJECT)ctx, offset, buf, len));
+}
+
 /*
  * Read the four labels and return the config with the highest txg.
  * ENOENT if none of them hold a usable ZFS label.
  */
 static int
-rp_read_label(PDEVICE_OBJECT dev, uint64_t psize, nvlist_t **configp)
+rp_read_label(rp_read_fn rd, void *ctx, uint64_t psize, nvlist_t **configp)
 {
 	vdev_phys_t *vp;
 	nvlist_t *best = NULL;
@@ -101,7 +114,7 @@ rp_read_label(PDEVICE_OBJECT dev, uint64_t psize, nvlist_t **configp)
 		nvlist_t *config = NULL;
 		uint64_t txg = 0, state = 0;
 
-		if (!NT_SUCCESS(rp_read(dev, vdev_label_offset(psize, l,
+		if (!NT_SUCCESS(rd(ctx, vdev_label_offset(psize, l,
 		    offsetof(vdev_label_t, vl_vdev_phys)), vp,
 		    sizeof (vdev_phys_t))))
 			continue;
@@ -167,12 +180,193 @@ rp_set_path(nvlist_t *nv, uint64_t guid, const char *path)
 	return (B_FALSE);
 }
 
+static uint_t
+rp_count_leaves(nvlist_t *nv)
+{
+	nvlist_t **child;
+	uint_t n, leaves = 0;
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN, &child,
+	    &n) != 0)
+		return (1);
+
+	for (uint_t i = 0; i < n; i++)
+		leaves += rp_count_leaves(child[i]);
+	return (leaves);
+}
+
+/*
+ * A device of the pool that we have not found. The path in the label is from
+ * the machine the pool was made on, and here it can name another disk, which
+ * opening would take offline. Give it a name that does not exist, so it
+ * fails to open and the mirror or raidz carries on without it.
+ */
+#define	RP_MISSING_PATH	"\\Device\\ZfsRootMissingDevice"
+
+static void
+rp_mark_missing(nvlist_t *nv, uint64_t except_guid)
+{
+	nvlist_t **child;
+	uint_t n;
+	uint64_t g;
+
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN, &child,
+	    &n) == 0) {
+		for (uint_t i = 0; i < n; i++)
+			rp_mark_missing(child[i], except_guid);
+		return;
+	}
+
+	if (nvlist_lookup_uint64(nv, ZPOOL_CONFIG_GUID, &g) == 0 &&
+	    g != except_guid) {
+		fnvlist_add_string(nv, ZPOOL_CONFIG_PATH, RP_MISSING_PATH);
+		(void) nvlist_remove_all(nv, ZPOOL_CONFIG_PHYS_PATH);
+		(void) nvlist_remove_all(nv, ZPOOL_CONFIG_DEVID);
+	}
+}
+
+/*
+ * The other devices of the pool are found on the disks themselves. A disk is
+ * opened as a whole (\Device\HarddiskN\Partition0), which mounts no file
+ * system, its partition table says where the partitions are, and the label of
+ * each is read from there.
+ */
+#define	RP_MAX_DISKS	64
+#define	RP_LAYOUT_SIZE	(sizeof (DRIVE_LAYOUT_INFORMATION_EX) + \
+	127 * sizeof (PARTITION_INFORMATION_EX))
+
+struct rp_disk {
+	HANDLE rd_handle;
+	uint64_t rd_base;	/* where the partition starts on the disk */
+};
+
+static NTSTATUS
+rp_disk_read(void *ctx, uint64_t offset, void *buf, ULONG len)
+{
+	struct rp_disk *d = ctx;
+	IO_STATUS_BLOCK iosb = { 0 };
+	LARGE_INTEGER off;
+	NTSTATUS st;
+
+	off.QuadPart = d->rd_base + offset;
+	st = ZwReadFile(d->rd_handle, NULL, NULL, NULL, &iosb, buf, len, &off,
+	    NULL);
+	if (NT_SUCCESS(st) && iosb.Information != len)
+		st = STATUS_UNSUCCESSFUL;
+	return (st);
+}
+
+static NTSTATUS
+rp_open_disk(ULONG disk, HANDLE *h)
+{
+	char name[64];
+	WCHAR wname[64];
+	ANSI_STRING as;
+	UNICODE_STRING us;
+	OBJECT_ATTRIBUTES oa;
+	IO_STATUS_BLOCK iosb;
+	NTSTATUS st;
+
+	snprintf(name, sizeof (name), "\\Device\\Harddisk%lu\\Partition0",
+	    disk);
+	RtlInitAnsiString(&as, name);
+	us.Buffer = wname;
+	us.Length = 0;
+	us.MaximumLength = sizeof (wname);
+	st = RtlAnsiStringToUnicodeString(&us, &as, FALSE);
+	if (!NT_SUCCESS(st))
+		return (st);
+
+	InitializeObjectAttributes(&oa, &us,
+	    OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+	return (ZwCreateFile(h, GENERIC_READ | SYNCHRONIZE, &oa, &iosb, NULL,
+	    FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE,
+	    FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT |
+	    FILE_NO_INTERMEDIATE_BUFFERING, NULL, 0));
+}
+
+/*
+ * Give each leaf of top, other than the one we booted from, the path of the
+ * partition that holds it, as the userland tools write them:
+ * #<offset>#<length>#\??\PhysicalDriveN
+ */
+static void
+rp_find_leaves(nvlist_t *top, uint64_t pool_guid, uint64_t boot_guid,
+    ULONG boot_disk, ULONG boot_part)
+{
+	DRIVE_LAYOUT_INFORMATION_EX *layout;
+
+	layout = ExAllocatePoolWithTag(NonPagedPoolNx, RP_LAYOUT_SIZE, RP_TAG);
+	if (layout == NULL)
+		return;
+
+	for (ULONG disk = 0; disk < RP_MAX_DISKS; disk++) {
+		struct rp_disk d;
+		IO_STATUS_BLOCK iosb = { 0 };
+
+		if (!NT_SUCCESS(rp_open_disk(disk, &d.rd_handle)))
+			continue;
+
+		if (NT_SUCCESS(ZwDeviceIoControlFile(d.rd_handle, NULL, NULL,
+		    NULL, &iosb, IOCTL_DISK_GET_DRIVE_LAYOUT_EX, NULL, 0,
+		    layout, RP_LAYOUT_SIZE))) {
+			for (ULONG i = 0; i < layout->PartitionCount; i++) {
+				PARTITION_INFORMATION_EX *pe =
+				    &layout->PartitionEntry[i];
+				nvlist_t *label = NULL;
+				uint64_t pguid = 0, guid = 0;
+				char path[96];
+
+				/* Too small for a pool, or the one we have */
+				if (pe->PartitionNumber == 0 ||
+				    pe->PartitionLength.QuadPart <
+				    SPA_MINDEVSIZE ||
+				    (disk == boot_disk &&
+				    pe->PartitionNumber == boot_part))
+					continue;
+
+				d.rd_base = pe->StartingOffset.QuadPart;
+				if (rp_read_label(rp_disk_read, &d,
+				    pe->PartitionLength.QuadPart, &label) != 0)
+					continue;
+
+				(void) nvlist_lookup_uint64(label,
+				    ZPOOL_CONFIG_POOL_GUID, &pguid);
+				(void) nvlist_lookup_uint64(label,
+				    ZPOOL_CONFIG_GUID, &guid);
+				nvlist_free(label);
+
+				if (pguid != pool_guid || guid == boot_guid)
+					continue;
+
+				snprintf(path, sizeof (path),
+				    "#%llu#%llu#\\??\\PhysicalDrive%lu",
+				    (uint64_t)pe->StartingOffset.QuadPart,
+				    (uint64_t)pe->PartitionLength.QuadPart,
+				    disk);
+
+				if (rp_set_path(top, guid, path))
+					cmn_err(CE_NOTE, "%s: vdev %llx is "
+					    "Harddisk%lu Partition%lu",
+					    __func__, guid, disk,
+					    pe->PartitionNumber);
+			}
+		}
+
+		ZwClose(d.rd_handle);
+	}
+
+	ExFreePoolWithTag(layout, RP_TAG);
+}
+
 /*
  * Turn a single device's label config into a full pool config, as
  * spa_generate_rootconf() does on FreeBSD.
  */
 static nvlist_t *
-rp_generate_rootconf(nvlist_t *label, const char *path)
+rp_generate_rootconf(nvlist_t *label, const char *path, ULONG boot_disk,
+    ULONG boot_part)
 {
 	nvlist_t *config, *top, *nvroot;
 	uint64_t pgid, vguid, nchildren = 1;
@@ -186,6 +380,7 @@ rp_generate_rootconf(nvlist_t *label, const char *path)
 	}
 
 	vguid = fnvlist_lookup_uint64(label, ZPOOL_CONFIG_GUID);
+	pgid = fnvlist_lookup_uint64(label, ZPOOL_CONFIG_POOL_GUID);
 	top = fnvlist_dup(fnvlist_lookup_nvlist(label,
 	    ZPOOL_CONFIG_VDEV_TREE));
 
@@ -194,6 +389,12 @@ rp_generate_rootconf(nvlist_t *label, const char *path)
 		    __func__);
 		fnvlist_free(top);
 		return (NULL);
+	}
+
+	/* A mirror or raidz has more devices, whose paths we don't trust */
+	if (rp_count_leaves(top) > 1) {
+		rp_mark_missing(top, vguid);
+		rp_find_leaves(top, pgid, vguid, boot_disk, boot_part);
 	}
 
 	config = fnvlist_dup(label);
@@ -282,6 +483,9 @@ rp_register_rootpool(nvlist_t *config, char *namep, size_t namelen)
  * Afterwards it rewrites \SystemRoot to a plain NT device name, so we have to
  * follow the links once, at driver start.
  */
+/* \SystemRoot, \Device\BootDevice, \ArcName\..., and the partition */
+#define	RP_MAX_LINK_HOPS	4
+
 static boolean_t rp_boot_valid = B_FALSE;
 static ULONG rp_boot_disk = 0;
 static ULONG rp_boot_part = 0;
@@ -361,6 +565,29 @@ rp_arc_link(PUNICODE_STRING path, PUNICODE_STRING link)
 	return (B_TRUE);
 }
 
+/*
+ * The link to follow next in a boot path: either "\ArcName\<name>", or
+ * "\Device\BootDevice", which is what "\SystemRoot" points through.
+ */
+static boolean_t
+rp_boot_link(PUNICODE_STRING path, PUNICODE_STRING link)
+{
+	UNICODE_STRING bootdev = RTL_CONSTANT_STRING(L"\\Device\\BootDevice");
+	size_t n = path->Length / sizeof (WCHAR);
+	size_t blen = bootdev.Length / sizeof (WCHAR);
+
+	if (rp_arc_link(path, link))
+		return (B_TRUE);
+
+	if (!RtlPrefixUnicodeString(&bootdev, path, TRUE) ||
+	    (n > blen && path->Buffer[blen] != L'\\'))
+		return (B_FALSE);
+
+	link->Buffer = path->Buffer;
+	link->Length = link->MaximumLength = bootdev.Length;
+	return (B_TRUE);
+}
+
 static NTSTATUS
 rp_query_link(PUNICODE_STRING name, PUNICODE_STRING target)
 {
@@ -383,13 +610,19 @@ rp_query_link(PUNICODE_STRING name, PUNICODE_STRING target)
 	return (status);
 }
 
-/* Call once, from DriverEntry, before any boot volume is mounted. */
-void
-zfs_rootpool_boot_init(void)
+/*
+ * Work out which partition the loader booted from. Leaves rp_boot_valid
+ * false if that can not be told (yet).
+ */
+static void
+rp_resolve_boot(void)
 {
 	UNICODE_STRING sysroot = RTL_CONSTANT_STRING(L"\\SystemRoot");
 	UNICODE_STRING t1, t2, link;
+	PUNICODE_STRING cur = &t1, next = &t2, tmp;
+	NTSTATUS status;
 	WCHAR b1[256], b2[256];
+	int hops;
 
 	t1.Buffer = b1;
 	t1.Length = 0;
@@ -402,20 +635,53 @@ zfs_rootpool_boot_init(void)
 		return;
 	dprintf("%s: SystemRoot is %wZ\n", __func__, &t1);
 
-	/* Not ARC based: the boot volume is already mounted, or not ours */
-	if (!rp_arc_link(&t1, &link))
-		return;
+	/*
+	 * \SystemRoot goes through \Device\BootDevice to an \ArcName\ link,
+	 * and that to the partition device. Follow it until we have the
+	 * partition. If it is not a link we know, the boot volume is already
+	 * mounted, or not ours.
+	 */
+	for (hops = 0; hops < RP_MAX_LINK_HOPS; hops++) {
+		if (rp_parse_partition_path(cur, &rp_boot_disk,
+		    &rp_boot_part))
+			break;
 
-	if (!NT_SUCCESS(rp_query_link(&link, &t2)))
-		return;
-	dprintf("%s: %wZ is %wZ\n", __func__, &link, &t2);
+		if (!rp_boot_link(cur, &link))
+			return;
 
-	if (!rp_parse_partition_path(&t2, &rp_boot_disk, &rp_boot_part))
+		next->Length = 0;
+		status = rp_query_link(&link, next);
+		if (!NT_SUCCESS(status)) {
+			dprintf("%s: can not follow %wZ: 0x%lx\n", __func__,
+			    &link, status);
+			return;
+		}
+		dprintf("%s: %wZ is %wZ\n", __func__, &link, next);
+
+		tmp = cur;
+		cur = next;
+		next = tmp;
+	}
+
+	if (hops == RP_MAX_LINK_HOPS)
 		return;
 
 	rp_boot_valid = B_TRUE;
 	cmn_err(CE_NOTE, "%s: booted from Harddisk%lu Partition%lu", __func__,
 	    rp_boot_disk, rp_boot_part);
+	dprintf("%s: booted from Harddisk%lu Partition%lu\n", __func__,
+	    rp_boot_disk, rp_boot_part);
+}
+
+/*
+ * Call once, from DriverEntry, before any boot volume is mounted. The
+ * partition level \ArcName\ links do not exist yet this early, so this
+ * may not get as far as the partition; zfs_rootpool_import() tries again.
+ */
+void
+zfs_rootpool_boot_init(void)
+{
+	rp_resolve_boot();
 }
 
 /*
@@ -457,6 +723,9 @@ zfs_rootpool_import(PDEVICE_OBJECT dev, char *dsname, size_t dslen)
 	 * else is just a data disk, so decline the mount without even reading
 	 * its labels, and let the normal import path deal with it.
 	 */
+	if (zfs_boot_import >= 2 && !rp_boot_valid)
+		rp_resolve_boot();
+
 	if (zfs_boot_import >= 2 &&
 	    (!rp_boot_valid || sdn.DeviceNumber != rp_boot_disk ||
 	    sdn.PartitionNumber != rp_boot_part))
@@ -471,7 +740,7 @@ zfs_rootpool_import(PDEVICE_OBJECT dev, char *dsname, size_t dslen)
 	if (psize == 0)
 		return (ENOENT);
 
-	if ((error = rp_read_label(dev, psize, &label)) != 0)
+	if ((error = rp_read_label(rp_dev_read, dev, psize, &label)) != 0)
 		return (error);
 
 	/*
@@ -481,7 +750,8 @@ zfs_rootpool_import(PDEVICE_OBJECT dev, char *dsname, size_t dslen)
 	snprintf(path, sizeof (path), "\\Device\\Harddisk%lu\\Partition%lu",
 	    sdn.DeviceNumber, sdn.PartitionNumber);
 
-	config = rp_generate_rootconf(label, path);
+	config = rp_generate_rootconf(label, path, sdn.DeviceNumber,
+	    sdn.PartitionNumber);
 	nvlist_free(label);
 	if (config == NULL)
 		return (ENOTSUP);
