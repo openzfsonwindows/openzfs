@@ -4246,6 +4246,7 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	char *remainder = NULL;
 	char buffer[PATH_MAX], *filename;
 	struct vnode *tdvp = NULL, *tvp = NULL, *fdvp = NULL;
+	boolean_t fvp_held = B_FALSE;
 	uint64_t parent = 0;
 
 	// If given a RootDirectory Handle, lookup tdvp. It is a handle in
@@ -4314,6 +4315,13 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	VERIFY(sa_lookup(zp->z_sa_hdl, SA_ZPL_PARENT(zfsvfs),
 	    &parent, sizeof (parent)) == 0);
 
+	/*
+	 * fvp is held only once we have taken the hold below. The error
+	 * paths before that must not release it: the only reference on it
+	 * is then the dispatcher's own, and dropping that one underflows
+	 * v_iocount when the dispatcher releases it.
+	 */
+
 	// Fetch fdvp
 	error = zfs_zget(zfsvfs, parent, &dzp);
 	if (error) {
@@ -4323,6 +4331,7 @@ set_file_link_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	fdvp = ZTOV(dzp);
 
 	VN_HOLD(fvp);
+	fvp_held = B_TRUE;
 	// "tvp"(if not NULL) and "tdvp" is held by zfs_find_dvp_vp
 
 	if (tvp != NULL &&
@@ -4371,7 +4380,7 @@ out:
 		VN_RELE(tdvp);
 	if (fdvp)
 		VN_RELE(fdvp);
-	if (fvp)
+	if (fvp_held)
 		VN_RELE(fvp);
 	if (tvp)
 		VN_RELE(tvp);
@@ -4449,6 +4458,7 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	char *remainder = NULL;
 	char buffer[PATH_MAX], *filename;
 	struct vnode *tdvp = NULL, *tvp = NULL, *fdvp = NULL;
+	boolean_t fvp_held = B_FALSE;
 	uint64_t parent = 0;
 	PFILE_OBJECT dFileObject = NULL;
 	HANDLE destParentHandle = 0;
@@ -4600,8 +4610,10 @@ set_file_rename_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		use_fdvp_for_tdvp = 1;
 	}
 
-	// Goto out will release this
+	// Goto out will release this, but only once it is held: the early
+	// exits above have only the dispatcher's own reference on fvp.
 	VN_HOLD(fvp);
+	fvp_held = B_TRUE;
 
 	// Fetch parent, and hold
 	fdvp = zfs_parent(fvp);
@@ -4753,7 +4765,7 @@ out:
 		ObDereferenceObject(dFileObject);
 	if (tdvp) VN_RELE(tdvp);
 	if (fdvp) VN_RELE(fdvp);
-	if (fvp) VN_RELE(fvp);
+	if (fvp_held) VN_RELE(fvp);
 	if (tvp) VN_RELE(tvp);
 
 	return (error);
