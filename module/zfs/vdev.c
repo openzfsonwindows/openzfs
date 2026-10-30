@@ -6432,7 +6432,7 @@ vdev_prop_set(spa_t *spa, nvlist_t *innvl, nvlist_t *outnvl)
 	spa_config_enter(spa, SCL_CONFIG, FTAG, RW_READER);
 	if ((vd = spa_lookup_by_guid(spa, vdev_guid, B_TRUE)) == NULL) {
 		spa_config_exit(spa, SCL_CONFIG, FTAG);
-		return (SET_ERROR(ENOENT));
+		return (SET_ERROR(ENODEV));
 	}
 
 	/* Check that vdev has a zap we can use */
@@ -6485,7 +6485,7 @@ vdev_prop_set(spa_t *spa, nvlist_t *innvl, nvlist_t *outnvl)
 			spa_config_enter(spa, SCL_CONFIG, FTAG, RW_READER);
 			vd = spa_lookup_by_guid(spa, vdev_guid, B_TRUE);
 			if (vd == NULL && error == 0)
-				error = SET_ERROR(ENOENT);
+				error = SET_ERROR(ENODEV);
 			break;
 		case VDEV_PROP_ALLOCATING:
 			if (nvpair_value_uint64(elem, &intval) != 0) {
@@ -6506,7 +6506,7 @@ vdev_prop_set(spa_t *spa, nvlist_t *innvl, nvlist_t *outnvl)
 			spa_config_enter(spa, SCL_CONFIG, FTAG, RW_READER);
 			vd = spa_lookup_by_guid(spa, vdev_guid, B_TRUE);
 			if (vd == NULL && error == 0)
-				error = SET_ERROR(ENOENT);
+				error = SET_ERROR(ENODEV);
 			break;
 		case VDEV_PROP_FAILFAST:
 			if (nvpair_value_uint64(elem, &intval) != 0 ||
@@ -6734,7 +6734,7 @@ vdev_prop_get(spa_t *spa, nvlist_t *innvl, nvlist_t *outnvl)
 	spa_config_enter(spa, SCL_CONFIG, FTAG, RW_READER);
 	if ((vd = spa_lookup_by_guid(spa, vdev_guid, B_TRUE)) == NULL) {
 		spa_config_exit(spa, SCL_CONFIG, FTAG);
-		return (SET_ERROR(ENOENT));
+		return (SET_ERROR(ENODEV));
 	}
 
 	/*
