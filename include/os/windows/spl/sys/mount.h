@@ -168,6 +168,16 @@ struct mount
 	 * BSODing with INVALID_REFERENCE_COUNT (0x139).
 	 */
 	boolean_t	dcb_del_pending;
+	/*
+	 * Set on a MOUNT_TYPE_DCB that was not built from a device we
+	 * created (root-on-ZFS: the kernel hands us the real partition
+	 * device owned by disk/partmgr). PhysicalDeviceObject and
+	 * FunctionalDeviceObject then point at that foreign device, which
+	 * we hold a reference on but must never IoDeleteDevice, detach
+	 * from, or clear the Vpb of. The mount_t itself is kmem-allocated
+	 * rather than a DeviceExtension, so teardown must kmem_free it.
+	 */
+	boolean_t	real_device_borrowed;
 };
 typedef struct mount mount_t;
 typedef struct mount vfsp_t;

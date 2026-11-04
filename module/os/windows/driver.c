@@ -49,6 +49,7 @@ extern int zfs_vfsops_fini(void);
 extern int zfs_kmod_init(void);
 extern void zfs_kmod_fini(void);
 
+extern void zfs_rootpool_boot_init(void);
 extern void sysctl_os_init(PUNICODE_STRING RegistryPath);
 extern void sysctl_os_all(PUNICODE_STRING RegistryPath);
 extern void sysctl_os_fini(void);
@@ -141,6 +142,13 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 	sysctl_os_init(pRegistryPath);
 	// Process Registry once before init.
 	sysctl_os_all(pRegistryPath);
+
+	/*
+	 * Remember which partition the loader booted from, while
+	 * \SystemRoot still names it. The kernel rewrites it once the
+	 * boot volume is mounted.
+	 */
+	zfs_rootpool_boot_init();
 
 	spl_start(pRegistryPath);
 
