@@ -25,12 +25,11 @@
 #include <libintl.h>
 #include <sys/types.h>
 #include <sys/dkio.h>
-#include <sys/mhd.h>
 #include <sys/param.h>
 #include <sys/dktp/fdisk.h>
 #include <sys/efi_partition.h>
 #include <sys/byteorder.h>
-#include <umem.h>
+#include <sys/kmem.h>
 #if defined(__linux__)
 #include <linux/fs.h>
 #endif
@@ -835,8 +834,8 @@ efi_read(int fd, struct dk_gpt *vtoc)
 		}
 	}
 
-	dk_ioc.dki_data = (void *)umem_alloc_aligned(label_len,
-	    disk_info.dki_lbsize, UMEM_DEFAULT);
+	dk_ioc.dki_data = (void *)kmem_alloc_aligned(label_len,
+	    disk_info.dki_lbsize, KM_NOSLEEP);
 	if (dk_ioc.dki_data == NULL)
 		return (VT_ERROR);
 
@@ -957,7 +956,7 @@ efi_read(int fd, struct dk_gpt *vtoc)
 	}
 
 	if (rval < 0) {
-		umem_free_aligned(efi, label_len);
+		kmem_free_aligned(efi, label_len);
 		return (rval);
 	}
 
@@ -1034,9 +1033,9 @@ efi_read(int fd, struct dk_gpt *vtoc)
 				efi_gpt_t *backup;
 				dk_efi_t bak_ioc;
 
-				backup = umem_alloc_aligned(
+				backup = kmem_alloc_aligned(
 				    disk_info.dki_lbsize,
-				    disk_info.dki_lbsize, UMEM_DEFAULT);
+				    disk_info.dki_lbsize, KM_NOSLEEP);
 				if (backup != NULL) {
 					bak_ioc.dki_lba =
 					    vtoc->efi_altern_lba;
@@ -1071,7 +1070,7 @@ efi_read(int fd, struct dk_gpt *vtoc)
 						    errno);
 					}
 					}
-					umem_free_aligned(backup,
+					kmem_free_aligned(backup,
 					    disk_info.dki_lbsize);
 				}
 
@@ -1135,7 +1134,7 @@ efi_read(int fd, struct dk_gpt *vtoc)
 		UUID_LE_CONVERT(vtoc->efi_parts[i].p_uguid,
 		    efi_parts[i].efi_gpe_UniquePartitionGUID);
 	}
-	umem_free_aligned(efi, label_len);
+	kmem_free_aligned(efi, label_len);
 
 	return (dki_info.dki_partition);
 }
@@ -1152,7 +1151,7 @@ write_pmbr(int fd, struct dk_gpt *vtoc)
 	int		len;
 
 	len = (vtoc->efi_lbasize == 0) ? sizeof (mb) : vtoc->efi_lbasize;
-	buf = (void *)umem_alloc_aligned(len, len, UMEM_DEFAULT);
+	buf = (void *)kmem_alloc_aligned(len, len, KM_NOSLEEP);
 	if (buf == NULL)
 		return (VT_ERROR);
 
@@ -1216,7 +1215,7 @@ write_pmbr(int fd, struct dk_gpt *vtoc)
 	dk_ioc.dki_lba = 0;
 	dk_ioc.dki_length = len;
 	if (efi_ioctl(fd, DKIOCSETEFI, &dk_ioc) == -1) {
-		umem_free_aligned(buf, len);
+		kmem_free_aligned(buf, len);
 		switch (errno) {
 		case EIO:
 			return (VT_EIO);
@@ -1226,7 +1225,7 @@ write_pmbr(int fd, struct dk_gpt *vtoc)
 			return (VT_ERROR);
 		}
 	}
-	umem_free_aligned(buf, len);
+	kmem_free_aligned(buf, len);
 	return (0);
 }
 
@@ -1671,8 +1670,8 @@ efi_write(int fd, struct dk_gpt *vtoc)
 	 * for backup GPT header.
 	 */
 	lba_backup_gpt_hdr = vtoc->efi_last_u_lba + 1 + nblocks;
-	dk_ioc.dki_data = (void *)umem_alloc_aligned(dk_ioc.dki_length,
-	    vtoc->efi_lbasize, UMEM_DEFAULT);
+	dk_ioc.dki_data = (void *)kmem_alloc_aligned(dk_ioc.dki_length,
+	    vtoc->efi_lbasize, KM_NOSLEEP);
 	if (dk_ioc.dki_data == NULL)
 		return (VT_ERROR);
 
@@ -1766,7 +1765,7 @@ efi_write(int fd, struct dk_gpt *vtoc)
 	efi->efi_gpt_Signature = LE_64(EFI_SIGNATURE);
 
 	if (efi_ioctl(fd, DKIOCSETEFI, &dk_ioc) == -1) {
-		umem_free_aligned(dk_ioc.dki_data, dk_ioc.dki_length);
+		kmem_free_aligned(dk_ioc.dki_data, dk_ioc.dki_length);
 		switch (errno) {
 		case EIO:
 			return (VT_EIO);
@@ -1778,7 +1777,7 @@ efi_write(int fd, struct dk_gpt *vtoc)
 	}
 	/* if it's a metadevice we're done */
 	if (md_flag) {
-		umem_free_aligned(dk_ioc.dki_data, dk_ioc.dki_length);
+		kmem_free_aligned(dk_ioc.dki_data, dk_ioc.dki_length);
 		return (0);
 	}
 
@@ -1853,7 +1852,7 @@ efi_write(int fd, struct dk_gpt *vtoc)
 	// Verify it landed on disk ok
 	rval = verify_label(fd, vtoc->efi_lbasize, chksum_sector_1);
 
-	umem_free_aligned(dk_ioc.dki_data, dk_ioc.dki_length);
+	kmem_free_aligned(dk_ioc.dki_data, dk_ioc.dki_length);
 
 	return (rval);
 }
