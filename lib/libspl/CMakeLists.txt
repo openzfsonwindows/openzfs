@@ -6,6 +6,7 @@ add_library(libspl
     condvar.c
 	cred.c
 	kmem.c
+	kmem_cache.c
 	kstat.c
 	libspl.c
     list.c
