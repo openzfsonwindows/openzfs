@@ -1458,13 +1458,12 @@ zfs_crypto_load_key_direct(zfs_handle_t *zhp, boolean_t noop,
 	uint8_t *key_material = NULL, *key_data = NULL;
 	boolean_t is_encroot;
 
-	(void) snprintf(errbuf, sizeof (errbuf),
-	    dgettext(TEXT_DOMAIN, "Key load error"));
+	(void) snprintf(errbuf, sizeof (errbuf), "Key load error");
 
 	/* check that encryption is enabled for the pool */
 	if (!encryption_feature_is_enabled(zhp->zpool_hdl)) {
-		zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
-		    "Encryption feature not enabled."));
+		zfs_error_aux(zhp->zfs_hdl,
+		    "Encryption feature not enabled.");
 		ret = EINVAL;
 		goto error;
 	}
@@ -1472,8 +1471,8 @@ zfs_crypto_load_key_direct(zfs_handle_t *zhp, boolean_t noop,
 	/* Fetch the keyformat. Check that the dataset is encrypted. */
 	keyformat = zfs_prop_get_int(zhp, ZFS_PROP_KEYFORMAT);
 	if (keyformat == ZFS_KEYFORMAT_NONE) {
-		zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
-		    "'%s' is not encrypted."), zfs_get_name(zhp));
+		zfs_error_aux(zhp->zfs_hdl,
+		    "'%s' is not encrypted.", zfs_get_name(zhp));
 		ret = EINVAL;
 		goto error;
 	}
@@ -1484,13 +1483,13 @@ zfs_crypto_load_key_direct(zfs_handle_t *zhp, boolean_t noop,
 	 */
 	ret = zfs_crypto_get_encryption_root(zhp, &is_encroot, prop_encroot);
 	if (ret != 0) {
-		zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
-		    "Failed to get encryption root for '%s'."),
+		zfs_error_aux(zhp->zfs_hdl,
+		    "Failed to get encryption root for '%s'.",
 		    zfs_get_name(zhp));
 		goto error;
 	} else if (!is_encroot) {
-		zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
-		    "Keys must be loaded for encryption root of '%s' (%s)."),
+		zfs_error_aux(zhp->zfs_hdl,
+		    "Keys must be loaded for encryption root of '%s' (%s).",
 		    zfs_get_name(zhp), prop_encroot);
 		ret = EINVAL;
 		goto error;
@@ -1500,8 +1499,8 @@ zfs_crypto_load_key_direct(zfs_handle_t *zhp, boolean_t noop,
 	if (!noop) {
 		keystatus = zfs_prop_get_int(zhp, ZFS_PROP_KEYSTATUS);
 		if (keystatus == ZFS_KEYSTATUS_AVAILABLE) {
-			zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
-			    "Key already loaded for '%s'."), zfs_get_name(zhp));
+			zfs_error_aux(zhp->zfs_hdl,
+			    "Key already loaded for '%s'.", zfs_get_name(zhp));
 			ret = EEXIST;
 			goto error;
 		}
@@ -1533,30 +1532,30 @@ zfs_crypto_load_key_direct(zfs_handle_t *zhp, boolean_t noop,
 	if (ret != 0) {
 		switch (ret) {
 		case EPERM:
-			zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
-			    "Permission denied."));
+			zfs_error_aux(zhp->zfs_hdl,
+			    "Permission denied.");
 			break;
 		case EINVAL:
-			zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
-			    "Invalid parameters provided for dataset %s."),
+			zfs_error_aux(zhp->zfs_hdl,
+			    "Invalid parameters provided for dataset %s.",
 			    zfs_get_name(zhp));
 			break;
 		case EEXIST:
-			zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
-			    "Key already loaded for '%s'."), zfs_get_name(zhp));
+			zfs_error_aux(zhp->zfs_hdl,
+			    "Key already loaded for '%s'.", zfs_get_name(zhp));
 			break;
 		case EBUSY:
-			zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
-			    "'%s' is busy."), zfs_get_name(zhp));
+			zfs_error_aux(zhp->zfs_hdl,
+			    "'%s' is busy.", zfs_get_name(zhp));
 			break;
 		case EACCES:
-			zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
-			    "Incorrect key provided for '%s'."),
+			zfs_error_aux(zhp->zfs_hdl,
+			    "Incorrect key provided for '%s'.",
 			    zfs_get_name(zhp));
 			break;
 		case ZFS_ERR_CRYPTO_NOTSUP:
-			zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
-			    "'%s' uses an unsupported encryption suite."),
+			zfs_error_aux(zhp->zfs_hdl,
+			    "'%s' uses an unsupported encryption suite.",
 			    zfs_get_name(zhp));
 			break;
 		}
