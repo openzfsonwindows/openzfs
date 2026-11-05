@@ -155,6 +155,9 @@ extern void spl_cleanup(void);
 #ifndef roundup
 #define	roundup(x, y)		((((x) + ((y) - 1)) / (y)) * (y))
 #endif
+#ifndef rounddown
+#define	rounddown(x, y)		(((x) / (y)) * (y))
+#endif
 
 /*
  * Compatibility macros/typedefs needed for Solaris -> Linux port
