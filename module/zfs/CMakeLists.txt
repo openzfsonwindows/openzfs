@@ -80,6 +80,7 @@ wdk_add_library(zfskern
   uberblock.c
   unique.c
   vdev.c
+  vdev_anyraid.c
   vdev_draid.c
   vdev_draid_rand.c
   vdev_file.c

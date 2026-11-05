@@ -120,6 +120,7 @@ add_library(libzpool
     "${MODULE_DIR}/zfs/uberblock.c"
     "${MODULE_DIR}/zfs/unique.c"
     "${MODULE_DIR}/zfs/vdev.c"
+    "${MODULE_DIR}/zfs/vdev_anyraid.c"
     "${MODULE_DIR}/zfs/vdev_draid.c"
     "${MODULE_DIR}/zfs/vdev_draid_rand.c"
     "${MODULE_DIR}/zfs/vdev_file.c"
