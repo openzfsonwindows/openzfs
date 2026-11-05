@@ -1633,6 +1633,26 @@ zfs_grow_blocksize(znode_t *zp, uint64_t size, dmu_tx_t *tx)
 }
 
 /*
+ * Zero the cached part of the file's last page past the end of the file,
+ * up to end, before the file is extended to end or beyond.
+ *
+ * On Linux and FreeBSD this clears stale data a shared mapping left past
+ * the old end of file, so it does not resurface once the file grows over
+ * it. zn_has_cached_data() here only tracks whether the file has ever been
+ * mapped at all (zp->z_is_mapped), not whether this byte range has a
+ * cached page, and there is no Windows equivalent wired up yet for
+ * zeroing a sub-range of the Cache Manager's view of the file -- same
+ * unfinished state as zn_flush_cached_data() above. Left a no-op for now;
+ * this does not regress anything, since Windows never zeroed this range
+ * before this function existed upstream.
+ */
+void
+zfs_zero_eof_page(znode_t *zp, zfs_locked_range_t *lr, uint64_t end)
+{
+	(void) zp, (void) lr, (void) end;
+}
+
+/*
  * Increase the file length
  *
  *	IN:	zp	- znode of file to free data in.
@@ -1661,6 +1681,8 @@ zfs_extend(znode_t *zp, uint64_t end)
 		zfs_rangelock_exit(lr);
 		return (0);
 	}
+
+	zfs_zero_eof_page(zp, lr, end);
 
 	for (;;) {
 		tx = dmu_tx_create(zfsvfs->z_os);

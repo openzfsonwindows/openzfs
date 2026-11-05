@@ -130,6 +130,7 @@ extern minor_t zfsdev_minor_alloc(void);
 
 #define	zn_has_cached_data(zp, start, end)	(zp->z_is_mapped)
 #define	zn_flush_cached_data(zp, sync)	/* find solution */
+#define	zn_zero_eof_page(zp, lr, end)	zfs_zero_eof_page(zp, lr, end)
 
 #define	zn_rlimit_fsize(size)		(0)
 #define	zn_rlimit_fsize_uio(zp, uio)	(0)
@@ -198,6 +199,8 @@ extern void	zfs_tstamp_update_setup_ext(struct znode *,
 extern void	zfs_tstamp_update_setup(struct znode *,
     uint_t, uint64_t [2], uint64_t [2]);
 extern void zfs_znode_free(struct znode *);
+extern void zfs_zero_eof_page(struct znode *, struct zfs_locked_range *,
+    uint64_t);
 
 extern zil_get_data_t zfs_get_data;
 extern zil_replay_func_t *const zfs_replay_vector[TX_MAX_TYPE];
