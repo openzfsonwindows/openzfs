@@ -31,6 +31,7 @@
 #include <libgen.h>
 #include <zone.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/efi_partition.h>
 #include <sys/systeminfo.h>
 #include <sys/zfs_ioctl.h>
@@ -477,6 +478,51 @@ zpool_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp, const char *name)
 		fprintf(stderr, "%s: failed %d (0x%x)\r\n", __func__,
 		    rval, rval);
 	rval = 0;
+
+	/*
+	 * OnlineDisk() is a fire-and-forget WMI call with no confirmed
+	 * completion signal, and Windows's own partition-manager view of
+	 * the disk (what IOCTL_DISK_GET_DRIVE_LAYOUT_EX reports, which is
+	 * what zpool_find_import_blkid() relies on for every later "zpool
+	 * import" or zdb scan) does not reliably pick up a brand-new GPT
+	 * on a disk that has never been partitioned before, until
+	 * something explicitly tells Windows to rescan it. Without this,
+	 * a disk labeled here for the first time keeps reporting as
+	 * unpartitioned to any later scan: the pool still gets created
+	 * and the vdev's own label can still be found by reading the raw
+	 * disk directly, but the first scan that re-derives the vdev tree
+	 * from a device enumeration (zpool import, or zdb -e) resolves
+	 * this vdev to the wrong (unpartitioned) device path and fails
+	 * checksum validation against it.
+	 *
+	 * Open the disk fresh and ask Windows to re-enumerate it now --
+	 * the same thing "Rescan Disks" in Disk Management, or diskpart's
+	 * "rescan", does. Retry briefly: the disk may not be reopenable
+	 * the instant OnlineDisk() returns.
+	 */
+	{
+		int rfd = -1;
+		int retry = 0;
+		DWORD bytesReturned;
+
+		do {
+			if ((rfd = open(path, O_RDONLY)) >= 0)
+				break;
+			usleep(50 * MILLISEC);
+		} while (retry++ < 20);
+
+		if (rfd >= 0) {
+			if (!DeviceIoControl(rfd, IOCTL_DISK_UPDATE_PROPERTIES,
+			    NULL, 0, NULL, 0, &bytesReturned, NULL)) {
+				fprintf(stderr, "%s: rescan ioctl failed: "
+				    "%lu\r\n", __func__, GetLastError());
+			}
+			(void) close(rfd);
+		} else {
+			fprintf(stderr, "%s: could not reopen '%s' to "
+			    "rescan: %d\r\n", __func__, path, errno);
+		}
+	}
 
 	/*
 	 * Some block drivers (like pcata) may not support EFI GPT labels.
