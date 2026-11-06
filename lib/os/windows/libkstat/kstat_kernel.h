@@ -69,10 +69,12 @@ typedef struct kstat_raw_ops {
  * This is a bit unfortunate, we store a mutex in kernel which userland needs
  * to match in size
  */
+/* BEGIN CSTYLED */
 __declspec(align(8)) struct kernel_mutex
 {
 	unsigned char opaque[0x30];
 };
+/* END CSTYLED */
 
 #pragma pack(4)
 typedef struct kstat {
