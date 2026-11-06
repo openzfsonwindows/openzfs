@@ -25,7 +25,6 @@
 #define	_SYS_TASKQ_IMPL_H
 
 #include <sys/taskq.h>
-#include <sys/inttypes.h>
 #include <sys/vmem.h>
 #include <sys/list.h>
 #include <sys/kstat.h>

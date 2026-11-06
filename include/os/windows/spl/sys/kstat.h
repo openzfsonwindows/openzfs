@@ -178,16 +178,6 @@ typedef struct kstat_named {
 			} addr;
 			uint32_t	len;	/* # bytes for strlen + '\0' */
 		} str;
-/*
- * The int64_t and uint64_t types are not valid for a maximally conformant
- * 32-bit compilation environment (cc -Xc) using compilers prior to the
- * introduction of C99 conforming compiler (reference ISO/IEC 9899:1990).
- * In these cases, the visibility of i64 and ui64 is only permitted for
- * 64-bit compilation environments or 32-bit non-maximally conformant
- * C89 or C90 ANSI C compilation environments (cc -Xt and cc -Xa). In the
- * C99 ANSI C compilation environment, the long long type is supported.
- * The _INT64_TYPE is defined by the implementation (see sys/int_types.h).
- */
 		int64_t		i64;
 		uint64_t	ui64;
 
