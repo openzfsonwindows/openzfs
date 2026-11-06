@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: CDDL-1.0
 <#
 .SYNOPSIS
   Prepare a copy of a SYSTEM registry hive for booting from a ZFS root.
