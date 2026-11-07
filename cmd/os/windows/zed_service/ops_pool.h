@@ -34,6 +34,13 @@ char *zed_create_pool_json(uint32_t flags, uint32_t topology,
     const char *poolname_utf8, const char *props_blob_utf8,
     const char *passphrase_utf8, size_t *out_len);
 
+// Writes the passphrase and a newline to a new file only SYSTEM and the
+// Administrators can open, and returns its path, for a "file:///" keylocation
+// that libzfs reads while creating an encrypted dataset. The caller deletes
+// the file as soon as the create is done.
+BOOL zed_write_temp_keyfile(const char *passphrase_utf8, wchar_t *out_path,
+    DWORD out_path_cch);
+
 // { "ok":true, "name":"tank" } or { "ok":false, "err":"<msg>" }
 char *zed_destroy_pool_json(uint32_t flags, uint64_t guid,
     const char *pool_name_utf8, size_t *out_len);

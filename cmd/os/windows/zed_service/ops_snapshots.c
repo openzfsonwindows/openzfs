@@ -32,6 +32,7 @@
 
 #include "ops_common.h"
 #include "ops_snapshots.h"
+#include "ops_pool.h"
 #include "memfile.h"
 
 // Include after libzfs for dprintf
@@ -495,4 +496,349 @@ zed_snapshot_rollback_json(uint32_t flags, const char *dataset_utf8,
 	fnvlist_remove(res, "ok");
 	fnvlist_add_boolean_value(res, "ok", B_TRUE);
 	return (finish_json(res, out_len));
+}
+
+/* -------------------- create / destroy datasets -------------------- */
+
+#define	ZED_DS_MAX_PROPS	64
+#define	ZED_DS_MAX_TREE		4096
+
+/* "key=value" lines into a string nvlist; FALSE if a line is malformed. */
+static BOOL
+parse_props(const char *text, nvlist_t *props, char *msg, size_t msgsz)
+{
+	char *copy, *line, *next;
+	int n = 0;
+	BOOL ok = TRUE;
+
+	if (text == NULL || text[0] == '\0')
+		return (TRUE);
+	copy = _strdup(text);
+	if (copy == NULL)
+		return (FALSE);
+	for (line = copy; line != NULL && ok; line = next) {
+		char *eq, *end;
+
+		next = strchr(line, '\n');
+		if (next != NULL)
+			*next++ = '\0';
+		// Trim
+		while (*line == ' ' || *line == '\t' || *line == '\r')
+			line++;
+		end = line + strlen(line);
+		while (end > line && (end[-1] == ' ' || end[-1] == '\t' ||
+		    end[-1] == '\r'))
+			*--end = '\0';
+		if (*line == '\0' || *line == '#')
+			continue;
+		eq = strchr(line, '=');
+		if (eq == NULL || eq == line || n >= ZED_DS_MAX_PROPS) {
+			_snprintf_s(msg, msgsz, _TRUNCATE,
+			    "bad property line '%s'", line);
+			ok = FALSE;
+			break;
+		}
+		*eq++ = '\0';
+		fnvlist_add_string(props, line, eq);
+		n++;
+	}
+	free(copy);
+	return (ok);
+}
+
+char *
+zed_dataset_create_json(const char *name_utf8, const char *props_utf8,
+    const char *passphrase_utf8, size_t *out_len)
+{
+	nvlist_t *res = fnvlist_alloc();
+	nvlist_t *props = fnvlist_alloc();
+	char msg[256];
+	zfs_handle_t *zhp;
+	wchar_t keyfile[MAX_PATH] = { 0 };
+	int rc;
+	BOOL mounted = FALSE;
+
+	*out_len = 0;
+	fnvlist_add_boolean_value(res, "ok", B_FALSE);
+	if (g_lzh == NULL) {
+		fnvlist_free(props);
+		return (fail_json(res, "libzfs is not available", out_len));
+	}
+	if (name_utf8 == NULL || name_utf8[0] == '\0' ||
+	    strchr(name_utf8, '@') != NULL ||
+	    strchr(name_utf8, '/') == NULL ||
+	    !zfs_name_valid(name_utf8, ZFS_TYPE_FILESYSTEM)) {
+		fnvlist_free(props);
+		return (fail_json(res, "invalid dataset name", out_len));
+	}
+	fnvlist_add_string(res, "dataset", name_utf8);
+	msg[0] = '\0';
+	if (!parse_props(props_utf8, props, msg, sizeof (msg))) {
+		fnvlist_free(props);
+		return (fail_json(res, msg[0] ? msg : "invalid properties",
+		    out_len));
+	}
+
+	if (passphrase_utf8 != NULL && passphrase_utf8[0] != '\0') {
+		char keyfile_utf8[MAX_PATH * 3];
+		char keyloc[MAX_PATH * 3 + 8];
+
+		if (!zed_write_temp_keyfile(passphrase_utf8, keyfile,
+		    _countof(keyfile))) {
+			fnvlist_free(props);
+			return (fail_json(res, "failed to stage encryption "
+			    "key", out_len));
+		}
+		WideCharToMultiByte(CP_UTF8, 0, keyfile, -1, keyfile_utf8,
+		    sizeof (keyfile_utf8), NULL, NULL);
+		// Same quirk as for a pool: zfs_prop_valid_keylocation() wants
+		// "file:///", get_key_material_file() strips only "file://",
+		// and Windows takes the leftover slash before the drive.
+		_snprintf_s(keyloc, sizeof (keyloc), _TRUNCATE, "file:///%s",
+		    keyfile_utf8);
+		// A cipher picked in the dialog stays, otherwise the default.
+		if (!nvlist_exists(props, "encryption"))
+			fnvlist_add_string(props, "encryption", "on");
+		fnvlist_add_string(props, "keyformat", "passphrase");
+		fnvlist_add_string(props, "keylocation", keyloc);
+	}
+
+	// The parent has to be there; this never makes missing ancestors.
+	rc = zfs_create(g_lzh, name_utf8, ZFS_TYPE_FILESYSTEM,
+	    nvlist_empty(props) ? NULL : props);
+	fnvlist_free(props);
+	if (keyfile[0] != L'\0')
+		DeleteFileW(keyfile);
+	if (rc != 0)
+		return (fail_json(res, lzh_err("create failed"), out_len));
+
+	// Like "zfs create": mount it unless canmount says otherwise.
+	zhp = zfs_open(g_lzh, name_utf8, ZFS_TYPE_FILESYSTEM);
+	if (zhp != NULL) {
+		// The keyfile is gone, so unlock it like any other from now.
+		if (passphrase_utf8 != NULL && passphrase_utf8[0] != '\0')
+			(void) zfs_prop_set(zhp, "keylocation", "prompt");
+		if (zfs_prop_get_int(zhp, ZFS_PROP_CANMOUNT) ==
+		    ZFS_CANMOUNT_ON && zfs_mount(zhp, NULL, 0) == 0)
+			mounted = TRUE;
+		zfs_close(zhp);
+	}
+	fnvlist_add_boolean_value(res, "mounted",
+	    mounted ? B_TRUE : B_FALSE);
+	fnvlist_remove(res, "ok");
+	fnvlist_add_boolean_value(res, "ok", B_TRUE);
+	return (finish_json(res, out_len));
+}
+
+typedef struct {
+	char (*names)[ZFS_MAX_DATASET_NAME_LEN];	/* parents first */
+	int n;
+	int cap;
+	nvlist_t *snaps;	/* every snapshot below, as full names */
+	uint64_t nsnaps;
+	uint64_t nclones;
+	char first_clone[ZFS_MAX_DATASET_NAME_LEN];
+	BOOL overflow;
+} tree_ctx_t;
+
+static int tree_cb(zfs_handle_t *zhp, void *arg);
+
+static int
+tree_snap_cb(zfs_handle_t *zhp, void *arg)
+{
+	tree_ctx_t *ctx = arg;
+	nvlist_t *clones = zfs_get_clones_nvl(zhp);
+	nvpair_t *nvp = NULL;
+
+	fnvlist_add_boolean(ctx->snaps, zfs_get_name(zhp));
+	ctx->nsnaps++;
+	// Owned by the handle, not ours to free.
+	while (clones != NULL &&
+	    (nvp = nvlist_next_nvpair(clones, nvp)) != NULL) {
+		if (ctx->nclones++ == 0)
+			_snprintf_s(ctx->first_clone,
+			    sizeof (ctx->first_clone), _TRUNCATE, "%s",
+			    nvpair_name(nvp));
+	}
+	zfs_close(zhp);
+	return (0);
+}
+
+/* Takes ownership of zhp: record it and everything below it. */
+static int
+tree_cb(zfs_handle_t *zhp, void *arg)
+{
+	tree_ctx_t *ctx = arg;
+
+	if (ctx->n >= ZED_DS_MAX_TREE) {
+		ctx->overflow = TRUE;
+		zfs_close(zhp);
+		return (0);
+	}
+	if (ctx->n == ctx->cap) {
+		int ncap = ctx->cap ? ctx->cap * 2 : 64;
+		char (*nn)[ZFS_MAX_DATASET_NAME_LEN];
+
+		if (ctx->names == NULL)
+			nn = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+			    ncap * ZFS_MAX_DATASET_NAME_LEN);
+		else
+			nn = HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+			    ctx->names, ncap * ZFS_MAX_DATASET_NAME_LEN);
+		if (nn == NULL) {
+			ctx->overflow = TRUE;
+			zfs_close(zhp);
+			return (0);
+		}
+		ctx->names = nn;
+		ctx->cap = ncap;
+	}
+	_snprintf_s(ctx->names[ctx->n], ZFS_MAX_DATASET_NAME_LEN, _TRUNCATE,
+	    "%s", zfs_get_name(zhp));
+	ctx->n++;
+	(void) zfs_iter_snapshots(zhp, B_FALSE, tree_snap_cb, ctx, 0, 0);
+	if (zfs_get_type(zhp) == ZFS_TYPE_FILESYSTEM)
+		(void) zfs_iter_filesystems(zhp, tree_cb, ctx);
+	zfs_close(zhp);
+	return (0);
+}
+
+/*
+ * Unmount every mounted filesystem in the tree, deepest first. If one will
+ * not, the ones already unmounted are mounted again and msg says which.
+ */
+static BOOL
+unmount_tree(const tree_ctx_t *ctx, char *msg, size_t msgsz)
+{
+	int i, j;
+
+	for (i = ctx->n - 1; i >= 0; i--) {
+		// Only filesystems open as one, volumes are skipped.
+		zfs_handle_t *dh = zfs_open(g_lzh, ctx->names[i],
+		    ZFS_TYPE_FILESYSTEM);
+		char *where = NULL;
+		BOOL mounted;
+
+		if (dh == NULL)
+			continue;
+		mounted = zfs_is_mounted(dh, &where);
+		free(where);
+		if (mounted && zfs_unmount(dh, NULL, 0) != 0) {
+			_snprintf_s(msg, msgsz, _TRUNCATE, "%s: %s",
+			    ctx->names[i], lzh_err("could not be unmounted"));
+			zfs_close(dh);
+			for (j = i + 1; j < ctx->n; j++) {
+				zfs_handle_t *rh = zfs_open(g_lzh,
+				    ctx->names[j], ZFS_TYPE_FILESYSTEM);
+
+				if (rh == NULL)
+					continue;
+				if (zfs_prop_get_int(rh, ZFS_PROP_CANMOUNT) ==
+				    ZFS_CANMOUNT_ON)
+					(void) zfs_mount(rh, NULL, 0);
+				zfs_close(rh);
+			}
+			return (FALSE);
+		}
+		zfs_close(dh);
+	}
+	return (TRUE);
+}
+
+char *
+zed_dataset_destroy_json(uint32_t flags, const char *name_utf8,
+    size_t *out_len)
+{
+	nvlist_t *res = fnvlist_alloc();
+	char msg[ZFS_MAX_DATASET_NAME_LEN + 128];
+	zfs_handle_t *zhp;
+	tree_ctx_t ctx;
+	int i, failed = 0;
+	char *json;
+
+	*out_len = 0;
+	fnvlist_add_boolean_value(res, "ok", B_FALSE);
+	if (g_lzh == NULL)
+		return (fail_json(res, "libzfs is not available", out_len));
+	if (name_utf8 == NULL || name_utf8[0] == '\0' ||
+	    strchr(name_utf8, '@') != NULL ||
+	    !zfs_name_valid(name_utf8, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME))
+		return (fail_json(res, "invalid dataset name", out_len));
+	fnvlist_add_string(res, "dataset", name_utf8);
+	if (strchr(name_utf8, '/') == NULL)
+		return (fail_json(res, "that is a pool, destroy it from the "
+		    "tray menu", out_len));
+
+	zhp = zfs_open(g_lzh, name_utf8, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME);
+	if (zhp == NULL)
+		return (fail_json(res, lzh_err("dataset not found"), out_len));
+
+	memset(&ctx, 0, sizeof (ctx));
+	ctx.snaps = fnvlist_alloc();
+	(void) tree_cb(zhp, &ctx);	// takes zhp
+
+	if (ctx.overflow) {
+		json = fail_json(res, "too many datasets below it", out_len);
+		goto out;
+	}
+	if (ctx.nclones > 0) {
+		_snprintf_s(msg, sizeof (msg), _TRUNCATE,
+		    "%s is a clone of a snapshot of it, destroy or promote it "
+		    "first", ctx.first_clone);
+		json = fail_json(res, msg, out_len);
+		goto out;
+	}
+	if ((ctx.n > 1 || ctx.nsnaps > 0) && !(flags & ZDSD_RECURSIVE)) {
+		_snprintf_s(msg, sizeof (msg), _TRUNCATE,
+		    "it has %d child dataset%s and %llu snapshot%s",
+		    ctx.n - 1, ctx.n == 2 ? "" : "s",
+		    (unsigned long long)ctx.nsnaps,
+		    ctx.nsnaps == 1 ? "" : "s");
+		fnvlist_add_boolean_value(res, "needs_recursive", B_TRUE);
+		add_u64_str(res, "children", (uint64_t)(ctx.n - 1));
+		add_u64_str(res, "snapshots", ctx.nsnaps);
+		json = fail_json(res, msg, out_len);
+		goto out;
+	}
+
+	// zfs_destroy() does not unmount here, so unmount everything first.
+	if (!unmount_tree(&ctx, msg, sizeof (msg))) {
+		json = fail_json(res, msg, out_len);
+		goto out;
+	}
+
+	// All the snapshots in one go, then the datasets, deepest first.
+	if (ctx.nsnaps > 0 &&
+	    zfs_destroy_snaps_nvl(g_lzh, ctx.snaps, B_FALSE) != 0) {
+		json = fail_json(res, lzh_err("could not destroy snapshots"),
+		    out_len);
+		goto out;
+	}
+	for (i = ctx.n - 1; i >= 0; i--) {
+		zfs_handle_t *dh = zfs_open(g_lzh, ctx.names[i],
+		    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME);
+
+		if (dh == NULL || zfs_destroy(dh, B_FALSE) != 0) {
+			failed = 1;
+			if (dh != NULL)
+				zfs_close(dh);
+			break;
+		}
+		zfs_close(dh);
+	}
+	if (failed) {
+		_snprintf_s(msg, sizeof (msg), _TRUNCATE, "%s: %s",
+		    ctx.names[i], lzh_err("destroy failed"));
+		json = fail_json(res, msg, out_len);
+		goto out;
+	}
+
+	fnvlist_remove(res, "ok");
+	fnvlist_add_boolean_value(res, "ok", B_TRUE);
+	json = finish_json(res, out_len);
+out:
+	fnvlist_free(ctx.snaps);
+	if (ctx.names != NULL)
+		HeapFree(GetProcessHeap(), 0, ctx.names);
+	return (json);
 }
