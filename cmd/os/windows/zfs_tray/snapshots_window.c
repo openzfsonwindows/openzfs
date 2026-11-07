@@ -39,6 +39,7 @@
 #include "pipe_rpc.h"
 #include "rpc_client.h"
 #include "snapshots_window.h"
+#include "pass_prompt.h"
 #include "dlg_util.h"
 
 #pragma comment(lib, "comctl32.lib")
@@ -58,15 +59,27 @@
 #define	IDC_SNEWLBL	3309
 #define	IDC_SDSLBL	3310
 #define	IDC_SROLLBACK	3311
+#define	IDC_SMOUNT	3312
+#define	IDC_SUNMOUNT	3313
+#define	IDC_SDSINFO	3314
 
 // Mirror of the service's flags, see ops_snapshots.h
 #define	ZSNAP_RECURSIVE	0x01
 #define	ZROLL_DESTROY_NEWER	0x01
 #define	ZROLL_DESTROY_CLONES	0x02
+#define	ZUMNT_FORCE	0x01
 
 typedef struct {
 	wchar_t name[256];
+	wchar_t mountpoint[260];
 	int depth;
+	BOOL volume;
+	BOOL mounted;
+	BOOL encrypted;
+	BOOL keyloaded;
+	uint64_t used;
+	uint64_t avail;
+	HTREEITEM item;
 } DsEnt;
 
 typedef struct {
@@ -80,6 +93,7 @@ typedef struct {
 typedef struct {
 	HWND hWnd;
 	HWND hList;
+	HWND hTree;
 	HFONT hHeaderFont;
 	zrpc_t rpc;
 	DsEnt *ds;
@@ -87,6 +101,7 @@ typedef struct {
 	SnapEnt *snaps;
 	int nsnaps;
 	wchar_t cur[256];	// dataset whose snapshots are shown
+	BOOL building;		// filling the tree, ignore its notifications
 } SCtx;
 
 // -------------------- formatting --------------------
@@ -279,6 +294,34 @@ ReplyBool(const char *json, int json_len, const char *key)
 	return (val);
 }
 
+// One "key":value pair of a dataset object.
+static void
+DsField(const char *json, const jsmntok_t *k, const jsmntok_t *v, DsEnt *d)
+{
+	if (jsmn_eq(json, k, "name")) {
+		const wchar_t *s;
+
+		TokWide(json, v, d->name, ARRAYSIZE(d->name));
+		for (s = d->name; *s; s++)
+			if (*s == L'/')
+				d->depth++;
+	} else if (jsmn_eq(json, k, "mountpoint")) {
+		TokWide(json, v, d->mountpoint, ARRAYSIZE(d->mountpoint));
+	} else if (jsmn_eq(json, k, "volume")) {
+		d->volume = PrimTrue(json, v);
+	} else if (jsmn_eq(json, k, "mounted")) {
+		d->mounted = PrimTrue(json, v);
+	} else if (jsmn_eq(json, k, "encrypted")) {
+		d->encrypted = PrimTrue(json, v);
+	} else if (jsmn_eq(json, k, "keyloaded")) {
+		d->keyloaded = PrimTrue(json, v);
+	} else if (jsmn_eq(json, k, "used")) {
+		d->used = TokU64(json, v);
+	} else if (jsmn_eq(json, k, "avail")) {
+		d->avail = TokU64(json, v);
+	}
+}
+
 static BOOL
 ParseDatasets(SCtx *c, const char *json, int json_len)
 {
@@ -310,16 +353,7 @@ ParseDatasets(SCtx *c, const char *json, int json_len)
 				DsEnt *d = &c->ds[c->nds];
 
 				while (q + 1 < r && tok[q].start < oend) {
-					if (jsmn_eq(json, &tok[q], "name")) {
-						const wchar_t *s;
-
-						TokWide(json, &tok[q + 1],
-						    d->name,
-						    ARRAYSIZE(d->name));
-						for (s = d->name; *s; s++)
-							if (*s == L'/')
-								d->depth++;
-					}
+					DsField(json, &tok[q], &tok[q + 1], d);
 					q = SkipValue(tok, q + 1, r);
 				}
 				c->nds++;
@@ -404,7 +438,7 @@ SetInfo(SCtx *c, const wchar_t *text)
 static void
 ErrorBox(HWND parent, const wchar_t *msg)
 {
-	MessageBoxW(parent, msg, L"ZFS snapshots", MB_ICONERROR);
+	MessageBoxW(parent, msg, L"ZFS datasets", MB_ICONERROR);
 }
 
 // One call. TRUE with *out (HeapFree it) on a reply; FALSE with err set.
@@ -838,30 +872,233 @@ DoRollback(SCtx *c)
 	}
 }
 
+// -------------------- mount / unmount --------------------
+
+static const DsEnt *
+CurDs(const SCtx *c)
+{
+	int i;
+
+	for (i = 0; i < c->nds; i++)
+		if (lstrcmpiW(c->ds[i].name, c->cur) == 0)
+			return (&c->ds[i]);
+	return (NULL);
+}
+
+static BOOL LoadDatasets(SCtx *c, const wchar_t *want, BOOL load_snaps);
+
+// The names in {"locked":[{"name":..}, ..]} from OP_MOUNT_PREFLIGHT.
+static int
+ParseLocked(const char *json, int json_len, wchar_t names[][256], int max)
+{
+	jsmntok_t *tok;
+	int r, i, n = 0;
+
+	tok = ParseTokens(json, json_len, &r);
+	if (tok == NULL)
+		return (0);
+	i = 1;
+	while (i + 1 < r && tok[i].start < tok[0].end) {
+		const jsmntok_t *v = &tok[i + 1];
+
+		if (jsmn_eq(json, &tok[i], "locked") && v->type == JSMN_ARRAY) {
+			int cnt = v->size, e, j = i + 2;
+
+			for (e = 0; e < cnt && j < r; e++) {
+				int oend = tok[j].end, q = j + 1;
+
+				while (q + 1 < r && tok[q].start < oend) {
+					if (n < max &&
+					    jsmn_eq(json, &tok[q], "name"))
+						TokWide(json, &tok[q + 1],
+						    names[n++], 256);
+					q = SkipValue(tok, q + 1, r);
+				}
+				j = q;
+			}
+			i = j;
+			continue;
+		}
+		i = SkipValue(tok, i + 1, r);
+	}
+	HeapFree(GetProcessHeap(), 0, tok);
+	return (n);
+}
+
+// Ask for the passphrase of every locked encryption root the dataset needs.
+// FALSE if the user gave up or a key was refused.
+static BOOL
+UnlockDataset(SCtx *c, const wchar_t *ds)
+{
+	op_mount_preflight_req_t rq;
+	wchar_t names[8][256], err[256] = L"";
+	uint8_t *out = NULL;
+	uint32_t outlen = 0;
+	int n, i;
+
+	ZeroMemory(&rq, sizeof (rq));
+	if (!ToUtf8(ds, rq.dataset, sizeof (rq.dataset)))
+		return (FALSE);
+	if (!Call(c, OP_MOUNT_PREFLIGHT, &rq, sizeof (rq), &out, &outlen, err,
+	    ARRAYSIZE(err))) {
+		ErrorBox(c->hWnd, err);
+		return (FALSE);
+	}
+	n = ParseLocked((const char *)out, (int)outlen, names, 8);
+	HeapFree(GetProcessHeap(), 0, out);
+
+	for (i = 0; i < n; i++) {
+		op_load_key_one_req_t *pkt;
+		uint8_t *pass = NULL, *rep = NULL;
+		uint32_t passlen = 0, replen = 0;
+		size_t sz;
+		BOOL ok;
+
+		if (!PromptPassphrase(c->hWnd, names[i], &pass, &passlen))
+			return (FALSE);
+		sz = sizeof (*pkt) + passlen + 1;
+		pkt = (op_load_key_one_req_t *)HeapAlloc(GetProcessHeap(),
+		    HEAP_ZERO_MEMORY, sz);
+		if (pkt == NULL) {
+			SecureZeroMemory(pass, passlen);
+			HeapFree(GetProcessHeap(), 0, pass);
+			return (FALSE);
+		}
+		ToUtf8(names[i], pkt->dataset, sizeof (pkt->dataset));
+		pkt->passlen = passlen;
+		// The passphrase comes with its NUL, as in the tray's mount.
+		memcpy((uint8_t *)pkt + sizeof (*pkt), pass, passlen + 1);
+
+		err[0] = L'\0';
+		ok = Call(c, OP_LOAD_KEY_ONE, pkt, (uint32_t)sz, &rep, &replen,
+		    err, ARRAYSIZE(err));
+		if (ok) {
+			ok = ReplyOk((const char *)rep, (int)replen, err,
+			    ARRAYSIZE(err));
+			HeapFree(GetProcessHeap(), 0, rep);
+		}
+		SecureZeroMemory(pkt, sz);
+		HeapFree(GetProcessHeap(), 0, pkt);
+		SecureZeroMemory(pass, passlen);
+		HeapFree(GetProcessHeap(), 0, pass);
+		if (!ok) {
+			if (err[0] == L'\0')
+				lstrcpynW(err, L"The passphrase was refused.",
+				    ARRAYSIZE(err));
+			ErrorBox(c->hWnd, err);
+			return (FALSE);
+		}
+	}
+	return (TRUE);
+}
+
+// Mount or unmount one dataset. 0 done, 1 the service said no (err has its
+// reason), 2 the service could not be asked (err says why).
+static int
+DatasetOp(SCtx *c, uint32_t op, uint32_t flags, const wchar_t *ds,
+    wchar_t *err, int errcch)
+{
+	char name[1024];
+	uint8_t body[sizeof (uint32_t) + sizeof (name)];
+	uint8_t *out = NULL;
+	uint32_t outlen = 0;
+	size_t n;
+
+	err[0] = L'\0';
+	if (!ToUtf8(ds, name, sizeof (name))) {
+		lstrcpynW(err, L"Invalid name.", errcch);
+		return (2);
+	}
+	n = strlen(name) + 1;
+	memcpy(body, &flags, sizeof (flags));
+	memcpy(body + sizeof (flags), name, n);
+	if (!Call(c, op, body, (uint32_t)(sizeof (flags) + n), &out, &outlen,
+	    err, errcch))
+		return (2);
+	if (!ReplyOk((const char *)out, (int)outlen, err, errcch)) {
+		if (err[0] == L'\0')
+			lstrcpynW(err, L"The service refused.", errcch);
+		HeapFree(GetProcessHeap(), 0, out);
+		return (1);
+	}
+	HeapFree(GetProcessHeap(), 0, out);
+	return (0);
+}
+
+static void
+DoMount(SCtx *c)
+{
+	const DsEnt *d = CurDs(c);
+	wchar_t name[256], err[256];
+
+	if (d == NULL || d->volume || d->mounted)
+		return;
+	lstrcpynW(name, d->name, ARRAYSIZE(name));
+	if (d->encrypted && !d->keyloaded && !UnlockDataset(c, name))
+		return;
+	if (DatasetOp(c, OP_DATASET_MOUNT, 0, name, err, ARRAYSIZE(err)) !=
+	    0)
+		ErrorBox(c->hWnd, err);
+	(void) LoadDatasets(c, name, TRUE);
+}
+
+static void
+DoUnmount(SCtx *c)
+{
+	const DsEnt *d = CurDs(c);
+	wchar_t name[256], err[256], msg[600];
+	int rc;
+
+	if (d == NULL || d->volume || !d->mounted)
+		return;
+	lstrcpynW(name, d->name, ARRAYSIZE(name));
+	rc = DatasetOp(c, OP_DATASET_UNMOUNT, 0, name, err, ARRAYSIZE(err));
+	if (rc == 1) {
+		// Most likely something has files open on it.
+		_snwprintf_s(msg, ARRAYSIZE(msg), _TRUNCATE,
+		    L"%s\n\nForce the unmount? Programs using %s will lose "
+		    L"their open files.", err, name);
+		if (MessageBoxW(c->hWnd, msg, L"Unmount",
+		    MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES)
+			rc = DatasetOp(c, OP_DATASET_UNMOUNT, ZUMNT_FORCE, name,
+			    err, ARRAYSIZE(err));
+	}
+	if (rc != 0)
+		ErrorBox(c->hWnd, err);
+	(void) LoadDatasets(c, name, TRUE);
+}
+
 // -------------------- window --------------------
 
 static void
 Layout(SCtx *c)
 {
 	RECT rc;
-	int w, h, bh = 26, pad = 10, top = 76;
-	int row1, row2, x;
+	int w, h, bh = 26, pad = 10, top = 40, lw = 270;
+	int row1, row2, x0, rw, x, listtop;
 
 	GetClientRect(c->hWnd, &rc);
 	w = rc.right;
 	h = rc.bottom;
 	row2 = h - bh - pad;
 	row1 = row2 - bh - pad;
+	x0 = pad + lw + pad;
+	rw = w - x0 - pad;
+	listtop = top + 40;
 
-	MoveWindow(GetDlgItem(c->hWnd, IDC_SDSLBL), pad, 44, 70, 20, TRUE);
-	// The height of a drop-down is the height of its open list.
-	MoveWindow(GetDlgItem(c->hWnd, IDC_SDATASET), pad + 74, 40,
-	    w - 2 * pad - 74, 300, TRUE);
-	MoveWindow(c->hList, pad, top, w - 2 * pad, row1 - top - pad, TRUE);
-
-	MoveWindow(GetDlgItem(c->hWnd, IDC_SNEWLBL), pad, row1 + 5, 90, 20,
+	// Left: the datasets, with mount and unmount under them.
+	MoveWindow(c->hTree, pad, top, lw, row2 - top - pad, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_SMOUNT), pad, row2, 90, bh, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_SUNMOUNT), pad + 98, row2, 90, bh,
 	    TRUE);
-	x = pad + 94;
+
+	// Right: what is known about the selected dataset, its snapshots.
+	MoveWindow(GetDlgItem(c->hWnd, IDC_SDSINFO), x0, top, rw, 36, TRUE);
+	MoveWindow(c->hList, x0, listtop, rw, row1 - listtop - pad, TRUE);
+
+	MoveWindow(GetDlgItem(c->hWnd, IDC_SNEWLBL), x0, row1 + 5, 90, 20,
+	    TRUE);
+	x = x0 + 94;
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SCREATE), w - pad - 100, row1, 100,
 	    bh, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SRECURSIVE), w - pad - 100 - 8 -
@@ -869,8 +1106,8 @@ Layout(SCtx *c)
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SNAME), x, row1,
 	    w - pad - 100 - 8 - 150 - 8 - x, bh - 2, TRUE);
 
-	MoveWindow(GetDlgItem(c->hWnd, IDC_SINFO), pad, row2 + 4,
-	    w - 3 * pad - 286, 20, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_SINFO), x0, row2 + 4,
+	    rw - 286 - pad, 20, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SREFRESH), w - pad - 286, row2, 90,
 	    bh, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SROLLBACK), w - pad - 188, row2, 90,
@@ -879,7 +1116,44 @@ Layout(SCtx *c)
 	    bh, TRUE);
 }
 
-// Select the dataset at combo index i and show its snapshots.
+// The dataset line above the snapshots, and the mount buttons.
+static void
+ShowDatasetInfo(SCtx *c)
+{
+	const DsEnt *d = NULL;
+	wchar_t buf[600], used[64], avail[64];
+	int i;
+
+	for (i = 0; i < c->nds; i++)
+		if (lstrcmpiW(c->ds[i].name, c->cur) == 0)
+			d = &c->ds[i];
+
+	if (d == NULL) {
+		SetDlgItemTextW(c->hWnd, IDC_SDSINFO, L"");
+	} else {
+		FormatBytesW(d->used, used, ARRAYSIZE(used));
+		FormatBytesW(d->avail, avail, ARRAYSIZE(avail));
+		if (d->volume)
+			_snwprintf_s(buf, ARRAYSIZE(buf), _TRUNCATE,
+			    L"%s\nVolume, %s used", d->name, used);
+		else if (d->mounted)
+			_snwprintf_s(buf, ARRAYSIZE(buf), _TRUNCATE,
+			    L"%s\nMounted at %s, %s used, %s available",
+			    d->name, d->mountpoint, used, avail);
+		else
+			_snwprintf_s(buf, ARRAYSIZE(buf), _TRUNCATE,
+			    L"%s\nNot mounted%s, %s used, %s available",
+			    d->name, (d->encrypted && !d->keyloaded) ?
+			    L" (locked)" : L"", used, avail);
+		SetDlgItemTextW(c->hWnd, IDC_SDSINFO, buf);
+	}
+	EnableWindow(GetDlgItem(c->hWnd, IDC_SMOUNT),
+	    d != NULL && !d->volume && !d->mounted);
+	EnableWindow(GetDlgItem(c->hWnd, IDC_SUNMOUNT),
+	    d != NULL && !d->volume && d->mounted);
+}
+
+// Select the dataset at index i and show its snapshots.
 static void
 SelectDataset(SCtx *c, int i)
 {
@@ -888,10 +1162,10 @@ SelectDataset(SCtx *c, int i)
 	} else {
 		lstrcpynW(c->cur, c->ds[i].name, ARRAYSIZE(c->cur));
 	}
+	ShowDatasetInfo(c);
 	LoadSnapshots(c);
 }
 
-static BOOL LoadDatasets(SCtx *c, const wchar_t *want, BOOL load_snaps);
 
 static LRESULT CALLBACK
 SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -911,7 +1185,7 @@ SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		return (0);
 	case WM_GETMINMAXINFO: {
 		MINMAXINFO *mm = (MINMAXINFO *)lParam;
-		mm->ptMinTrackSize.x = 620;
+		mm->ptMinTrackSize.x = 760;
 		mm->ptMinTrackSize.y = 320;
 		return (0);
 	}
@@ -919,22 +1193,26 @@ SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		NMHDR *nh = (NMHDR *)lParam;
 
 		if (c != NULL && nh->idFrom == IDC_SLIST &&
-		    nh->code == LVN_ITEMCHANGED)
+		    nh->code == LVN_ITEMCHANGED) {
 			UpdateButtons(c);
+		} else if (c != NULL && !c->building &&
+		    nh->idFrom == IDC_SDATASET &&
+		    nh->code == TVN_SELCHANGEDW) {
+			NMTREEVIEWW *nt = (NMTREEVIEWW *)lParam;
+
+			SelectDataset(c, (int)nt->itemNew.lParam);
+		}
 		return (0);
 	}
 	case WM_COMMAND: {
 		if (c == NULL)
 			break;
 		switch (LOWORD(wParam)) {
-		case IDC_SDATASET:
-			if (HIWORD(wParam) == CBN_SELCHANGE)
-				SelectDataset(c, (int)SendDlgItemMessageW(
-				    hWnd, IDC_SDATASET, CB_GETCURSEL, 0, 0));
-			else if (HIWORD(wParam) == CBN_DROPDOWN)
-				// Datasets made or destroyed since the last
-				// look show up each time the list is opened.
-				(void) LoadDatasets(c, c->cur, FALSE);
+		case IDC_SMOUNT:
+			DoMount(c);
+			break;
+		case IDC_SUNMOUNT:
+			DoUnmount(c);
 			break;
 		case IDC_SCREATE:
 			DoCreate(c);
@@ -978,9 +1256,26 @@ MakeChild(HWND parent, const wchar_t *cls, const wchar_t *text, DWORD style,
 	    (HINSTANCE)GetWindowLongPtrW(parent, GWLP_HINSTANCE), NULL));
 }
 
-// Fetch the dataset list and fill the combo box, selecting "want" if it is
-// still there. The snapshots are listed again if load_snaps, or if "want" is
-// gone. FALSE (with a message shown) if the service could not be used.
+// "name" below its parent, plus what is worth knowing about it.
+static void
+TreeLabel(const DsEnt *d, wchar_t *out, size_t cch)
+{
+	const wchar_t *base = wcsrchr(d->name, L'/');
+
+	base = (base != NULL) ? base + 1 : d->name;
+	if (d->volume)
+		_snwprintf_s(out, cch, _TRUNCATE, L"%s (volume)", base);
+	else if (!d->mounted)
+		_snwprintf_s(out, cch, _TRUNCATE, L"%s (%s)", base,
+		    (d->encrypted && !d->keyloaded) ? L"locked" :
+		    L"not mounted");
+	else
+		_snwprintf_s(out, cch, _TRUNCATE, L"%s", base);
+}
+
+// Fetch the dataset list and fill the tree, selecting "want" if it is still
+// there. The snapshots are listed again if load_snaps, or if "want" is gone.
+// FALSE (with a message shown) if the service could not be used.
 static BOOL
 LoadDatasets(SCtx *c, const wchar_t *want, BOOL load_snaps)
 {
@@ -988,20 +1283,23 @@ LoadDatasets(SCtx *c, const wchar_t *want, BOOL load_snaps)
 	uint32_t outlen = 0;
 	wchar_t err[256] = L"";
 	wchar_t keep[256];
+	HTREEITEM stack[16] = { 0 };
 	int i, pick = 0;
 	BOOL found = FALSE;
 
 	// "want" may be c->cur, which SelectDataset() overwrites.
 	lstrcpynW(keep, want != NULL ? want : L"", ARRAYSIZE(keep));
 	want = keep;
+	c->building = TRUE;
+	TreeView_DeleteAllItems(c->hTree);
 	if (c->ds)
 		HeapFree(GetProcessHeap(), 0, c->ds);
 	c->ds = NULL;
 	c->nds = 0;
-	SendDlgItemMessageW(c->hWnd, IDC_SDATASET, CB_RESETCONTENT, 0, 0);
 
 	if (!Call(c, OP_LIST_DATASETS, NULL, 0, &out, &outlen, err,
 	    ARRAYSIZE(err))) {
+		c->building = FALSE;
 		ErrorBox(NULL, err);
 		return (FALSE);
 	}
@@ -1011,35 +1309,48 @@ LoadDatasets(SCtx *c, const wchar_t *want, BOOL load_snaps)
 			lstrcpynW(err, L"Unexpected reply from the service.",
 			    ARRAYSIZE(err));
 		HeapFree(GetProcessHeap(), 0, out);
+		c->building = FALSE;
 		ErrorBox(NULL, err);
 		return (FALSE);
 	}
 	HeapFree(GetProcessHeap(), 0, out);
 
+	// Parents come before their children, so the last item seen at the
+	// depth above is the parent.
 	for (i = 0; i < c->nds; i++) {
+		DsEnt *d = &c->ds[i];
+		TVINSERTSTRUCTW tvi = { 0 };
 		wchar_t label[300];
-		int d;
+		int depth = (d->depth < 15) ? d->depth : 15;
 
-		// Indent children under their parent.
-		label[0] = L'\0';
-		for (d = 0; d < c->ds[i].depth && d < 8; d++)
-			wcscat_s(label, ARRAYSIZE(label), L"    ");
-		wcsncat_s(label, ARRAYSIZE(label), c->ds[i].name, _TRUNCATE);
-		SendDlgItemMessageW(c->hWnd, IDC_SDATASET, CB_ADDSTRING, 0,
-		    (LPARAM)label);
-		if (want[0] != L'\0' && lstrcmpiW(want, c->ds[i].name) == 0) {
+		TreeLabel(d, label, ARRAYSIZE(label));
+		tvi.hParent = (depth > 0 && stack[depth - 1] != NULL) ?
+		    stack[depth - 1] : TVI_ROOT;
+		tvi.hInsertAfter = TVI_LAST;
+		tvi.item.mask = TVIF_TEXT | TVIF_PARAM;
+		tvi.item.pszText = label;
+		tvi.item.lParam = i;
+		d->item = TreeView_InsertItem(c->hTree, &tvi);
+		stack[depth] = d->item;
+		if (tvi.hParent != TVI_ROOT)
+			TreeView_Expand(c->hTree, tvi.hParent, TVE_EXPAND);
+		if (want[0] != L'\0' && lstrcmpiW(want, d->name) == 0) {
 			pick = i;
 			found = TRUE;
 		}
 	}
-	if (c->nds > 0) {
-		SendDlgItemMessageW(c->hWnd, IDC_SDATASET, CB_SETCURSEL, pick,
-		    0);
-		if (load_snaps || !found)
-			SelectDataset(c, pick);
-	} else {
+	if (c->nds > 0)
+		TreeView_SelectItem(c->hTree, c->ds[pick].item);
+	c->building = FALSE;
+
+	if (c->nds == 0) {
 		c->cur[0] = L'\0';
+		ShowDatasetInfo(c);
 		SetInfo(c, L"There are no datasets.");
+	} else if (load_snaps || !found) {
+		SelectDataset(c, pick);
+	} else {
+		ShowDatasetInfo(c);
 	}
 	return (TRUE);
 }
@@ -1051,7 +1362,8 @@ RunSnapshotsWindow(HINSTANCE hInst, const wchar_t *dataset)
 	WNDCLASSW wc = { 0 };
 	HFONT font;
 	MSG m;
-	INITCOMMONCONTROLSEX icc = { sizeof (icc), ICC_LISTVIEW_CLASSES };
+	INITCOMMONCONTROLSEX icc = { sizeof (icc),
+	    ICC_LISTVIEW_CLASSES | ICC_TREEVIEW_CLASSES };
 	wchar_t name[256];
 
 	ZeroMemory(&ctx, sizeof (ctx));
@@ -1067,8 +1379,8 @@ RunSnapshotsWindow(HINSTANCE hInst, const wchar_t *dataset)
 	wc.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(1));
 	RegisterClassW(&wc);
 
-	ctx.hWnd = CreateWindowExW(0, wc.lpszClassName, L"ZFS snapshots",
-	    WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 760, 460, NULL,
+	ctx.hWnd = CreateWindowExW(0, wc.lpszClassName, L"ZFS datasets",
+	    WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 900, 500, NULL,
 	    NULL, hInst, &ctx);
 	if (ctx.hWnd == NULL)
 		return (1);
@@ -1077,16 +1389,24 @@ RunSnapshotsWindow(HINSTANCE hInst, const wchar_t *dataset)
 	ctx.hHeaderFont = CreateHeaderFont(ctx.hWnd);
 
 	{
-		HWND h = MakeChild(ctx.hWnd, L"STATIC", L"Snapshots", SS_LEFT,
+		HWND h = MakeChild(ctx.hWnd, L"STATIC", L"Datasets", SS_LEFT,
 		    0);
 		SendMessageW(h, WM_SETFONT, (WPARAM)ctx.hHeaderFont, TRUE);
 		MoveWindow(h, 10, 8, 400, 26, TRUE);
 	}
-	SendMessageW(MakeChild(ctx.hWnd, L"STATIC", L"Dataset:", SS_LEFT,
-	    IDC_SDSLBL), WM_SETFONT, (WPARAM)font, TRUE);
-	SendMessageW(MakeChild(ctx.hWnd, L"COMBOBOX", L"",
-	    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, IDC_SDATASET),
-	    WM_SETFONT, (WPARAM)font, TRUE);
+	ctx.hTree = MakeChild(ctx.hWnd, WC_TREEVIEWW, L"",
+	    TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT |
+	    TVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP, IDC_SDATASET);
+	SendMessageW(ctx.hTree, WM_SETFONT, (WPARAM)font, TRUE);
+	SetWindowTheme(ctx.hTree, L"Explorer", NULL);
+	SendMessageW(MakeChild(ctx.hWnd, L"STATIC", L"", SS_LEFT,
+	    IDC_SDSINFO), WM_SETFONT, (WPARAM)font, TRUE);
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Mount",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SMOUNT), WM_SETFONT,
+	    (WPARAM)font, TRUE);
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Unmount",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SUNMOUNT), WM_SETFONT,
+	    (WPARAM)font, TRUE);
 
 	ctx.hList = MakeChild(ctx.hWnd, WC_LISTVIEWW, L"",
 	    LVS_REPORT | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP,
