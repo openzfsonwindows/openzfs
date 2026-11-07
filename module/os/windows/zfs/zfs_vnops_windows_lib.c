@@ -3787,6 +3787,9 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			vap->va_active |= ATTR_CTIME;
 			// change time has no notify
 			changed = TRUE;
+			// As described above: an explicit value sticks the
+			// same way -1 does, until -2 or handle close.
+			zccb->user_set_change_time = TRUE;
 		}
 
 		if (fbi->LastWriteTime.QuadPart > 0) {
@@ -3798,6 +3801,10 @@ set_file_basic_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			vap->va_active |= ATTR_MTIME;
 			NotifyFilter |= FILE_NOTIFY_CHANGE_LAST_WRITE;
 			changed = TRUE;
+			// Otherwise a later cached write's deferred mtime
+			// stamp (zfs_cleanup_write_time() at IRP_CLEANUP, or
+			// the next zfs_write()) overwrites this with "now".
+			zccb->user_set_write_time = TRUE;
 		}
 
 		if (fbi->CreationTime.QuadPart > 0) {
