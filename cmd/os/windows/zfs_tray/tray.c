@@ -941,7 +941,7 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 					    g_pool_names[i]);
 			}
 			AppendMenuW(m, MF_POPUP, (UINT_PTR)sn,
-			    L"Snapshots ▶");
+			    L"Datasets ▶");
 
 			AppendMenuW(m, MF_SEPARATOR, 0, NULL);
 
@@ -1278,7 +1278,8 @@ wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
 		// "zfs_tray.exe --snapshots [dataset]": snapshots window, no
 		// tray icon.
 		if (argv != NULL && argc >= 2 &&
-		    lstrcmpiW(argv[1], L"--snapshots") == 0) {
+		    (lstrcmpiW(argv[1], L"--snapshots") == 0 ||
+		    lstrcmpiW(argv[1], L"--datasets") == 0)) {
 			wchar_t ds[256] = L"";
 			wchar_t *q;
 			int rc;
