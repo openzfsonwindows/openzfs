@@ -204,7 +204,8 @@ ds_cb(zfs_handle_t *zhp, void *arg)
 		return (0);
 	}
 	if (zfs_get_type(zhp) == ZFS_TYPE_FILESYSTEM)
-		(void) zfs_iter_children(zhp, ds_cb, ctx);
+		// Not zfs_iter_children(): that lists the snapshots too.
+		(void) zfs_iter_filesystems(zhp, ds_cb, ctx);
 	zfs_close(zhp);
 	return (0);
 }

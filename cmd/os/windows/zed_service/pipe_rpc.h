@@ -57,6 +57,8 @@ typedef enum {
     OP_SNAPSHOT_CREATE = 20,
     OP_SNAPSHOT_DESTROY = 21,
     OP_SNAPSHOT_ROLLBACK = 22,
+    OP_DATASET_MOUNT = 23,
+    OP_DATASET_UNMOUNT = 24,
 } op_t;
 
 typedef struct {
@@ -182,6 +184,10 @@ typedef struct {
 // OP_SNAPSHOT_ROLLBACK: uint32 flags (ZROLL_*), then the UTF-8
 // NUL-terminated dataset and snapshot name (without the '@').
 // Responses: see ops_snapshots.h.
+// OP_DATASET_MOUNT / OP_DATASET_UNMOUNT: uint32 flags (ZMNT_* / ZUMNT_*,
+// see ops_mount.h), then the UTF-8 NUL-terminated dataset name. Reply is
+// { "ok", "dataset", "err" }. A dataset whose key is not loaded has to have
+// it loaded first, see OP_MOUNT_PREFLIGHT and OP_LOAD_KEY_ONE.
 
 enum {
 	ZCREATE_FORCE = 0x01, // reserved; allows selecting an in-use disk in UI

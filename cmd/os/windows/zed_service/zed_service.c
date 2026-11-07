@@ -1002,6 +1002,29 @@ ClientWorker(HANDLE client, HANDLE event)
 			break;
 		}
 
+	case OP_DATASET_MOUNT:
+	case OP_DATASET_UNMOUNT:
+		{
+			dprintf("OP_DATASET_MOUNT/UNMOUNT %u\n", rh.op);
+			// body: u32 flags, dataset name, NUL-terminated
+			const char *ds;
+			uint32_t flags;
+			if (rh.len <= sizeof (uint32_t) || payload == NULL ||
+			    strnlen((const char *)payload + sizeof (uint32_t),
+			    rh.len - sizeof (uint32_t)) >=
+			    rh.len - sizeof (uint32_t)) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			memcpy(&flags, payload, sizeof (flags));
+			ds = (const char *)payload + sizeof (uint32_t);
+			nvlist_t *res = (rh.op == OP_DATASET_MOUNT) ?
+			    zed_mount_dataset_nvl(ds, NULL, flags) :
+			    zed_unmount_dataset_nvl(ds, flags);
+			RESP_OK_NVL(client, res);
+			break;
+		}
+
 	case OP_SUBSCRIBE_EVENTS:
 		{
 			err = 0;
