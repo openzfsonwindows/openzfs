@@ -1,7 +1,7 @@
 
 use_clang()
 
-include_directories(PRIVATE "${CMAKE_SOURCE_DIR}/cmd/zpool")
+include_directories("${CMAKE_SOURCE_DIR}/cmd/zpool")
 
 um_add_executable(zpool
 	zpool_iter.c
