@@ -335,9 +335,6 @@ zvol_os_register_module(void)
 void
 zvol_os_deregister_module(void)
 {
-	PIRP irp;
-	IO_STATUS_BLOCK ioStatus;
-	KEVENT event;
 	NTSTATUS status;
 
 	dprintf("%s: waiting for thread to exit...\n", __func__);
@@ -355,7 +352,7 @@ zvol_os_deregister_module(void)
 
 	if (g_zvolHandle) {
 		IO_STATUS_BLOCK iosb;
-		(void) ZwDeviceIoControlFile(g_zvolHandle,
+		status = ZwDeviceIoControlFile(g_zvolHandle,
 		    NULL, NULL, NULL,
 		    &iosb,
 		    OPENZVOL_DEREGISTER,
@@ -364,7 +361,7 @@ zvol_os_deregister_module(void)
 			status = ZwWaitForSingleObject(g_zvolHandle, FALSE,
 			    NULL);
 			if (NT_SUCCESS(status))
-				status = ioStatus.Status;
+				status = iosb.Status;
 		}
 	}
 	zvol_bind_close();
