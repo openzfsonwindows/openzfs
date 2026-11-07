@@ -177,9 +177,9 @@ check_disk(const char *path, int force,
 	    NULL);
 
 	if (result) {
+		boolean_t inuse = B_FALSE;
 
 		// Print out the partition information
-		err = 0;
 		for (DWORD i = 0; i < driveLayout->PartitionCount; i++) {
 			PARTITION_INFORMATION_EX partition =
 			    driveLayout->PartitionEntry[i];
@@ -187,9 +187,17 @@ check_disk(const char *path, int force,
 			    "\\\\?\\Harddisk%luPartition%lu",
 			    deviceNumber.DeviceNumber,
 			    partition.PartitionNumber);
-			err += check_slice(slice_path, force, isspare);
+			/*
+			 * check_slice() can return either EBUSY (positive,
+			 * volume locked) or -1 (negative, label found by
+			 * check_file()).  Track with a boolean rather than
+			 * summing, so a -1 result can't be lost against a
+			 * ">0" test or cancel out a later EBUSY.
+			 */
+			if (check_slice(slice_path, force, isspare) != 0)
+				inuse = B_TRUE;
 		}
-		if (err > 0) {
+		if (inuse) {
 
 			(void) fprintf(stderr,
 			    gettext("Disk appears in use.\n"));
