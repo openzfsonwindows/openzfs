@@ -175,6 +175,7 @@ enum {
 typedef struct {
 	uint32_t flags; // ZCREATE_*
 	uint32_t topology; // 0=stripe 1=mirror 2=raidz1 3=raidz2 4=raidz3
+	// 5=draid1 6=draid2 7=draid3 8=anymirror 9=anymirror2 10=anymirror3
 	uint32_t ndisks;
 	// followed by, all UTF-8 NUL-terminated, back to back:
 	//   ndisks x disk path (e.g. "\\\\.\\PhysicalDrive2")

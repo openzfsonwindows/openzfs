@@ -289,6 +289,9 @@ InitTopologyCombo(HWND hDlg)
 	ComboBox_AddString(h, L"draid1");
 	ComboBox_AddString(h, L"draid2");
 	ComboBox_AddString(h, L"draid3");
+	ComboBox_AddString(h, L"AnyMirror");
+	ComboBox_AddString(h, L"AnyMirror2");
+	ComboBox_AddString(h, L"AnyMirror3");
 	ComboBox_SetCurSel(h, 0);
 }
 
