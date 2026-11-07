@@ -31,6 +31,7 @@
 #include "ops_common.h"
 #include "ops_pool.h"
 #include "ops_versions.h"
+#include "ops_snapshots.h"
 
 // #include "rpc_dispatch.h" // your pipe dispatch function prototypes
 
@@ -853,6 +854,110 @@ ClientWorker(HANDLE client, HANDLE event)
 			size_t jlen = 0;
 			char *json = zed_deleted_items_json(client,
 			    (const char *)payload, &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
+	case OP_LIST_DATASETS:
+		{
+			dprintf("OP_LIST_DATASETS\n");
+			size_t jlen = 0;
+			char *json = zed_list_datasets_json(&jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
+	case OP_LIST_SNAPSHOTS:
+		{
+			dprintf("OP_LIST_SNAPSHOTS\n");
+			// body: UTF-8 dataset name, NUL-terminated
+			if (rh.len == 0 || payload == NULL ||
+			    strnlen((const char *)payload, rh.len) >= rh.len) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			size_t jlen = 0;
+			char *json = zed_list_snapshots_json(
+			    (const char *)payload, &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
+	case OP_SNAPSHOT_CREATE:
+		{
+			dprintf("OP_SNAPSHOT_CREATE\n");
+			// body: u32 flags, dataset\0, snapshot name\0
+			const char *ds, *snap;
+			size_t n, remain;
+			if (rh.len <= sizeof (uint32_t) || payload == NULL) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			remain = rh.len - sizeof (uint32_t);
+			ds = (const char *)payload + sizeof (uint32_t);
+			n = strnlen(ds, remain);
+			if (n >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			snap = ds + n + 1;
+			remain -= n + 1;
+			if (remain == 0 || strnlen(snap, remain) >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			uint32_t flags;
+			memcpy(&flags, payload, sizeof (flags));
+			size_t jlen = 0;
+			char *json = zed_snapshot_create_json(flags, ds, snap,
+			    &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
+	case OP_SNAPSHOT_DESTROY:
+		{
+			dprintf("OP_SNAPSHOT_DESTROY\n");
+			// body: u32 flags, u32 count, dataset\0, count x name\0
+			const char *ds, *names;
+			uint32_t flags, count;
+			size_t n, remain;
+			if (rh.len <= 2 * sizeof (uint32_t) ||
+			    payload == NULL) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			memcpy(&flags, payload, sizeof (flags));
+			memcpy(&count, (const char *)payload +
+			    sizeof (uint32_t), sizeof (count));
+			remain = rh.len - 2 * sizeof (uint32_t);
+			ds = (const char *)payload + 2 * sizeof (uint32_t);
+			n = strnlen(ds, remain);
+			if (n >= remain || count == 0 || count > 4096) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			names = ds + n + 1;
+			remain -= n + 1;
+			size_t jlen = 0;
+			char *json = zed_snapshot_destroy_json(flags, ds,
+			    names, count, remain, &jlen);
 			if (!json) {
 				RESP_ERR(client, ERROR_GEN_FAILURE);
 			} else {

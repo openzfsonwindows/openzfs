@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: CDDL-1.0
+/*
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
+ *
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * https://opensource.org/license/CDDL-1.0.
+ */
+
+/*
+ * Copyright (c) 2026 Jorgen Lundman <lundman@lundman.net>.
+ */
+
+#pragma once
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* OP_SNAPSHOT_CREATE flags */
+#define	ZSNAP_RECURSIVE	0x01	/* also snapshot every child dataset */
+
+/* OP_SNAPSHOT_DESTROY flags */
+#define	ZSNAPD_DEFER	0x01	/* mark for deferred destroy if in use */
+
+/*
+ * All return a HeapAlloc'ed UTF-8 JSON string, caller HeapFree()s, or NULL
+ * on out of memory. On failure the shape is { "ok":false, "err":"<msg>" }.
+ *
+ * zed_list_datasets_json(): every filesystem, parents before children:
+ *   { "ok":true, "datasets":[ {"name","pool"(bool),"mounted"(bool),
+ *     "mountpoint","used","avail","refer","origin","encrypted"(bool),
+ *     "keyloaded"(bool)}, .. ] }
+ *   sizes are decimal strings (u64).
+ *
+ * zed_list_snapshots_json(): snapshots of one dataset, oldest first:
+ *   { "ok":true, "dataset", "snapshots":[ {"name","creation","used",
+ *     "refer","holds","clones"}, .. ] }  "name" is the part after '@'.
+ *
+ * zed_snapshot_create_json() / zed_snapshot_destroy_json():
+ *   { "ok":true, "dataset" } or { "ok":false, "dataset", "err" }
+ */
+char *zed_list_datasets_json(size_t *out_len);
+char *zed_list_snapshots_json(const char *dataset_utf8, size_t *out_len);
+char *zed_snapshot_create_json(uint32_t flags, const char *dataset_utf8,
+    const char *snap_utf8, size_t *out_len);
+/* "names" is count back to back NUL-terminated snapshot names ('@' part) */
+char *zed_snapshot_destroy_json(uint32_t flags, const char *dataset_utf8,
+    const char *names, uint32_t count, size_t names_len, size_t *out_len);
+
+#ifdef __cplusplus
+}
+#endif

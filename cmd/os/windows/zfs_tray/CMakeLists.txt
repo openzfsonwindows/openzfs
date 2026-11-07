@@ -8,6 +8,7 @@ um_add_executable(zfs_tray WIN32
 	import_window.c
 	create_window.c
 	versions_window.c
+	snapshots_window.c
 	update_check.c
 	pass_prompt.c
 	resource.rc

@@ -52,6 +52,10 @@ typedef enum {
     OP_DESTROY_POOL = 15,
     OP_FILE_VERSIONS = 16,
     OP_DELETED_ITEMS = 17,
+    OP_LIST_DATASETS = 18,
+    OP_LIST_SNAPSHOTS = 19,
+    OP_SNAPSHOT_CREATE = 20,
+    OP_SNAPSHOT_DESTROY = 21,
 } op_t;
 
 typedef struct {
@@ -166,6 +170,15 @@ typedef struct {
 // as the calling user, so only objects that user can open are reported.
 // OP_DELETED_ITEMS: same body (a directory); lists names that exist only in
 // snapshots, see ops_versions.h.
+
+// OP_LIST_DATASETS: no body. Response JSON, see ops_snapshots.h.
+// OP_LIST_SNAPSHOTS: body is the UTF-8 NUL-terminated dataset name.
+// OP_SNAPSHOT_CREATE: uint32 flags (ZSNAP_*), then UTF-8 NUL-terminated
+// dataset and snapshot name (without the '@').
+// OP_SNAPSHOT_DESTROY: uint32 flags (ZSNAPD_*), uint32 count, then the
+// UTF-8 NUL-terminated dataset and count NUL-terminated snapshot names
+// (without the '@'). All are destroyed in one transaction.
+// Responses: see ops_snapshots.h.
 
 enum {
 	ZCREATE_FORCE = 0x01, // reserved; allows selecting an in-use disk in UI
