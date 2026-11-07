@@ -28,6 +28,7 @@
 #include <libzfs.h>
 #include <libzutil.h>
 #include <sys/nvpair.h>
+#include <sys/vdev_anyraid.h>
 #include "zfeature_common.h"
 
 #include "ops_common.h"
@@ -833,16 +834,25 @@ zed_create_pool_json(uint32_t flags, uint32_t topology, uint32_t ndisks,
 	} else {
 		boolean_t is_draid = (topology >= 5 && topology <= 7);
 
+		// AnyMirror/AnyMirror2/AnyMirror3: mirrors the CLI's bare
+		// "anymirror[parity]" defaults (anyraid_config_by_type(),
+		// cmd/zpool/zpool_vdev.c) - every selected disk becomes a
+		// child of a single top-level "anymirror" vdev. Tile size
+		// is derived automatically from the member disks, there is
+		// no UI knob for it (none exists on the CLI either).
+		boolean_t is_anyraid = (topology >= 8 && topology <= 10);
+
 		// draid1/2/3: no UI yet for explicit data-disks/children/
 		// spares - mirror the CLI's bare "draid[parity]" defaults
 		// (draid_config_by_type(), cmd/zpool/zpool_vdev.c): every
 		// selected disk forms a single group, 0 distributed spares,
 		// up to 8 data disks per group. An advanced layout (explicit
 		// spares/groups) is left to the CLI.
-		uint64_t nparity = is_draid ? topology - 4 : 0;
-		if (is_draid && ndisks <= nparity) {
+		uint64_t nparity = is_draid ? topology - 4 :
+		    is_anyraid ? topology - 7 : 0;
+		if ((is_draid || is_anyraid) && ndisks <= nparity) {
 			fnvlist_add_string(res, "err", "not enough disks "
-			    "for the selected dRAID parity level");
+			    "for the selected parity level");
 			for (uint32_t i = 0; i < ndisks; i++)
 				fnvlist_free(leaves[i]);
 			HeapFree(GetProcessHeap(), 0, leaves);
@@ -851,7 +861,8 @@ zed_create_pool_json(uint32_t flags, uint32_t topology, uint32_t ndisks,
 		}
 
 		const char *gtype = (topology == 1) ? VDEV_TYPE_MIRROR :
-		    is_draid ? VDEV_TYPE_DRAID : VDEV_TYPE_RAIDZ;
+		    is_draid ? VDEV_TYPE_DRAID :
+		    is_anyraid ? VDEV_TYPE_ANYMIRROR : VDEV_TYPE_RAIDZ;
 		nvlist_t *grp = fnvlist_alloc();
 		fnvlist_add_string(grp, ZPOOL_CONFIG_TYPE, gtype);
 		fnvlist_add_uint64(grp, ZPOOL_CONFIG_IS_LOG, 0);
@@ -869,6 +880,10 @@ zed_create_pool_json(uint32_t flags, uint32_t topology, uint32_t ndisks,
 			fnvlist_add_uint64(grp, ZPOOL_CONFIG_DRAID_NCHILDREN,
 			    ndisks);
 			fnvlist_add_uint64(grp, ZPOOL_CONFIG_DRAID_NGROUPS, 1);
+		} else if (is_anyraid) {
+			fnvlist_add_uint8(grp, ZPOOL_CONFIG_ANYRAID_PARITY_TYPE,
+			    VAP_MIRROR);
+			fnvlist_add_uint64(grp, ZPOOL_CONFIG_NPARITY, nparity);
 		}
 		fnvlist_add_nvlist_array(grp, ZPOOL_CONFIG_CHILDREN,
 		    (const nvlist_t **)leaves, ndisks);
