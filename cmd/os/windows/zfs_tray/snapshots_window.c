@@ -64,6 +64,12 @@
 #define	IDC_SDSINFO	3314
 #define	IDC_SNEWDS	3315
 #define	IDC_SDELDS	3316
+#define	IDC_STAB	3320
+#define	IDC_PLIST	3321
+#define	IDC_PEDIT	3322
+#define	IDC_PINHERIT	3323
+#define	IDC_PINFO	3324
+#define	ZSETPROP_INHERIT	0x01
 
 // Mirror of the service's flags, see ops_snapshots.h
 #define	ZSNAP_RECURSIVE	0x01
@@ -94,8 +100,20 @@ typedef struct {
 } SnapEnt;
 
 typedef struct {
+	wchar_t name[64];
+	wchar_t value[512];
+	wchar_t source[24];	// local, inherited, received, ...
+	wchar_t from[256];	// where an inherited value comes from
+	wchar_t hint[512];	// ZFS's own list of the values it takes
+	BOOL readonly;
+	BOOL inheritable;
+} PropEnt;
+
+typedef struct {
 	HWND hWnd;
 	HWND hList;
+	HWND hTab;
+	HWND hPropList;
 	HWND hTree;
 	HFONT hHeaderFont;
 	zrpc_t rpc;
@@ -103,6 +121,9 @@ typedef struct {
 	int nds;
 	SnapEnt *snaps;
 	int nsnaps;
+	PropEnt *props;
+	int nprops;
+	int page;		// 0 snapshots, 1 properties
 	wchar_t cur[256];	// dataset whose snapshots are shown
 	BOOL building;		// filling the tree, ignore its notifications
 } SCtx;
@@ -419,6 +440,88 @@ ParseSnaps(SCtx *c, const char *json, int json_len)
 					q = SkipValue(tok, q + 1, r);
 				}
 				c->nsnaps++;
+				j = q;
+			}
+			i = j;
+			continue;
+		}
+		i = SkipValue(tok, i + 1, r);
+	}
+	HeapFree(GetProcessHeap(), 0, tok);
+	return (ok);
+}
+
+// "\\" back to "\" in the values the service sent, in place.
+static void
+UnescapeW(wchar_t *s)
+{
+	wchar_t *w = s;
+
+	for (; *s; s++) {
+		*w++ = *s;
+		if (s[0] == L'\\' && s[1] == L'\\')
+			s++;
+	}
+	*w = L'\0';
+}
+
+// One "key":value pair of a property object.
+static void
+PropField(const char *json, const jsmntok_t *k, const jsmntok_t *v,
+    PropEnt *e)
+{
+	if (jsmn_eq(json, k, "name")) {
+		TokWide(json, v, e->name, ARRAYSIZE(e->name));
+	} else if (jsmn_eq(json, k, "value")) {
+		TokWide(json, v, e->value, ARRAYSIZE(e->value));
+		UnescapeW(e->value);
+	} else if (jsmn_eq(json, k, "source")) {
+		TokWide(json, v, e->source, ARRAYSIZE(e->source));
+	} else if (jsmn_eq(json, k, "from")) {
+		TokWide(json, v, e->from, ARRAYSIZE(e->from));
+	} else if (jsmn_eq(json, k, "hint")) {
+		TokWide(json, v, e->hint, ARRAYSIZE(e->hint));
+	} else if (jsmn_eq(json, k, "readonly")) {
+		e->readonly = PrimTrue(json, v);
+	} else if (jsmn_eq(json, k, "inheritable")) {
+		e->inheritable = PrimTrue(json, v);
+	}
+}
+
+static BOOL
+ParseProps(SCtx *c, const char *json, int json_len)
+{
+	jsmntok_t *tok;
+	int r, i;
+	BOOL ok = FALSE;
+
+	tok = ParseTokens(json, json_len, &r);
+	if (tok == NULL)
+		return (FALSE);
+	i = 1;
+	while (i + 1 < r && tok[i].start < tok[0].end) {
+		const jsmntok_t *k = &tok[i], *v = &tok[i + 1];
+
+		if (jsmn_eq(json, k, "ok")) {
+			ok = PrimTrue(json, v);
+		} else if (jsmn_eq(json, k, "props") &&
+		    v->type == JSMN_ARRAY) {
+			int n = v->size, e, j = i + 2;
+
+			c->props = (PropEnt *)HeapAlloc(GetProcessHeap(),
+			    HEAP_ZERO_MEMORY,
+			    (n > 0 ? n : 1) * sizeof (PropEnt));
+			if (!c->props)
+				break;
+			for (e = 0; e < n && j < r; e++) {
+				int oend = tok[j].end, q = j + 1;
+
+				while (q + 1 < r && tok[q].start < oend) {
+					PropField(json, &tok[q], &tok[q + 1],
+					    &c->props[c->nprops]);
+					q = SkipValue(tok, q + 1, r);
+				}
+				c->nprops++;
 				j = q;
 			}
 			i = j;
@@ -1169,7 +1272,8 @@ PromptWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 static BOOL
 PromptText(HWND owner, const wchar_t *title, const wchar_t *prompt,
     const wchar_t *hint, wchar_t *text, int textcch, wchar_t *props,
-    int propscch, PromptCombo *combos, int ncombos)
+    int propscch, PromptCombo *combos, int ncombos,
+    const wchar_t *const *text_choices)
 {
 	static BOOL registered = FALSE;
 	HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(owner, GWLP_HINSTANCE);
@@ -1226,10 +1330,24 @@ PromptText(HWND owner, const wchar_t *title, const wchar_t *prompt,
 	SendMessageW(h, WM_SETFONT, (WPARAM)font, TRUE);
 	MoveWindow(h, 12, y, w - 24, 36, TRUE);
 	y += 36 + 8;
-	p.hText = MakeChild(dlg, L"EDIT", text, ES_AUTOHSCROLL | WS_BORDER |
-	    WS_TABSTOP, 0);
-	SendMessageW(p.hText, WM_SETFONT, (WPARAM)font, TRUE);
-	MoveWindow(p.hText, 12, y, w - 24, 24, TRUE);
+	if (text_choices != NULL) {
+		// Something to pick from, or type over.
+		int k;
+
+		p.hText = MakeChild(dlg, L"COMBOBOX", L"", CBS_DROPDOWN |
+		    CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP, 0);
+		for (k = 0; text_choices[k] != NULL; k++)
+			SendMessageW(p.hText, CB_ADDSTRING, 0,
+			    (LPARAM)text_choices[k]);
+		SetWindowTextW(p.hText, text);
+		SendMessageW(p.hText, WM_SETFONT, (WPARAM)font, TRUE);
+		MoveWindow(p.hText, 12, y, w - 24, 200, TRUE);
+	} else {
+		p.hText = MakeChild(dlg, L"EDIT", text, ES_AUTOHSCROLL |
+		    WS_BORDER | WS_TABSTOP, 0);
+		SendMessageW(p.hText, WM_SETFONT, (WPARAM)font, TRUE);
+		MoveWindow(p.hText, 12, y, w - 24, 24, TRUE);
+	}
 	y += 24 + 12;
 	for (i = 0; i < ncombos; i++) {
 		// Two to a row: label and drop-down, label and drop-down.
@@ -1276,7 +1394,10 @@ PromptText(HWND owner, const wchar_t *title, const wchar_t *prompt,
 	EnableWindow(owner, FALSE);
 	ShowWindow(dlg, SW_SHOWNORMAL);
 	SetFocus(p.hText);
-	SendMessageW(p.hText, EM_SETSEL, 0, -1);
+	if (text_choices != NULL)
+		SendMessageW(p.hText, CB_SETEDITSEL, 0, MAKELPARAM(0, -1));
+	else
+		SendMessageW(p.hText, EM_SETSEL, 0, -1);
 	while (!p.done && GetMessageW(&m, NULL, 0, 0) > 0) {
 		if (!IsDialogMessageW(dlg, &m)) {
 			TranslateMessage(&m);
@@ -1443,7 +1564,7 @@ DoNewDataset(SCtx *c)
 	if (!PromptText(c->hWnd, L"New dataset", prompt,
 	    L"Anything else, one per line, like recordsize=1M:",
 	    name, ARRAYSIZE(name), props, ARRAYSIZE(props), combos,
-	    (int)ARRAYSIZE(combos)))
+	    (int)ARRAYSIZE(combos), NULL))
 		return;
 	if (name[0] == L'\0') {
 		ErrorBox(c->hWnd, L"Enter a name for the dataset.");
@@ -1556,7 +1677,7 @@ DoDestroyDataset(SCtx *c)
 	    L"This destroys %s and everything stored in it. Type its name "
 	    L"to confirm:", name);
 	if (!PromptText(c->hWnd, L"Destroy dataset", prompt, NULL, typed,
-	    ARRAYSIZE(typed), NULL, 0, NULL, 0))
+	    ARRAYSIZE(typed), NULL, 0, NULL, 0, NULL))
 		return;
 	if (lstrcmpW(typed, name) != 0) {
 		ErrorBox(c->hWnd, L"That is not the name of the dataset, "
@@ -1593,7 +1714,7 @@ Layout(SCtx *c)
 {
 	RECT rc;
 	int w, h, bh = 26, pad = 10, top = 40, lw = 270;
-	int row1, row2, x0, rw, x, listtop;
+	int row1, row2, x0, rw, x, listtop, pw;
 
 	GetClientRect(c->hWnd, &rc);
 	w = rc.right;
@@ -1602,7 +1723,7 @@ Layout(SCtx *c)
 	row1 = row2 - bh - pad;
 	x0 = pad + lw + pad;
 	rw = w - x0 - pad;
-	listtop = top + 40;
+	listtop = top + 72;
 
 	// Left: the datasets, with new/destroy and mount/unmount under them.
 	MoveWindow(c->hTree, pad, top, lw, row1 - top - pad, TRUE);
@@ -1615,7 +1736,19 @@ Layout(SCtx *c)
 
 	// Right: what is known about the selected dataset, its snapshots.
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SDSINFO), x0, top, rw, 36, TRUE);
+	MoveWindow(c->hTab, x0, top + 40, rw, 28, TRUE);
 	MoveWindow(c->hList, x0, listtop, rw, row1 - listtop - pad, TRUE);
+	// The properties page takes the place of the snapshots page.
+	MoveWindow(c->hPropList, x0, listtop, rw, row2 - listtop - pad, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_PEDIT), x0, row2, 90, bh, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_PINHERIT), x0 + 98, row2, 90, bh,
+	    TRUE);
+	// Up to the Refresh button, which both pages share.
+	pw = rw - 196 - 286 - pad;
+	if (pw < 20)
+		pw = 20;
+	MoveWindow(GetDlgItem(c->hWnd, IDC_PINFO), x0 + 196, row2 + 4, pw, 20,
+	    TRUE);
 
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SNEWLBL), x0, row1 + 5, 90, 20,
 	    TRUE);
@@ -1679,6 +1812,8 @@ ShowDatasetInfo(SCtx *c)
 	    d != NULL && d->depth > 0);
 }
 
+static void LoadProps(SCtx *c);
+
 // Select the dataset at index i and show its snapshots.
 static void
 SelectDataset(SCtx *c, int i)
@@ -1690,8 +1825,281 @@ SelectDataset(SCtx *c, int i)
 	}
 	ShowDatasetInfo(c);
 	LoadSnapshots(c);
+	if (c->page == 1)
+		LoadProps(c);
 }
 
+// -------------------- properties --------------------
+
+static void
+FreeProps(SCtx *c)
+{
+	if (c->props)
+		HeapFree(GetProcessHeap(), 0, c->props);
+	c->props = NULL;
+	c->nprops = 0;
+}
+
+// The selected property, or NULL.
+static const PropEnt *
+SelectedProp(SCtx *c)
+{
+	int sel = ListView_GetNextItem(c->hPropList, -1, LVNI_SELECTED);
+	LVITEMW it = { 0 };
+
+	if (sel < 0)
+		return (NULL);
+	it.mask = LVIF_PARAM;
+	it.iItem = sel;
+	if (!ListView_GetItem(c->hPropList, &it) || it.lParam < 0 ||
+	    it.lParam >= c->nprops)
+		return (NULL);
+	return (&c->props[it.lParam]);
+}
+
+static void
+UpdatePropButtons(SCtx *c)
+{
+	const PropEnt *e = SelectedProp(c);
+	BOOL set = (e != NULL && !e->readonly);
+
+	EnableWindow(GetDlgItem(c->hWnd, IDC_PEDIT), set);
+	EnableWindow(GetDlgItem(c->hWnd, IDC_PINHERIT), set &&
+	    e->inheritable && (lstrcmpW(e->source, L"local") == 0 ||
+	    lstrcmpW(e->source, L"received") == 0));
+}
+
+static void
+PopulateProps(SCtx *c)
+{
+	int i;
+
+	ListView_DeleteAllItems(c->hPropList);
+	for (i = 0; i < c->nprops; i++) {
+		const PropEnt *e = &c->props[i];
+		LVITEMW it = { 0 };
+		wchar_t src[300];
+
+		it.mask = LVIF_TEXT | LVIF_PARAM;
+		it.iItem = i;
+		it.pszText = (LPWSTR)e->name;
+		it.lParam = i;
+		ListView_InsertItem(c->hPropList, &it);
+		ListView_SetItemText(c->hPropList, i, 1, (LPWSTR)e->value);
+		if (lstrcmpW(e->source, L"inherited") == 0)
+			_snwprintf_s(src, ARRAYSIZE(src), _TRUNCATE,
+			    L"inherited from %s", e->from);
+		else if (lstrcmpW(e->source, L"none") == 0)
+			src[0] = L'\0';
+		else
+			lstrcpynW(src, e->source, ARRAYSIZE(src));
+		ListView_SetItemText(c->hPropList, i, 2, src);
+	}
+	UpdatePropButtons(c);
+}
+
+// Ask for the properties of c->cur.
+static void
+LoadProps(SCtx *c)
+{
+	char utf8[1024];
+	uint8_t *out = NULL;
+	uint32_t outlen = 0;
+	wchar_t err[256] = L"";
+
+	FreeProps(c);
+	if (c->cur[0] == L'\0' || !ToUtf8(c->cur, utf8, sizeof (utf8))) {
+		PopulateProps(c);
+		return;
+	}
+	if (!Call(c, OP_DATASET_PROPS, utf8, (uint32_t)strlen(utf8) + 1, &out,
+	    &outlen, err, ARRAYSIZE(err))) {
+		PopulateProps(c);
+		SetDlgItemTextW(c->hWnd, IDC_PINFO, err);
+		return;
+	}
+	if (!ParseProps(c, (const char *)out, (int)outlen)) {
+		ReplyOk((const char *)out, (int)outlen, err, ARRAYSIZE(err));
+		if (err[0] == L'\0')
+			lstrcpynW(err, L"Unexpected reply from the service.",
+			    ARRAYSIZE(err));
+		FreeProps(c);
+		HeapFree(GetProcessHeap(), 0, out);
+		PopulateProps(c);
+		SetDlgItemTextW(c->hWnd, IDC_PINFO, err);
+		return;
+	}
+	HeapFree(GetProcessHeap(), 0, out);
+	PopulateProps(c);
+	SetDlgItemTextW(c->hWnd, IDC_PINFO, L"");
+}
+
+// The plain words in ZFS's hint ("on | off | lz4 | gzip-[1-9] | <size>"),
+// the patterns left out, as suggestions for the value.
+#define	MAX_CHOICES	32
+typedef struct {
+	wchar_t text[MAX_CHOICES][64];
+	const wchar_t *list[MAX_CHOICES + 1];
+} ChoiceList;
+
+static void
+HintChoices(const wchar_t *hint, ChoiceList *cl)
+{
+	const wchar_t *p = hint;
+	int n = 0;
+
+	ZeroMemory(cl, sizeof (*cl));
+	while (*p != L'\0' && n < MAX_CHOICES) {
+		const wchar_t *end = wcschr(p, L'|');
+		int len, i;
+		BOOL plain = TRUE;
+
+		if (end == NULL)
+			end = p + wcslen(p);
+		while (p < end && *p == L' ')
+			p++;
+		len = (int)(end - p);
+		while (len > 0 && p[len - 1] == L' ')
+			len--;
+		for (i = 0; i < len; i++) {
+			wchar_t ch = p[i];
+
+			if (!((ch >= L'a' && ch <= L'z') ||
+			    (ch >= L'A' && ch <= L'Z') ||
+			    (ch >= L'0' && ch <= L'9') || ch == L'-' ||
+			    ch == L'_' || ch == L'.'))
+				plain = FALSE;
+		}
+		if (plain && len > 0 && len < 64) {
+			memcpy(cl->text[n], p, len * sizeof (wchar_t));
+			cl->list[n] = cl->text[n];
+			n++;
+		}
+		p = (*end == L'|') ? end + 1 : end;
+	}
+	cl->list[n] = NULL;
+}
+
+// One OP_DATASET_SETPROP. 0 done, otherwise err says why.
+static int
+SetPropCall(SCtx *c, uint32_t flags, const wchar_t *ds, const wchar_t *name,
+    const wchar_t *value, wchar_t *err, int errcch)
+{
+	char body[sizeof (uint32_t) + 1024 + 128 + 2048];
+	char *w = body + sizeof (uint32_t);
+	uint8_t *out = NULL;
+	uint32_t outlen = 0;
+	size_t n;
+
+	err[0] = L'\0';
+	memcpy(body, &flags, sizeof (flags));
+	if (!ToUtf8(ds, w, 1024)) {
+		lstrcpynW(err, L"Invalid name.", errcch);
+		return (2);
+	}
+	w += strlen(w) + 1;
+	if (!ToUtf8(name, w, 128)) {
+		lstrcpynW(err, L"Invalid property.", errcch);
+		return (2);
+	}
+	w += strlen(w) + 1;
+	if (!ToUtf8(value, w, 2048)) {
+		lstrcpynW(err, L"The value is too long.", errcch);
+		return (2);
+	}
+	w += strlen(w) + 1;
+	n = (size_t)(w - body);
+	if (!Call(c, OP_DATASET_SETPROP, body, (uint32_t)n, &out, &outlen,
+	    err, errcch))
+		return (2);
+	if (!ReplyOk((const char *)out, (int)outlen, err, errcch)) {
+		if (err[0] == L'\0')
+			lstrcpynW(err, L"The property was not changed.",
+			    errcch);
+		HeapFree(GetProcessHeap(), 0, out);
+		return (1);
+	}
+	HeapFree(GetProcessHeap(), 0, out);
+	return (0);
+}
+
+// A change can move the dataset (mountpoint, drive letter) or change what
+// the tree and the info line show, so look at everything again.
+static void
+AfterPropChange(SCtx *c)
+{
+	wchar_t keep[256];
+
+	lstrcpynW(keep, c->cur, ARRAYSIZE(keep));
+	(void) LoadDatasets(c, keep, TRUE);
+}
+
+static void
+DoEditProp(SCtx *c)
+{
+	const PropEnt *e = SelectedProp(c);
+	ChoiceList cl;
+	wchar_t name[64], value[512], hint[512], prompt[400], err[256];
+
+	if (e == NULL || e->readonly)
+		return;
+	lstrcpynW(name, e->name, ARRAYSIZE(name));
+	lstrcpynW(value, e->value, ARRAYSIZE(value));
+	lstrcpynW(hint, e->hint, ARRAYSIZE(hint));
+	HintChoices(hint, &cl);
+	if (hint[0] != L'\0')
+		_snwprintf_s(prompt, ARRAYSIZE(prompt), _TRUNCATE,
+		    L"%s of %s\n(%s)", name, c->cur, hint);
+	else
+		_snwprintf_s(prompt, ARRAYSIZE(prompt), _TRUNCATE,
+		    L"%s of %s", name, c->cur);
+	if (!PromptText(c->hWnd, L"Change property", prompt, NULL, value,
+	    ARRAYSIZE(value), NULL, 0, NULL, 0, cl.list))
+		return;
+	if (lstrcmpW(value, e->value) == 0)
+		return;
+	if (SetPropCall(c, 0, c->cur, name, value, err, ARRAYSIZE(err)) != 0)
+		ErrorBox(c->hWnd, err);
+	AfterPropChange(c);
+}
+
+static void
+DoInheritProp(SCtx *c)
+{
+	const PropEnt *e = SelectedProp(c);
+	wchar_t name[64], err[256];
+
+	if (e == NULL || e->readonly || !e->inheritable)
+		return;
+	lstrcpynW(name, e->name, ARRAYSIZE(name));
+	if (SetPropCall(c, ZSETPROP_INHERIT, c->cur, name, L"", err,
+	    ARRAYSIZE(err)) != 0)
+		ErrorBox(c->hWnd, err);
+	AfterPropChange(c);
+}
+
+// Show one of the pages under the tab strip.
+static void
+ShowPage(SCtx *c, int page)
+{
+	static const int snapids[] = { IDC_SNEWLBL, IDC_SNAME,
+	    IDC_SRECURSIVE, IDC_SCREATE, IDC_SINFO, IDC_SROLLBACK,
+	    IDC_SDESTROY };
+	static const int propids[] = { IDC_PEDIT, IDC_PINHERIT, IDC_PINFO };
+	size_t i;
+
+	c->page = page;
+	ShowWindow(c->hList, page == 0 ? SW_SHOW : SW_HIDE);
+	for (i = 0; i < ARRAYSIZE(snapids); i++)
+		ShowWindow(GetDlgItem(c->hWnd, snapids[i]),
+		    page == 0 ? SW_SHOW : SW_HIDE);
+	ShowWindow(c->hPropList, page == 1 ? SW_SHOW : SW_HIDE);
+	for (i = 0; i < ARRAYSIZE(propids); i++)
+		ShowWindow(GetDlgItem(c->hWnd, propids[i]),
+		    page == 1 ? SW_SHOW : SW_HIDE);
+	if (page == 1)
+		LoadProps(c);
+}
 
 static LRESULT CALLBACK
 SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -1721,6 +2129,15 @@ SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		if (c != NULL && nh->idFrom == IDC_SLIST &&
 		    nh->code == LVN_ITEMCHANGED) {
 			UpdateButtons(c);
+		} else if (c != NULL && nh->idFrom == IDC_PLIST &&
+		    nh->code == LVN_ITEMCHANGED) {
+			UpdatePropButtons(c);
+		} else if (c != NULL && nh->idFrom == IDC_PLIST &&
+		    nh->code == NM_DBLCLK) {
+			DoEditProp(c);
+		} else if (c != NULL && nh->idFrom == IDC_STAB &&
+		    nh->code == TCN_SELCHANGE) {
+			ShowPage(c, TabCtrl_GetCurSel(c->hTab));
 		} else if (c != NULL && !c->building &&
 		    nh->idFrom == IDC_SDATASET &&
 		    nh->code == TVN_SELCHANGEDW) {
@@ -1734,6 +2151,12 @@ SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		if (c == NULL)
 			break;
 		switch (LOWORD(wParam)) {
+		case IDC_PEDIT:
+			DoEditProp(c);
+			break;
+		case IDC_PINHERIT:
+			DoInheritProp(c);
+			break;
 		case IDC_SNEWDS:
 			DoNewDataset(c);
 			break;
@@ -1895,7 +2318,8 @@ RunSnapshotsWindow(HINSTANCE hInst, const wchar_t *dataset)
 	HFONT font;
 	MSG m;
 	INITCOMMONCONTROLSEX icc = { sizeof (icc),
-	    ICC_LISTVIEW_CLASSES | ICC_TREEVIEW_CLASSES };
+	    ICC_LISTVIEW_CLASSES | ICC_TREEVIEW_CLASSES |
+	    ICC_TAB_CLASSES };
 	wchar_t name[256];
 
 	ZeroMemory(&ctx, sizeof (ctx));
@@ -1954,6 +2378,50 @@ RunSnapshotsWindow(HINSTANCE hInst, const wchar_t *dataset)
 	SendMessageW(ctx.hList, WM_SETFONT, (WPARAM)font, TRUE);
 	AddColumns(ctx.hList);
 
+	{
+		TCITEMW ti = { 0 };
+
+		ctx.hTab = MakeChild(ctx.hWnd, WC_TABCONTROLW, L"",
+		    WS_TABSTOP, IDC_STAB);
+		SendMessageW(ctx.hTab, WM_SETFONT, (WPARAM)font, TRUE);
+		ti.mask = TCIF_TEXT;
+		ti.pszText = L"Snapshots";
+		TabCtrl_InsertItem(ctx.hTab, 0, &ti);
+		ti.pszText = L"Properties";
+		TabCtrl_InsertItem(ctx.hTab, 1, &ti);
+	}
+	ctx.hPropList = MakeChild(ctx.hWnd, WC_LISTVIEWW, L"",
+	    LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER |
+	    WS_TABSTOP, IDC_PLIST);
+	ListView_SetExtendedListViewStyle(ctx.hPropList,
+	    LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+	SendMessageW(ctx.hPropList, WM_SETFONT, (WPARAM)font, TRUE);
+	{
+		static const struct { const wchar_t *name; int cx; } pc[] = {
+			{ L"Property", 150 }, { L"Value", 200 },
+			{ L"Source", 190 },
+		};
+		LVCOLUMNW col = { 0 };
+		int k;
+
+		col.mask = LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM;
+		for (k = 0; k < (int)ARRAYSIZE(pc); k++) {
+			col.pszText = (LPWSTR)pc[k].name;
+			col.cx = pc[k].cx;
+			col.iSubItem = k;
+			ListView_InsertColumn(ctx.hPropList, k, &col);
+		}
+	}
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Edit...",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_PEDIT), WM_SETFONT,
+	    (WPARAM)font, TRUE);
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Inherit",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_PINHERIT), WM_SETFONT,
+	    (WPARAM)font, TRUE);
+	SendMessageW(MakeChild(ctx.hWnd, L"STATIC", L"",
+	    SS_LEFT | SS_PATHELLIPSIS, IDC_PINFO), WM_SETFONT,
+	    (WPARAM)font, TRUE);
+
 	SendMessageW(MakeChild(ctx.hWnd, L"STATIC", L"New snapshot:", SS_LEFT,
 	    IDC_SNEWLBL), WM_SETFONT, (WPARAM)font, TRUE);
 	DefaultName(name, ARRAYSIZE(name));
@@ -1981,6 +2449,7 @@ RunSnapshotsWindow(HINSTANCE hInst, const wchar_t *dataset)
 
 	ApplyThemeFollowSystem(ctx.hWnd);
 	Layout(&ctx);
+	ShowPage(&ctx, 0);
 	if (!LoadDatasets(&ctx, dataset, TRUE)) {
 		DestroyWindow(ctx.hWnd);
 		return (1);
@@ -1999,6 +2468,7 @@ RunSnapshotsWindow(HINSTANCE hInst, const wchar_t *dataset)
 	if (ctx.hHeaderFont)
 		DeleteObject(ctx.hHeaderFont);
 	FreeSnaps(&ctx);
+	FreeProps(&ctx);
 	if (ctx.ds)
 		HeapFree(GetProcessHeap(), 0, ctx.ds);
 	return (0);
