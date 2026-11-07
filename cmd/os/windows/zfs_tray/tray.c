@@ -31,6 +31,7 @@
 #include "jsmn_utils.h"
 #include "rpc_client.h" // zrpc_t + zrpc_init/zrpc_call from earlier
 #include "versions_window.h"
+#include "snapshots_window.h"
 
 #include "import_window.h"
 #include "pass_prompt.h"
@@ -71,6 +72,7 @@
 
 #define	IDM_EXPORT_BASE 3100
 #define	IDM_DESTROY_BASE 3200
+#define	IDM_SNAP_BASE	3300 // 3300..3399, one per pool
 
 static HINSTANCE g_hInst;
 static HWND g_hWnd;
@@ -789,6 +791,27 @@ utf16_to_utf8_alloc(const wchar_t *w)
 	return (u8); // NUL-terminated
 }
 
+// Open the snapshots window for a pool as a separate zfs_tray process, so the
+// tray menu is never blocked on it.
+static void
+LaunchSnapshots(const wchar_t *pool)
+{
+	wchar_t exe[MAX_PATH];
+	wchar_t cmd[MAX_PATH + 128];
+	STARTUPINFOW si = { sizeof (si) };
+	PROCESS_INFORMATION pi;
+
+	if (GetModuleFileNameW(NULL, exe, _countof(exe)) == 0)
+		return;
+	_snwprintf_s(cmd, _countof(cmd), _TRUNCATE,
+	    L"\"%s\" --snapshots \"%s\"", exe, pool);
+	if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si,
+	    &pi)) {
+		CloseHandle(pi.hThread);
+		CloseHandle(pi.hProcess);
+	}
+}
+
 static LRESULT CALLBACK
 WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -908,6 +931,18 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			}
 			AppendMenuW(m, MF_POPUP, (UINT_PTR)dx, L"Destroy ▶");
 
+			HMENU sn = CreatePopupMenu();
+			if (g_pool_count == 0) {
+				AppendMenuW(sn, MF_GRAYED, 0, L"(no pools)");
+			} else {
+				for (int i = 0; i < g_pool_count; ++i)
+					AppendMenuW(sn, MF_STRING,
+					    IDM_SNAP_BASE + i,
+					    g_pool_names[i]);
+			}
+			AppendMenuW(m, MF_POPUP, (UINT_PTR)sn,
+			    L"Snapshots ▶");
+
 			AppendMenuW(m, MF_SEPARATOR, 0, NULL);
 
 			HMENU st = CreatePopupMenu();
@@ -983,6 +1018,14 @@ WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 					    L"OpenZFS", MB_OK | MB_ICONWARNING);
 				}
 			}
+			return (0);
+		}
+
+		if (id >= IDM_SNAP_BASE && id < IDM_SNAP_BASE + IDM_POOLS_MAX) {
+			int idx = (int)(id - IDM_SNAP_BASE);
+
+			if (idx < g_pool_count)
+				LaunchSnapshots(g_pool_names[idx]);
 			return (0);
 		}
 
@@ -1229,6 +1272,22 @@ wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
 			}
 			rc = deleted ? RunDeletedWindow(hInst, path) :
 			    RunVersionsWindow(hInst, path);
+			LocalFree(argv);
+			return (rc);
+		}
+		// "zfs_tray.exe --snapshots [dataset]": snapshots window, no
+		// tray icon.
+		if (argv != NULL && argc >= 2 &&
+		    lstrcmpiW(argv[1], L"--snapshots") == 0) {
+			wchar_t ds[256] = L"";
+			wchar_t *q;
+			int rc;
+
+			if (argc >= 3)
+				lstrcpynW(ds, argv[2], _countof(ds));
+			while ((q = wcschr(ds, L'"')) != NULL)
+				*q = L'\0';
+			rc = RunSnapshotsWindow(hInst, ds);
 			LocalFree(argv);
 			return (rc);
 		}
