@@ -28,6 +28,9 @@ extern "C" {
 /* OP_SNAPSHOT_DESTROY flags */
 #define	ZSNAPD_DEFER	0x01	/* mark for deferred destroy if in use */
 
+/* OP_DATASET_DESTROY flags */
+#define	ZDSD_RECURSIVE	0x01	/* also child datasets and all snapshots */
+
 /*
  * OP_SNAPSHOT_ROLLBACK flags. Rolling back to anything but the newest
  * snapshot destroys the newer ones (and any clones of them), which libzfs
@@ -69,6 +72,26 @@ char *zed_snapshot_destroy_json(uint32_t flags, const char *dataset_utf8,
  */
 char *zed_snapshot_rollback_json(uint32_t flags, const char *dataset_utf8,
     const char *snap_utf8, size_t *out_len);
+
+/*
+ * Create a filesystem. "props" is optional text, one "key=value" per line.
+ * A non-empty "passphrase" makes it a new encryption root with that
+ * passphrase (it is left with keylocation=prompt, to be unlocked like any
+ * other).
+ *   { "ok":true, "dataset", "mounted":bool } or { "ok":false, "err" }
+ */
+char *zed_dataset_create_json(const char *name_utf8, const char *props_utf8,
+    const char *passphrase_utf8, size_t *out_len);
+
+/*
+ * Destroy a dataset. A dataset with child datasets or snapshots is refused
+ * unless ZDSD_RECURSIVE is given, with
+ *   { "ok":false, "err", "needs_recursive":true, "children":"N",
+ *     "snapshots":"M" }
+ * so the caller can say what would go. A pool is never destroyed here.
+ */
+char *zed_dataset_destroy_json(uint32_t flags, const char *name_utf8,
+    size_t *out_len);
 
 #ifdef __cplusplus
 }

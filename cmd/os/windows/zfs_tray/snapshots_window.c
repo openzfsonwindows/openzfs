@@ -62,12 +62,15 @@
 #define	IDC_SMOUNT	3312
 #define	IDC_SUNMOUNT	3313
 #define	IDC_SDSINFO	3314
+#define	IDC_SNEWDS	3315
+#define	IDC_SDELDS	3316
 
 // Mirror of the service's flags, see ops_snapshots.h
 #define	ZSNAP_RECURSIVE	0x01
 #define	ZROLL_DESTROY_NEWER	0x01
 #define	ZROLL_DESTROY_CLONES	0x02
 #define	ZUMNT_FORCE	0x01
+#define	ZDSD_RECURSIVE	0x01
 
 typedef struct {
 	wchar_t name[256];
@@ -1068,6 +1071,521 @@ DoUnmount(SCtx *c)
 	(void) LoadDatasets(c, name, TRUE);
 }
 
+// -------------------- create / destroy datasets --------------------
+
+static HWND MakeChild(HWND parent, const wchar_t *cls, const wchar_t *text,
+    DWORD style, int id);
+
+// A property with a short list of values to pick from. The first choice is
+// "leave it to be inherited"; the others are the value itself.
+typedef struct {
+	const wchar_t *label;
+	const wchar_t *key;
+	const wchar_t *const *choices;	// NULL terminated
+	const wchar_t *const *values;	// what is sent, NULL: the choice
+	HWND h;
+} PromptCombo;
+
+typedef struct {
+	const wchar_t *title;
+	const wchar_t *prompt;
+	const wchar_t *hint;	// NULL: just the one box, no properties
+	wchar_t *text;		// in: first contents, out: what was entered
+	int textcch;
+	wchar_t *props;		// out: the picks, then what was typed
+	int propscch;
+	PromptCombo *combos;
+	int ncombos;
+	HWND hText;
+	HWND hProps;
+	BOOL ok;
+	BOOL done;
+} PromptCtx;
+
+static LRESULT CALLBACK
+PromptWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+	PromptCtx *p = (PromptCtx *)GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+
+	switch (msg) {
+	case WM_NCCREATE: {
+		CREATESTRUCTW *cs = (CREATESTRUCTW *)lParam;
+		SetWindowLongPtrW(hWnd, GWLP_USERDATA,
+		    (LONG_PTR)cs->lpCreateParams);
+		break;
+	}
+	case WM_COMMAND:
+		if (p == NULL)
+			break;
+		if (LOWORD(wParam) == IDOK) {
+			GetWindowTextW(p->hText, p->text, p->textcch);
+			if (p->hProps != NULL) {
+				wchar_t typed[1024], line[160];
+				int i;
+
+				GetWindowTextW(p->hProps, typed,
+				    ARRAYSIZE(typed));
+				p->props[0] = L'\0';
+				for (i = 0; i < p->ncombos; i++) {
+					int sel = (int)SendMessageW(
+					    p->combos[i].h, CB_GETCURSEL, 0,
+					    0);
+
+					const PromptCombo *pc = &p->combos[i];
+
+					if (sel <= 0)
+						continue;
+					_snwprintf_s(line, ARRAYSIZE(line),
+					    _TRUNCATE, L"%s=%s\n", pc->key,
+					    pc->values != NULL ?
+					    pc->values[sel] :
+					    pc->choices[sel]);
+					wcsncat_s(p->props, p->propscch, line,
+					    _TRUNCATE);
+				}
+				wcsncat_s(p->props, p->propscch, typed,
+				    _TRUNCATE);
+			}
+			p->ok = TRUE;
+			DestroyWindow(hWnd);
+		} else if (LOWORD(wParam) == IDCANCEL) {
+			DestroyWindow(hWnd);
+		}
+		return (0);
+	case WM_CLOSE:
+		DestroyWindow(hWnd);
+		return (0);
+	case WM_DESTROY:
+		// Not PostQuitMessage(): the window under it keeps running.
+		if (p != NULL)
+			p->done = TRUE;
+		return (0);
+	}
+	return (DefWindowProcW(hWnd, msg, wParam, lParam));
+}
+
+// A small modal box: one line of text, and optionally a properties box.
+// FALSE if cancelled.
+static BOOL
+PromptText(HWND owner, const wchar_t *title, const wchar_t *prompt,
+    const wchar_t *hint, wchar_t *text, int textcch, wchar_t *props,
+    int propscch, PromptCombo *combos, int ncombos)
+{
+	static BOOL registered = FALSE;
+	HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(owner, GWLP_HINSTANCE);
+	HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+	PromptCtx p;
+	RECT rc, orc;
+	MSG m;
+	HWND dlg, h;
+	int w = 460, hgt, y = 12, bw = 90, bh = 26, i;
+	DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
+
+	if (!registered) {
+		WNDCLASSW wc = { 0 };
+
+		wc.lpfnWndProc = PromptWndProc;
+		wc.hInstance = hInst;
+		wc.lpszClassName = L"ZfsPromptWnd";
+		wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+		wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+		RegisterClassW(&wc);
+		registered = TRUE;
+	}
+
+	ZeroMemory(&p, sizeof (p));
+	p.title = title;
+	p.prompt = prompt;
+	p.hint = hint;
+	p.text = text;
+	p.textcch = textcch;
+	p.props = props;
+	p.propscch = propscch;
+	p.combos = combos;
+	p.ncombos = ncombos;
+
+	hgt = 12 + 36 + 8 + 24 + 12 + bh + 12;
+	if (ncombos > 0)
+		hgt += ((ncombos + 1) / 2) * 30 + 6;
+	if (hint != NULL)
+		hgt += 24 + 96 + 4;
+	rc.left = 0;
+	rc.top = 0;
+	rc.right = w;
+	rc.bottom = hgt;
+	AdjustWindowRect(&rc, style, FALSE);
+	GetWindowRect(owner, &orc);
+	dlg = CreateWindowExW(WS_EX_DLGMODALFRAME, L"ZfsPromptWnd", title,
+	    style, orc.left + ((orc.right - orc.left) - (rc.right - rc.left)) /
+	    2, orc.top + 60, rc.right - rc.left, rc.bottom - rc.top, owner,
+	    NULL, hInst, &p);
+	if (dlg == NULL)
+		return (FALSE);
+
+	h = MakeChild(dlg, L"STATIC", prompt, SS_LEFT, 0);
+	SendMessageW(h, WM_SETFONT, (WPARAM)font, TRUE);
+	MoveWindow(h, 12, y, w - 24, 36, TRUE);
+	y += 36 + 8;
+	p.hText = MakeChild(dlg, L"EDIT", text, ES_AUTOHSCROLL | WS_BORDER |
+	    WS_TABSTOP, 0);
+	SendMessageW(p.hText, WM_SETFONT, (WPARAM)font, TRUE);
+	MoveWindow(p.hText, 12, y, w - 24, 24, TRUE);
+	y += 24 + 12;
+	for (i = 0; i < ncombos; i++) {
+		// Two to a row: label and drop-down, label and drop-down.
+		int x = 12 + (i % 2) * 228, k;
+
+		h = MakeChild(dlg, L"STATIC", combos[i].label, SS_LEFT, 0);
+		SendMessageW(h, WM_SETFONT, (WPARAM)font, TRUE);
+		MoveWindow(h, x, y + 4, 96, 20, TRUE);
+		combos[i].h = MakeChild(dlg, L"COMBOBOX", L"",
+		    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0);
+		SendMessageW(combos[i].h, WM_SETFONT, (WPARAM)font, TRUE);
+		MoveWindow(combos[i].h, x + 98, y, 122, 200, TRUE);
+		for (k = 0; combos[i].choices[k] != NULL; k++)
+			SendMessageW(combos[i].h, CB_ADDSTRING, 0,
+			    (LPARAM)combos[i].choices[k]);
+		SendMessageW(combos[i].h, CB_SETCURSEL, 0, 0);
+		if (i % 2 == 1 || i == ncombos - 1)
+			y += 30;
+	}
+	if (ncombos > 0)
+		y += 6;
+	if (hint != NULL) {
+		h = MakeChild(dlg, L"STATIC", hint, SS_LEFT, 0);
+		SendMessageW(h, WM_SETFONT, (WPARAM)font, TRUE);
+		MoveWindow(h, 12, y, w - 24, 24, TRUE);
+		y += 24 + 4;
+		p.hProps = MakeChild(dlg, L"EDIT", props, ES_MULTILINE |
+		    ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_BORDER |
+		    WS_TABSTOP, 0);
+		SendMessageW(p.hProps, WM_SETFONT, (WPARAM)font, TRUE);
+		MoveWindow(p.hProps, 12, y, w - 24, 96, TRUE);
+		y += 96 + 12;
+	}
+	h = MakeChild(dlg, L"BUTTON", L"OK", BS_DEFPUSHBUTTON | WS_TABSTOP,
+	    IDOK);
+	SendMessageW(h, WM_SETFONT, (WPARAM)font, TRUE);
+	MoveWindow(h, w - 12 - 2 * bw - 8, y, bw, bh, TRUE);
+	h = MakeChild(dlg, L"BUTTON", L"Cancel", BS_PUSHBUTTON | WS_TABSTOP,
+	    IDCANCEL);
+	SendMessageW(h, WM_SETFONT, (WPARAM)font, TRUE);
+	MoveWindow(h, w - 12 - bw, y, bw, bh, TRUE);
+
+	ApplyThemeFollowSystem(dlg);
+	EnableWindow(owner, FALSE);
+	ShowWindow(dlg, SW_SHOWNORMAL);
+	SetFocus(p.hText);
+	SendMessageW(p.hText, EM_SETSEL, 0, -1);
+	while (!p.done && GetMessageW(&m, NULL, 0, 0) > 0) {
+		if (!IsDialogMessageW(dlg, &m)) {
+			TranslateMessage(&m);
+			DispatchMessageW(&m);
+		}
+	}
+	EnableWindow(owner, TRUE);
+	SetForegroundWindow(owner);
+	return (p.ok);
+}
+
+// The value of the last "key=value" line for key in the properties text, or
+// "" if there is none.
+static void
+PropValue(const wchar_t *props, const wchar_t *key, wchar_t *out, int cch)
+{
+	size_t klen = wcslen(key);
+	const wchar_t *line = props;
+
+	out[0] = L'\0';
+	while (*line != L'\0') {
+		const wchar_t *end = line + wcscspn(line, L"\r\n");
+
+		if ((size_t)(end - line) > klen &&
+		    _wcsnicmp(line, key, klen) == 0 && line[klen] == L'=') {
+			int n = (int)(end - line - klen - 1);
+
+			if (n >= cch)
+				n = cch - 1;
+			memcpy(out, line + klen + 1, n * sizeof (wchar_t));
+			out[n] = L'\0';
+		}
+		line = end;
+		while (*line == L'\r' || *line == L'\n')
+			line++;
+	}
+}
+
+// Ask for a new passphrase twice (a typo here loses the data for good), as
+// UTF-8 in out. FALSE if cancelled, they differ, or it is too short.
+static BOOL
+AskNewPassphrase(SCtx *c, const wchar_t *ds, char *out, size_t outsz)
+{
+	wchar_t again[700];
+	uint8_t *p1 = NULL, *p2 = NULL;
+	uint32_t l1 = 0, l2 = 0;
+	BOOL same;
+
+	if (!PromptPassphrase(c->hWnd, ds, &p1, &l1))
+		return (FALSE);
+	_snwprintf_s(again, ARRAYSIZE(again), _TRUNCATE, L"%s (again)", ds);
+	if (!PromptPassphrase(c->hWnd, again, &p2, &l2)) {
+		SecureZeroMemory(p1, l1);
+		HeapFree(GetProcessHeap(), 0, p1);
+		return (FALSE);
+	}
+	same = (l1 == l2 && memcmp(p1, p2, l1) == 0);
+	SecureZeroMemory(p2, l2);
+	HeapFree(GetProcessHeap(), 0, p2);
+	if (!same) {
+		ErrorBox(c->hWnd, L"The two passphrases are not the same.");
+	} else if (l1 < 8) {
+		// ZFS refuses anything shorter
+		ErrorBox(c->hWnd, L"A passphrase needs at least 8 "
+		    L"characters.");
+		same = FALSE;
+	} else if (l1 + 1 > outsz) {
+		ErrorBox(c->hWnd, L"The passphrase is too long.");
+		same = FALSE;
+	} else {
+		memcpy(out, p1, l1 + 1);	// with its NUL
+	}
+	SecureZeroMemory(p1, l1);
+	HeapFree(GetProcessHeap(), 0, p1);
+	return (same);
+}
+
+// The drive letters nobody is using, for the driveletter picker: the text
+// shown ("G:") and the value to send ("G"), after the fixed choices.
+typedef struct {
+	wchar_t shown[26][8];
+	wchar_t value[26][4];
+	const wchar_t *choices[32];
+	const wchar_t *values[32];
+} LetterList;
+
+static void
+FillLetters(LetterList *ll)
+{
+	DWORD used = GetLogicalDrives();
+	int n = 0, i;
+
+	ZeroMemory(ll, sizeof (*ll));
+	ll->choices[n] = L"(inherit)";
+	ll->values[n++] = L"";
+	ll->choices[n] = L"off";
+	ll->values[n++] = L"off";
+	ll->choices[n] = L"on (next free)";
+	ll->values[n++] = L"on";
+	// Not A: and B:, and not the ones already in use.
+	for (i = 'D' - 'A'; i < 26; i++) {
+		if (used & (1UL << i))
+			continue;
+		_snwprintf_s(ll->shown[i], ARRAYSIZE(ll->shown[i]), _TRUNCATE,
+		    L"%c:", (wchar_t)(L'A' + i));
+		_snwprintf_s(ll->value[i], ARRAYSIZE(ll->value[i]), _TRUNCATE,
+		    L"%c", (wchar_t)(L'A' + i));
+		ll->choices[n] = ll->shown[i];
+		ll->values[n++] = ll->value[i];
+	}
+	ll->choices[n] = NULL;
+	ll->values[n] = NULL;
+}
+
+static void
+DoNewDataset(SCtx *c)
+{
+	static const wchar_t *const compress[] = { L"(inherit)", L"off",
+	    L"lz4", L"zstd", L"gzip", NULL };
+	// These two can only be chosen now, never changed later.
+	static const wchar_t *const casesens[] = { L"(inherit)", L"sensitive",
+	    L"insensitive", L"mixed", NULL };
+	static const wchar_t *const normal[] = { L"(inherit)", L"none",
+	    L"formC", L"formD", L"formKC", L"formKD", NULL };
+	static const wchar_t *const recsize[] = { L"(inherit)", L"16K", L"64K",
+	    L"128K", L"1M", NULL };
+	static const wchar_t *const atime[] = { L"(inherit)", L"on", L"off",
+	    NULL };
+	// Anything but inherit and off needs a passphrase, "on" is the
+	// default cipher.
+	static const wchar_t *const encrypt[] = { L"(inherit)", L"off", L"on",
+	    L"aes-256-ccm", L"aes-256-gcm", NULL };
+	LetterList letters;
+	PromptCombo combos[] = {
+		{ L"Compression:", L"compression", compress, NULL, NULL },
+		{ L"Record size:", L"recordsize", recsize, NULL, NULL },
+		{ L"Case sensitivity:", L"casesensitivity", casesens, NULL,
+		    NULL },
+		{ L"Normalization:", L"normalization", normal, NULL, NULL },
+		{ L"Access time:", L"atime", atime, NULL, NULL },
+		{ L"Drive letter:", L"driveletter", NULL, NULL, NULL },
+		{ L"Encryption:", L"encryption", encrypt, NULL, NULL },
+	};
+	wchar_t cipher[64];
+	char pass[1100] = "";
+	const DsEnt *d = CurDs(c);
+	wchar_t parent[256], name[256] = L"", props[1024] = L"";
+	wchar_t full[600], prompt[400], err[256];
+	char body[1024 + 2048 + 1100];
+	size_t n1, n2, n3;
+	uint8_t *out = NULL;
+	uint32_t outlen = 0;
+	const wchar_t *s;
+	BOOL ok;
+
+	if (d == NULL || d->volume)
+		return;
+	lstrcpynW(parent, d->name, ARRAYSIZE(parent));
+	FillLetters(&letters);
+	combos[5].choices = letters.choices;
+	combos[5].values = letters.values;
+	_snwprintf_s(prompt, ARRAYSIZE(prompt), _TRUNCATE,
+	    L"New dataset under %s. Name:", parent);
+	if (!PromptText(c->hWnd, L"New dataset", prompt,
+	    L"Anything else, one per line, like recordsize=1M:",
+	    name, ARRAYSIZE(name), props, ARRAYSIZE(props), combos,
+	    (int)ARRAYSIZE(combos)))
+		return;
+	if (name[0] == L'\0') {
+		ErrorBox(c->hWnd, L"Enter a name for the dataset.");
+		return;
+	}
+	for (s = name; *s; s++) {
+		if (*s == L'@' || *s == L'/' || *s == L'\\' || *s == L' ') {
+			ErrorBox(c->hWnd, L"The name cannot contain spaces, "
+			    L"slashes or '@'.");
+			return;
+		}
+	}
+	_snwprintf_s(full, ARRAYSIZE(full), _TRUNCATE, L"%s/%s", parent, name);
+	if (!ToUtf8(full, body, 1024)) {
+		ErrorBox(c->hWnd, L"The name is too long.");
+		return;
+	}
+	n1 = strlen(body) + 1;
+	if (!ToUtf8(props, body + n1, (int)(sizeof (body) - n1))) {
+		ErrorBox(c->hWnd, L"The properties are too long.");
+		return;
+	}
+	n2 = strlen(body + n1) + 1;
+	// A new encryption root needs a passphrase of its own; "off", and
+	// inheriting an encrypted parent's key, do not.
+	PropValue(props, L"encryption", cipher, ARRAYSIZE(cipher));
+	if (cipher[0] != L'\0' && lstrcmpiW(cipher, L"off") != 0 &&
+	    !AskNewPassphrase(c, full, pass, sizeof (pass)))
+		return;
+	n3 = strlen(pass) + 1;
+	if (n1 + n2 + n3 > sizeof (body)) {
+		SecureZeroMemory(pass, sizeof (pass));
+		ErrorBox(c->hWnd, L"Too much to send.");
+		return;
+	}
+	memcpy(body + n1 + n2, pass, n3);
+	SecureZeroMemory(pass, sizeof (pass));
+
+	ok = Call(c, OP_DATASET_CREATE, body, (uint32_t)(n1 + n2 + n3), &out,
+	    &outlen, err, ARRAYSIZE(err));
+	SecureZeroMemory(body, sizeof (body));
+	if (!ok) {
+		ErrorBox(c->hWnd, err);
+		return;
+	}
+	if (!ReplyOk((const char *)out, (int)outlen, err, ARRAYSIZE(err))) {
+		if (err[0] == L'\0')
+			lstrcpynW(err, L"The dataset was not created.",
+			    ARRAYSIZE(err));
+		HeapFree(GetProcessHeap(), 0, out);
+		ErrorBox(c->hWnd, err);
+		return;
+	}
+	HeapFree(GetProcessHeap(), 0, out);
+	(void) LoadDatasets(c, full, TRUE);
+}
+
+// One OP_DATASET_DESTROY. 0 done, 1 the service said no (err says why, and
+// *needs_recursive tells if that was all that was wrong), 2 no reply.
+static int
+DestroyCall(SCtx *c, uint32_t flags, const wchar_t *ds, wchar_t *err,
+    int errcch, BOOL *needs_recursive)
+{
+	char name[1024];
+	uint8_t body[sizeof (uint32_t) + sizeof (name)];
+	uint8_t *out = NULL;
+	uint32_t outlen = 0;
+	size_t n;
+
+	*needs_recursive = FALSE;
+	err[0] = L'\0';
+	if (!ToUtf8(ds, name, sizeof (name))) {
+		lstrcpynW(err, L"Invalid name.", errcch);
+		return (2);
+	}
+	n = strlen(name) + 1;
+	memcpy(body, &flags, sizeof (flags));
+	memcpy(body + sizeof (flags), name, n);
+	if (!Call(c, OP_DATASET_DESTROY, body, (uint32_t)(sizeof (flags) + n),
+	    &out, &outlen, err, errcch))
+		return (2);
+	if (!ReplyOk((const char *)out, (int)outlen, err, errcch)) {
+		*needs_recursive = ReplyBool((const char *)out, (int)outlen,
+		    "needs_recursive");
+		if (err[0] == L'\0')
+			lstrcpynW(err, L"The dataset was not destroyed.",
+			    errcch);
+		HeapFree(GetProcessHeap(), 0, out);
+		return (1);
+	}
+	HeapFree(GetProcessHeap(), 0, out);
+	return (0);
+}
+
+static void
+DoDestroyDataset(SCtx *c)
+{
+	const DsEnt *d = CurDs(c);
+	wchar_t name[256], typed[256] = L"", prompt[500], err[256], msg[600];
+	wchar_t parent[256];
+	wchar_t *slash;
+	BOOL needs_recursive;
+	int rc;
+
+	// A pool is destroyed from the tray menu, not from here.
+	if (d == NULL || d->depth == 0)
+		return;
+	lstrcpynW(name, d->name, ARRAYSIZE(name));
+	_snwprintf_s(prompt, ARRAYSIZE(prompt), _TRUNCATE,
+	    L"This destroys %s and everything stored in it. Type its name "
+	    L"to confirm:", name);
+	if (!PromptText(c->hWnd, L"Destroy dataset", prompt, NULL, typed,
+	    ARRAYSIZE(typed), NULL, 0, NULL, 0))
+		return;
+	if (lstrcmpW(typed, name) != 0) {
+		ErrorBox(c->hWnd, L"That is not the name of the dataset, "
+		    L"nothing was destroyed.");
+		return;
+	}
+
+	rc = DestroyCall(c, 0, name, err, ARRAYSIZE(err), &needs_recursive);
+	if (rc == 1 && needs_recursive) {
+		_snwprintf_s(msg, ARRAYSIZE(msg), _TRUNCATE,
+		    L"%s: %s.\n\nDestroy all of them too? This cannot be "
+		    L"undone.", name, err);
+		if (MessageBoxW(c->hWnd, msg, L"Destroy dataset",
+		    MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+			return;
+		rc = DestroyCall(c, ZDSD_RECURSIVE, name, err,
+		    ARRAYSIZE(err), &needs_recursive);
+	}
+	if (rc != 0)
+		ErrorBox(c->hWnd, err);
+
+	// Show its parent, or where we were if it is still there.
+	lstrcpynW(parent, name, ARRAYSIZE(parent));
+	slash = wcsrchr(parent, L'/');
+	if (rc == 0 && slash != NULL)
+		*slash = L'\0';
+	(void) LoadDatasets(c, rc == 0 ? parent : name, TRUE);
+}
+
 // -------------------- window --------------------
 
 static void
@@ -1086,8 +1604,11 @@ Layout(SCtx *c)
 	rw = w - x0 - pad;
 	listtop = top + 40;
 
-	// Left: the datasets, with mount and unmount under them.
-	MoveWindow(c->hTree, pad, top, lw, row2 - top - pad, TRUE);
+	// Left: the datasets, with new/destroy and mount/unmount under them.
+	MoveWindow(c->hTree, pad, top, lw, row1 - top - pad, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_SNEWDS), pad, row1, 90, bh, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_SDELDS), pad + 98, row1, 90, bh,
+	    TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SMOUNT), pad, row2, 90, bh, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SUNMOUNT), pad + 98, row2, 90, bh,
 	    TRUE);
@@ -1151,6 +1672,11 @@ ShowDatasetInfo(SCtx *c)
 	    d != NULL && !d->volume && !d->mounted);
 	EnableWindow(GetDlgItem(c->hWnd, IDC_SUNMOUNT),
 	    d != NULL && !d->volume && d->mounted);
+	// Children go under filesystems; a pool is destroyed from the menu.
+	EnableWindow(GetDlgItem(c->hWnd, IDC_SNEWDS),
+	    d != NULL && !d->volume);
+	EnableWindow(GetDlgItem(c->hWnd, IDC_SDELDS),
+	    d != NULL && d->depth > 0);
 }
 
 // Select the dataset at index i and show its snapshots.
@@ -1208,6 +1734,12 @@ SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		if (c == NULL)
 			break;
 		switch (LOWORD(wParam)) {
+		case IDC_SNEWDS:
+			DoNewDataset(c);
+			break;
+		case IDC_SDELDS:
+			DoDestroyDataset(c);
+			break;
 		case IDC_SMOUNT:
 			DoMount(c);
 			break;
@@ -1401,6 +1933,12 @@ RunSnapshotsWindow(HINSTANCE hInst, const wchar_t *dataset)
 	SetWindowTheme(ctx.hTree, L"Explorer", NULL);
 	SendMessageW(MakeChild(ctx.hWnd, L"STATIC", L"", SS_LEFT,
 	    IDC_SDSINFO), WM_SETFONT, (WPARAM)font, TRUE);
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"New...",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SNEWDS), WM_SETFONT,
+	    (WPARAM)font, TRUE);
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Destroy...",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SDELDS), WM_SETFONT,
+	    (WPARAM)font, TRUE);
 	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Mount",
 	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SMOUNT), WM_SETFONT,
 	    (WPARAM)font, TRUE);

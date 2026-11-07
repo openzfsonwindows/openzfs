@@ -637,8 +637,8 @@ parse_props_blob(const char *blob, nvlist_t *props, nvlist_t *fsprops)
 // reads it synchronously via zfs_crypto_create() -> get_key_material(); the
 // caller deletes the file immediately afterward. This avoids needing an
 // interactive console (keylocation=prompt has no meaning in a service).
-static BOOL
-write_temp_keyfile(const char *passphrase_utf8, wchar_t *out_path,
+BOOL
+zed_write_temp_keyfile(const char *passphrase_utf8, wchar_t *out_path,
     DWORD out_path_cch)
 {
 	wchar_t tmpdir[MAX_PATH];
@@ -908,7 +908,7 @@ zed_create_pool_json(uint32_t flags, uint32_t topology, uint32_t ndisks,
 
 	wchar_t keyfile[MAX_PATH] = { 0 };
 	if (passphrase_utf8 && passphrase_utf8[0]) {
-		if (!write_temp_keyfile(passphrase_utf8, keyfile,
+		if (!zed_write_temp_keyfile(passphrase_utf8, keyfile,
 		    _countof(keyfile))) {
 			fnvlist_add_string(res, "err",
 			    "failed to stage encryption key");
