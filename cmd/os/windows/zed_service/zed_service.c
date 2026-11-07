@@ -1025,6 +1025,70 @@ ClientWorker(HANDLE client, HANDLE event)
 			break;
 		}
 
+	case OP_DATASET_CREATE:
+		{
+			dprintf("OP_DATASET_CREATE\n");
+			// body: name\0, properties text\0, passphrase\0
+			const char *name, *props, *pass;
+			size_t n, remain;
+			if (rh.len == 0 || payload == NULL) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			name = (const char *)payload;
+			n = strnlen(name, rh.len);
+			if (n >= rh.len) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			props = name + n + 1;
+			remain = rh.len - n - 1;
+			n = strnlen(props, remain);
+			if (n >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			pass = props + n + 1;
+			remain -= n + 1;
+			if (strnlen(pass, remain) >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			size_t jlen = 0;
+			char *json = zed_dataset_create_json(name, props, pass,
+			    &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
+	case OP_DATASET_DESTROY:
+		{
+			dprintf("OP_DATASET_DESTROY\n");
+			// body: u32 flags, dataset name, NUL-terminated
+			uint32_t flags;
+			if (rh.len <= sizeof (uint32_t) || payload == NULL ||
+			    strnlen((const char *)payload + sizeof (uint32_t),
+			    rh.len - sizeof (uint32_t)) >=
+			    rh.len - sizeof (uint32_t)) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			memcpy(&flags, payload, sizeof (flags));
+			size_t jlen = 0;
+			char *json = zed_dataset_destroy_json(flags,
+			    (const char *)payload + sizeof (uint32_t), &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
 	case OP_SUBSCRIBE_EVENTS:
 		{
 			err = 0;

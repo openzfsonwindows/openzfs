@@ -59,6 +59,8 @@ typedef enum {
     OP_SNAPSHOT_ROLLBACK = 22,
     OP_DATASET_MOUNT = 23,
     OP_DATASET_UNMOUNT = 24,
+    OP_DATASET_CREATE = 25,
+    OP_DATASET_DESTROY = 26,
 } op_t;
 
 typedef struct {
@@ -188,6 +190,12 @@ typedef struct {
 // see ops_mount.h), then the UTF-8 NUL-terminated dataset name. Reply is
 // { "ok", "dataset", "err" }. A dataset whose key is not loaded has to have
 // it loaded first, see OP_MOUNT_PREFLIGHT and OP_LOAD_KEY_ONE.
+// OP_DATASET_CREATE: UTF-8 NUL-terminated dataset name (parent/child), then
+// UTF-8 NUL-terminated "key=value" lines of properties (may be empty), then
+// the UTF-8 NUL-terminated passphrase of a new encrypted dataset (empty: not
+// encrypted).
+// OP_DATASET_DESTROY: uint32 flags (ZDSD_*), then the UTF-8 NUL-terminated
+// dataset name. Replies: see ops_snapshots.h.
 
 enum {
 	ZCREATE_FORCE = 0x01, // reserved; allows selecting an in-use disk in UI
