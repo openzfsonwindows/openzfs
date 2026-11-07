@@ -57,9 +57,12 @@
 #define	IDC_SINFO	3308
 #define	IDC_SNEWLBL	3309
 #define	IDC_SDSLBL	3310
+#define	IDC_SROLLBACK	3311
 
 // Mirror of the service's flags, see ops_snapshots.h
 #define	ZSNAP_RECURSIVE	0x01
+#define	ZROLL_DESTROY_NEWER	0x01
+#define	ZROLL_DESTROY_CLONES	0x02
 
 typedef struct {
 	wchar_t name[256];
@@ -253,6 +256,27 @@ ReplyOk(const char *json, int json_len, wchar_t *err, int errcch)
 	}
 	HeapFree(GetProcessHeap(), 0, tok);
 	return (ok);
+}
+
+// TRUE if the reply has the top level boolean "key" set.
+static BOOL
+ReplyBool(const char *json, int json_len, const char *key)
+{
+	jsmntok_t *tok;
+	int r, i;
+	BOOL val = FALSE;
+
+	tok = ParseTokens(json, json_len, &r);
+	if (tok == NULL)
+		return (FALSE);
+	i = 1;
+	while (i + 1 < r && tok[i].start < tok[0].end) {
+		if (jsmn_eq(json, &tok[i], key))
+			val = PrimTrue(json, &tok[i + 1]);
+		i = SkipValue(tok, i + 1, r);
+	}
+	HeapFree(GetProcessHeap(), 0, tok);
+	return (val);
 }
 
 static BOOL
@@ -459,6 +483,9 @@ UpdateButtons(SCtx *c)
 {
 	EnableWindow(GetDlgItem(c->hWnd, IDC_SDESTROY),
 	    ListView_GetSelectedCount(c->hList) > 0);
+	// Rolling back goes to exactly one snapshot.
+	EnableWindow(GetDlgItem(c->hWnd, IDC_SROLLBACK),
+	    ListView_GetSelectedCount(c->hList) == 1);
 	EnableWindow(GetDlgItem(c->hWnd, IDC_SCREATE), c->cur[0] != L'\0');
 }
 
@@ -710,6 +737,107 @@ DoDestroy(SCtx *c)
 	LoadSnapshots(c);
 }
 
+static void
+DoRollback(SCtx *c)
+{
+	int sel = ListView_GetNextItem(c->hList, -1, LVNI_SELECTED);
+	LVITEMW it = { 0 };
+	const SnapEnt *s;
+	wchar_t msg[1024], err[256] = L"";
+	char ds[1024], snap[512];
+	uint8_t body[sizeof (uint32_t) + sizeof (ds) + sizeof (snap)];
+	uint8_t *out = NULL;
+	uint32_t outlen = 0, flags = 0;
+	size_t n1, n2;
+	int newer;
+	BOOL again = TRUE;
+
+	if (sel < 0)
+		return;
+	it.mask = LVIF_PARAM;
+	it.iItem = sel;
+	if (!ListView_GetItem(c->hList, &it) || it.lParam < 0 ||
+	    it.lParam >= c->nsnaps)
+		return;
+	s = &c->snaps[it.lParam];
+	// The list is oldest first, so these are the ones after it.
+	newer = c->nsnaps - 1 - (int)it.lParam;
+
+	if (newer == 0) {
+		_snwprintf_s(msg, ARRAYSIZE(msg), _TRUNCATE,
+		    L"Roll back %s to %s?\n\nEverything changed since this "
+		    L"snapshot was taken will be lost.", c->cur, s->name);
+	} else {
+		_snwprintf_s(msg, ARRAYSIZE(msg), _TRUNCATE,
+		    L"Roll back %s to %s?\n\nThis also DESTROYS the %d newer "
+		    L"snapshot%s, and everything changed since %s will be "
+		    L"lost.\n\nTo get single files back without losing "
+		    L"anything, cancel and use ZFS versions instead.",
+		    c->cur, s->name, newer, newer == 1 ? L"" : L"s",
+		    s->name);
+		flags |= ZROLL_DESTROY_NEWER;
+	}
+	if (MessageBoxW(c->hWnd, msg, L"Roll back",
+	    MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+		return;
+
+	if (!ToUtf8(c->cur, ds, sizeof (ds)) ||
+	    !ToUtf8(s->name, snap, sizeof (snap))) {
+		ErrorBox(c->hWnd, L"Invalid name.");
+		return;
+	}
+	n1 = strlen(ds) + 1;
+	n2 = strlen(snap) + 1;
+	memcpy(body + sizeof (flags), ds, n1);
+	memcpy(body + sizeof (flags) + n1, snap, n2);
+
+	while (again) {
+		again = FALSE;
+		memcpy(body, &flags, sizeof (flags));
+		if (!Call(c, OP_SNAPSHOT_ROLLBACK, body,
+		    (uint32_t)(sizeof (flags) + n1 + n2), &out, &outlen, err,
+		    ARRAYSIZE(err))) {
+			ErrorBox(c->hWnd, err);
+			return;
+		}
+		if (ReplyOk((const char *)out, (int)outlen, err,
+		    ARRAYSIZE(err))) {
+			HeapFree(GetProcessHeap(), 0, out);
+			LoadSnapshots(c);
+			_snwprintf_s(msg, ARRAYSIZE(msg), _TRUNCATE,
+			    L"Rolled back to %s", s->name);
+			SetInfo(c, msg);
+			return;
+		}
+		if (!(flags & ZROLL_DESTROY_CLONES) &&
+		    ReplyBool((const char *)out, (int)outlen,
+		    "clones_block")) {
+			// Other datasets are cloned from the snapshots that
+			// would go; they would have to go as well.
+			_snwprintf_s(msg, ARRAYSIZE(msg), _TRUNCATE,
+			    L"%s.\n\nRolling back needs those clones to be "
+			    L"destroyed too. Destroy them and roll back?",
+			    err);
+			HeapFree(GetProcessHeap(), 0, out);
+			if (MessageBoxW(c->hWnd, msg, L"Roll back",
+			    MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) ==
+			    IDYES) {
+				flags |= ZROLL_DESTROY_CLONES;
+				err[0] = L'\0';
+				again = TRUE;
+				continue;
+			}
+			return;
+		}
+		if (err[0] == L'\0')
+			lstrcpynW(err, L"The rollback failed.", ARRAYSIZE(err));
+		HeapFree(GetProcessHeap(), 0, out);
+		ErrorBox(c->hWnd, err);
+		LoadSnapshots(c);
+		return;
+	}
+}
+
 // -------------------- window --------------------
 
 static void
@@ -742,8 +870,10 @@ Layout(SCtx *c)
 	    w - pad - 100 - 8 - 150 - 8 - x, bh - 2, TRUE);
 
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SINFO), pad, row2 + 4,
-	    w - 3 * pad - 190, 20, TRUE);
-	MoveWindow(GetDlgItem(c->hWnd, IDC_SREFRESH), w - pad - 190, row2, 90,
+	    w - 3 * pad - 286, 20, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_SREFRESH), w - pad - 286, row2, 90,
+	    bh, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_SROLLBACK), w - pad - 188, row2, 90,
 	    bh, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SDESTROY), w - pad - 90, row2, 90,
 	    bh, TRUE);
@@ -816,6 +946,9 @@ SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			break;
 		case IDC_SDESTROY:
 			DoDestroy(c);
+			break;
+		case IDC_SROLLBACK:
+			DoRollback(c);
 			break;
 		case IDC_SREFRESH:
 			(void) LoadDatasets(c, c->cur, TRUE);
@@ -980,6 +1113,9 @@ RunSnapshotsWindow(HINSTANCE hInst, const wchar_t *dataset)
 	    TRUE);
 	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Refresh",
 	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SREFRESH), WM_SETFONT,
+	    (WPARAM)font, TRUE);
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Rollback...",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SROLLBACK), WM_SETFONT,
 	    (WPARAM)font, TRUE);
 	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Destroy...",
 	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SDESTROY), WM_SETFONT,

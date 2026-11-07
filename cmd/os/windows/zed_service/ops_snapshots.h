@@ -29,6 +29,15 @@ extern "C" {
 #define	ZSNAPD_DEFER	0x01	/* mark for deferred destroy if in use */
 
 /*
+ * OP_SNAPSHOT_ROLLBACK flags. Rolling back to anything but the newest
+ * snapshot destroys the newer ones (and any clones of them), which libzfs
+ * does without asking, so the service refuses unless the caller says it is
+ * what the user wants.
+ */
+#define	ZROLL_DESTROY_NEWER	0x01	/* newer snapshots may be destroyed */
+#define	ZROLL_DESTROY_CLONES	0x02	/* so may clones of those snapshots */
+
+/*
  * All return a HeapAlloc'ed UTF-8 JSON string, caller HeapFree()s, or NULL
  * on out of memory. On failure the shape is { "ok":false, "err":"<msg>" }.
  *
@@ -52,6 +61,14 @@ char *zed_snapshot_create_json(uint32_t flags, const char *dataset_utf8,
 /* "names" is count back to back NUL-terminated snapshot names ('@' part) */
 char *zed_snapshot_destroy_json(uint32_t flags, const char *dataset_utf8,
     const char *names, uint32_t count, size_t names_len, size_t *out_len);
+/*
+ * Roll the dataset back to the snapshot (the name without the '@').
+ *   { "ok":true, "dataset", "destroyed":"<number of snapshots>" }
+ *   { "ok":false, "dataset", "err", "newer_block"|"clones_block":true }
+ * where newer_block / clones_block say which flag would be needed.
+ */
+char *zed_snapshot_rollback_json(uint32_t flags, const char *dataset_utf8,
+    const char *snap_utf8, size_t *out_len);
 
 #ifdef __cplusplus
 }

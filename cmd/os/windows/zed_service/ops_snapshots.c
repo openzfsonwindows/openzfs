@@ -386,3 +386,112 @@ zed_snapshot_destroy_json(uint32_t flags, const char *dataset_utf8,
 	fnvlist_add_boolean_value(res, "ok", B_TRUE);
 	return (finish_json(res, out_len));
 }
+
+/* -------------------- rollback -------------------- */
+
+typedef struct {
+	uint64_t txg;		/* creation txg of the target snapshot */
+	uint64_t nnewer;	/* snapshots newer than the target */
+	uint64_t nclones;	/* clones of those snapshots */
+	char first_clone[ZFS_MAX_DATASET_NAME_LEN];
+} roll_ctx_t;
+
+/* Takes ownership of zhp. */
+static int
+roll_cb(zfs_handle_t *zhp, void *arg)
+{
+	roll_ctx_t *ctx = arg;
+
+	if (zfs_prop_get_int(zhp, ZFS_PROP_CREATETXG) > ctx->txg) {
+		nvlist_t *clones = zfs_get_clones_nvl(zhp);
+		nvpair_t *nvp = NULL;
+
+		ctx->nnewer++;
+		// Owned by the handle, not ours to free.
+		while (clones != NULL &&
+		    (nvp = nvlist_next_nvpair(clones, nvp)) != NULL) {
+			if (ctx->nclones++ == 0)
+				_snprintf_s(ctx->first_clone,
+				    sizeof (ctx->first_clone), _TRUNCATE,
+				    "%s", nvpair_name(nvp));
+		}
+	}
+	zfs_close(zhp);
+	return (0);
+}
+
+char *
+zed_snapshot_rollback_json(uint32_t flags, const char *dataset_utf8,
+    const char *snap_utf8, size_t *out_len)
+{
+	nvlist_t *res = fnvlist_alloc();
+	char full[ZFS_MAX_DATASET_NAME_LEN];
+	char msg[ZFS_MAX_DATASET_NAME_LEN + 128];
+	zfs_handle_t *zhp, *shp;
+	roll_ctx_t ctx;
+	int rc;
+
+	*out_len = 0;
+	fnvlist_add_boolean_value(res, "ok", B_FALSE);
+	if (g_lzh == NULL)
+		return (fail_json(res, "libzfs is not available", out_len));
+	if (dataset_utf8 == NULL || dataset_utf8[0] == '\0' ||
+	    snap_utf8 == NULL || snap_utf8[0] == '\0' ||
+	    strchr(dataset_utf8, '@') != NULL ||
+	    strchr(snap_utf8, '@') != NULL)
+		return (fail_json(res, "invalid name", out_len));
+	fnvlist_add_string(res, "dataset", dataset_utf8);
+
+	_snprintf_s(full, sizeof (full), _TRUNCATE, "%s@%s", dataset_utf8,
+	    snap_utf8);
+	if (!zfs_name_valid(full, ZFS_TYPE_SNAPSHOT))
+		return (fail_json(res, "invalid snapshot name", out_len));
+
+	zhp = zfs_open(g_lzh, dataset_utf8,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME);
+	if (zhp == NULL)
+		return (fail_json(res, lzh_err("dataset not found"), out_len));
+	shp = zfs_open(g_lzh, full, ZFS_TYPE_SNAPSHOT);
+	if (shp == NULL) {
+		zfs_close(zhp);
+		return (fail_json(res, lzh_err("snapshot not found"),
+		    out_len));
+	}
+
+	memset(&ctx, 0, sizeof (ctx));
+	ctx.txg = zfs_prop_get_int(shp, ZFS_PROP_CREATETXG);
+	(void) zfs_iter_snapshots(zhp, B_FALSE, roll_cb, &ctx, ctx.txg, 0);
+
+	if (ctx.nnewer > 0 && !(flags & ZROLL_DESTROY_NEWER)) {
+		_snprintf_s(msg, sizeof (msg), _TRUNCATE,
+		    "%llu newer snapshot%s would be destroyed",
+		    (unsigned long long)ctx.nnewer,
+		    ctx.nnewer == 1 ? "" : "s");
+		fnvlist_add_boolean_value(res, "newer_block", B_TRUE);
+		zfs_close(shp);
+		zfs_close(zhp);
+		return (fail_json(res, msg, out_len));
+	}
+	if (ctx.nclones > 0 && !(flags & ZROLL_DESTROY_CLONES)) {
+		_snprintf_s(msg, sizeof (msg), _TRUNCATE,
+		    "%s%s depends on a newer snapshot",
+		    ctx.first_clone, ctx.nclones > 1 ? " and others" : "");
+		fnvlist_add_boolean_value(res, "clones_block", B_TRUE);
+		zfs_close(shp);
+		zfs_close(zhp);
+		return (fail_json(res, msg, out_len));
+	}
+
+	// Destroys the newer snapshots (and their clones), then rolls back.
+	rc = zfs_rollback(zhp, shp,
+	    (flags & ZROLL_DESTROY_CLONES) ? B_TRUE : B_FALSE);
+	zfs_close(shp);
+	zfs_close(zhp);
+	if (rc != 0)
+		return (fail_json(res, lzh_err("rollback failed"), out_len));
+
+	add_u64_str(res, "destroyed", ctx.nnewer);
+	fnvlist_remove(res, "ok");
+	fnvlist_add_boolean_value(res, "ok", B_TRUE);
+	return (finish_json(res, out_len));
+}
