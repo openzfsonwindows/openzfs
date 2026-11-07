@@ -101,6 +101,20 @@ check_slice(const char *path, int force, boolean_t isspare)
 	}
 
 	(void) close(fd);
+
+	/*
+	 * Nothing else has this volume open right now, but it may still
+	 * carry a label from a pool that was exported (or is active
+	 * elsewhere) rather than destroyed. check_file() -> zpool_in_use()
+	 * reads that label straight off this partition's own device path,
+	 * which (unlike the "#offset#length#device" encoding used for
+	 * partitions Windows doesn't know about yet) is a real, independently
+	 * zero-based device object, so pread64()'s absolute offsets land
+	 * correctly here.
+	 */
+	if (err == 0)
+		err = check_file(path, force, isspare);
+
 	return (err);
 }
 
