@@ -1737,7 +1737,7 @@ int
 wosix_fstat(int fd, struct _stat64 *st)
 {
 	HANDLE h = ITOH(fd);
-	BY_HANDLE_FILE_INFORMATION info;
+	BY_HANDLE_FILE_INFORMATION info = { 0 };
 
 	if (!GetFileInformationByHandle(h, &info))
 		return (wosix_fstat_blk(fd, st));
