@@ -2,7 +2,7 @@
 use_clang()
 
 # Unfortunately, libbootenv uses kernel headers as well.
-include_directories(PRIVATE "${CMAKE_SOURCE_DIR}/include/os/windows/zfs")
+include_directories("${CMAKE_SOURCE_DIR}/include/os/windows/zfs")
 
 add_library(libzfsbootenv
 	lzbe_device.c
