@@ -57,7 +57,7 @@ zcmd_ioctl_compat(int fd, int request, zfs_cmd_t *zc, const int cflag)
 		ncmd = CTL_CODE(ZFSIOCTL_TYPE, ZFSIOCTL_BASE + request,
 		    METHOD_NEITHER, FILE_ANY_ACCESS);
 
-		zip = malloc(sizeof (zfs_iocparm_t));
+		zip = calloc(1, sizeof (zfs_iocparm_t));
 		zip->zfs_cmd = (uint64_t)zc;
 		zip->zfs_cmd_size = sizeof (zfs_cmd_t);
 		zip->zfs_ioctl_version = ZFS_IOCVER_ZOF;
@@ -88,6 +88,20 @@ zcmd_ioctl_compat(int fd, int request, zfs_cmd_t *zc, const int cflag)
 			errno = zip->zfs_ioc_error;
 			if (zip->zfs_ioc_error != 0)
 				ret = -1;
+		} else {
+			/*
+			 * DeviceIoControl() itself failed (transport-level
+			 * failure) - the kernel never touched
+			 * zip->zfs_ioc_error. Every caller up through
+			 * zfs_ioctl()/zpool_standard_error() classifies the
+			 * failure from errno, not from this function's
+			 * return value, so leaving errno untouched here means
+			 * they see whatever was left over from an unrelated
+			 * earlier call - a stale value that made import
+			 * failures look intermittent and produce "Unknown
+			 * error" aborts (see #667).
+			 */
+			errno = ret;
 		}
 		free(zip);
 		return (ret);

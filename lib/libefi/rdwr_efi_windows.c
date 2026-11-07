@@ -529,8 +529,8 @@ efi_ioctl(int fd, int cmd, dk_efi_t *dk_ioc)
 	void *data = dk_ioc->dki_data;
 	int error;
 #if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
-	diskaddr_t capacity;
-	uint_t lbsize;
+	diskaddr_t capacity = 0;
+	uint_t lbsize = 0;
 	usleep(100);
 	/*
 	 * When the IO is not being performed in kernel as an ioctl we need
