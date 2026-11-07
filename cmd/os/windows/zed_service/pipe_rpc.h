@@ -56,6 +56,7 @@ typedef enum {
     OP_LIST_SNAPSHOTS = 19,
     OP_SNAPSHOT_CREATE = 20,
     OP_SNAPSHOT_DESTROY = 21,
+    OP_SNAPSHOT_ROLLBACK = 22,
 } op_t;
 
 typedef struct {
@@ -178,6 +179,8 @@ typedef struct {
 // OP_SNAPSHOT_DESTROY: uint32 flags (ZSNAPD_*), uint32 count, then the
 // UTF-8 NUL-terminated dataset and count NUL-terminated snapshot names
 // (without the '@'). All are destroyed in one transaction.
+// OP_SNAPSHOT_ROLLBACK: uint32 flags (ZROLL_*), then the UTF-8
+// NUL-terminated dataset and snapshot name (without the '@').
 // Responses: see ops_snapshots.h.
 
 enum {

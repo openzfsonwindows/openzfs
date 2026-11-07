@@ -966,6 +966,42 @@ ClientWorker(HANDLE client, HANDLE event)
 			break;
 		}
 
+	case OP_SNAPSHOT_ROLLBACK:
+		{
+			dprintf("OP_SNAPSHOT_ROLLBACK\n");
+			// body: u32 flags, dataset, snapshot name (as create)
+			const char *ds, *snap;
+			size_t n, remain;
+			if (rh.len <= sizeof (uint32_t) || payload == NULL) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			remain = rh.len - sizeof (uint32_t);
+			ds = (const char *)payload + sizeof (uint32_t);
+			n = strnlen(ds, remain);
+			if (n >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			snap = ds + n + 1;
+			remain -= n + 1;
+			if (remain == 0 || strnlen(snap, remain) >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			uint32_t flags;
+			memcpy(&flags, payload, sizeof (flags));
+			size_t jlen = 0;
+			char *json = zed_snapshot_rollback_json(flags, ds, snap,
+			    &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
 	case OP_SUBSCRIBE_EVENTS:
 		{
 			err = 0;
