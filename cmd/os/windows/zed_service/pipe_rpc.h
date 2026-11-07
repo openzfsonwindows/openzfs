@@ -61,6 +61,8 @@ typedef enum {
     OP_DATASET_UNMOUNT = 24,
     OP_DATASET_CREATE = 25,
     OP_DATASET_DESTROY = 26,
+    OP_DATASET_PROPS = 27,
+    OP_DATASET_SETPROP = 28,
 } op_t;
 
 typedef struct {
@@ -196,6 +198,9 @@ typedef struct {
 // encrypted).
 // OP_DATASET_DESTROY: uint32 flags (ZDSD_*), then the UTF-8 NUL-terminated
 // dataset name. Replies: see ops_snapshots.h.
+// OP_DATASET_PROPS: the UTF-8 NUL-terminated dataset name.
+// OP_DATASET_SETPROP: uint32 flags (ZSETPROP_*), then the UTF-8
+// NUL-terminated dataset name, property name and value.
 
 enum {
 	ZCREATE_FORCE = 0x01, // reserved; allows selecting an in-use disk in UI

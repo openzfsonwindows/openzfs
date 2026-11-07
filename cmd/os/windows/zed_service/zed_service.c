@@ -1089,6 +1089,69 @@ ClientWorker(HANDLE client, HANDLE event)
 			break;
 		}
 
+	case OP_DATASET_PROPS:
+		{
+			dprintf("OP_DATASET_PROPS\n");
+			// body: dataset name, NUL-terminated
+			if (rh.len == 0 || payload == NULL ||
+			    strnlen((const char *)payload, rh.len) >= rh.len) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			size_t jlen = 0;
+			char *json = zed_dataset_props_json(
+			    (const char *)payload, &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
+	case OP_DATASET_SETPROP:
+		{
+			dprintf("OP_DATASET_SETPROP\n");
+			// body: u32 flags, dataset\0, property\0, value\0
+			const char *ds, *prop, *val;
+			uint32_t flags;
+			size_t n, remain;
+			if (rh.len <= sizeof (uint32_t) || payload == NULL) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			memcpy(&flags, payload, sizeof (flags));
+			ds = (const char *)payload + sizeof (uint32_t);
+			remain = rh.len - sizeof (uint32_t);
+			n = strnlen(ds, remain);
+			if (n >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			prop = ds + n + 1;
+			remain -= n + 1;
+			n = strnlen(prop, remain);
+			if (n >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			val = prop + n + 1;
+			remain -= n + 1;
+			if (strnlen(val, remain) >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			size_t jlen = 0;
+			char *json = zed_dataset_setprop_json(flags, ds, prop,
+			    val, &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
 	case OP_SUBSCRIBE_EVENTS:
 		{
 			err = 0;

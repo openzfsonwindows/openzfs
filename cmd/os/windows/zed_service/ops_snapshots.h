@@ -28,6 +28,9 @@ extern "C" {
 /* OP_SNAPSHOT_DESTROY flags */
 #define	ZSNAPD_DEFER	0x01	/* mark for deferred destroy if in use */
 
+/* OP_DATASET_SETPROP flags */
+#define	ZSETPROP_INHERIT	0x01	/* zfs inherit, the value is ignored */
+
 /* OP_DATASET_DESTROY flags */
 #define	ZDSD_RECURSIVE	0x01	/* also child datasets and all snapshots */
 
@@ -92,6 +95,24 @@ char *zed_dataset_create_json(const char *name_utf8, const char *props_utf8,
  */
 char *zed_dataset_destroy_json(uint32_t flags, const char *name_utf8,
     size_t *out_len);
+
+/*
+ * The properties of a dataset, as "zfs get all" would show them:
+ *   { "ok":true, "dataset", "props":[ {"name","value","source","from",
+ *     "readonly","inheritable","hint"}, .. ] }
+ * "source" is local, inherited (from the dataset named in "from"), received,
+ * temporary, default or none. "readonly" is also set for the ones that can
+ * only be chosen when the dataset is created. "hint" is ZFS's own list of
+ * the values it takes, "on | off", or a pattern, and may be empty.
+ */
+char *zed_dataset_props_json(const char *dataset_utf8, size_t *out_len);
+
+/*
+ * Set a property, or with ZSETPROP_INHERIT make it inherit again.
+ *   { "ok":true, "dataset" } or { "ok":false, "dataset", "err" }
+ */
+char *zed_dataset_setprop_json(uint32_t flags, const char *dataset_utf8,
+    const char *prop_utf8, const char *value_utf8, size_t *out_len);
 
 #ifdef __cplusplus
 }

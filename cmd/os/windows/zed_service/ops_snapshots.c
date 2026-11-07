@@ -842,3 +842,139 @@ out:
 		HeapFree(GetProcessHeap(), 0, ctx.names);
 	return (json);
 }
+
+/* -------------------- properties -------------------- */
+
+#define	ZED_MAX_PROPS	512
+
+static const char *
+source_name(zprop_source_t src)
+{
+	switch (src) {
+	case ZPROP_SRC_LOCAL:
+		return ("local");
+	case ZPROP_SRC_INHERITED:
+		return ("inherited");
+	case ZPROP_SRC_RECEIVED:
+		return ("received");
+	case ZPROP_SRC_TEMPORARY:
+		return ("temporary");
+	case ZPROP_SRC_DEFAULT:
+		return ("default");
+	default:
+		return ("none");
+	}
+}
+
+char *
+zed_dataset_props_json(const char *dataset_utf8, size_t *out_len)
+{
+	nvlist_t *res = fnvlist_alloc();
+	nvarr_t arr;
+	zfs_handle_t *zhp;
+	zfs_type_t type;
+	int p;
+
+	*out_len = 0;
+	fnvlist_add_boolean_value(res, "ok", B_FALSE);
+	if (g_lzh == NULL)
+		return (fail_json(res, "libzfs is not available", out_len));
+	if (dataset_utf8 == NULL || dataset_utf8[0] == '\0' ||
+	    strchr(dataset_utf8, '@') != NULL ||
+	    !zfs_name_valid(dataset_utf8, ZFS_TYPE_FILESYSTEM |
+	    ZFS_TYPE_VOLUME))
+		return (fail_json(res, "invalid dataset name", out_len));
+	fnvlist_add_string(res, "dataset", dataset_utf8);
+
+	zhp = zfs_open(g_lzh, dataset_utf8,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME);
+	if (zhp == NULL)
+		return (fail_json(res, lzh_err("dataset not found"), out_len));
+	type = zfs_get_type(zhp);
+
+	memset(&arr, 0, sizeof (arr));
+	arr.max = ZED_MAX_PROPS;
+	for (p = 0; p < ZFS_NUM_PROPS; p++) {
+		char val[ZFS_MAXPROPLEN];
+		char from[ZFS_MAX_DATASET_NAME_LEN];
+		zprop_source_t src = ZPROP_SRC_NONE;
+		const char *hint;
+		nvlist_t *e;
+
+		if (!zfs_prop_valid_for_type(p, type, B_FALSE) ||
+		    !zfs_prop_visible(p))
+			continue;
+		val[0] = '\0';
+		from[0] = '\0';
+		if (zfs_prop_get(zhp, p, val, sizeof (val), &src, from,
+		    sizeof (from), B_FALSE) != 0)
+			continue;
+
+		e = fnvlist_alloc();
+		fnvlist_add_string(e, "name", zfs_prop_to_name(p));
+		fnvlist_add_string(e, "value", val);
+		fnvlist_add_string(e, "source", source_name(src));
+		fnvlist_add_string(e, "from",
+		    src == ZPROP_SRC_INHERITED ? from : "");
+		// Read-only, or can only be chosen when the dataset is made.
+		fnvlist_add_boolean_value(e, "readonly",
+		    (zfs_prop_readonly(p) || zfs_prop_setonce(p)) ?
+		    B_TRUE : B_FALSE);
+		fnvlist_add_boolean_value(e, "inheritable",
+		    zfs_prop_inheritable(p) ? B_TRUE : B_FALSE);
+		hint = zfs_prop_values(p);
+		fnvlist_add_string(e, "hint", hint != NULL ? hint : "");
+		if (!nvarr_add(&arr, e))
+			break;
+	}
+	zfs_close(zhp);
+
+	nvarr_finish(&arr, res, "props");
+	fnvlist_remove(res, "ok");
+	fnvlist_add_boolean_value(res, "ok", B_TRUE);
+	return (finish_json(res, out_len));
+}
+
+char *
+zed_dataset_setprop_json(uint32_t flags, const char *dataset_utf8,
+    const char *prop_utf8, const char *value_utf8, size_t *out_len)
+{
+	nvlist_t *res = fnvlist_alloc();
+	zfs_handle_t *zhp;
+	int rc;
+
+	*out_len = 0;
+	fnvlist_add_boolean_value(res, "ok", B_FALSE);
+	if (g_lzh == NULL)
+		return (fail_json(res, "libzfs is not available", out_len));
+	if (dataset_utf8 == NULL || dataset_utf8[0] == '\0' ||
+	    strchr(dataset_utf8, '@') != NULL ||
+	    !zfs_name_valid(dataset_utf8, ZFS_TYPE_FILESYSTEM |
+	    ZFS_TYPE_VOLUME))
+		return (fail_json(res, "invalid dataset name", out_len));
+	fnvlist_add_string(res, "dataset", dataset_utf8);
+	// Only the properties ZFS itself knows, no user properties yet.
+	if (prop_utf8 == NULL || prop_utf8[0] == '\0' ||
+	    zfs_name_to_prop(prop_utf8) == ZPROP_INVAL)
+		return (fail_json(res, "unknown property", out_len));
+	if (!(flags & ZSETPROP_INHERIT) && value_utf8 == NULL)
+		return (fail_json(res, "no value", out_len));
+
+	zhp = zfs_open(g_lzh, dataset_utf8,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME);
+	if (zhp == NULL)
+		return (fail_json(res, lzh_err("dataset not found"), out_len));
+
+	if (flags & ZSETPROP_INHERIT)
+		rc = zfs_prop_inherit(zhp, prop_utf8, B_FALSE);
+	else
+		rc = zfs_prop_set(zhp, prop_utf8, value_utf8);
+	zfs_close(zhp);
+	if (rc != 0)
+		return (fail_json(res, lzh_err("could not change the "
+		    "property"), out_len));
+
+	fnvlist_remove(res, "ok");
+	fnvlist_add_boolean_value(res, "ok", B_TRUE);
+	return (finish_json(res, out_len));
+}
