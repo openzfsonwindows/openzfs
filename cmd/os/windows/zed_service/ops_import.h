@@ -22,12 +22,15 @@
 // Caller must HeapFree() the returned buffer.
 
 // { "candidates":[ {name,guid,state?,hostid?}, ... ] }
-char *zed_import_scan_json(size_t *out_len);
+// "paths" is optional: count back to back NUL-terminated folders or files to
+// search as well as the disks (zpool import -d).
+char *zed_import_scan_json(const char *paths, size_t paths_len,
+    size_t *out_len);
 
 // { "ok":true, "name":"...", "renamed":"..."} or { "ok":false, "err":"..."}
 char *zed_import_one_json(uint32_t flags, uint64_t guid,
     const char *new_name_utf8, const char *altroot_utf8,
-    size_t *out_len);
+    const char *paths, size_t paths_len, size_t *out_len);
 
 // { "imported":[...], "errors":[{"name":"...","err":"..."}] }
 char *zed_import_all_json(uint32_t flags, const char *altroot_utf8,

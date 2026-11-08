@@ -53,22 +53,64 @@ build_import_props(uint32_t flags, const char *altroot_utf8)
 	return (props);
 }
 
-/* -------------------- OP_IMPORT_SCAN -------------------- */
-
-char *
-zed_import_scan_json(size_t *out_len)
+/*
+ * Search for importable pools. With "paths" (back to back NUL-terminated
+ * folders or files, as for zpool import -d) only those are searched,
+ * otherwise the disks are. The paths are tidied up the way that is known to
+ * work: forward slashes, no trailing one.
+ */
+static nvlist_t *
+search_pools(boolean_t can_be_active, uint64_t guid, const char *paths,
+    size_t paths_len)
 {
-	*out_len = 0;
-	nvlist_t *root = fnvlist_alloc();
-	fnvlist_add_nvlist_array(root, "candidates", NULL, 0);
-
-	dprintf("%s: \n", __func__);
-
 	importargs_t ia = { 0 };
-	// No Scan, use blkid.
+	char *copy = NULL;
+	char **dirs = NULL;
+	int ndirs = 0;
+
+	if (paths != NULL && paths_len != 0) {
+		copy = malloc(paths_len + 1);
+		if (copy == NULL)
+			return (NULL);
+		memcpy(copy, paths, paths_len);
+		copy[paths_len] = 0;
+
+		for (size_t off = 0; off < paths_len; ) {
+			size_t len = strlen(copy + off);
+			if (len != 0)
+				ndirs++;
+			off += len + 1;
+		}
+		if (ndirs != 0) {
+			dirs = calloc(ndirs, sizeof (char *));
+			if (dirs == NULL) {
+				free(copy);
+				return (NULL);
+			}
+		}
+		int n = 0;
+		for (size_t off = 0; off < paths_len && n < ndirs; ) {
+			char *d = copy + off;
+			size_t len = strlen(d);
+			off += len + 1;
+			if (len == 0)
+				continue;
+			for (size_t i = 0; i < len; i++)
+				if (d[i] == '\\')
+					d[i] = '/';
+			while (len > 1 && d[len - 1] == '/' &&
+			    !(len == 3 && d[1] == ':'))
+				d[--len] = 0;
+			dirs[n++] = d;
+		}
+	}
+
+	ia.path = dirs;
+	ia.paths = ndirs;
+	// No Scan, use blkid, unless we were told where to look.
 	ia.scan = B_FALSE;
-	// show even if active elsewhere (like -f visibility)
-	ia.can_be_active = B_TRUE;
+	ia.can_be_active = can_be_active;
+	ia.guid = guid;
 
 	libpc_handle_t lpch = {
 	    .lpc_lib_handle = g_lzh,
@@ -76,43 +118,67 @@ zed_import_scan_json(size_t *out_len)
 	    .lpc_printerr = B_FALSE
 	};
 
-	nvlist_t *pools = NULL;
-	pools = zpool_search_import(&lpch, &ia);
+	nvlist_t *pools = zpool_search_import(&lpch, &ia);
 
-	dprintf("%s: zpool_search_import: %p\n", __func__, pools);
-	if (!pools)
-		goto serialize;
+	free(dirs);
+	free(copy);
+	return (pools);
+}
 
+typedef struct {
+	const nvlist_t **ent;
+	uint64_t *guid;
+	size_t n;
+	size_t cap;
+} cand_list_t;
 
-	size_t count = 0;
-	for (nvpair_t *nvp = nvlist_next_nvpair(pools, NULL);
-	    nvp != NULL;
-	    nvp = nvlist_next_nvpair(pools, nvp)) {
-		count++;
-	}
-	dprintf("import_scan: candidates=%zu\n", count);
+static void
+add_candidates(cand_list_t *cl, nvlist_t *pools)
+{
+	if (pools == NULL)
+		return;
 
 	for (nvpair_t *nvp = nvlist_next_nvpair(pools, NULL);
 	    nvp != NULL;
 	    nvp = nvlist_next_nvpair(pools, nvp)) {
 		nvlist_t *cfg = NULL;
 
-		dprintf("%s: checking we have cfg\n", __func__);
-
-		if (nvpair_value_nvlist(nvp, &cfg) != 0 ||
-		    cfg == NULL)
+		if (nvpair_value_nvlist(nvp, &cfg) != 0 || cfg == NULL)
 			continue;
 
 		char *pname = NULL;
 		uint64_t pguid = 0, hostid = 0, pstate = 0;
 		nvlist_lookup_string(cfg, ZPOOL_CONFIG_POOL_NAME, &pname);
-		dprintf("%s: name %s\n", __func__, pname);
 		nvlist_lookup_uint64(cfg, ZPOOL_CONFIG_POOL_GUID, &pguid);
 		nvlist_lookup_uint64(cfg, ZPOOL_CONFIG_HOSTID, &hostid);
 		nvlist_lookup_uint64(cfg, ZPOOL_CONFIG_POOL_STATE, &pstate);
 
+		/* The same pool can turn up both on a disk and by path */
+		boolean_t dup = B_FALSE;
+		for (size_t i = 0; i < cl->n; i++)
+			if (cl->guid[i] == pguid)
+				dup = B_TRUE;
+		if (dup)
+			continue;
+
+		if (cl->n == cl->cap) {
+			size_t ncap = cl->cap ? cl->cap * 2 : 16;
+			const nvlist_t **ne = realloc(cl->ent,
+			    ncap * sizeof (*ne));
+			if (ne == NULL)
+				return;
+			cl->ent = ne;
+			uint64_t *ng = realloc(cl->guid,
+			    ncap * sizeof (*ng));
+			if (ng == NULL)
+				return;
+			cl->guid = ng;
+			cl->cap = ncap;
+		}
+
 		nvlist_t *ent = fnvlist_alloc();
-		if (pname) fnvlist_add_string(ent, "name", pname);
+		if (pname)
+			fnvlist_add_string(ent, "name", pname);
 		add_guid_string(ent, pguid);
 		if (hostid) {
 			char hs[32];
@@ -126,14 +192,48 @@ zed_import_scan_json(size_t *out_len)
 			    (unsigned long long) pstate);
 			fnvlist_add_string(ent, "state", st);
 		}
-		const nvlist_t *one[1] = { ent };
-		fnvlist_add_nvlist_array(root, "candidates", one, 1);
-		fnvlist_free(ent);
+		cl->ent[cl->n] = ent;
+		cl->guid[cl->n] = pguid;
+		cl->n++;
+	}
+}
+
+/* -------------------- OP_IMPORT_SCAN -------------------- */
+
+char *
+zed_import_scan_json(const char *paths, size_t paths_len, size_t *out_len)
+{
+	*out_len = 0;
+	nvlist_t *root = fnvlist_alloc();
+	cand_list_t cl = { 0 };
+
+	dprintf("%s: \n", __func__);
+
+	// show even if active elsewhere (like -f visibility)
+	nvlist_t *pools = search_pools(B_TRUE, 0, NULL, 0);
+	dprintf("%s: zpool_search_import: %p\n", __func__, pools);
+	add_candidates(&cl, pools);
+
+	nvlist_t *bypath = NULL;
+	if (paths != NULL && paths_len != 0) {
+		bypath = search_pools(B_TRUE, 0, paths, paths_len);
+		dprintf("%s: by path: %p\n", __func__, bypath);
+		add_candidates(&cl, bypath);
 	}
 
-	nvlist_free(pools);
+	dprintf("import_scan: candidates=%zu\n", cl.n);
+	fnvlist_add_nvlist_array(root, "candidates",
+	    cl.n ? cl.ent : NULL, (uint_t)cl.n);
 
-serialize:
+	for (size_t i = 0; i < cl.n; i++)
+		fnvlist_free((nvlist_t *)cl.ent[i]);
+	free(cl.ent);
+	free(cl.guid);
+	if (pools)
+		nvlist_free(pools);
+	if (bypath)
+		nvlist_free(bypath);
+
 	memfile_t mf;
 	FILE *fp = memfile_open(&mf);
 	if (!fp) {
@@ -174,25 +274,18 @@ zed_import_one(libzfs_handle_t *g_lzh, nvlist_t *target_cfg,
 char *
 zed_import_one_json(uint32_t flags, uint64_t guid,
     const char *new_name_utf8, const char *altroot_utf8,
-    size_t *out_len)
+    const char *paths, size_t paths_len, size_t *out_len)
 {
 	*out_len = 0;
 	nvlist_t *res = fnvlist_alloc();
 	fnvlist_add_boolean_value(res, "ok", B_FALSE);
 
-	importargs_t ia = { 0 };
-	ia.scan = B_FALSE;
-	ia.can_be_active = (flags & ZIMP_FORCE) ? B_TRUE : B_FALSE;
-	ia.guid = guid;
+	boolean_t can_be_active = (flags & ZIMP_FORCE) ? B_TRUE : B_FALSE;
+	nvlist_t *pools = search_pools(can_be_active, guid, NULL, 0);
 
-	libpc_handle_t lpch = {
-	    .lpc_lib_handle = g_lzh,
-	    .lpc_ops = &libzfs_config_ops,
-	    .lpc_printerr = B_FALSE
-	};
-
-	nvlist_t *pools = NULL;
-	pools = zpool_search_import(&lpch, &ia);
+	/* Not on the disks, so it was found by path */
+	if (!pools && paths != NULL && paths_len != 0)
+		pools = search_pools(can_be_active, guid, paths, paths_len);
 
 	if (!pools) {
 		fnvlist_add_string(res, "err", "no candidates");

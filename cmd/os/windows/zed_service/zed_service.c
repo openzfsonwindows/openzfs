@@ -513,7 +513,14 @@ ClientWorker(HANDLE client, HANDLE event)
 	case OP_IMPORT_SCAN:
 		{
 			size_t jlen = 0;
-			char *json = zed_import_scan_json(&jlen);
+			const char *paths = NULL;
+			size_t plen = 0;
+			if (rh.len > sizeof (op_import_scan_req_t)) {
+				paths = (const char *)payload +
+				    sizeof (op_import_scan_req_t);
+				plen = rh.len - sizeof (op_import_scan_req_t);
+			}
+			char *json = zed_import_scan_json(paths, plen, &jlen);
 			RESP_OK_JSON(client, jlen, json);
 			break;
 		}
@@ -532,20 +539,29 @@ ClientWorker(HANDLE client, HANDLE event)
 			size_t remain = rh.len - sizeof (*req);
 
 			const char *new_name = NULL, *altroot = NULL;
+			const char *paths = NULL;
+			size_t plen = 0;
 
 			// parse two NUL-terminated strings from the tail
-			// (may be empty)
+			// (may be empty), then the search paths
 			if (remain) {
 				new_name = p;
 				size_t n0 = strnlen(new_name, remain);
 				if (n0 < remain) {
 					altroot = new_name + n0 + 1;
+					size_t used = n0 + 1;
+					size_t n1 = strnlen(altroot,
+					    remain - used);
+					if (used + n1 < remain) {
+						paths = altroot + n1 + 1;
+						plen = remain - used - n1 - 1;
+					}
 				}
 			}
 
 			size_t jlen = 0;
 			char *json = zed_import_one_json(req->flags, req->guid,
-			    new_name, altroot, &jlen);
+			    new_name, altroot, paths, plen, &jlen);
 			RESP_OK_JSON(client, jlen, json);
 			break;
 		}
