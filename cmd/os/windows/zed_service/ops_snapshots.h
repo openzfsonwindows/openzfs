@@ -31,6 +31,9 @@ extern "C" {
 /* OP_DATASET_SETPROP flags */
 #define	ZSETPROP_INHERIT	0x01	/* zfs inherit, the value is ignored */
 
+/* OP_DATASET_RENAME flags */
+#define	ZREN_RECURSIVE	0x01	/* snapshots: and in the child datasets */
+
 /* OP_DATASET_DESTROY flags */
 #define	ZDSD_RECURSIVE	0x01	/* also child datasets and all snapshots */
 
@@ -91,6 +94,14 @@ char *zed_snapshot_clone_json(const char *dataset_utf8, const char *snap_utf8,
  *   { "ok":true, "dataset" } or { "ok":false, "dataset", "err" }
  */
 char *zed_dataset_promote_json(const char *name_utf8, size_t *out_len);
+
+/*
+ * Rename a dataset (a full name, which may move it elsewhere in the pool) or
+ * a snapshot ("dataset@old" to "dataset@new").
+ *   { "ok":true, "dataset":"<new>" } or { "ok":false, "dataset", "err" }
+ */
+char *zed_rename_json(uint32_t flags, const char *old_utf8,
+    const char *new_utf8, size_t *out_len);
 
 /*
  * Create a filesystem. "props" is optional text, one "key=value" per line.

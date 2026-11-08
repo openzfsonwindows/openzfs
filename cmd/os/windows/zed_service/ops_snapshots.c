@@ -595,6 +595,53 @@ zed_dataset_promote_json(const char *name_utf8, size_t *out_len)
 	return (finish_json(res, out_len));
 }
 
+/* -------------------- rename -------------------- */
+
+char *
+zed_rename_json(uint32_t flags, const char *old_utf8, const char *new_utf8,
+    size_t *out_len)
+{
+	nvlist_t *res = fnvlist_alloc();
+	zfs_handle_t *zhp;
+	renameflags_t rf = { 0 };
+	BOOL snap;
+	int rc;
+
+	*out_len = 0;
+	fnvlist_add_boolean_value(res, "ok", B_FALSE);
+	if (g_lzh == NULL)
+		return (fail_json(res, "libzfs is not available", out_len));
+	if (old_utf8 == NULL || new_utf8 == NULL || old_utf8[0] == '\0' ||
+	    new_utf8[0] == '\0')
+		return (fail_json(res, "invalid name", out_len));
+	snap = strchr(old_utf8, '@') != NULL;
+	if ((strchr(new_utf8, '@') != NULL) != snap ||
+	    !zfs_name_valid(new_utf8, snap ? ZFS_TYPE_SNAPSHOT :
+	    (ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME)))
+		return (fail_json(res, "invalid new name", out_len));
+	fnvlist_add_string(res, "dataset", new_utf8);
+	if (!snap && (strchr(old_utf8, '/') == NULL ||
+	    strchr(new_utf8, '/') == NULL))
+		return (fail_json(res, "a pool cannot be renamed here",
+		    out_len));
+
+	zhp = zfs_open(g_lzh, old_utf8, snap ? ZFS_TYPE_SNAPSHOT :
+	    (ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME));
+	if (zhp == NULL)
+		return (fail_json(res, lzh_err("not found"), out_len));
+	// For snapshots: the same name in the child datasets too.
+	rf.recursive = (snap && (flags & ZREN_RECURSIVE)) ? 1 : 0;
+	// A mounted filesystem is unmounted and mounted again by libzfs.
+	rc = zfs_rename(zhp, new_utf8, rf);
+	zfs_close(zhp);
+	if (rc != 0)
+		return (fail_json(res, lzh_err("rename failed"), out_len));
+
+	fnvlist_remove(res, "ok");
+	fnvlist_add_boolean_value(res, "ok", B_TRUE);
+	return (finish_json(res, out_len));
+}
+
 /* -------------------- create / destroy datasets -------------------- */
 
 #define	ZED_DS_MAX_PROPS	64

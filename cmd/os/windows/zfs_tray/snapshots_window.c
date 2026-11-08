@@ -66,6 +66,8 @@
 #define	IDC_SDELDS	3316
 #define	IDC_SCLONE	3317
 #define	IDC_SPROMOTE	3318
+#define	IDC_SRENDS	3319
+#define	IDM_SRENSNAP	3330
 #define	IDC_STAB	3320
 #define	IDC_PLIST	3321
 #define	IDC_PEDIT	3322
@@ -79,6 +81,7 @@
 #define	ZROLL_DESTROY_CLONES	0x02
 #define	ZUMNT_FORCE	0x01
 #define	ZDSD_RECURSIVE	0x01
+#define	ZREN_RECURSIVE	0x01
 
 typedef struct {
 	wchar_t name[256];
@@ -1839,6 +1842,168 @@ DoPromote(SCtx *c)
 	(void) LoadDatasets(c, c->cur, TRUE);
 }
 
+// -------------------- rename --------------------
+
+// One OP_DATASET_RENAME, of a dataset or of a snapshot ("ds@name").
+static BOOL
+RenameCall(SCtx *c, uint32_t flags, const wchar_t *from, const wchar_t *to,
+    wchar_t *err, int errcch)
+{
+	char a[1024], b[1024];
+	char body[sizeof (uint32_t) + sizeof (a) + sizeof (b)];
+	uint8_t *out = NULL;
+	uint32_t outlen = 0;
+	size_t n1, n2;
+
+	err[0] = L'\0';
+	if (!ToUtf8(from, a, sizeof (a)) || !ToUtf8(to, b, sizeof (b))) {
+		lstrcpynW(err, L"Invalid name.", errcch);
+		return (FALSE);
+	}
+	n1 = strlen(a) + 1;
+	n2 = strlen(b) + 1;
+	memcpy(body, &flags, sizeof (flags));
+	memcpy(body + sizeof (flags), a, n1);
+	memcpy(body + sizeof (flags) + n1, b, n2);
+	if (!Call(c, OP_DATASET_RENAME, body,
+	    (uint32_t)(sizeof (flags) + n1 + n2), &out, &outlen, err, errcch))
+		return (FALSE);
+	if (!ReplyOk((const char *)out, (int)outlen, err, errcch)) {
+		if (err[0] == L'\0')
+			lstrcpynW(err, L"The rename failed.", errcch);
+		HeapFree(GetProcessHeap(), 0, out);
+		return (FALSE);
+	}
+	HeapFree(GetProcessHeap(), 0, out);
+	return (TRUE);
+}
+
+// The selected dataset gets a new name, which may also move it to another
+// parent in the same pool. Its children go with it.
+static void
+DoRenameDataset(SCtx *c)
+{
+	const DsEnt *d = CurDs(c);
+	wchar_t name[256], prompt[512], err[256];
+	const wchar_t *p;
+	int slashes = 0;
+
+	if (d == NULL || d->depth == 0)
+		return;
+	lstrcpynW(name, d->name, ARRAYSIZE(name));
+	_snwprintf_s(prompt, ARRAYSIZE(prompt), _TRUNCATE,
+	    L"New name for %s. A full name, so it can also be moved under "
+	    L"another dataset in the pool:", d->name);
+	if (!PromptText(c->hWnd, L"Rename dataset", prompt, NULL, name,
+	    ARRAYSIZE(name), NULL, 0, NULL, 0, NULL))
+		return;
+	if (lstrcmpW(name, d->name) == 0)
+		return;
+	for (p = name; *p; p++) {
+		if (*p == L'/')
+			slashes++;
+		if (*p == L'@' || *p == L'\\' || *p == L' ') {
+			ErrorBox(c->hWnd, L"The name cannot contain spaces, "
+			    L"backslashes or '@'.");
+			return;
+		}
+	}
+	if (slashes == 0 || name[0] == L'/') {
+		ErrorBox(c->hWnd, L"Give the full name, like pool/name.");
+		return;
+	}
+	if (!RenameCall(c, 0, d->name, name, err, ARRAYSIZE(err))) {
+		ErrorBox(c->hWnd, err);
+		(void) LoadDatasets(c, c->cur, TRUE);
+		return;
+	}
+	(void) LoadDatasets(c, name, TRUE);
+}
+
+// The selected snapshot gets a new name, in the same dataset.
+static void
+DoRenameSnapshot(SCtx *c)
+{
+	int sel = ListView_GetNextItem(c->hList, -1, LVNI_SELECTED);
+	LVITEMW it = { 0 };
+	const SnapEnt *s;
+	wchar_t name[256], prompt[512], from[600], to[600], err[256];
+	size_t len = lstrlenW(c->cur);
+	uint32_t flags = 0;
+	BOOL children = FALSE;
+	const wchar_t *p;
+	int i;
+
+	if (sel < 0)
+		return;
+	it.mask = LVIF_PARAM;
+	it.iItem = sel;
+	if (!ListView_GetItem(c->hList, &it) || it.lParam < 0 ||
+	    it.lParam >= c->nsnaps)
+		return;
+	s = &c->snaps[it.lParam];
+
+	lstrcpynW(name, s->name, ARRAYSIZE(name));
+	_snwprintf_s(prompt, ARRAYSIZE(prompt), _TRUNCATE,
+	    L"New name for the snapshot %s@%s:", c->cur, s->name);
+	if (!PromptText(c->hWnd, L"Rename snapshot", prompt, NULL, name,
+	    ARRAYSIZE(name), NULL, 0, NULL, 0, NULL))
+		return;
+	if (lstrcmpW(name, s->name) == 0)
+		return;
+	for (p = name; *p; p++) {
+		if (*p == L'@' || *p == L'/' || *p == L'\\' || *p == L' ') {
+			ErrorBox(c->hWnd, L"The name cannot contain spaces, "
+			    L"slashes or '@'.");
+			return;
+		}
+	}
+	if (name[0] == L'\0')
+		return;
+
+	// A recursive snapshot left one by this name in every child dataset.
+	for (i = 0; i < c->nds; i++)
+		if (wcsncmp(c->ds[i].name, c->cur, len) == 0 &&
+		    c->ds[i].name[len] == L'/')
+			children = TRUE;
+	if (children && MessageBoxW(c->hWnd,
+	    L"Rename the snapshots of the same name in the child datasets "
+	    L"too?", L"Rename snapshot", MB_YESNO | MB_ICONQUESTION) == IDYES)
+		flags |= ZREN_RECURSIVE;
+
+	_snwprintf_s(from, ARRAYSIZE(from), _TRUNCATE, L"%s@%s", c->cur,
+	    s->name);
+	_snwprintf_s(to, ARRAYSIZE(to), _TRUNCATE, L"%s@%s", c->cur, name);
+	if (!RenameCall(c, flags, from, to, err, ARRAYSIZE(err)))
+		ErrorBox(c->hWnd, err);
+	LoadSnapshots(c);
+}
+
+// Right-click on a snapshot: what can be done to it.
+static void
+SnapMenu(SCtx *c)
+{
+	HMENU m = CreatePopupMenu();
+	UINT n = ListView_GetSelectedCount(c->hList);
+	UINT one = n == 1 ? MF_ENABLED : MF_GRAYED;
+	POINT pt;
+	int cmd;
+
+	if (m == NULL)
+		return;
+	GetCursorPos(&pt);
+	AppendMenuW(m, MF_STRING | one, IDC_SCLONE, L"Clone...");
+	AppendMenuW(m, MF_STRING | one, IDM_SRENSNAP, L"Rename...\tF2");
+	AppendMenuW(m, MF_STRING | one, IDC_SROLLBACK, L"Rollback...");
+	AppendMenuW(m, MF_STRING | (n > 0 ? MF_ENABLED : MF_GRAYED),
+	    IDC_SDESTROY, L"Destroy...");
+	cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0,
+	    c->hWnd, NULL);
+	DestroyMenu(m);
+	if (cmd != 0)
+		SendMessageW(c->hWnd, WM_COMMAND, MAKEWPARAM(cmd, 0), 0);
+}
+
 // -------------------- window --------------------
 
 static void
@@ -1861,6 +2026,8 @@ Layout(SCtx *c)
 	MoveWindow(c->hTree, pad, top, lw, row1 - top - pad, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SNEWDS), pad, row1, 90, bh, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SDELDS), pad + 98, row1, 90, bh,
+	    TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_SRENDS), pad + 196, row1, 84, bh,
 	    TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SMOUNT), pad, row2, 90, bh, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SUNMOUNT), pad + 98, row2, 90, bh,
@@ -1945,6 +2112,8 @@ ShowDatasetInfo(SCtx *c)
 	EnableWindow(GetDlgItem(c->hWnd, IDC_SNEWDS),
 	    d != NULL && !d->volume);
 	EnableWindow(GetDlgItem(c->hWnd, IDC_SDELDS),
+	    d != NULL && d->depth > 0);
+	EnableWindow(GetDlgItem(c->hWnd, IDC_SRENDS),
 	    d != NULL && d->depth > 0);
 	// Only a clone has something to promote.
 	EnableWindow(GetDlgItem(c->hWnd, IDC_SPROMOTE),
@@ -2268,6 +2437,13 @@ SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		if (c != NULL && nh->idFrom == IDC_SLIST &&
 		    nh->code == LVN_ITEMCHANGED) {
 			UpdateButtons(c);
+		} else if (c != NULL && nh->idFrom == IDC_SLIST &&
+		    nh->code == NM_RCLICK) {
+		SnapMenu(c);
+		} else if (c != NULL && nh->idFrom == IDC_SLIST &&
+		    nh->code == LVN_KEYDOWN &&
+		    ((NMLVKEYDOWN *)lParam)->wVKey == VK_F2) {
+		DoRenameSnapshot(c);
 		} else if (c != NULL && nh->idFrom == IDC_PLIST &&
 		    nh->code == LVN_ITEMCHANGED) {
 			UpdatePropButtons(c);
@@ -2324,6 +2500,12 @@ SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			break;
 		case IDC_SCLONE:
 			DoClone(c);
+			break;
+		case IDC_SRENDS:
+			DoRenameDataset(c);
+			break;
+		case IDM_SRENSNAP:
+			DoRenameSnapshot(c);
 			break;
 		case IDC_SPROMOTE:
 			DoPromote(c);
@@ -2584,6 +2766,9 @@ RunSnapshotsWindow(HINSTANCE hInst, const wchar_t *dataset)
 	    TRUE);
 	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Refresh",
 	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SREFRESH), WM_SETFONT,
+	    (WPARAM)font, TRUE);
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Rename...",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SRENDS), WM_SETFONT,
 	    (WPARAM)font, TRUE);
 	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Clone...",
 	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SCLONE), WM_SETFONT,

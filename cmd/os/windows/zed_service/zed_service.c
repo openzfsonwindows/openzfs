@@ -1166,6 +1166,41 @@ ClientWorker(HANDLE client, HANDLE event)
 			break;
 		}
 
+	case OP_DATASET_RENAME:
+		{
+			dprintf("OP_DATASET_RENAME");
+			// body: u32 flags, old name\0, new name\0
+			const char *from, *to;
+			uint32_t flags;
+			size_t n, remain;
+			if (rh.len <= sizeof (uint32_t) || payload == NULL) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			remain = rh.len - sizeof (uint32_t);
+			from = (const char *)payload + sizeof (uint32_t);
+			n = strnlen(from, remain);
+			if (n >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			to = from + n + 1;
+			remain -= n + 1;
+			if (remain == 0 || strnlen(to, remain) >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			memcpy(&flags, payload, sizeof (flags));
+			size_t jlen = 0;
+			char *json = zed_rename_json(flags, from, to, &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
 	case OP_DATASET_PROMOTE:
 		{
 			dprintf("OP_DATASET_PROMOTE\n");
