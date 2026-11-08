@@ -68,6 +68,7 @@
 #define	IDC_SPROMOTE	3318
 #define	IDC_SRENDS	3319
 #define	IDM_SRENSNAP	3330
+#define	IDM_SDIFF	3331
 #define	IDC_STAB	3320
 #define	IDC_PLIST	3321
 #define	IDC_PEDIT	3322
@@ -1992,6 +1993,10 @@ SnapMenu(SCtx *c)
 	if (m == NULL)
 		return;
 	GetCursorPos(&pt);
+	AppendMenuW(m, MF_STRING | (n == 1 || n == 2 ? MF_ENABLED :
+	    MF_GRAYED), IDM_SDIFF, n == 2 ? L"Compare these two..." :
+	    L"Changes since this one...");
+	AppendMenuW(m, MF_SEPARATOR, 0, NULL);
 	AppendMenuW(m, MF_STRING | one, IDC_SCLONE, L"Clone...");
 	AppendMenuW(m, MF_STRING | one, IDM_SRENSNAP, L"Rename...\tF2");
 	AppendMenuW(m, MF_STRING | one, IDC_SROLLBACK, L"Rollback...");
@@ -2002,6 +2007,373 @@ SnapMenu(SCtx *c)
 	DestroyMenu(m);
 	if (cmd != 0)
 		SendMessageW(c->hWnd, WM_COMMAND, MAKEWPARAM(cmd, 0), 0);
+}
+
+// -------------------- changes (zfs diff) --------------------
+
+typedef struct {
+	wchar_t chg;
+	wchar_t cls;
+	wchar_t path[520];
+	wchar_t to[520];
+} DiffEnt;
+
+typedef struct {
+	const wchar_t *summary;
+	const DiffEnt *ents;
+	int n;
+	HWND list;
+	HWND lbl;
+	HWND btn;
+	BOOL done;
+} DiffWin;
+
+static LRESULT CALLBACK
+DiffWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+	DiffWin *p = (DiffWin *)GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+
+	switch (msg) {
+	case WM_NCCREATE:
+		SetWindowLongPtrW(hWnd, GWLP_USERDATA,
+		    (LONG_PTR)((CREATESTRUCTW *)lParam)->lpCreateParams);
+		break;
+	case WM_SIZE:
+		if (p != NULL && p->list != NULL) {
+			RECT rc;
+
+			GetClientRect(hWnd, &rc);
+			MoveWindow(p->lbl, 10, 8, rc.right - 20, 20, TRUE);
+			MoveWindow(p->list, 10, 34, rc.right - 20,
+			    rc.bottom - 34 - 46, TRUE);
+			MoveWindow(p->btn, rc.right - 100, rc.bottom - 36,
+			    90, 26, TRUE);
+		}
+		return (0);
+	case WM_COMMAND:
+		if (LOWORD(wParam) == IDCANCEL) {
+			DestroyWindow(hWnd);
+			return (0);
+		}
+		break;
+	case WM_DESTROY:
+		if (p != NULL)
+			p->done = TRUE;
+		return (0);
+	}
+	return (DefWindowProcW(hWnd, msg, wParam, lParam));
+}
+
+static const wchar_t *
+DiffChangeName(wchar_t chg)
+{
+	switch (chg) {
+	case L'+':
+		return (L"Added");
+	case L'-':
+		return (L"Removed");
+	case L'M':
+		return (L"Modified");
+	case L'R':
+		return (L"Renamed");
+	}
+	return (L"Changed");
+}
+
+static const wchar_t *
+DiffClassName(wchar_t cls)
+{
+	switch (cls) {
+	case L'/':
+		return (L"Folder");
+	case L'F':
+		return (L"File");
+	case L'@':
+		return (L"Link");
+	}
+	return (L"Other");
+}
+
+// A list of what changed, in a window of its own that the owner waits for.
+static void
+ShowDiffWindow(HWND owner, const wchar_t *title, const wchar_t *summary,
+    const DiffEnt *ents, int n)
+{
+	static BOOL registered = FALSE;
+	HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrW(owner, GWLP_HINSTANCE);
+	HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+	DiffWin p;
+	RECT orc;
+	MSG m;
+	HWND dlg;
+	LVCOLUMNW col = { 0 };
+	int i, w = 780, h = 520;
+
+	if (!registered) {
+		WNDCLASSW wc = { 0 };
+
+		wc.lpfnWndProc = DiffWndProc;
+		wc.hInstance = hInst;
+		wc.lpszClassName = L"ZfsDiffWnd";
+		wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+		wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+		RegisterClassW(&wc);
+		registered = TRUE;
+	}
+
+	ZeroMemory(&p, sizeof (p));
+	p.summary = summary;
+	p.ents = ents;
+	p.n = n;
+	GetWindowRect(owner, &orc);
+	dlg = CreateWindowExW(0, L"ZfsDiffWnd", title,
+	    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+	    orc.left + ((orc.right - orc.left) - w) / 2, orc.top + 40, w, h,
+	    owner, NULL, hInst, &p);
+	if (dlg == NULL)
+		return;
+
+	p.lbl = MakeChild(dlg, L"STATIC", summary, SS_LEFT, 0);
+	SendMessageW(p.lbl, WM_SETFONT, (WPARAM)font, TRUE);
+	p.list = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+	    WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | LVS_REPORT |
+	    LVS_SHOWSELALWAYS, 0, 0, 10, 10, dlg, NULL, hInst, NULL);
+	SendMessageW(p.list, WM_SETFONT, (WPARAM)font, TRUE);
+	ListView_SetExtendedListViewStyle(p.list, LVS_EX_FULLROWSELECT);
+	col.mask = LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM;
+	col.pszText = L"Change";
+	col.cx = 80;
+	col.iSubItem = 0;
+	ListView_InsertColumn(p.list, 0, &col);
+	col.pszText = L"Type";
+	col.cx = 70;
+	col.iSubItem = 1;
+	ListView_InsertColumn(p.list, 1, &col);
+	col.pszText = L"Path";
+	col.cx = 560;
+	col.iSubItem = 2;
+	ListView_InsertColumn(p.list, 2, &col);
+
+	for (i = 0; i < n; i++) {
+		LVITEMW it = { 0 };
+		wchar_t path[1100];
+
+		it.mask = LVIF_TEXT;
+		it.iItem = i;
+		it.pszText = (LPWSTR)DiffChangeName(ents[i].chg);
+		ListView_InsertItem(p.list, &it);
+		ListView_SetItemText(p.list, i, 1,
+		    (LPWSTR)DiffClassName(ents[i].cls));
+		if (ents[i].to[0] != L'\0')
+			_snwprintf_s(path, ARRAYSIZE(path), _TRUNCATE,
+			    L"%s  ->  %s", ents[i].path, ents[i].to);
+		else
+			lstrcpynW(path, ents[i].path, ARRAYSIZE(path));
+		ListView_SetItemText(p.list, i, 2, path);
+	}
+
+	p.btn = MakeChild(dlg, L"BUTTON", L"Close", BS_DEFPUSHBUTTON |
+	    WS_TABSTOP, IDCANCEL);
+	SendMessageW(p.btn, WM_SETFONT, (WPARAM)font, TRUE);
+	SendMessageW(dlg, WM_SIZE, 0, 0);
+	{
+		RECT rc;
+
+		GetClientRect(dlg, &rc);
+		SendMessageW(dlg, WM_SIZE, SIZE_RESTORED,
+		    MAKELPARAM(rc.right, rc.bottom));
+	}
+
+	EnableWindow(owner, FALSE);
+	while (!p.done && GetMessageW(&m, NULL, 0, 0) > 0) {
+		if (!IsDialogMessageW(dlg, &m)) {
+			TranslateMessage(&m);
+			DispatchMessageW(&m);
+		}
+	}
+	EnableWindow(owner, TRUE);
+	SetForegroundWindow(owner);
+}
+
+// One "key": value of a change.
+static void
+DiffKey(const char *json, const jsmntok_t *k, const jsmntok_t *v, DiffEnt *d,
+    wchar_t *chg, wchar_t *cls)
+{
+	if (jsmn_eq(json, k, "chg"))
+		TokWide(json, v, chg, 8);
+	else if (jsmn_eq(json, k, "cls"))
+		TokWide(json, v, cls, 8);
+	else if (jsmn_eq(json, k, "path"))
+		TokWide(json, v, d->path, ARRAYSIZE(d->path));
+	else if (jsmn_eq(json, k, "to"))
+		TokWide(json, v, d->to, ARRAYSIZE(d->to));
+}
+
+// The changes in OP_SNAPSHOT_DIFF's reply. Free the result with free().
+static DiffEnt *
+ParseDiff(const char *json, int json_len, int *count)
+{
+	jsmntok_t *tok;
+	DiffEnt *ents = NULL;
+	int r, i, n = 0;
+
+	*count = 0;
+	tok = ParseTokens(json, json_len, &r);
+	if (tok == NULL)
+		return (NULL);
+	i = 1;
+	while (i + 1 < r && tok[i].start < tok[0].end) {
+		const jsmntok_t *v = &tok[i + 1];
+
+		if (v->type == JSMN_ARRAY &&
+		    jsmn_eq(json, &tok[i], "changes")) {
+			int cnt = v->size, e, j = i + 2;
+
+			ents = calloc(cnt > 0 ? cnt : 1, sizeof (DiffEnt));
+			for (e = 0; ents != NULL && e < cnt && j < r; e++) {
+				int oend = tok[j].end, q = j + 1;
+				wchar_t chg[8] = L"", cls[8] = L"";
+				DiffEnt *d = &ents[n];
+
+				while (q + 1 < r && tok[q].start < oend) {
+					DiffKey(json, &tok[q], &tok[q + 1], d,
+					    chg, cls);
+					q = SkipValue(tok, q + 1, r);
+				}
+				d->chg = chg[0];
+				d->cls = cls[0];
+				n++;
+				j = q;
+			}
+			break;
+		}
+		i = SkipValue(tok, i + 1, r);
+	}
+	HeapFree(GetProcessHeap(), 0, tok);
+	*count = n;
+	return (ents);
+}
+
+// What changed since the selected snapshot, or between the two selected.
+static void
+DoDiff(SCtx *c)
+{
+	int cnt = ListView_GetSelectedCount(c->hList);
+	int sel = -1, idx[2], k = 0;
+	const SnapEnt *from, *to = NULL;
+	wchar_t err[256] = L"", title[600], summary[700];
+	char ds[1024], a[512], b[512];
+	char body[sizeof (uint32_t) + sizeof (ds) + sizeof (a) + sizeof (b)];
+	uint8_t *out = NULL;
+	uint32_t outlen = 0, flags = 0;
+	size_t n1, n2, n3, off;
+	DiffEnt *ents;
+	BOOL ok, truncated;
+	int n, i, added = 0, removed = 0, modified = 0, renamed = 0;
+	HCURSOR old;
+
+	if (cnt < 1 || cnt > 2)
+		return;
+	while (k < cnt && (sel = ListView_GetNextItem(c->hList, sel,
+	    LVNI_SELECTED)) >= 0) {
+		LVITEMW it = { 0 };
+
+		it.mask = LVIF_PARAM;
+		it.iItem = sel;
+		if (!ListView_GetItem(c->hList, &it) || it.lParam < 0 ||
+		    it.lParam >= c->nsnaps)
+			return;
+		idx[k++] = (int)it.lParam;
+	}
+	if (k != cnt)
+		return;
+	// The list is oldest first: the older one is where it starts.
+	if (cnt == 2 && idx[0] > idx[1]) {
+		int t = idx[0];
+
+		idx[0] = idx[1];
+		idx[1] = t;
+	}
+	from = &c->snaps[idx[0]];
+	if (cnt == 2)
+		to = &c->snaps[idx[1]];
+
+	if (!ToUtf8(c->cur, ds, sizeof (ds)) ||
+	    !ToUtf8(from->name, a, sizeof (a)) ||
+	    (to != NULL && !ToUtf8(to->name, b, sizeof (b)))) {
+		ErrorBox(c->hWnd, L"Invalid name.");
+		return;
+	}
+	if (to == NULL)
+		b[0] = '\0';
+	n1 = strlen(ds) + 1;
+	n2 = strlen(a) + 1;
+	n3 = strlen(b) + 1;
+	memcpy(body, &flags, sizeof (flags));
+	off = sizeof (flags);
+	memcpy(body + off, ds, n1);
+	off += n1;
+	memcpy(body + off, a, n2);
+	off += n2;
+	memcpy(body + off, b, n3);
+	off += n3;
+
+	old = SetCursor(LoadCursorW(NULL, IDC_WAIT));
+	ok = Call(c, OP_SNAPSHOT_DIFF, body, (uint32_t)off, &out, &outlen, err,
+	    ARRAYSIZE(err));
+	SetCursor(old);
+	if (!ok) {
+		ErrorBox(c->hWnd, err);
+		return;
+	}
+	if (!ReplyOk((const char *)out, (int)outlen, err, ARRAYSIZE(err))) {
+		if (err[0] == L'\0')
+			lstrcpynW(err, L"Could not list the changes.",
+			    ARRAYSIZE(err));
+		HeapFree(GetProcessHeap(), 0, out);
+		ErrorBox(c->hWnd, err);
+		return;
+	}
+	truncated = ReplyBool((const char *)out, (int)outlen, "truncated");
+	ents = ParseDiff((const char *)out, (int)outlen, &n);
+	HeapFree(GetProcessHeap(), 0, out);
+
+	if (n == 0) {
+		MessageBoxW(c->hWnd, L"Nothing has changed.", L"Changes",
+		    MB_OK | MB_ICONINFORMATION);
+		free(ents);
+		return;
+	}
+	for (i = 0; i < n; i++) {
+		switch (ents[i].chg) {
+		case L'+':
+			added++;
+			break;
+		case L'-':
+			removed++;
+			break;
+		case L'M':
+			modified++;
+			break;
+		case L'R':
+			renamed++;
+			break;
+		}
+	}
+	if (to != NULL)
+		_snwprintf_s(title, ARRAYSIZE(title), _TRUNCATE,
+		    L"Changes from %s@%s to %s@%s", c->cur, from->name, c->cur,
+		    to->name);
+	else
+		_snwprintf_s(title, ARRAYSIZE(title), _TRUNCATE,
+		    L"Changes in %s since %s", c->cur, from->name);
+	_snwprintf_s(summary, ARRAYSIZE(summary), _TRUNCATE,
+	    L"%d added, %d removed, %d modified, %d renamed%s", added, removed,
+	    modified, renamed, truncated ? L" (only the first are listed)" :
+	    L"");
+	ShowDiffWindow(c->hWnd, title, summary, ents, n);
+	free(ents);
 }
 
 // -------------------- window --------------------
@@ -2441,6 +2813,9 @@ SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		    nh->code == NM_RCLICK) {
 		SnapMenu(c);
 		} else if (c != NULL && nh->idFrom == IDC_SLIST &&
+		    nh->code == NM_DBLCLK) {
+			DoDiff(c);
+		} else if (c != NULL && nh->idFrom == IDC_SLIST &&
 		    nh->code == LVN_KEYDOWN &&
 		    ((NMLVKEYDOWN *)lParam)->wVKey == VK_F2) {
 		DoRenameSnapshot(c);
@@ -2506,6 +2881,9 @@ SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			break;
 		case IDM_SRENSNAP:
 			DoRenameSnapshot(c);
+			break;
+		case IDM_SDIFF:
+			DoDiff(c);
 			break;
 		case IDC_SPROMOTE:
 			DoPromote(c);

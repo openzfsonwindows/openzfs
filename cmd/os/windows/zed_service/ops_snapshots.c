@@ -595,6 +595,197 @@ zed_dataset_promote_json(const char *name_utf8, size_t *out_len)
 	return (finish_json(res, out_len));
 }
 
+/* -------------------- diff -------------------- */
+
+#define	ZED_DIFF_MAX	5000
+
+/* Slashes one way, so the mount point can be found and cut off. */
+static void
+diff_slashes(char *s, char to)
+{
+	for (; *s; s++)
+		if (*s == '/' || *s == '\\')
+			*s = to;
+}
+
+/* The path as shown: without the mount point, backslashes. */
+static void
+diff_relpath(char *path, const char *mount)
+{
+	size_t mlen = strlen(mount);
+
+	diff_slashes(path, '/');
+	if (mlen > 0 && _strnicmp(path, mount, mlen) == 0)
+		memmove(path, path + mlen, strlen(path + mlen) + 1);
+	while (path[0] == '/')
+		memmove(path, path + 1, strlen(path));
+	diff_slashes(path, '\\');
+}
+
+/* <change> TAB <class> TAB <path> [TAB <new path>] per line. */
+static int
+diff_parse(char *buf, const char *mount, nvlist_t **arr, BOOL *truncated)
+{
+	char *line = buf, *next;
+	int n = 0;
+
+	for (; line != NULL && *line != '\0'; line = next) {
+		char *fld[4], *p = line;
+		nvlist_t *e;
+		size_t len;
+		int nf = 0;
+
+		next = strchr(line, '\n');
+		if (next != NULL)
+			*next++ = '\0';
+		len = strlen(line);
+		if (len > 0 && line[len - 1] == '\r')
+			line[len - 1] = '\0';
+		while (nf < 4) {
+			fld[nf++] = p;
+			p = strchr(p, '\t');
+			if (p == NULL)
+				break;
+			*p++ = '\0';
+		}
+		if (nf < 3 || fld[0][0] == '\0')
+			continue;
+		if (n >= ZED_DIFF_MAX) {
+			*truncated = TRUE;
+			break;
+		}
+		diff_relpath(fld[2], mount);
+		e = fnvlist_alloc();
+		fnvlist_add_string(e, "chg", fld[0]);
+		fnvlist_add_string(e, "cls", fld[1]);
+		fnvlist_add_string(e, "path", fld[2]);
+		if (nf == 4) {
+			diff_relpath(fld[3], mount);
+			fnvlist_add_string(e, "to", fld[3]);
+		}
+		arr[n++] = e;
+	}
+	return (n);
+}
+
+/* The changes in the file zfs wrote; how many went in arr. */
+static int
+diff_read(const wchar_t *tfile, const char *mount, nvlist_t **arr,
+    BOOL *truncated)
+{
+	HANDLE r = CreateFileW(tfile, GENERIC_READ, FILE_SHARE_READ |
+	    FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+	    FILE_ATTRIBUTE_NORMAL, NULL);
+	DWORD sz, got = 0;
+	char *buf = NULL;
+	int n = 0;
+
+	if (r == INVALID_HANDLE_VALUE)
+		return (0);
+	sz = GetFileSize(r, NULL);
+	if (sz != INVALID_FILE_SIZE && sz < (256u << 20))
+		buf = malloc(sz + 1);
+	if (buf != NULL && ReadFile(r, buf, sz, &got, NULL)) {
+		buf[got] = '\0';
+		n = diff_parse(buf, mount, arr, truncated);
+	}
+	free(buf);
+	CloseHandle(r);
+	return (n);
+}
+
+char *
+zed_snapshot_diff_json(const char *dataset_utf8, const char *from_utf8,
+    const char *to_utf8, size_t *out_len)
+{
+	nvlist_t *res = fnvlist_alloc();
+	nvlist_t **arr = NULL;
+	char from[ZFS_MAX_DATASET_NAME_LEN * 2];
+	char to[ZFS_MAX_DATASET_NAME_LEN * 2];
+	char mount[MAX_PATH * 3];
+	char *where = NULL;
+	wchar_t tdir[MAX_PATH], tfile[MAX_PATH];
+	zfs_handle_t *zhp;
+	HANDLE h;
+	int rc, n = 0;
+	BOOL truncated = FALSE;
+	BOOL live = (to_utf8 == NULL || to_utf8[0] == '\0');
+
+	*out_len = 0;
+	fnvlist_add_boolean_value(res, "ok", B_FALSE);
+	if (g_lzh == NULL)
+		return (fail_json(res, "libzfs is not available", out_len));
+	if (dataset_utf8 == NULL || dataset_utf8[0] == '\0' ||
+	    from_utf8 == NULL || from_utf8[0] == '\0' ||
+	    strchr(dataset_utf8, '@') != NULL ||
+	    strchr(from_utf8, '@') != NULL ||
+	    (!live && strchr(to_utf8, '@') != NULL))
+		return (fail_json(res, "invalid name", out_len));
+	fnvlist_add_string(res, "dataset", dataset_utf8);
+	fnvlist_add_string(res, "from", from_utf8);
+	fnvlist_add_string(res, "to", live ? "" : to_utf8);
+
+	_snprintf_s(from, sizeof (from), _TRUNCATE, "%s@%s", dataset_utf8,
+	    from_utf8);
+	if (live)
+		_snprintf_s(to, sizeof (to), _TRUNCATE, "%s", dataset_utf8);
+	else
+		_snprintf_s(to, sizeof (to), _TRUNCATE, "%s@%s", dataset_utf8,
+		    to_utf8);
+
+	zhp = zfs_open(g_lzh, dataset_utf8, ZFS_TYPE_FILESYSTEM);
+	if (zhp == NULL)
+		return (fail_json(res, lzh_err("dataset not found"), out_len));
+	mount[0] = '\0';
+	if (zfs_is_mounted(zhp, &where) && where != NULL)
+		_snprintf_s(mount, sizeof (mount), _TRUNCATE, "%s", where);
+	free(where);
+	if (mount[0] == '\0') {
+		zfs_close(zhp);
+		return (fail_json(res, "mount the dataset to see what changed",
+		    out_len));
+	}
+	diff_slashes(mount, '/');
+
+	if (GetTempPathW(MAX_PATH, tdir) == 0 ||
+	    GetTempFileNameW(tdir, L"zdf", 0, tfile) == 0) {
+		zfs_close(zhp);
+		return (fail_json(res, "no temporary file", out_len));
+	}
+	h = CreateFileW(tfile, GENERIC_WRITE, FILE_SHARE_READ, NULL,
+	    CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY, NULL);
+	if (h == INVALID_HANDLE_VALUE) {
+		DeleteFileW(tfile);
+		zfs_close(zhp);
+		return (fail_json(res, "no temporary file", out_len));
+	}
+	// zfs_show_diffs() takes ownership of (and closes) the descriptor.
+	rc = zfs_show_diffs(zhp, (int)(INT_PTR)h, from, to,
+	    ZFS_DIFF_PARSEABLE | ZFS_DIFF_CLASSIFY | ZFS_DIFF_NO_MANGLE);
+	zfs_close(zhp);
+	if (rc != 0) {
+		DeleteFileW(tfile);
+		return (fail_json(res, lzh_err("diff failed"), out_len));
+	}
+
+	arr = calloc(ZED_DIFF_MAX, sizeof (nvlist_t *));
+	if (arr != NULL)
+		n = diff_read(tfile, mount, arr, &truncated);
+	DeleteFileW(tfile);
+
+	fnvlist_add_boolean_value(res, "truncated",
+	    truncated ? B_TRUE : B_FALSE);
+	fnvlist_add_nvlist_array(res, "changes",
+	    n > 0 ? (const nvlist_t **)arr : NULL, (uint_t)n);
+	for (rc = 0; rc < n; rc++)
+		fnvlist_free(arr[rc]);
+	free(arr);
+
+	fnvlist_remove(res, "ok");
+	fnvlist_add_boolean_value(res, "ok", B_TRUE);
+	return (finish_json(res, out_len));
+}
+
 /* -------------------- rename -------------------- */
 
 char *

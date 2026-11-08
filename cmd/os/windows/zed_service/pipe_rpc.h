@@ -66,6 +66,7 @@ typedef enum {
     OP_SNAPSHOT_CLONE = 29,
     OP_DATASET_PROMOTE = 30,
     OP_DATASET_RENAME = 31,
+    OP_SNAPSHOT_DIFF = 32,
 } op_t;
 
 typedef struct {
@@ -215,6 +216,9 @@ typedef struct {
 // OP_DATASET_PROMOTE: the UTF-8 NUL-terminated name of a clone.
 // OP_DATASET_RENAME: uint32 flags (ZREN_*), then the UTF-8 NUL-terminated
 // old and new full names, of datasets or of snapshots ("ds@snap").
+// OP_SNAPSHOT_DIFF: uint32 flags (reserved), then the UTF-8 NUL-terminated
+// dataset, the snapshot to start from, and the snapshot to end at (without
+// the '@'; empty: the dataset as it is now).
 
 enum {
 	ZCREATE_FORCE = 0x01, // reserved; allows selecting an in-use disk in UI
