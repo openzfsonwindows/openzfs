@@ -732,6 +732,80 @@ label_whole_disk(const char *name_utf8, char *encoded_out, size_t encoded_cch)
 	return (encoded_out[0] == '#');
 }
 
+// A vdev given as the full path of a file on a local drive, "C:\dir\file" (or
+// with forward slashes), rather than a disk or partition name.
+static BOOL
+is_file_path(const char *p)
+{
+	return (p != NULL && isalpha((unsigned char)p[0]) && p[1] == ':' &&
+	    (p[2] == '\\' || p[2] == '/'));
+}
+
+#define	FILE_VDEV_MIN	(64ULL << 20)	// SPA_MINDEVSIZE
+
+// Checks a file is usable as a vdev and returns its path the way file vdevs
+// are stored: "//./C:/dir/file". On failure sets *err and returns FALSE.
+static BOOL
+prepare_file_vdev(const char *path_utf8, char *out, size_t outcch,
+    const char **err)
+{
+	wchar_t wpath[MAX_PATH * 2];
+	wchar_t full[MAX_PATH * 2];
+	wchar_t root[4];
+	wchar_t fsname[32] = L"";
+	WIN32_FILE_ATTRIBUTE_DATA fad;
+	DWORD n;
+
+	if (MultiByteToWideChar(CP_UTF8, 0, path_utf8, -1, wpath,
+	    (int)_countof(wpath)) == 0) {
+		*err = "invalid file path";
+		return (FALSE);
+	}
+	n = GetFullPathNameW(wpath, (DWORD)_countof(full), full, NULL);
+	if (n == 0 || n >= _countof(full) ||
+	    !isalpha((unsigned short)full[0]) || full[1] != L':') {
+		*err = "only files on a local drive can be used";
+		return (FALSE);
+	}
+	if (!GetFileAttributesExW(full, GetFileExInfoStandard, &fad)) {
+		*err = "the file does not exist";
+		return (FALSE);
+	}
+	if (fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+		*err = "that is a folder, not a file";
+		return (FALSE);
+	}
+	if ((((uint64_t)fad.nFileSizeHigh << 32) | fad.nFileSizeLow) <
+	    FILE_VDEV_MIN) {
+		*err = "the file is smaller than 64 MiB";
+		return (FALSE);
+	}
+
+	// A pool in a file that lives in ZFS can deadlock under memory pressure
+	root[0] = full[0];
+	root[1] = L':';
+	root[2] = L'\\';
+	root[3] = 0;
+	if (GetVolumeInformationW(root, NULL, 0, NULL, NULL, NULL, fsname,
+	    (DWORD)_countof(fsname)) && _wcsicmp(fsname, L"ZFS") == 0) {
+		*err = "the file is on a ZFS dataset; a pool inside ZFS can "
+		    "deadlock, use a file on another file system";
+		return (FALSE);
+	}
+
+	for (wchar_t *c = full; *c; c++)
+		if (*c == L'\\')
+			*c = L'/';
+	char tmp[MAXPATHLEN];
+	if (WideCharToMultiByte(CP_UTF8, 0, full, -1, tmp, sizeof (tmp), NULL,
+	    NULL) == 0) {
+		*err = "file path is too long";
+		return (FALSE);
+	}
+	_snprintf_s(out, outcch, _TRUNCATE, "//./%s", tmp);
+	return (TRUE);
+}
+
 char *
 zed_create_pool_json(uint32_t flags, uint32_t topology, uint32_t ndisks,
     const char * const *disk_paths_utf8, const char *poolname_utf8,
@@ -755,10 +829,14 @@ zed_create_pool_json(uint32_t flags, uint32_t topology, uint32_t ndisks,
 	for (uint32_t i = 0; i < ndisks; i++) {
 		int pi = 0;
 		uint64_t oi = 0;
+		if (is_file_path(disk_paths_utf8[i]))
+			continue;
 		int di = parse_vdev_path(disk_paths_utf8[i], &pi, &oi);
 		for (uint32_t j = 0; j < ndisks; j++) {
 			int pj = 0;
 			uint64_t oj = 0;
+			if (is_file_path(disk_paths_utf8[j]))
+				continue;
 			int dj = parse_vdev_path(disk_paths_utf8[j], &pj, &oj);
 			if (di >= 0 && di == dj && pi == 0 && pj > 0) {
 				fnvlist_add_string(res, "err",
@@ -778,6 +856,25 @@ zed_create_pool_json(uint32_t flags, uint32_t topology, uint32_t ndisks,
 	for (uint32_t i = 0; i < ndisks; i++) {
 		char encoded[MAXPATHLEN];
 		int pdisk = 0, ppart = 0, pend = 0;
+
+		// A file: stored as "//./C:/dir/file", no labeling needed.
+		if (is_file_path(disk_paths_utf8[i])) {
+			const char *ferr = NULL;
+			if (!prepare_file_vdev(disk_paths_utf8[i], encoded,
+			    sizeof (encoded), &ferr)) {
+				fnvlist_add_string(res, "err", ferr);
+				for (uint32_t j = 0; j < i; j++)
+					fnvlist_free(leaves[j]);
+				HeapFree(GetProcessHeap(), 0, leaves);
+				goto serialize;
+			}
+			leaves[i] = fnvlist_alloc();
+			fnvlist_add_string(leaves[i], ZPOOL_CONFIG_PATH,
+			    encoded);
+			fnvlist_add_string(leaves[i], ZPOOL_CONFIG_TYPE,
+			    VDEV_TYPE_FILE);
+			continue;
+		}
 
 		// An existing partition ("HarddiskNPartitionM") is used as-is,
 		// exactly like "zpool create pool \\?\HarddiskNPartitionM":

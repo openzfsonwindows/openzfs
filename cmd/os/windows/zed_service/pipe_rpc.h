@@ -105,7 +105,10 @@ typedef struct {
 
 typedef struct {
 	uint32_t flags; // ZIMP_* (can influence scan heuristics)
-	// future: search paths, cachefile, pool name filter
+	// followed by optional search paths (zpool import -d), each UTF-8
+	// NUL-terminated, back to back. A folder, or a file (a file-backed
+	// pool). Searched in addition to the disks.
+	// future: cachefile, pool name filter
 } op_import_scan_req_t;
 
 typedef struct {
@@ -113,6 +116,8 @@ typedef struct {
 	uint64_t guid; // which pool to import
 	// followed by optional UTF-8 new_name (NUL-terminated)
 	// followed by optional UTF-8 altroot (NUL-terminated)
+	// followed by optional search paths, as in op_import_scan_req_t, used
+	// when the pool is not found on the disks
 } op_import_one_req_t;
 #pragma pack(pop)
 
@@ -213,7 +218,9 @@ typedef struct {
 	// 5=draid1 6=draid2 7=draid3 8=anymirror 9=anymirror2 10=anymirror3
 	uint32_t ndisks;
 	// followed by, all UTF-8 NUL-terminated, back to back:
-	//   ndisks x disk path (e.g. "\\\\.\\PhysicalDrive2")
+	//   ndisks x disk path (e.g. "\\\\.\\PhysicalDrive2"), or the full path
+	//   of an existing file on a local drive ("C:\\pools\\f1"), which
+	//   becomes a file vdev
 	//   pool name
 	//   free-text "key=value\n" props blob (pool + dataset props; may be
 	//   empty)
