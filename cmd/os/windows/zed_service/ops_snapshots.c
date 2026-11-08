@@ -498,6 +498,103 @@ zed_snapshot_rollback_json(uint32_t flags, const char *dataset_utf8,
 	return (finish_json(res, out_len));
 }
 
+/* -------------------- clone / promote -------------------- */
+
+char *
+zed_snapshot_clone_json(const char *dataset_utf8, const char *snap_utf8,
+    const char *target_utf8, size_t *out_len)
+{
+	nvlist_t *res = fnvlist_alloc();
+	char full[ZFS_MAX_DATASET_NAME_LEN];
+	zfs_handle_t *shp, *zhp;
+	BOOL mounted = FALSE;
+
+	*out_len = 0;
+	fnvlist_add_boolean_value(res, "ok", B_FALSE);
+	if (g_lzh == NULL)
+		return (fail_json(res, "libzfs is not available", out_len));
+	if (dataset_utf8 == NULL || dataset_utf8[0] == '\0' ||
+	    snap_utf8 == NULL || snap_utf8[0] == '\0' ||
+	    strchr(dataset_utf8, '@') != NULL ||
+	    strchr(snap_utf8, '@') != NULL)
+		return (fail_json(res, "invalid name", out_len));
+	if (target_utf8 == NULL || strchr(target_utf8, '/') == NULL ||
+	    strchr(target_utf8, '@') != NULL ||
+	    !zfs_name_valid(target_utf8,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME))
+		return (fail_json(res, "invalid name for the clone", out_len));
+	fnvlist_add_string(res, "dataset", target_utf8);
+
+	_snprintf_s(full, sizeof (full), _TRUNCATE, "%s@%s", dataset_utf8,
+	    snap_utf8);
+	shp = zfs_open(g_lzh, full, ZFS_TYPE_SNAPSHOT);
+	if (shp == NULL)
+		return (fail_json(res, lzh_err("snapshot not found"),
+		    out_len));
+
+	// The clone lives in the same pool as the snapshot, anywhere in it.
+	if (zfs_clone(shp, target_utf8, NULL) != 0) {
+		zfs_close(shp);
+		return (fail_json(res, lzh_err("clone failed"), out_len));
+	}
+	zfs_close(shp);
+
+	// Like "zfs clone" does not, but like a new dataset: mount it.
+	zhp = zfs_open(g_lzh, target_utf8, ZFS_TYPE_FILESYSTEM);
+	if (zhp != NULL) {
+		if (zfs_prop_get_int(zhp, ZFS_PROP_CANMOUNT) ==
+		    ZFS_CANMOUNT_ON && zfs_mount(zhp, NULL, 0) == 0)
+			mounted = TRUE;
+		zfs_close(zhp);
+	}
+	fnvlist_add_boolean_value(res, "mounted",
+	    mounted ? B_TRUE : B_FALSE);
+	fnvlist_remove(res, "ok");
+	fnvlist_add_boolean_value(res, "ok", B_TRUE);
+	return (finish_json(res, out_len));
+}
+
+char *
+zed_dataset_promote_json(const char *name_utf8, size_t *out_len)
+{
+	nvlist_t *res = fnvlist_alloc();
+	char origin[ZFS_MAX_DATASET_NAME_LEN];
+	zfs_handle_t *zhp;
+	int rc;
+
+	*out_len = 0;
+	fnvlist_add_boolean_value(res, "ok", B_FALSE);
+	if (g_lzh == NULL)
+		return (fail_json(res, "libzfs is not available", out_len));
+	if (name_utf8 == NULL || name_utf8[0] == '\0' ||
+	    strchr(name_utf8, '@') != NULL)
+		return (fail_json(res, "invalid name", out_len));
+	fnvlist_add_string(res, "dataset", name_utf8);
+
+	zhp = zfs_open(g_lzh, name_utf8,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME);
+	if (zhp == NULL)
+		return (fail_json(res, lzh_err("dataset not found"), out_len));
+	origin[0] = '\0';
+	if (zfs_prop_get(zhp, ZFS_PROP_ORIGIN, origin, sizeof (origin), NULL,
+	    NULL, 0, B_FALSE) != 0 || origin[0] == '\0' ||
+	    strcmp(origin, "-") == 0) {
+		zfs_close(zhp);
+		return (fail_json(res, "this dataset is not a clone",
+		    out_len));
+	}
+	// The snapshots up to the origin move here, and the origin's own
+	// dataset becomes the clone.
+	rc = zfs_promote(zhp);
+	zfs_close(zhp);
+	if (rc != 0)
+		return (fail_json(res, lzh_err("promote failed"), out_len));
+
+	fnvlist_remove(res, "ok");
+	fnvlist_add_boolean_value(res, "ok", B_TRUE);
+	return (finish_json(res, out_len));
+}
+
 /* -------------------- create / destroy datasets -------------------- */
 
 #define	ZED_DS_MAX_PROPS	64
