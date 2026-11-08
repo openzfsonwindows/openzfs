@@ -1201,6 +1201,47 @@ ClientWorker(HANDLE client, HANDLE event)
 			break;
 		}
 
+	case OP_SNAPSHOT_DIFF:
+		{
+			dprintf("OP_SNAPSHOT_DIFF\n");
+			// body: u32 flags, dataset\0, from\0, to\0 (snapshots)
+			const char *ds, *from, *to;
+			size_t n, remain;
+			if (rh.len <= sizeof (uint32_t) || payload == NULL) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			remain = rh.len - sizeof (uint32_t);
+			ds = (const char *)payload + sizeof (uint32_t);
+			n = strnlen(ds, remain);
+			if (n >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			from = ds + n + 1;
+			remain -= n + 1;
+			n = strnlen(from, remain);
+			if (n >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			to = from + n + 1;
+			remain -= n + 1;
+			if (remain == 0 || strnlen(to, remain) >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			size_t jlen = 0;
+			char *json = zed_snapshot_diff_json(ds, from, to,
+			    &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
 	case OP_DATASET_PROMOTE:
 		{
 			dprintf("OP_DATASET_PROMOTE\n");

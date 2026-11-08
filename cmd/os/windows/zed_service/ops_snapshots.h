@@ -96,6 +96,18 @@ char *zed_snapshot_clone_json(const char *dataset_utf8, const char *snap_utf8,
 char *zed_dataset_promote_json(const char *name_utf8, size_t *out_len);
 
 /*
+ * What changed in a dataset between two snapshots, or between a snapshot and
+ * the dataset as it is now ("to" empty), as "zfs diff" would list it:
+ *   { "ok":true, "dataset", "from", "to", "truncated":bool,
+ *     "changes":[ {"chg","cls","path","to"?}, .. ] }
+ * "chg" is "+" added, "-" removed, "M" modified or "R" renamed (to the path in
+ * "to"). "cls" is the type, "/" a directory, "F" a file, "@" a link. Paths are
+ * relative to the dataset's mount point. The dataset has to be mounted.
+ */
+char *zed_snapshot_diff_json(const char *dataset_utf8, const char *from_utf8,
+	const char *to_utf8, size_t *out_len);
+
+/*
  * Rename a dataset (a full name, which may move it elsewhere in the pool) or
  * a snapshot ("dataset@old" to "dataset@new").
  *   { "ok":true, "dataset":"<new>" } or { "ok":false, "dataset", "err" }
