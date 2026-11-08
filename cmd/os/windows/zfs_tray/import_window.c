@@ -22,6 +22,7 @@
 #define	_WIN32_IE    0x0600
 #include <windows.h>
 #include <commctrl.h>
+#include <shlobj.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -37,6 +38,7 @@
 #include "dlg_util.h"
 
 #pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "shell32.lib")
 
 extern void mount_one_pool(HWND owner, const char *pool_name_utf8, int flags);
 
@@ -60,11 +62,17 @@ typedef struct {
     int count;
 } CandidateList;
 
+// Room for the search paths sent along with a scan or an import
+#define	SEARCH_CAP	1024
+
 typedef struct {
     HWND   hWnd;
     zrpc_t *rpc;
     HANDLE hScanThread;
     HFONT  hHeaderFont;
+	/* Search paths for the scan thread: UTF-8, NUL-terminated each */
+	uint8_t search[SEARCH_CAP];
+	DWORD searchlen;
 } ImportCtx;
 
 // Parse: { "candidates":[ {"name":"...", "guid":"...", "state":"..."} ... ] }
@@ -178,11 +186,15 @@ ScanThread(LPVOID param)
 {
 	ImportCtx *ctx = (ImportCtx*)param;
 
-	op_import_scan_req_t rq = {0};
+	uint8_t body[sizeof (op_import_scan_req_t) + SEARCH_CAP] = {0};
 	uint8_t *out = NULL;
 	uint32_t st = 0, outlen = 0;
 
-	if (zrpc_call(ctx->rpc, OP_IMPORT_SCAN, &rq, sizeof (rq), &st,
+	memcpy(body + sizeof (op_import_scan_req_t), ctx->search,
+	    ctx->searchlen);
+
+	if (zrpc_call(ctx->rpc, OP_IMPORT_SCAN, body,
+	    (uint32_t)(sizeof (op_import_scan_req_t) + ctx->searchlen), &st,
 	    &out, &outlen) && st == 0 && out) {
 		CandidateList *cl = ParseScanJSON((const char *)out,
 		    (int)outlen);
@@ -192,6 +204,62 @@ ScanThread(LPVOID param)
 		PostMessageW(ctx->hWnd, WM_APP_SCAN_DONE, 0, (LPARAM)NULL);
 	}
 	return (0);
+}
+
+// The "Also search" box as UTF-8 paths, NUL-terminated each. Paths are
+// separated by ';' (not allowed in a Windows path). Returns the length.
+static DWORD
+GetSearchPaths(HWND hDlg, uint8_t *buf, DWORD cap)
+{
+	wchar_t w[MAX_PATH * 2] = L"";
+	wchar_t *p, *start;
+	DWORD off = 0;
+
+	GetDlgItemTextW(hDlg, IDC_ED_SEARCH, w, (int)ARRAYSIZE(w));
+
+	start = w;
+	for (p = w; ; p++) {
+		if (*p == L';' || *p == 0) {
+			wchar_t save = *p;
+			*p = 0;
+			// trim blanks and quotes
+			while (*start == L' ' || *start == L'"')
+				start++;
+			wchar_t *e = start + wcslen(start);
+			while (e > start && (e[-1] == L' ' || e[-1] == L'"'))
+				*--e = 0;
+			if (*start) {
+				int n = WideCharToMultiByte(CP_UTF8, 0, start,
+				    -1, (char *)buf + off, (int)(cap - off),
+				    NULL, NULL);
+				if (n <= 0)
+					break;
+				off += n;
+			}
+			if (save == 0)
+				break;
+			start = p + 1;
+		}
+	}
+	return (off);
+}
+
+// Start a scan of the disks, and of the search paths if any
+static void
+StartScan(HWND hDlg, ImportCtx *ctx)
+{
+	if (ctx->hScanThread) {
+		if (WaitForSingleObject(ctx->hScanThread, 0) == WAIT_TIMEOUT)
+			return; // still busy
+		CloseHandle(ctx->hScanThread);
+		ctx->hScanThread = NULL;
+	}
+	ctx->searchlen = GetSearchPaths(hDlg, ctx->search,
+	    (DWORD)sizeof (ctx->search));
+	SetDlgItemTextW(hDlg, IDC_STATUS, ctx->searchlen ?
+	    L"Searching the disks and the given paths..." :
+	    L"Scanning for importable pools...");
+	ctx->hScanThread = CreateThread(NULL, 0, ScanThread, ctx, 0, NULL);
 }
 
 // ---- UI helpers
@@ -262,7 +330,8 @@ GetSelectedGuid(HWND hList)
 static DWORD
 ComposeImportOneBody(uint8_t *buf, DWORD cap,
     uint32_t flags, uint64_t guid,
-    const wchar_t *newNameW, const wchar_t *altrootW)
+    const wchar_t *newNameW, const wchar_t *altrootW,
+    const uint8_t *search, DWORD searchlen)
 {
 	op_import_one_req_t *rq = (op_import_one_req_t *)buf;
 	if (cap < sizeof (*rq))
@@ -290,6 +359,13 @@ ComposeImportOneBody(uint8_t *buf, DWORD cap,
 		off += (DWORD)n;
 	} else {
 		((char *)buf)[off++] = '\0';
+	}
+	// search paths, if any
+	if (searchlen) {
+		if (off + searchlen > cap)
+			return (0);
+		memcpy(buf + off, search, searchlen);
+		off += searchlen;
 	}
 	return (off);
 }
@@ -370,12 +446,9 @@ ImportDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 		// center.
 		PositionNearCursor(hDlg);
 
-		// init listview columns, set status text, kick scan thread
+			// init listview columns, kick scan thread
 		AddListColumns(GetDlgItem(hDlg, IDC_LIST));
-		SetDlgItemTextW(hDlg, IDC_STATUS,
-		    L"Scanning for importable pools...");
-		ctx->hScanThread = CreateThread(NULL, 0, ScanThread,
-		    ctx, 0, NULL);
+		StartScan(hDlg, ctx);
 		return (TRUE);
 	}
 
@@ -384,6 +457,34 @@ ImportDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 		case IDC_BTN_CLOSE:
 			DestroyWindow(hDlg); // modeless
 			return (TRUE);
+
+		case IDC_BTN_REFRESH:
+		case IDC_BTN_SEARCH:
+			StartScan(hDlg, ctx);
+			return (TRUE);
+
+		case IDC_BTN_BROWSE: {
+			BROWSEINFOW bi = { 0 };
+			PIDLIST_ABSOLUTE pidl;
+			wchar_t folder[MAX_PATH];
+
+			CoInitialize(NULL);
+			bi.hwndOwner = hDlg;
+			bi.lpszTitle = L"Search this folder for pools "
+			    L"(a folder of files, or a drive):";
+			bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+			pidl = SHBrowseForFolderW(&bi);
+			if (pidl != NULL) {
+				if (SHGetPathFromIDListW(pidl, folder)) {
+					SetDlgItemTextW(hDlg, IDC_ED_SEARCH,
+					    folder);
+					StartScan(hDlg, ctx);
+				}
+				CoTaskMemFree(pidl);
+			}
+			CoUninitialize();
+			return (TRUE);
+		}
 
 		case IDC_BTN_IMPORT: {
 			HWND hList = GetDlgItem(hDlg, IDC_LIST);
@@ -414,10 +515,15 @@ ImportDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 			GetDlgItemTextW(hDlg, IDC_ED_ALTROOT, altrootW,
 			    _countof(altrootW));
 
-			uint8_t body[1024];
+			// Import from the same places it was found in
+			uint8_t search[SEARCH_CAP];
+			DWORD slen = GetSearchPaths(hDlg, search,
+			    (DWORD)sizeof (search));
+
+			uint8_t body[2048];
 			DWORD blen =
 			    ComposeImportOneBody(body, sizeof (body), flags,
-			    guid, NULL, altrootW);
+			    guid, NULL, altrootW, search, slen);
 			if (!blen) {
 				MessageBoxW(hDlg,
 				    L"Invalid parameters.",
@@ -475,8 +581,9 @@ ImportDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 		} else {
 			SetDlgItemTextW(hDlg, IDC_STATUS,
 			    L"Select a pool and click Import.");
-			PopulateList(hList, cl);
 		}
+		// Also empties the list on a rescan that finds nothing
+		PopulateList(hList, cl);
 		FreeCandidateList(cl);
 		return (TRUE);
 	}

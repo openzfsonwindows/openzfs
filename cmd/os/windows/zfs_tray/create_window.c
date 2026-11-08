@@ -22,7 +22,9 @@
 #define	_WIN32_IE    0x0600
 #include <windows.h>
 #include <commctrl.h>
+#include <commdlg.h>
 #include <windowsx.h>
+#include <winioctl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,6 +42,7 @@
 #include "pass_prompt.h"
 
 #pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "comdlg32.lib")
 
 #ifndef ARRAYSIZE
 #define	ARRAYSIZE(a) (sizeof (a)/sizeof ((a)[0]))
@@ -51,8 +54,10 @@
 
 // ---- data types
 typedef struct {
-	char path[64]; // UTF-8, "PhysicalDriveN" or "HarddiskNPartitionM"
+	// UTF-8, "PhysicalDriveN", "HarddiskNPartitionM" or the path of a file
+	char path[MAX_PATH * 3];
 	int part; // 0 == whole disk; else a partition nested under its disk
+	BOOL is_file; // a file to use as a vdev
 	wchar_t sizeW[32];
 	wchar_t modelW[128];
 	BOOL is_boot;
@@ -237,6 +242,42 @@ AddDiskListColumns(HWND hList)
 	ListView_InsertColumn(hList, 3, &col);
 }
 
+static int
+InsertDiskRow(HWND hList, const DiskEntry *d, int row, int data)
+{
+	wchar_t pathW[MAX_PATH * 2];
+	// Partitions arrive right after their disk; indent them with a
+	// tree glyph (LVITEM.iIndent needs an image list to show).
+	int pre = 0;
+	if (d->part > 0)
+		pre = _snwprintf_s(pathW, ARRAYSIZE(pathW), _TRUNCATE,
+		    L"   \x2514\x2500 ");
+	MultiByteToWideChar(CP_UTF8, 0, d->path, -1, pathW + pre,
+	    (int)ARRAYSIZE(pathW) - pre);
+
+	LVITEMW it = { 0 };
+	it.mask = LVIF_TEXT | LVIF_PARAM;
+	it.iItem = row;
+	it.pszText = pathW;
+	it.lParam = (LPARAM)data; // index into DiskList
+	int idx = ListView_InsertItem(hList, &it);
+
+	ListView_SetItemText(hList, idx, 1, (LPWSTR)d->sizeW);
+	ListView_SetItemText(hList, idx, 2, (LPWSTR)d->modelW);
+
+	wchar_t flags[64] = L"";
+	if (d->is_boot && d->has_pool)
+		lstrcpynW(flags, L"BOOT, HAS POOL", ARRAYSIZE(flags));
+	else if (d->is_boot)
+		lstrcpynW(flags, L"BOOT DISK", ARRAYSIZE(flags));
+	else if (d->has_pool)
+		lstrcpynW(flags, L"HAS POOL", ARRAYSIZE(flags));
+	else if (d->is_file)
+		lstrcpynW(flags, L"FILE", ARRAYSIZE(flags));
+	ListView_SetItemText(hList, idx, 3, flags);
+	return (idx);
+}
+
 static void
 PopulateDiskList(HWND hList, const DiskList *dl)
 {
@@ -244,37 +285,8 @@ PopulateDiskList(HWND hList, const DiskList *dl)
 	if (!dl || dl->count == 0)
 		return;
 
-	for (int i = 0; i < dl->count; i++) {
-		const DiskEntry *d = &dl->items[i];
-		wchar_t pathW[80];
-		// Partitions arrive right after their disk; indent them with a
-		// tree glyph (LVITEM.iIndent needs an image list to show).
-		int pre = 0;
-		if (d->part > 0)
-			pre = _snwprintf_s(pathW, ARRAYSIZE(pathW), _TRUNCATE,
-			    L"   \x2514\x2500 ");
-		MultiByteToWideChar(CP_UTF8, 0, d->path, -1, pathW + pre,
-		    (int)ARRAYSIZE(pathW) - pre);
-
-		LVITEMW it = { 0 };
-		it.mask = LVIF_TEXT | LVIF_PARAM;
-		it.iItem = i;
-		it.pszText = pathW;
-		it.lParam = (LPARAM)i; // index into DiskList
-		int idx = ListView_InsertItem(hList, &it);
-
-		ListView_SetItemText(hList, idx, 1, (LPWSTR)d->sizeW);
-		ListView_SetItemText(hList, idx, 2, (LPWSTR)d->modelW);
-
-		wchar_t flags[64] = L"";
-		if (d->is_boot && d->has_pool)
-			lstrcpynW(flags, L"BOOT, HAS POOL", ARRAYSIZE(flags));
-		else if (d->is_boot)
-			lstrcpynW(flags, L"BOOT DISK", ARRAYSIZE(flags));
-		else if (d->has_pool)
-			lstrcpynW(flags, L"HAS POOL", ARRAYSIZE(flags));
-		ListView_SetItemText(hList, idx, 3, flags);
-	}
+	for (int i = 0; i < dl->count; i++)
+		InsertDiskRow(hList, &dl->items[i], i, i);
 }
 
 static void
@@ -476,6 +488,196 @@ ParseCreateResult(const char *json, int len, BOOL *ok_out,
 	return (1);
 }
 
+// ---- files as vdevs
+
+typedef struct {
+	uint64_t bytes;
+} NewFileCtx;
+
+static INT_PTR CALLBACK
+NewFileDlgProc(HWND h, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+	NewFileCtx *nf = (NewFileCtx *)GetWindowLongPtrW(h, GWLP_USERDATA);
+
+	switch (msg) {
+	case WM_INITDIALOG: {
+		HWND c = GetDlgItem(h, IDC_CMB_FUNIT);
+		SetWindowLongPtrW(h, GWLP_USERDATA, lParam);
+		ComboBox_AddString(c, L"MB");
+		ComboBox_AddString(c, L"GB");
+		ComboBox_AddString(c, L"TB");
+		ComboBox_SetCurSel(c, 1);
+		SetDlgItemTextW(h, IDC_ED_FSIZE, L"1");
+		ApplyThemeFollowSystem(h);
+		return (TRUE);
+	}
+	case WM_COMMAND:
+		if (LOWORD(wParam) == IDCANCEL) {
+			EndDialog(h, IDCANCEL);
+			return (TRUE);
+		}
+		if (LOWORD(wParam) == IDOK) {
+			wchar_t buf[32] = L"";
+			static const uint64_t unit[] = { 1ULL << 20, 1ULL << 30,
+				1ULL << 40 };
+			HWND cmb = GetDlgItem(h, IDC_CMB_FUNIT);
+			int sel = ComboBox_GetCurSel(cmb);
+			GetDlgItemTextW(h, IDC_ED_FSIZE, buf, ARRAYSIZE(buf));
+			double v = _wtof(buf);
+			if (sel < 0 || sel > 2)
+				sel = 1;
+			double sz = v * (double)unit[sel];
+			if (v <= 0 || sz > (double)(1ULL << 50) ||
+			    (uint64_t)sz < (64ULL << 20)) {
+				MessageBoxW(h,
+				    L"The size must be at least 64 MB.",
+				    L"OpenZFS", MB_OK | MB_ICONINFORMATION);
+				return (TRUE);
+			}
+			nf->bytes = (uint64_t)sz;
+			EndDialog(h, IDOK);
+			return (TRUE);
+		}
+		break;
+	}
+	return (FALSE);
+}
+
+// Create (or empty and resize) a sparse file of the given size
+static BOOL
+CreateSparseFile(const wchar_t *path, uint64_t bytes)
+{
+	HANDLE f = CreateFileW(path, GENERIC_READ | GENERIC_WRITE, 0, NULL,
+	    CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (f == INVALID_HANDLE_VALUE)
+		return (FALSE);
+
+	// Not every file system can do sparse; the file is still usable
+	DWORD ret = 0;
+	(void) DeviceIoControl(f, FSCTL_SET_SPARSE, NULL, 0, NULL, 0, &ret,
+	    NULL);
+
+	LARGE_INTEGER li;
+	li.QuadPart = (LONGLONG)bytes;
+	BOOL ok = SetFilePointerEx(f, li, NULL, FILE_BEGIN) && SetEndOfFile(f);
+	CloseHandle(f);
+	if (!ok)
+		DeleteFileW(path);
+	return (ok);
+}
+
+// Add a file to the list as a ticked entry, or tick it if it is there.
+static void
+AddFileEntry(HWND hDlg, CreateCtx *ctx, const wchar_t *pathW, uint64_t bytes)
+{
+	HWND hList = GetDlgItem(hDlg, IDC_DISKLIST);
+	DiskEntry de = { 0 };
+	DiskList *dl = ctx->disks;
+	int n = ListView_GetItemCount(hList);
+
+	if (WideCharToMultiByte(CP_UTF8, 0, pathW, -1, de.path,
+	    sizeof (de.path), NULL, NULL) == 0)
+		return;
+
+	if (dl != NULL) {
+		for (int i = 0; i < dl->count; i++) {
+			if (!dl->items[i].is_file ||
+			    _stricmp(dl->items[i].path, de.path) != 0)
+				continue;
+			for (int r = 0; r < n; r++) {
+				LVITEMW it = { 0 };
+				it.mask = LVIF_PARAM;
+				it.iItem = r;
+				ListView_GetItem(hList, &it);
+				if ((int)it.lParam == i) {
+					ListView_SetCheckState(hList, r, TRUE);
+					ListView_EnsureVisible(hList, r, FALSE);
+				}
+			}
+			return;
+		}
+	} else {
+		dl = (DiskList *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+		    sizeof (*dl));
+		if (dl == NULL)
+			return;
+		ctx->disks = dl;
+	}
+
+	DiskEntry *items;
+	if (dl->items == NULL)
+		items = (DiskEntry *)HeapAlloc(GetProcessHeap(),
+		    HEAP_ZERO_MEMORY, sizeof (DiskEntry));
+	else
+		items = (DiskEntry *)HeapReAlloc(GetProcessHeap(),
+		    HEAP_ZERO_MEMORY, dl->items,
+		    (dl->count + 1) * sizeof (DiskEntry));
+	if (items == NULL)
+		return;
+	dl->items = items;
+
+	de.is_file = TRUE;
+	FormatBytesW(bytes, de.sizeW, ARRAYSIZE(de.sizeW));
+	lstrcpynW(de.modelW, L"File", ARRAYSIZE(de.modelW));
+	dl->items[dl->count] = de;
+	int row = InsertDiskRow(hList, &dl->items[dl->count], n, dl->count);
+	dl->count++;
+	ListView_SetCheckState(hList, row, TRUE);
+	ListView_EnsureVisible(hList, row, FALSE);
+}
+
+// "Add file..." picks an existing file, "New file..." makes a sparse one.
+static void
+DoAddFile(HWND hDlg, CreateCtx *ctx, BOOL create)
+{
+	wchar_t path[MAX_PATH] = L"";
+	OPENFILENAMEW ofn = { 0 };
+	uint64_t bytes = 0;
+
+	ofn.lStructSize = sizeof (ofn);
+	ofn.hwndOwner = hDlg;
+	ofn.lpstrFilter = L"All files\0*.*\0\0";
+	ofn.lpstrFile = path;
+	ofn.nMaxFile = ARRAYSIZE(path);
+	ofn.Flags = OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
+
+	if (create) {
+		NewFileCtx nf = { 0 };
+
+		ofn.lpstrTitle = L"Create a file for the pool";
+		ofn.Flags |= OFN_OVERWRITEPROMPT;
+		if (!GetSaveFileNameW(&ofn))
+			return;
+		if (DialogBoxParamW(GetModuleHandleW(NULL),
+		    MAKEINTRESOURCEW(IDD_NEWFILE), hDlg, NewFileDlgProc,
+		    (LPARAM)&nf) != IDOK)
+			return;
+		if (!CreateSparseFile(path, nf.bytes)) {
+			MessageBoxW(hDlg, L"Could not create the file.",
+			    L"OpenZFS", MB_OK | MB_ICONERROR);
+			return;
+		}
+		bytes = nf.bytes;
+	} else {
+		LARGE_INTEGER sz = { 0 };
+
+		ofn.lpstrTitle = L"Select a file to use for the pool";
+		ofn.Flags |= OFN_FILEMUSTEXIST;
+		if (!GetOpenFileNameW(&ofn))
+			return;
+		HANDLE f = CreateFileW(path, FILE_READ_ATTRIBUTES,
+		    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+		    NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (f != INVALID_HANDLE_VALUE) {
+			GetFileSizeEx(f, &sz);
+			CloseHandle(f);
+		}
+		bytes = (uint64_t)sz.QuadPart;
+	}
+
+	AddFileEntry(hDlg, ctx, path, bytes);
+}
+
 static INT_PTR CALLBACK
 CreatePoolDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -510,6 +712,8 @@ CreatePoolDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 		SetDlgItemTextW(hDlg, IDC_STATUS_CREATE,
 		    L"Scanning for disks...");
 		EnableWindow(GetDlgItem(hDlg, IDC_BTN_CREATE), FALSE);
+		EnableWindow(GetDlgItem(hDlg, IDC_BTN_ADDFILE), FALSE);
+		EnableWindow(GetDlgItem(hDlg, IDC_BTN_NEWFILE), FALSE);
 
 		ctx->hScanThread = CreateThread(NULL, 0, DiskScanThread, ctx,
 		    0, NULL);
@@ -520,6 +724,14 @@ CreatePoolDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 		switch (LOWORD(wParam)) {
 		case IDC_BTN_CANCEL_CREATE:
 			DestroyWindow(hDlg); // modeless
+			return (TRUE);
+
+		case IDC_BTN_ADDFILE:
+			DoAddFile(hDlg, ctx, FALSE);
+			return (TRUE);
+
+		case IDC_BTN_NEWFILE:
+			DoAddFile(hDlg, ctx, TRUE);
 			return (TRUE);
 
 		case IDC_ED_POOLNAME:
@@ -725,6 +937,8 @@ CreatePoolDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
 
 		if (ctx->disks) FreeDiskList(ctx->disks);
 		ctx->disks = dl;
+		EnableWindow(GetDlgItem(hDlg, IDC_BTN_ADDFILE), TRUE);
+		EnableWindow(GetDlgItem(hDlg, IDC_BTN_NEWFILE), TRUE);
 
 		if (!dl || dl->count == 0) {
 			SetDlgItemTextW(hDlg, IDC_STATUS_CREATE,
