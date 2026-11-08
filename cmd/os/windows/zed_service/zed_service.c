@@ -1125,6 +1125,67 @@ ClientWorker(HANDLE client, HANDLE event)
 			break;
 		}
 
+	case OP_SNAPSHOT_CLONE:
+		{
+			dprintf("OP_SNAPSHOT_CLONE\n");
+			// body: u32 flags, dataset\0, snapshot\0, target\0
+			const char *ds, *snap, *target;
+			size_t n, remain;
+			if (rh.len <= sizeof (uint32_t) || payload == NULL) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			remain = rh.len - sizeof (uint32_t);
+			ds = (const char *)payload + sizeof (uint32_t);
+			n = strnlen(ds, remain);
+			if (n >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			snap = ds + n + 1;
+			remain -= n + 1;
+			n = strnlen(snap, remain);
+			if (n >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			target = snap + n + 1;
+			remain -= n + 1;
+			if (remain == 0 || strnlen(target, remain) >= remain) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			size_t jlen = 0;
+			char *json = zed_snapshot_clone_json(ds, snap, target,
+			    &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
+	case OP_DATASET_PROMOTE:
+		{
+			dprintf("OP_DATASET_PROMOTE\n");
+			// body: dataset name, NUL-terminated
+			if (rh.len == 0 || payload == NULL ||
+			    strnlen((const char *)payload, rh.len) >= rh.len) {
+				RESP_ERR(client, ERROR_INVALID_PARAMETER);
+				break;
+			}
+			size_t jlen = 0;
+			char *json = zed_dataset_promote_json(
+			    (const char *)payload, &jlen);
+			if (!json) {
+				RESP_ERR(client, ERROR_GEN_FAILURE);
+			} else {
+				RESP_OK_JSON(client, jlen, json);
+			}
+			break;
+		}
+
 	case OP_DATASET_SETPROP:
 		{
 			dprintf("OP_DATASET_SETPROP\n");

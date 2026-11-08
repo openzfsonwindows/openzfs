@@ -64,6 +64,8 @@
 #define	IDC_SDSINFO	3314
 #define	IDC_SNEWDS	3315
 #define	IDC_SDELDS	3316
+#define	IDC_SCLONE	3317
+#define	IDC_SPROMOTE	3318
 #define	IDC_STAB	3320
 #define	IDC_PLIST	3321
 #define	IDC_PEDIT	3322
@@ -81,6 +83,7 @@
 typedef struct {
 	wchar_t name[256];
 	wchar_t mountpoint[260];
+	wchar_t origin[300];
 	int depth;
 	BOOL volume;
 	BOOL mounted;
@@ -329,6 +332,8 @@ DsField(const char *json, const jsmntok_t *k, const jsmntok_t *v, DsEnt *d)
 		for (s = d->name; *s; s++)
 			if (*s == L'/')
 				d->depth++;
+	} else if (jsmn_eq(json, k, "origin")) {
+		TokWide(json, v, d->origin, ARRAYSIZE(d->origin));
 	} else if (jsmn_eq(json, k, "mountpoint")) {
 		TokWide(json, v, d->mountpoint, ARRAYSIZE(d->mountpoint));
 	} else if (jsmn_eq(json, k, "volume")) {
@@ -625,6 +630,8 @@ UpdateButtons(SCtx *c)
 	    ListView_GetSelectedCount(c->hList) > 0);
 	// Rolling back goes to exactly one snapshot.
 	EnableWindow(GetDlgItem(c->hWnd, IDC_SROLLBACK),
+	    ListView_GetSelectedCount(c->hList) == 1);
+	EnableWindow(GetDlgItem(c->hWnd, IDC_SCLONE),
 	    ListView_GetSelectedCount(c->hList) == 1);
 	EnableWindow(GetDlgItem(c->hWnd, IDC_SCREATE), c->cur[0] != L'\0');
 }
@@ -1707,6 +1714,131 @@ DoDestroyDataset(SCtx *c)
 	(void) LoadDatasets(c, rc == 0 ? parent : name, TRUE);
 }
 
+// -------------------- clone / promote --------------------
+
+// Clone the selected snapshot as a new dataset, anywhere in the pool.
+static void
+DoClone(SCtx *c)
+{
+	int sel = ListView_GetNextItem(c->hList, -1, LVNI_SELECTED);
+	LVITEMW it = { 0 };
+	const SnapEnt *s;
+	wchar_t target[256], prompt[512], err[256] = L"";
+	char body[sizeof (uint32_t) + 3 * 1024];
+	char ds[1024], snap[512], tgt[1024];
+	uint8_t *out = NULL;
+	uint32_t outlen = 0, flags = 0;
+	size_t n1, n2, n3, off;
+	const wchar_t *p;
+	int slashes = 0;
+
+	if (sel < 0)
+		return;
+	it.mask = LVIF_PARAM;
+	it.iItem = sel;
+	if (!ListView_GetItem(c->hList, &it) || it.lParam < 0 ||
+	    it.lParam >= c->nsnaps)
+		return;
+	s = &c->snaps[it.lParam];
+
+	_snwprintf_s(target, ARRAYSIZE(target), _TRUNCATE, L"%s-clone", c->cur);
+	_snwprintf_s(prompt, ARRAYSIZE(prompt), _TRUNCATE,
+	    L"Clone %s@%s as a new dataset. Its full name, in the same "
+	    L"pool:", c->cur, s->name);
+	if (!PromptText(c->hWnd, L"Clone snapshot", prompt, NULL, target,
+	    ARRAYSIZE(target), NULL, 0, NULL, 0, NULL))
+		return;
+	for (p = target; *p; p++) {
+		if (*p == L'/')
+			slashes++;
+		if (*p == L'@' || *p == L'\\' || *p == L' ') {
+			ErrorBox(c->hWnd, L"The name cannot contain spaces, "
+			    L"backslashes or '@'.");
+			return;
+		}
+	}
+	if (slashes == 0 || target[0] == L'/') {
+		ErrorBox(c->hWnd, L"Give the full name, like pool/name.");
+		return;
+	}
+
+	if (!ToUtf8(c->cur, ds, sizeof (ds)) ||
+	    !ToUtf8(s->name, snap, sizeof (snap)) ||
+	    !ToUtf8(target, tgt, sizeof (tgt))) {
+		ErrorBox(c->hWnd, L"Invalid name.");
+		return;
+	}
+	n1 = strlen(ds) + 1;
+	n2 = strlen(snap) + 1;
+	n3 = strlen(tgt) + 1;
+	memcpy(body, &flags, sizeof (flags));
+	off = sizeof (flags);
+	memcpy(body + off, ds, n1);
+	off += n1;
+	memcpy(body + off, snap, n2);
+	off += n2;
+	memcpy(body + off, tgt, n3);
+	off += n3;
+
+	if (!Call(c, OP_SNAPSHOT_CLONE, body, (uint32_t)off, &out, &outlen,
+	    err, ARRAYSIZE(err))) {
+		ErrorBox(c->hWnd, err);
+		return;
+	}
+	if (!ReplyOk((const char *)out, (int)outlen, err, ARRAYSIZE(err))) {
+		if (err[0] == L'\0')
+			lstrcpynW(err, L"The clone was not created.",
+			    ARRAYSIZE(err));
+		HeapFree(GetProcessHeap(), 0, out);
+		ErrorBox(c->hWnd, err);
+		return;
+	}
+	HeapFree(GetProcessHeap(), 0, out);
+	(void) LoadDatasets(c, target, TRUE);
+}
+
+// Make the selected clone the original: it takes over the snapshots, and the
+// dataset it was cloned from becomes the clone.
+static void
+DoPromote(SCtx *c)
+{
+	const DsEnt *d = CurDs(c);
+	wchar_t msg[1024], err[256] = L"";
+	char name[1024];
+	uint8_t *out = NULL;
+	uint32_t outlen = 0;
+
+	if (d == NULL || d->origin[0] == L'\0')
+		return;
+	_snwprintf_s(msg, ARRAYSIZE(msg), _TRUNCATE,
+	    L"Promote %s?\n\nIt was cloned from %s. After this, %s owns "
+	    L"the snapshots up to that one, and the dataset it was cloned "
+	    L"from becomes a clone of it. Nothing is lost, but the "
+	    L"original cannot be destroyed without %s.",
+	    d->name, d->origin, d->name, d->name);
+	if (MessageBoxW(c->hWnd, msg, L"Promote", MB_YESNO |
+	    MB_ICONQUESTION) != IDYES)
+		return;
+	if (!ToUtf8(d->name, name, sizeof (name))) {
+		ErrorBox(c->hWnd, L"Invalid name.");
+		return;
+	}
+	if (!Call(c, OP_DATASET_PROMOTE, name, (uint32_t)strlen(name) + 1,
+	    &out, &outlen, err, ARRAYSIZE(err))) {
+		ErrorBox(c->hWnd, err);
+		return;
+	}
+	if (!ReplyOk((const char *)out, (int)outlen, err, ARRAYSIZE(err))) {
+		if (err[0] == L'\0')
+			lstrcpynW(err, L"The promote failed.", ARRAYSIZE(err));
+		HeapFree(GetProcessHeap(), 0, out);
+		ErrorBox(c->hWnd, err);
+		return;
+	}
+	HeapFree(GetProcessHeap(), 0, out);
+	(void) LoadDatasets(c, c->cur, TRUE);
+}
+
 // -------------------- window --------------------
 
 static void
@@ -1732,6 +1864,8 @@ Layout(SCtx *c)
 	    TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SMOUNT), pad, row2, 90, bh, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SUNMOUNT), pad + 98, row2, 90, bh,
+	    TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_SPROMOTE), pad + 196, row2, 84, bh,
 	    TRUE);
 
 	// Right: what is known about the selected dataset, its snapshots.
@@ -1761,7 +1895,9 @@ Layout(SCtx *c)
 	    w - pad - 100 - 8 - 150 - 8 - x, bh - 2, TRUE);
 
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SINFO), x0, row2 + 4,
-	    rw - 286 - pad, 20, TRUE);
+	    rw - 384 - pad, 20, TRUE);
+	MoveWindow(GetDlgItem(c->hWnd, IDC_SCLONE), w - pad - 384, row2, 90,
+	    bh, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SREFRESH), w - pad - 286, row2, 90,
 	    bh, TRUE);
 	MoveWindow(GetDlgItem(c->hWnd, IDC_SROLLBACK), w - pad - 188, row2, 90,
@@ -1810,6 +1946,9 @@ ShowDatasetInfo(SCtx *c)
 	    d != NULL && !d->volume);
 	EnableWindow(GetDlgItem(c->hWnd, IDC_SDELDS),
 	    d != NULL && d->depth > 0);
+	// Only a clone has something to promote.
+	EnableWindow(GetDlgItem(c->hWnd, IDC_SPROMOTE),
+	    d != NULL && d->origin[0] != L'\0');
 }
 
 static void LoadProps(SCtx *c);
@@ -2083,8 +2222,8 @@ static void
 ShowPage(SCtx *c, int page)
 {
 	static const int snapids[] = { IDC_SNEWLBL, IDC_SNAME,
-	    IDC_SRECURSIVE, IDC_SCREATE, IDC_SINFO, IDC_SROLLBACK,
-	    IDC_SDESTROY };
+	    IDC_SRECURSIVE, IDC_SCREATE, IDC_SINFO, IDC_SCLONE,
+	    IDC_SROLLBACK, IDC_SDESTROY };
 	static const int propids[] = { IDC_PEDIT, IDC_PINHERIT, IDC_PINFO };
 	size_t i;
 
@@ -2182,6 +2321,12 @@ SnapshotsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			break;
 		case IDC_SROLLBACK:
 			DoRollback(c);
+			break;
+		case IDC_SCLONE:
+			DoClone(c);
+			break;
+		case IDC_SPROMOTE:
+			DoPromote(c);
 			break;
 		case IDC_SREFRESH:
 			(void) LoadDatasets(c, c->cur, TRUE);
@@ -2439,6 +2584,12 @@ RunSnapshotsWindow(HINSTANCE hInst, const wchar_t *dataset)
 	    TRUE);
 	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Refresh",
 	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SREFRESH), WM_SETFONT,
+	    (WPARAM)font, TRUE);
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Clone...",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SCLONE), WM_SETFONT,
+	    (WPARAM)font, TRUE);
+	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Promote...",
+	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SPROMOTE), WM_SETFONT,
 	    (WPARAM)font, TRUE);
 	SendMessageW(MakeChild(ctx.hWnd, L"BUTTON", L"Rollback...",
 	    BS_PUSHBUTTON | WS_TABSTOP, IDC_SROLLBACK), WM_SETFONT,

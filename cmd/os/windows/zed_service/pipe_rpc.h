@@ -63,6 +63,8 @@ typedef enum {
     OP_DATASET_DESTROY = 26,
     OP_DATASET_PROPS = 27,
     OP_DATASET_SETPROP = 28,
+    OP_SNAPSHOT_CLONE = 29,
+    OP_DATASET_PROMOTE = 30,
 } op_t;
 
 typedef struct {
@@ -206,6 +208,10 @@ typedef struct {
 // OP_DATASET_PROPS: the UTF-8 NUL-terminated dataset name.
 // OP_DATASET_SETPROP: uint32 flags (ZSETPROP_*), then the UTF-8
 // NUL-terminated dataset name, property name and value.
+// OP_SNAPSHOT_CLONE: uint32 flags (reserved), then the UTF-8 NUL-terminated
+// dataset, snapshot name (without the '@') and the full name of the new
+// dataset.
+// OP_DATASET_PROMOTE: the UTF-8 NUL-terminated name of a clone.
 
 enum {
 	ZCREATE_FORCE = 0x01, // reserved; allows selecting an in-use disk in UI

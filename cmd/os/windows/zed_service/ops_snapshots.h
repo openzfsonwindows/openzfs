@@ -77,6 +77,22 @@ char *zed_snapshot_rollback_json(uint32_t flags, const char *dataset_utf8,
     const char *snap_utf8, size_t *out_len);
 
 /*
+ * Clone dataset@snapshot as the new dataset "target" (a full name, anywhere
+ * in the same pool), and mount it.
+ *   { "ok":true, "dataset":"<target>", "mounted":bool } or
+ *   { "ok":false, "err" }
+ */
+char *zed_snapshot_clone_json(const char *dataset_utf8, const char *snap_utf8,
+    const char *target_utf8, size_t *out_len);
+
+/*
+ * Promote a clone: it takes over the snapshots it was cloned from, and the
+ * dataset it was cloned from becomes the clone of it.
+ *   { "ok":true, "dataset" } or { "ok":false, "dataset", "err" }
+ */
+char *zed_dataset_promote_json(const char *name_utf8, size_t *out_len);
+
+/*
  * Create a filesystem. "props" is optional text, one "key=value" per line.
  * A non-empty "passphrase" makes it a new encryption root with that
  * passphrase (it is left with keylocation=prompt, to be unlocked like any
