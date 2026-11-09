@@ -45,6 +45,7 @@ zfs_file_open(const char *path, int flags, int mode, cred_t *cr,
 	IO_STATUS_BLOCK    ioStatusBlock;
 	DWORD desiredAccess = 0;
 	DWORD dwCreationDisposition;
+	ULONG createOptions = FILE_SYNCHRONOUS_IO_NONALERT;
 
 	desiredAccess = GENERIC_READ;
 	if (flags&O_WRONLY)
@@ -74,6 +75,12 @@ zfs_file_open(const char *path, int flags, int mode, cred_t *cr,
 	}
 
 	if (flags&O_APPEND) mode |= FILE_APPEND_DATA;
+
+	// See vdev_file.c, how file vdevs ask to be opened.
+	if (flags & O_WIN_WRITETHROUGH)
+		createOptions |= FILE_WRITE_THROUGH;
+	if (flags & O_WIN_NOBUFFERING)
+		createOptions |= FILE_NO_INTERMEDIATE_BUFFERING;
 
 #ifdef O_EXLOCK
 	// if (flags&O_EXLOCK) share &= ~FILE_SHARE_WRITE;
@@ -138,8 +145,20 @@ zfs_file_open(const char *path, int flags, int mode, cred_t *cr,
 	    FILE_ATTRIBUTE_NORMAL,
 	    0,
 	    dwCreationDisposition,
-	    FILE_SYNCHRONOUS_IO_NONALERT,
+	    createOptions,
 	    NULL, 0);
+
+	/*
+	 * Only say something when extra open flags were asked for, a plain
+	 * failure to open is normal while searching for pools.
+	 */
+	if (ntstatus != STATUS_SUCCESS &&
+	    (flags & (O_WIN_WRITETHROUGH | O_WIN_NOBUFFERING)))
+		printBuffer("%s: opening '%s'%s%s failed, status 0x%x\n",
+		    __func__, FileName,
+		    (flags & O_WIN_WRITETHROUGH) ? " writethrough" : "",
+		    (flags & O_WIN_NOBUFFERING) ? " nobuffering" : "",
+		    ntstatus);
 
 	spa_strfree(vdev_path);
 

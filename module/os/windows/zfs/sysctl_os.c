@@ -88,6 +88,14 @@ sysctl_os_write_registry(HANDLE regfd, ztunable_t *zt, UNICODE_STRING *entry)
 
 	ASSERT3P(val, !=, NULL);
 
+	/* An empty string has nothing to convert, write an empty REG_SZ */
+	if (type == ZT_TYPE_STRING && len == 0) {
+		static const wchar_t empty[] = L"";
+
+		return (ZwSetValueKey(regfd, entry, 0, REG_SZ,
+		    (PVOID)empty, sizeof (empty)));
+	}
+
 	if (type == ZT_TYPE_STRING) {
 
 		/*

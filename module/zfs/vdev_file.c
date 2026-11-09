@@ -70,10 +70,67 @@ vdev_file_rele(vdev_t *vd)
 	ASSERT3P(vd->vdev_path, !=, NULL);
 }
 
-static mode_t
+#ifdef _WIN32
+/*
+ * Windows: how to open the files that back vdevs. A list, separated by
+ * commas or spaces, of
+ *
+ *	writethrough	FILE_WRITE_THROUGH, writes reach the file's storage
+ *			before they complete
+ *	nobuffering	FILE_NO_INTERMEDIATE_BUFFERING, do not use the cache
+ *			of the file system the file lives on. This needs I/O
+ *			in multiples of that file system's sector size.
+ *
+ * This is the default for every file vdev. A flag the file system does
+ * not accept makes the open fail, and says why in the log.
+ */
+#ifndef	ZFS_MODULE_STRMAX
+#define	ZFS_MODULE_STRMAX	64
+#endif
+char vdev_file_win32_flags[ZFS_MODULE_STRMAX] = "";
+
+/* In the kernel, cmn_err() does not reach the circular debug buffer. */
+#ifdef _KERNEL
+#define	VDEV_FILE_LOG(...)	printBuffer("vdev_file: " __VA_ARGS__)
+#else
+#define	VDEV_FILE_LOG(...)	cmn_err(CE_WARN, "vdev_file: " __VA_ARGS__)
+#endif
+
+static int
+vdev_file_parse_win32_flags(const char *str)
+{
+	char buf[ZFS_MODULE_STRMAX];
+	char *tok, *next;
+	int flags = 0;
+
+	(void) strlcpy(buf, str, sizeof (buf));
+	for (tok = buf; *tok != '\0'; tok = next) {
+		next = tok;
+		while (*next != '\0' && *next != ',' && *next != ' ')
+			next++;
+		if (*next != '\0')
+			*next++ = '\0';
+		if (*tok == '\0')
+			continue;
+		if (strcmp(tok, "writethrough") == 0)
+			flags |= O_WIN_WRITETHROUGH;
+		else if (strcmp(tok, "nobuffering") == 0)
+			flags |= O_WIN_NOBUFFERING;
+		else
+			VDEV_FILE_LOG("unknown open flag '%s'\n", tok);
+	}
+#ifdef _KERNEL
+	if (flags != 0)
+		VDEV_FILE_LOG("open flags '%s' -> 0x%x\n", str, flags);
+#endif
+	return (flags);
+}
+#endif
+
+static int
 vdev_file_open_mode(spa_mode_t spa_mode)
 {
-	mode_t mode = 0;
+	int mode = 0;
 
 	if ((spa_mode & SPA_MODE_READ) && (spa_mode & SPA_MODE_WRITE)) {
 		mode = O_RDWR;
@@ -82,6 +139,10 @@ vdev_file_open_mode(spa_mode_t spa_mode)
 	} else if (spa_mode & SPA_MODE_WRITE) {
 		mode = O_WRONLY;
 	}
+
+#ifdef _WIN32
+	mode |= vdev_file_parse_win32_flags(vdev_file_win32_flags);
+#endif
 
 	return (mode | O_LARGEFILE);
 }
@@ -380,3 +441,7 @@ ZFS_MODULE_PARAM(zfs_vdev_file, vdev_file_, logical_ashift, UINT, ZMOD_RW,
 	"Logical ashift for file-based devices");
 ZFS_MODULE_PARAM(zfs_vdev_file, vdev_file_, physical_ashift, UINT, ZMOD_RW,
 	"Physical ashift for file-based devices");
+#ifdef _WIN32
+ZFS_MODULE_PARAM(zfs_vdev_file, vdev_file_, win32_flags, STRING, ZMOD_RW,
+	"Windows: open file-based devices with writethrough,nobuffering");
+#endif

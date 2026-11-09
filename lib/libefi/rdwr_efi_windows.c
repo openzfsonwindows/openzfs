@@ -159,7 +159,6 @@ gotsize:
 
 	if (*lbsize == 0) {
 		*lbsize = 512;
-		fprintf(stderr, "Assuming 512 byte sector size\n");
 	}
 
 done:
