@@ -269,20 +269,33 @@ zfs_tunable_set_u64(const zfs_tunable_t *zt, const char *val)
 	return (0);
 }
 
+/*
+ * A string tunable is either a pointer to a string, or a character array.
+ * They are told apart by size, so an array has to be larger than a pointer.
+ */
+static int
+zfs_tunable_is_string_array(const zfs_tunable_t *zt)
+{
+	return (zt->zt_varsz > sizeof (char *));
+}
+
 static int
 zfs_tunable_set_string(const zfs_tunable_t *zt, const char *val)
 {
-	(void) zt, (void) val;
 	/*
-	 * We can't currently handle strings. String tunables are pointers
-	 * into read-only memory, so we can update the pointer, but not the
-	 * contents. That would mean taking an allocation, but we don't have
-	 * an obvious place to free it.
+	 * A string tunable that is a pointer is into read-only memory, so we
+	 * can update the pointer, but not the contents. That would mean
+	 * taking an allocation, but we don't have an obvious place to free
+	 * it.
 	 *
-	 * For now, it's no big deal as there's only a couple of string
-	 * tunables anyway.
+	 * One that is an array we can write to, if the new value fits.
 	 */
-	return (ENOTSUP);
+	if (!zfs_tunable_is_string_array(zt))
+		return (ENOTSUP);
+	if (strlen(val) >= zt->zt_varsz)
+		return (ERANGE);
+	strlcpy((char *)zt->zt_varp, val, zt->zt_varsz);
+	return (0);
 }
 
 /*
@@ -322,7 +335,10 @@ zfs_tunable_get_u64(const zfs_tunable_t *zt, char *val, size_t valsz)
 static int
 zfs_tunable_get_string(const zfs_tunable_t *zt, char *val, size_t valsz)
 {
-	strlcpy(val, *(char **)zt->zt_varp, valsz);
+	if (zfs_tunable_is_string_array(zt))
+		strlcpy(val, (char *)zt->zt_varp, valsz);
+	else
+		strlcpy(val, *(char **)zt->zt_varp, valsz);
 	return (0);
 }
 

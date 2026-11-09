@@ -28,6 +28,13 @@
 #define	O_CLOEXEC	0
 #define	O_NDELAY	0
 
+/*
+ * Windows only: extra ways to open a file vdev, see vdev_file.c. Kept
+ * in step with lib/libspl/include/os/windows/fcntl.h.
+ */
+#define	O_WIN_WRITETHROUGH	0x2000000	/* FILE_WRITE_THROUGH */
+#define	O_WIN_NOBUFFERING	0x4000000	/* NO_INTERMEDIATE_BUFFERING */
+
 #define	F_RDLCK		1	/* shared or read lock */
 #define	F_UNLCK		2	/* unlock */
 #define	F_WRLCK		3	/* exclusive or write lock */

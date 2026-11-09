@@ -1218,6 +1218,10 @@ wosix_open(const char *inpath, int oflag, ...)
 		dwFlagsAndAttributes |=
 		    FILE_FLAG_WRITE_THROUGH|FILE_FLAG_NO_BUFFERING;
 	}
+	if (oflag & O_WIN_WRITETHROUGH)
+		dwFlagsAndAttributes |= FILE_FLAG_WRITE_THROUGH;
+	if (oflag & O_WIN_NOBUFFERING)
+		dwFlagsAndAttributes |= FILE_FLAG_NO_BUFFERING;
 
 	// URLs have to start with "/" as in, "/C:"
 	if (path[0] == '\\' && path[2] == ':')
