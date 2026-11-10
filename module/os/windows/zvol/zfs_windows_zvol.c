@@ -29,35 +29,6 @@ extern boolean_t Storport_Unloaded;
 pHW_HBA_EXT STOR_HBAExt = NULL;
 static wzvolDriverInfo STOR_wzvolDriverInfo;
 
-static uint64_t windows_zvol_enabled = 1;
-ZFS_MODULE_PARAM(, windows_, zvol_enabled, U64, ZMOD_RW,
-	"Windows: enable zvol");
-
-static void
-ListLoadedDrivers(void)
-{
-	ULONG bufferLength = 0;
-	boolean_t skipLoad = FALSE;
-
-	skipLoad = FindDriver("\\SystemRoot\\system32\\ambakdrv.sys");
-
-	if (!skipLoad)
-		return;
-
-	if (windows_zvol_enabled == 1) {
-		dprintf(
-	"Aomei Backupper (ambakdrv.sys) detected as installed.\n"
-	"It is known to crash with OpenZFS's zvol. Set Registry entry\n"
-	"windows_zvol_enabled to 2 to force load OpenZFS with zvol support.\n");
-		xprintf("Skipping ZVOL due to ambakdrv.sys\n");
-		windows_zvol_enabled = 0;
-	} else if (windows_zvol_enabled == 2) {
-		dprintf("Force loading OpenZFS with zvol support, "
-		    "and Aomei ambakdrv.sys installed.\n");
-		xprintf("Forcing ZVOL despite ambakdrv.sys\n");
-	}
-}
-
 int
 zvol_start(PDRIVER_OBJECT DriverObject, PUNICODE_STRING pRegistryPath)
 {
@@ -65,11 +36,7 @@ zvol_start(PDRIVER_OBJECT DriverObject, PUNICODE_STRING pRegistryPath)
 	pwzvolDriverInfo pwzvolDrvInfo;
 	NTSTATUS status;
 
-	// ListLoadedDrivers();
 	dprintf("%s:\n", __func__);
-
-	// if (windows_zvol_enabled == 0)
-	//	return (STATUS_FS_DRIVER_REQUIRED);
 
 	RtlZeroMemory(&STOR_wzvolDriverInfo, sizeof (STOR_wzvolDriverInfo));
 	pwzvolDrvInfo = &STOR_wzvolDriverInfo;
