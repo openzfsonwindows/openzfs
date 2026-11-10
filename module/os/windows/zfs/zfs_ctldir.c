@@ -1559,8 +1559,11 @@ zfsctl_fini(void)
 	cv_destroy(&zfsctl_unmount_cv);
 }
 
-module_param(zfs_admin_snapshot, int, 0644);
-MODULE_PARM_DESC(zfs_admin_snapshot, "Enable mkdir/rmdir/mv in .zfs/snapshot");
+ZFS_MODULE_PARAM(zfs, zfs_, admin_snapshot, INT, ZMOD_RW,
+	"Enable mkdir/rmdir/mv in .zfs/snapshot");
 
-module_param(zfs_expire_snapshot, int, 0644);
-MODULE_PARM_DESC(zfs_expire_snapshot, "Seconds to expire .zfs/snapshot");
+ZFS_MODULE_PARAM(zfs, zfs_, expire_snapshot, INT, ZMOD_RW,
+	"Seconds to expire .zfs/snapshot");
+
+ZFS_MODULE_PARAM(zfs, zfs_, auto_snapshot, INT, ZMOD_RW,
+	"Mount a .zfs/snapshot entry when it is first accessed");
