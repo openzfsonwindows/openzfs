@@ -7567,7 +7567,8 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	NTSTATUS Status;
 	vnode_t *vp;
 	zfs_ccb_t *ccb;
-	boolean_t paging_lock = FALSE, acquired_vp_lock = FALSE, pagefile;
+	boolean_t paging_lock = FALSE, paging_lock_exclusive = FALSE;
+	boolean_t acquired_vp_lock = FALSE, pagefile;
 	ULONG filter = 0;
 
 	if (*length == 0) {
@@ -7745,7 +7746,13 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 				goto end;
 			}
 		} else {
-			if (!ExAcquireResourceSharedLite(
+			/*
+			 * CcCopyWrite can wait for this paging write while
+			 * a cached writer holds this resource shared.
+			 * An exclusive waiter cannot run until the writer
+			 * releases its hold, so do not wait behind it.
+			 */
+			if (!ExAcquireSharedStarveExclusive(
 			    vp->FileHeader.PagingIoResource, wait)) {
 				Status = STATUS_PENDING;
 				IoMarkIrpPending(Irp);
@@ -7756,8 +7763,8 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	} else {
 		/*
 		 * Non-paging write: acquire PagingIoResource, EXCLUSIVE if
-		 * the write extends the file (must be atomic with
-		 * CcSetFileSizes/CcCopyWrite and exclude a concurrent
+		 * the write extends the file (the size update and
+		 * CcSetFileSizes must be atomic and exclude a concurrent
 		 * truncate/extend via set_file_endoffile_information),
 		 * SHARED otherwise.
 		 *
@@ -7777,6 +7784,7 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 			if (need_excl) {
 				ExAcquireResourceExclusiveLite(
 				    vp->FileHeader.PagingIoResource, TRUE);
+				paging_lock_exclusive = TRUE;
 			} else {
 				if (!ExAcquireResourceSharedLite(
 				    vp->FileHeader.PagingIoResource, wait)) {
@@ -7917,6 +7925,22 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 					zfs_init_cache(FileObject, vp, &ccfs);
 
 				CcSetFileSizes(FileObject, &ccfs);
+			}
+
+			/*
+			 * CcCopyWrite/CcPrepareMdlWrite can flush dirty
+			 * pages synchronously.  The paging write re-enters
+			 * this function, possibly on a Cache Manager worker,
+			 * and must acquire PagingIoResource.  Keep a shared
+			 * hold across the copy to exclude truncation while
+			 * allowing paging writes to complete.  Downgrade
+			 * only an exclusive hold acquired above; a caller's
+			 * pre-existing hold is not ours to convert.
+			 */
+			if (paging_lock_exclusive) {
+				ExConvertExclusiveToSharedLite(
+				    vp->FileHeader.PagingIoResource);
+				paging_lock_exclusive = FALSE;
 			}
 
 			if (IrpSp->MinorFunction & IRP_MN_MDL) {
