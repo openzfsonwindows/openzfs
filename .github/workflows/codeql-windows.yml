@@ -11,12 +11,14 @@ on:
     branches:
       - zfs-Windows-*-release
       - windows
+      - development
     tags-ignore:
       - '*'
   pull_request:
     branches:
       - zfs-Windows-*-release
       - windows
+      - development
   workflow_dispatch:
 
 concurrency:
