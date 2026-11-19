@@ -5848,6 +5848,51 @@ fill_output:
 	return (STATUS_SUCCESS);
 }
 
+/*
+ * ZFS_IOC_REWRITE, used by "zfs rewrite": reallocate the blocks of a range
+ * of a file.  The FSCTL is METHOD_BUFFERED with FILE_WRITE_DATA access, so
+ * the I/O manager has already checked that the handle can write.
+ */
+static NTSTATUS
+fsctl_zfs_rewrite(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	PFILE_OBJECT FileObject = IrpSp->FileObject;
+	ULONG inlen = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+	zfs_rewrite_args_t args;
+	struct vnode *vp;
+	znode_t *zp;
+	int error;
+
+	if (FileObject == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	vp = FileObject->FsContext;
+	if (vp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	zp = VTOZ(vp);
+	if (zp == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (Irp->AssociatedIrp.SystemBuffer == NULL ||
+	    inlen < sizeof (args))
+		return (STATUS_BUFFER_TOO_SMALL);
+
+	/* Only regular files have data to rewrite. */
+	if (!vnode_isreg(vp))
+		return (STATUS_INVALID_PARAMETER);
+
+	memcpy(&args, Irp->AssociatedIrp.SystemBuffer, sizeof (args));
+
+	error = zfs_rewrite(zp, args.off, args.len, args.flags, args.arg);
+
+	Irp->IoStatus.Information = 0;
+
+	/* ENOTSUP is a physical rewrite without feature@physical_rewrite */
+	return (fsctl_errno_to_status(error));
+}
+
 NTSTATUS
 user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
     PIO_STACK_LOCATION IrpSp)
@@ -6087,6 +6132,11 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 	case FSCTL_ZFS_VOLUME_MOUNTPOINT: // backward compatible
 		dprintf("    FSCTL_ZFS_VOLUME_MOUNTPOINT\n");
 		Status = fsctl_zfs_volume_mountpoint(DeviceObject, Irp, IrpSp);
+		break;
+
+	case ZFS_IOC_REWRITE:
+		dprintf("    ZFS_IOC_REWRITE\n");
+		Status = fsctl_zfs_rewrite(DeviceObject, Irp, IrpSp);
 		break;
 
 /*

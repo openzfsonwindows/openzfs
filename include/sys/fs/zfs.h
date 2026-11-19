@@ -1818,7 +1818,17 @@ typedef struct zfs_rewrite_args {
 #define	ZFS_REWRITE_SKIP_BRT		0x4 /* Skip BRT-cloned blocks. */
 #define	ZFS_REWRITE_SKIP_CURRENT_ASIZE	0x8 /* Skip blocks of current asize. */
 
+#ifdef _WIN32
+/*
+ * Windows has no _IOW() encoding for file ioctls; this is an FSCTL handled
+ * by the driver.  FILE_WRITE_DATA makes the I/O manager require a handle
+ * opened for writing, as FMODE_WRITE does on Linux.
+ */
+#define	ZFS_IOC_REWRITE		CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 0x8f1, \
+	METHOD_BUFFERED, FILE_WRITE_DATA)
+#else
 #define	ZFS_IOC_REWRITE		_IOW(0x83, 3, zfs_rewrite_args_t)
+#endif
 
 /*
  * ZFS-specific error codes used for returning descriptive errors

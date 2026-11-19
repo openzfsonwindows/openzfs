@@ -9125,6 +9125,19 @@ zfs_rewrite_file(const char *path, boolean_t verbose, zfs_rewrite_args_t *args)
 		return (ret);
 	}
 
+#ifdef _WIN32
+	/*
+	 * The Windows ioctl() wrapper returns the Win32 error code on
+	 * failure, not -1 with errno set, so any nonzero value is an error.
+	 */
+	ret = ioctl(fd, ZFS_IOC_REWRITE, args);
+	if (ret != 0) {
+		(void) fprintf(stderr, "failed to rewrite %s: Win32 error %d\n",
+		    path, ret);
+	} else if (verbose) {
+		printf("%s\n", path);
+	}
+#else
 	if (ioctl(fd, ZFS_IOC_REWRITE, args) < 0) {
 		ret = errno;
 		(void) fprintf(stderr, "failed to rewrite %s: %s\n",
@@ -9132,6 +9145,7 @@ zfs_rewrite_file(const char *path, boolean_t verbose, zfs_rewrite_args_t *args)
 	} else if (verbose) {
 		printf("%s\n", path);
 	}
+#endif
 
 	close(fd);
 	return (ret);
