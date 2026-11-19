@@ -5031,6 +5031,45 @@ set_integrity_information(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	return (STATUS_SUCCESS);
 }
 
+/*
+ * Map the errno returned by a common-code function (zfs_clone_range(),
+ * zfs_rewrite()) to the NTSTATUS an FSCTL should complete with.  An errno
+ * must not be returned as a status: small positive values are success-class
+ * NTSTATUS codes, so the caller would see a failed request as success.
+ */
+static NTSTATUS
+fsctl_errno_to_status(int error)
+{
+	switch (error) {
+	case 0:
+		return (STATUS_SUCCESS);
+	case EINVAL:
+		return (STATUS_INVALID_PARAMETER);
+	case EXDEV:
+		return (STATUS_NOT_SAME_DEVICE);
+	case ENOTSUP:
+	case EOPNOTSUPP:
+		return (STATUS_NOT_SUPPORTED);
+	case EROFS:
+		return (STATUS_MEDIA_WRITE_PROTECTED);
+	case ENOSPC:
+	case EDQUOT:
+		return (STATUS_DISK_FULL);
+	case EACCES:
+	case EPERM:
+		return (STATUS_ACCESS_DENIED);
+	case EBADF:
+		return (STATUS_INVALID_HANDLE);
+	case EISDIR:
+		return (STATUS_FILE_IS_A_DIRECTORY);
+	case EIO:
+		return (STATUS_IO_DEVICE_ERROR);
+	default:
+		dprintf("%s: unhandled error %d\n", __func__, error);
+		return (STATUS_UNEXPECTED_IO_ERROR);
+	}
+}
+
 NTSTATUS
 duplicate_extents_to_file(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp, boolean_t extended)
@@ -5153,8 +5192,8 @@ duplicate_extents_to_file(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	 *    uint64_t *outoffp, uint64_t *lenp, cred_t *cr)
 	 */
 
-	Status = zfs_clone_range(inzp, &inoff, outzp, &outoff,
-	    &length, NULL);
+	Status = fsctl_errno_to_status(zfs_clone_range(inzp, &inoff, outzp,
+	    &outoff, &length, NULL));
 
 out:
 	ObDereferenceObject(sourcefo);
