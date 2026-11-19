@@ -2313,7 +2313,8 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 	uint64_t parent;
 	zfsvfs_t *zfsvfs;
 	mount_t *zmo;
-	char name[ZAP_MAXNAMELEN];
+	/* Entry names can be up to ZAP_MAXNAMELEN_NEW on longname datasets */
+	char name[ZAP_MAXNAMELEN_NEW];
 
 	// No output? nothing to do
 	if (!fullpath || !returnsize)
@@ -2403,7 +2404,7 @@ zfs_build_path(znode_t *start_zp, znode_t *start_parent, char **fullpath,
 			do {
 				if ((error = zap_value_search(zfsvfs->z_os,
 				    parent, zp->z_id, ZFS_DIRENT_OBJ(-1ULL),
-				    name, ZAP_MAXNAMELEN)) != 0) {
+				    name, sizeof (name))) != 0) {
 					dprintf("%s: zap_value_search %d\n",
 					    __func__, error);
 					goto failed;

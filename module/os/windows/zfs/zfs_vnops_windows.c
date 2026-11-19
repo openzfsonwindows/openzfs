@@ -1228,7 +1228,13 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 	char *brkt = NULL;
 	struct componentname cn;
 	int fullstrlen;
-	char namebuffer[MAXNAMELEN];
+	/*
+	 * Sized for the longest name a "longname" dataset allows;
+	 * the limit enforced below depends on the dataset.
+	 */
+	char namebuffer[ZAP_MAXNAMELEN_NEW];
+	const size_t maxname = zfsvfs->z_longname ?
+	    ZAP_MAXNAMELEN_NEW : MAXNAMELEN;
 	BOOLEAN has_trailing_separator = FALSE;
 
 	// Iterate from dvp if given, otherwise root
@@ -1264,7 +1270,7 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 		int direntflags = 0;
 		// dprintf("..'%s'..", word);
 		// If a component part name is too long
-		if (strlen(word) > MAXNAMELEN - 1) {
+		if (strlen(word) > maxname - 1) {
 			VN_RELE(dvp);
 			if (vp)
 				VN_RELE(vp);
@@ -1278,7 +1284,7 @@ zfs_find_dvp_vp(zfsvfs_t *zfsvfs, char *filename, int finalpartmaynotexist,
 		cn.cn_flags = ISLASTCN;
 		cn.cn_namelen = strlen(namebuffer);
 		cn.cn_nameptr = namebuffer;
-		cn.cn_pnlen = MAXNAMELEN;
+		cn.cn_pnlen = sizeof (namebuffer);
 		cn.cn_pnbuf = namebuffer;
 
 		error = zfs_lookup(VTOZ(dvp), namebuffer,
