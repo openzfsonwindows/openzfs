@@ -9,6 +9,10 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/contrib/windows/cmake")
 find_package(WDK REQUIRED)
 
 option(BUILD_SHARED_LIBS "Build Shared Libraries" OFF)
+# Developer test tools (raidz_test, seektest, ...) are not part of a normal
+# build or the installer.  Turn this on for a full build, for example with the
+# *-AllTools configurations in CMakeSettings.json.
+option(OPENZFS_BUILD_TEST_TOOLS "Build developer test tools" OFF)
 
 if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64")
 	set(OPENSSL_CRYPTO_LIBRARY "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MTd/libcrypto_static.lib")
