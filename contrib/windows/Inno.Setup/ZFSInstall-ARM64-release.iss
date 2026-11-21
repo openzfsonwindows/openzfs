@@ -186,7 +186,6 @@ Source: "{#Root}\out\build\arm64-Release\cmd\zfs\zfs.exe"; DestDir: "{app}"; Fla
 Source: "{#Root}\out\build\arm64-Release\cmd\zdb\zdb.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\arm64-Release\cmd\zed\zed.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\arm64-Release\cmd\zstream\zstreamdump.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\out\build\arm64-Release\cmd\raidz_test\raidz_test.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\arm64-Release\module\os\windows\driver\OpenZFS.sys"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\arm64-Release\module\os\windows\driver\OpenZFS.cat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\out\build\arm64-Release\module\os\windows\driver\OpenZFS.inf"; DestDir: "{app}"; Flags: ignoreversion
@@ -199,7 +198,6 @@ Source: "{#Root}\out\build\arm64-Release\cmd\zpool\*.pdb"; DestDir: "{app}\symbo
 Source: "{#Root}\out\build\arm64-Release\cmd\zfs\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\arm64-Release\cmd\zdb\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\arm64-Release\cmd\zed\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
-Source: "{#Root}\out\build\arm64-Release\cmd\raidz_test\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\arm64-Release\cmd\os\windows\zfsinstaller\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#Root}\out\build\arm64-Release\cmd\os\windows\kstat\*.pdb"; DestDir: "{app}\symbols"; Flags: ignoreversion
 Source: "{#SourcePath}\HowToDebug.txt"; DestDir: "{app}"; Flags: ignoreversion
