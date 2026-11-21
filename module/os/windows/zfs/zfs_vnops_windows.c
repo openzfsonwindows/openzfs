@@ -5192,6 +5192,10 @@ duplicate_extents_to_file(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	 *    uint64_t *outoffp, uint64_t *lenp, cred_t *cr)
 	 */
 
+	/* Cloned blocks come from the DMU, so push cached writes into it. */
+	zfs_win_flush_file(sourcefo);
+	zfs_win_flush_file(FileObject);
+
 	Status = fsctl_errno_to_status(zfs_clone_range(inzp, &inoff, outzp,
 	    &outoff, &length, NULL));
 
@@ -5884,6 +5888,9 @@ fsctl_zfs_rewrite(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		return (STATUS_INVALID_PARAMETER);
 
 	memcpy(&args, Irp->AssociatedIrp.SystemBuffer, sizeof (args));
+
+	/* Rewrite works on the DMU's copy, so flush cached writes first. */
+	zfs_win_flush_file(FileObject);
 
 	error = zfs_rewrite(zp, args.off, args.len, args.flags, args.arg);
 

@@ -353,6 +353,7 @@ extern NTSTATUS fsctl_zfs_volume_mountpoint(PDEVICE_OBJECT DeviceObject,
     PIRP Irp, PIO_STACK_LOCATION IrpSp);
 extern NTSTATUS fsctl_set_zero_data(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp);
+extern void zfs_win_flush_file(PFILE_OBJECT FileObject);
 extern NTSTATUS fsctl_get_retrieval_pointers(PDEVICE_OBJECT DeviceObject,
     PIRP Irp, PIO_STACK_LOCATION IrpSp);
 extern NTSTATUS ioctl_get_gpt_attributes(PDEVICE_OBJECT DeviceObject, PIRP Irp,
