@@ -4959,9 +4959,42 @@ set_sparse(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	if (zp == NULL)
 		return (STATUS_INVALID_PARAMETER);
 
-	/* We should at least send events */
+	/*
+	 * No input buffer means set, as on NTFS.  ZFS has no allocation unit
+	 * to convert, so this only records the attribute; holes exist in any
+	 * file and are reported through FSCTL_QUERY_ALLOCATED_RANGES.
+	 */
+	boolean_t sparse = B_TRUE;
+	if (fssb != NULL && datalen >= sizeof (FILE_SET_SPARSE_BUFFER))
+		sparse = (fssb->SetSparse != FALSE);
 
-	return (STATUS_SUCCESS);
+	/* Only regular files carry the attribute; ignore the rest. */
+	if (!vnode_isreg(vp))
+		return (STATUS_SUCCESS);
+
+	if (((zp->z_pflags & ZFS_SPARSE) != 0) == sparse)
+		return (STATUS_SUCCESS);
+
+	xvattr_t xva = { 0 };
+	vattr_t *vap = &xva.xva_vattr;
+	xoptattr_t *xoap;
+
+	xva_init(&xva);
+	xoap = xva_getxoptattr(&xva);
+	xoap->xoa_sparse = sparse;
+	XVA_SET_REQ(&xva, XAT_SPARSE);
+
+	/* zfs_error_to_ntstatus() is for failures only: 0 is not mapped. */
+	int error = zfs_setattr(zp, vap, 0, NULL);
+	NTSTATUS Status = error ? zfs_error_to_ntstatus(error) : STATUS_SUCCESS;
+
+	zfs_ccb_t *zccb = IrpSp->FileObject->FsContext2;
+	if (NT_SUCCESS(Status) && zccb != NULL)
+		zfs_send_notify(zp->z_zfsvfs, zccb->z_name_cache,
+		    zccb->z_name_offset, FILE_NOTIFY_CHANGE_ATTRIBUTES,
+		    FILE_ACTION_MODIFIED);
+
+	return (Status);
 }
 
 #if _WIN32_WINNT < _WIN32_WINNT_WIN8
