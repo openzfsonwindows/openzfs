@@ -6412,6 +6412,11 @@ user_fs_request(PDEVICE_OBJECT DeviceObject, PIRP *PIrp,
 		Status = fsctl_set_zero_data(DeviceObject, Irp, IrpSp);
 		break;
 
+	case FSCTL_QUERY_ALLOCATED_RANGES:
+		dprintf("    FSCTL_QUERY_ALLOCATED_RANGES\n");
+		Status = fsctl_query_allocated_ranges(DeviceObject, Irp, IrpSp);
+		break;
+
 	case FSCTL_OFFLOAD_READ:
 		dprintf("    FSCTL_OFFLOAD_READ\n");
 		Status = fsctl_offload_read(DeviceObject, Irp, IrpSp);
