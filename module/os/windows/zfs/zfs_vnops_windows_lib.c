@@ -7570,6 +7570,28 @@ end:
 	return (Status);
 }
 
+/*
+ * Push a file's dirty data from the Cache Manager into the DMU.
+ *
+ * All Windows file data reaches ZFS through paging I/O, so data that was
+ * written through the cache, or stored through a mapped view, is invisible
+ * to the DMU until it is flushed.  The common code guards its flushes with
+ * zn_has_cached_data(), which is deliberately always false here (it would
+ * route reads into mappedread(), which is never used on Windows), so the
+ * FSCTL handlers that need DMU-coherent data call this themselves.
+ *
+ * CcFlushCache() also covers a file that is mapped but has no cache map.
+ * Take no ZFS locks around it: the paging writes it causes need them.
+ */
+void
+zfs_win_flush_file(PFILE_OBJECT FileObject)
+{
+	IO_STATUS_BLOCK iosb;
+
+	if (FileObject != NULL && FileObject->SectionObjectPointer != NULL)
+		CcFlushCache(FileObject->SectionObjectPointer, NULL, 0, &iosb);
+}
+
 NTSTATUS
 fsctl_get_retrieval_pointers(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
