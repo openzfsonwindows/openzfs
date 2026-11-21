@@ -7592,6 +7592,109 @@ zfs_win_flush_file(PFILE_OBJECT FileObject)
 		CcFlushCache(FileObject->SectionObjectPointer, NULL, 0, &iosb);
 }
 
+/*
+ * FSCTL_QUERY_ALLOCATED_RANGES: report the non-hole ranges of a file inside
+ * the requested window, the Windows counterpart of SEEK_DATA/SEEK_HOLE.
+ *
+ * The control code is METHOD_NEITHER: both buffers are the caller's.
+ */
+NTSTATUS
+fsctl_query_allocated_ranges(PDEVICE_OBJECT DeviceObject, PIRP Irp,
+    PIO_STACK_LOCATION IrpSp)
+{
+	ULONG inlen = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+	ULONG outlen = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+	FILE_ALLOCATED_RANGE_BUFFER *inbuf =
+	    IrpSp->Parameters.FileSystemControl.Type3InputBuffer;
+	FILE_ALLOCATED_RANGE_BUFFER *outbuf = Irp->UserBuffer;
+	PFILE_OBJECT FileObject = IrpSp->FileObject;
+	FILE_ALLOCATED_RANGE_BUFFER query;
+	NTSTATUS Status = STATUS_SUCCESS;
+	uint64_t end, maxent, count = 0;
+	loff_t pos;
+	boolean_t overflow = B_FALSE;
+
+	if (FileObject == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (inbuf == NULL || inlen < sizeof (FILE_ALLOCATED_RANGE_BUFFER))
+		return (STATUS_INVALID_PARAMETER);
+
+	struct vnode *vp = FileObject->FsContext;
+	if (vp == NULL || VTOZ(vp) == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (!vnode_isreg(vp))
+		return (STATUS_INVALID_DEVICE_REQUEST);
+
+	znode_t *zp = VTOZ(vp);
+
+	__try {
+		if (Irp->RequestorMode == UserMode) {
+			ProbeForRead(inbuf, sizeof (query), sizeof (ULONG));
+			if (outlen > 0)
+				ProbeForWrite(outbuf, outlen, sizeof (ULONG));
+		}
+		query = *inbuf;
+	} __except(EXCEPTION_EXECUTE_HANDLER) {
+		return (STATUS_INVALID_USER_BUFFER);
+	}
+
+	if (query.FileOffset.QuadPart < 0 || query.Length.QuadPart < 0 ||
+	    query.FileOffset.QuadPart > INT64_MAX - query.Length.QuadPart)
+		return (STATUS_INVALID_PARAMETER);
+
+	if (outlen > 0 && outbuf == NULL)
+		return (STATUS_INVALID_PARAMETER);
+
+	/* Mapped and cached writes must be in the DMU or they read as holes. */
+	zfs_win_flush_file(FileObject);
+
+	maxent = outlen / sizeof (FILE_ALLOCATED_RANGE_BUFFER);
+
+	pos = query.FileOffset.QuadPart;
+	end = (uint64_t)query.FileOffset.QuadPart +
+	    (uint64_t)query.Length.QuadPart;
+	if (end > zp->z_size)
+		end = zp->z_size;
+
+	while ((uint64_t)pos < end) {
+		loff_t dstart = pos;
+		loff_t dend;
+
+		/* ENXIO: no more data at or after pos. */
+		if (zfs_holey(zp, SEEK_DATA, &dstart) != 0)
+			break;
+		if ((uint64_t)dstart >= end)
+			break;
+
+		dend = dstart;
+		if (zfs_holey(zp, F_SEEK_HOLE, &dend) != 0 ||
+		    (uint64_t)dend > end || dend <= dstart)
+			dend = end;
+
+		if (count == maxent) {
+			overflow = B_TRUE;
+			break;
+		}
+
+		__try {
+			outbuf[count].FileOffset.QuadPart = dstart;
+			outbuf[count].Length.QuadPart = dend - dstart;
+		} __except(EXCEPTION_EXECUTE_HANDLER) {
+			return (STATUS_INVALID_USER_BUFFER);
+		}
+		count++;
+		pos = dend;
+	}
+
+	Irp->IoStatus.Information =
+	    count * sizeof (FILE_ALLOCATED_RANGE_BUFFER);
+	if (overflow)
+		Status = STATUS_BUFFER_OVERFLOW;
+	return (Status);
+}
+
 NTSTATUS
 fsctl_get_retrieval_pointers(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PIO_STACK_LOCATION IrpSp)
