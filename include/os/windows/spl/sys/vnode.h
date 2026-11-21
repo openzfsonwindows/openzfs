@@ -160,7 +160,8 @@ extern int			vttoif_tab[];
 
 #define	ATTR_NOACLCHECK 0x20
 
-#define	F_SEEK_HOLE 0
+#define	F_SEEK_DATA 1
+#define	F_SEEK_HOLE 2
 
 #define	B_INVAL		0x01
 #define	B_TRUNC		0x02

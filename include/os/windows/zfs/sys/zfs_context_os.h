@@ -189,12 +189,12 @@ extern void kx_qsort(void *array, size_t nm, size_t member_size,
 #define	task_io_account_read(n)
 #define	task_io_account_write(n)
 
-#ifndef SEEK_HOLE
-#define	SEEK_HOLE 3
+#ifndef SEEK_DATA
+#define	SEEK_DATA 3
 #endif
 
-#ifndef SEEK_DATA
-#define	SEEK_DATA 4
+#ifndef SEEK_HOLE
+#define	SEEK_HOLE 4
 #endif
 
 #endif // _KERNEL

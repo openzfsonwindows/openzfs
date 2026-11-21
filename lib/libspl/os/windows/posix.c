@@ -1416,11 +1416,79 @@ wosix_ioctl_len(int fd, unsigned long request, void *wrap, size_t len)
 	return (error);
 }
 
+/*
+ * SEEK_DATA and SEEK_HOLE, built on FSCTL_QUERY_ALLOCATED_RANGES.  Like
+ * POSIX, an offset at or beyond EOF is ENXIO, except that SEEK_HOLE is
+ * not an error when there is no data: the implicit hole at EOF counts.
+ * A filesystem without the FSCTL is treated as having no holes.
+ */
+static uint64_t
+wosix_seek_hole_data(int fd, uint64_t offset, int seek)
+{
+	HANDLE h = ITOH(fd);
+	LARGE_INTEGER size;
+	FILE_ALLOCATED_RANGE_BUFFER query, range;
+	DWORD ret = 0;
+	uint64_t start, end;
+
+	if (!GetFileSizeEx(h, &size)) {
+		errno = EBADF;
+		return (-1);
+	}
+
+	if (offset >= (uint64_t)size.QuadPart) {
+		errno = ENXIO;
+		return (-1);
+	}
+
+	query.FileOffset.QuadPart = offset;
+	query.Length.QuadPart = size.QuadPart - offset;
+
+	if (!DeviceIoControl(h, FSCTL_QUERY_ALLOCATED_RANGES, &query,
+	    sizeof (query), &range, sizeof (range), &ret, NULL)) {
+		/* One entry fits; more ranges only means ERROR_MORE_DATA. */
+		DWORD error = GetLastError();
+		if (error != ERROR_MORE_DATA) {
+			if (error == ERROR_INVALID_FUNCTION ||
+			    error == ERROR_NOT_SUPPORTED) {
+				if (seek == SEEK_DATA)
+					return (offset);
+				return (size.QuadPart);
+			}
+			errno = EIO;
+			return (-1);
+		}
+	}
+
+	if (ret < sizeof (range)) {
+		/* No data at or after offset, so offset is in the last hole. */
+		if (seek == SEEK_DATA) {
+			errno = ENXIO;
+			return (-1);
+		}
+		return (offset);
+	}
+
+	start = range.FileOffset.QuadPart;
+	end = start + range.Length.QuadPart;
+
+	if (seek == SEEK_DATA)
+		return (start > offset ? start : offset);
+
+	/* SEEK_HOLE: offset is itself in a hole, or the data ends at end. */
+	if (start > offset)
+		return (offset);
+	return (end < (uint64_t)size.QuadPart ? end : size.QuadPart);
+}
+
 uint64_t
 wosix_lseek(int fd, uint64_t offset, int seek)
 {
 	LARGE_INTEGER LOFF, LNEW;
 	int type = FILE_BEGIN;
+
+	if (seek == SEEK_DATA || seek == SEEK_HOLE)
+		return (wosix_seek_hole_data(fd, offset, seek));
 
 	LOFF.QuadPart = offset;
 	switch (seek) {

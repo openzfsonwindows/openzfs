@@ -7663,7 +7663,7 @@ fsctl_query_allocated_ranges(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		loff_t dend;
 
 		/* ENXIO: no more data at or after pos. */
-		if (zfs_holey(zp, SEEK_DATA, &dstart) != 0)
+		if (zfs_holey(zp, F_SEEK_DATA, &dstart) != 0)
 			break;
 		if ((uint64_t)dstart >= end)
 			break;
