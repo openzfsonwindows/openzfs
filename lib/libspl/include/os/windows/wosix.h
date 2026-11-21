@@ -72,6 +72,14 @@ extern int wosix_lstat(char *path, struct _stat64 *st);
 extern int wosix_fstat(int fd, struct _stat64 *st);
 extern int wosix_fstat_blk(int fd, struct _stat64 *st);
 extern uint64_t wosix_lseek(int fd, uint64_t offset, int seek);
+
+#ifndef SEEK_DATA
+#define	SEEK_DATA	3
+#endif
+#ifndef SEEK_HOLE
+#define	SEEK_HOLE	4
+#endif
+
 extern int wosix_fdatasync(int fd);
 extern int wosix_ftruncate(int fd, off_t length);
 extern int wosix_socketpair(int domain, int type, int protocol,
