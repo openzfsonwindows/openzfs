@@ -7554,10 +7554,52 @@ fsctl_set_zero_data(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 	    fzdi->BeyondFinalZero.QuadPart - fzdi->FileOffset.QuadPart,
 	    O_RDWR, TRUE);
 
-	CcPurgeCacheSection(FileObject->SectionObjectPointer,
+	BOOLEAN purged = CcPurgeCacheSection(FileObject->SectionObjectPointer,
 	    &fzdi->FileOffset,
 	    (ULONG)(fzdi->BeyondFinalZero.QuadPart - fzdi->FileOffset.QuadPart),
 	    FALSE);
+
+	/*
+	 * Pages that a user mapping holds cannot be purged, and would keep
+	 * their old contents and be written back over the zeros.  Purging
+	 * is not a reliable sign of that, so ask whether the file is mapped
+	 * too.  A cached write is coherent with the mapped view, so write
+	 * zeros through the cache; CcZeroData() was tried and left the
+	 * mapped pages untouched.  Never beyond EOF: the size is unchanged.
+	 */
+	if (!purged ||
+	    !MmCanFileBeTruncated(&vp->SectionObjectPointers,
+	    &fzdi->FileOffset)) {
+		LARGE_INTEGER pos = fzdi->FileOffset;
+		uint64_t zend = fzdi->BeyondFinalZero.QuadPart;
+		const ULONG chunk = 65536;
+		void *zbuf = NULL;
+
+		if (zend > zp->z_size)
+			zend = zp->z_size;
+
+		if (FileObject->PrivateCacheMap != NULL &&
+		    (uint64_t)pos.QuadPart < zend)
+			zbuf = ExAllocatePoolZero(PagedPool, chunk, 'ZdzF');
+
+		if (zbuf != NULL) {
+			__try {
+				while ((uint64_t)pos.QuadPart < zend) {
+					ULONG n = (ULONG)MIN(zend -
+					    (uint64_t)pos.QuadPart, chunk);
+
+					if (!CcCopyWrite(FileObject, &pos, n,
+					    TRUE, zbuf))
+						break;
+					pos.QuadPart += n;
+				}
+			} __except(EXCEPTION_EXECUTE_HANDLER) {
+				dprintf("%s: CcCopyWrite threw %08lx\n",
+				    __func__, GetExceptionCode());
+			}
+			ExFreePoolWithTag(zbuf, 'ZdzF');
+		}
+	}
 
 	Status = STATUS_SUCCESS;
 
