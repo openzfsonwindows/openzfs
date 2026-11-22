@@ -7879,15 +7879,11 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		vp->FileHeader.AllocationSize.QuadPart = newlength;
 		vp->FileHeader.FileSize.QuadPart = newlength;
 		/*
-		 * Advance VDL to the new end now, before CcCopyWrite.
-		 * CcCopyWrite will immediately populate the cache pages,
-		 * satisfying any paging read the CM might issue for the
-		 * newly-valid region.  The dnode block-size is guaranteed
-		 * initialised by this point (z_blksz==0 guard in zfs_write).
-		 * Advancing here collapses the two CcSetFileSizes calls into
-		 * one, halving the latency for extending writes.
+		 * Keep VDL at the old end until CcCopyWrite has filled the cache.
+		 * A cache miss can issue a paging read before the copy, while the
+		 * dnode still has its old block size.  Treating the new tail as
+		 * valid would read past that block and panic in the DMU.
 		 */
-		vp->FileHeader.ValidDataLength.QuadPart = newlength;
 
 		dprintf("AllocationSize = %I64x\n",
 		    vp->FileHeader.AllocationSize.QuadPart);
@@ -7982,11 +7978,8 @@ zfs_write_wrap(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		}
 
 		/*
-		 * For pre-allocated files (changed_length=FALSE, FileSize
-		 * already at the pre-allocated size) VDL may still lag
-		 * behind the write end.  Advance it now if needed.
-		 * Extending writes already set VDL=newlength above, so for
-		 * them this block is a no-op.
+		 * Advance VDL only after the cached write succeeds.  Until then,
+		 * a cache-miss paging read must zero-fill the unwritten tail.
 		 */
 		if (NT_SUCCESS(Status) &&
 		    newlength >
