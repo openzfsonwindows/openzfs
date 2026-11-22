@@ -126,6 +126,11 @@ jobs:
 
       - name: Configure CMake
         shell: pwsh
+        env:
+          # The windows-latest image's MSVC STL asserts (STL1000) on a
+          # clang older than 22.  Allow the mismatch until this job has
+          # a newer clang.
+          CXXFLAGS: /D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
         run: |
           cmake -G "Ninja" `
             -B "${{ github.workspace }}/out/build/x64-Debug" `
