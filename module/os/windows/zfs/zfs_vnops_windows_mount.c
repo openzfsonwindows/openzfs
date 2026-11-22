@@ -2378,6 +2378,74 @@ zfs_windows_unmount(zfs_cmd_t *zc)
 	return (zfs_windows_unmount_impl(zc->zc_name));
 }
 
+/*
+ * Remove the folder mount point of an unmounting volume (the reparse
+ * point, its directory, and the MountMgr entry).
+ *
+ * This must run WITHOUT holding vfs_main_lock as writer. MountMgr
+ * handles the deletion on this thread and closes its database file on
+ * the parent volume, which can have dirty cached data. The close waits
+ * for the lazy writer (see zfs_fileobject_cleanup), and
+ * zfs_AcquireForLazyWrite needs vfs_main_lock, so as writer this
+ * deadlocks.
+ */
+static void
+zfs_remove_folder_mountpoint(mount_t *zmo, mount_t *zmo_dcb)
+{
+	/*
+	 * If mount uses reparsepoint (not driveletter):
+	 * clear mounted_on on both VCB and DCB so that
+	 * vfs_has_mount() returns NULL and
+	 * delete_reparse_point() does not deny the FSCTL.
+	 */
+	vfs_set_mountedon(zmo, NULL);
+	vfs_set_mountedon(zmo_dcb, NULL);
+
+	OBJECT_ATTRIBUTES poa;
+
+	InitializeObjectAttributes(&poa,
+	    &zmo_dcb->mountpoint, OBJ_KERNEL_HANDLE,
+	    NULL, NULL);
+	dprintf("Deleting reparse mountpoint '%wZ'\n",
+	    &zmo_dcb->mountpoint);
+	DeleteReparsePoint(&poa);
+
+	/* Remove directory left by the reparse point. */
+	{
+		HANDLE hdir;
+		IO_STATUS_BLOCK rmiosb;
+		NTSTATUS rmst;
+
+		rmst = ZwCreateFile(&hdir,
+		    DELETE | SYNCHRONIZE,
+		    &poa, &rmiosb, NULL, 0,
+		    FILE_SHARE_DELETE,
+		    FILE_OPEN,
+		    FILE_DIRECTORY_FILE |
+		    FILE_SYNCHRONOUS_IO_NONALERT |
+		    FILE_OPEN_FOR_BACKUP_INTENT,
+		    NULL, 0);
+		if (NT_SUCCESS(rmst)) {
+			FILE_DISPOSITION_INFORMATION fdi;
+			fdi.DeleteFile = TRUE;
+			rmst = ZwSetInformationFile(hdir,
+			    &rmiosb, &fdi, sizeof (fdi),
+			    FileDispositionInformation);
+			dprintf("%s: rmdir '%wZ' status 0x%x\n",
+			    __func__, &zmo_dcb->mountpoint,
+			    rmst);
+			ZwClose(hdir);
+		} else {
+			dprintf("%s: open for rmdir '%wZ' "
+			    "failed 0x%x\n", __func__,
+			    &zmo_dcb->mountpoint, rmst);
+		}
+	}
+
+	(void) NotifyMountMgr(&zmo_dcb->mountpoint,
+	    &zmo_dcb->MountMgr_name, B_FALSE);
+}
+
 int
 zfs_windows_unmount_impl(const char *datasetname)
 {
@@ -2405,10 +2473,6 @@ zfs_windows_unmount_impl(const char *datasetname)
 		// Has to be called before upgrading vfs lock
 		CcWaitForCurrentLazyWriterActivity();
 
-		// getzfsvfs() grabs a READER lock,
-		// convert it to WRITER, and wait for it.
-		vfs_busy(zmo, LK_UPGRADE);
-
 		UNICODE_STRING	name;
 		NTSTATUS status;
 		// Save the parent device
@@ -2419,6 +2483,18 @@ zfs_windows_unmount_impl(const char *datasetname)
 
 		status = mountmgr_get_mountpoint2(
 		    &zmo_dcb->device_name, NULL, &mountpath, TRUE);
+
+		/*
+		 * Folder mounts are removed before taking the writer lock, as
+		 * MountMgr closes files on the parent volume from here, and
+		 * those closes need the lazy writer to run.
+		 */
+		if (!MOUNTMGR_IS_DRIVE_LETTER(&mountpath))
+			zfs_remove_folder_mountpoint(zmo, zmo_dcb);
+
+		// getzfsvfs() grabs a READER lock,
+		// convert it to WRITER, and wait for it.
+		vfs_busy(zmo, LK_UPGRADE);
 
 		// Get ready to wait for the volume removed notification
 		KeInitializeEvent((PRKEVENT)&zmo_dcb->volume_removed_event,
@@ -2449,61 +2525,6 @@ zfs_windows_unmount_impl(const char *datasetname)
 		if (MOUNTMGR_IS_DRIVE_LETTER(&mountpath)) {
 
 			zfs_remove_driveletter(zmo_dcb);
-
-		} else {
-			/*
-			 * If mount uses reparsepoint (not driveletter):
-			 * clear mounted_on on both VCB and DCB so that
-			 * vfs_has_mount() returns NULL and
-			 * delete_reparse_point() does not deny the FSCTL.
-			 */
-			vfs_set_mountedon(zmo, NULL);
-			vfs_set_mountedon(zmo_dcb, NULL);
-
-			OBJECT_ATTRIBUTES poa;
-
-			InitializeObjectAttributes(&poa,
-			    &zmo_dcb->mountpoint, OBJ_KERNEL_HANDLE,
-			    NULL, NULL);
-			dprintf("Deleting reparse mountpoint '%wZ'\n",
-			    &zmo_dcb->mountpoint);
-			DeleteReparsePoint(&poa);
-
-			/* Remove directory left by the reparse point. */
-			{
-				HANDLE hdir;
-				IO_STATUS_BLOCK rmiosb;
-				NTSTATUS rmst;
-
-				rmst = ZwCreateFile(&hdir,
-				    DELETE | SYNCHRONIZE,
-				    &poa, &rmiosb, NULL, 0,
-				    FILE_SHARE_DELETE,
-				    FILE_OPEN,
-				    FILE_DIRECTORY_FILE |
-				    FILE_SYNCHRONOUS_IO_NONALERT |
-				    FILE_OPEN_FOR_BACKUP_INTENT,
-				    NULL, 0);
-				if (NT_SUCCESS(rmst)) {
-					FILE_DISPOSITION_INFORMATION fdi;
-					fdi.DeleteFile = TRUE;
-					rmst = ZwSetInformationFile(hdir,
-					    &rmiosb, &fdi, sizeof (fdi),
-					    FileDispositionInformation);
-					dprintf("%s: rmdir '%wZ' status 0x%x\n",
-					    __func__, &zmo_dcb->mountpoint,
-					    rmst);
-					ZwClose(hdir);
-				} else {
-					dprintf("%s: open for rmdir '%wZ' "
-					    "failed 0x%x\n", __func__,
-					    &zmo_dcb->mountpoint, rmst);
-				}
-			}
-
-			status = NotifyMountMgr(
-			    &zmo_dcb->mountpoint,
-			    &zmo_dcb->MountMgr_name, B_FALSE);
 
 		}
 
