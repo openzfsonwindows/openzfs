@@ -9459,7 +9459,18 @@ zfs_fileobject_cleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 		 * is stuck forever -- reproduced via a Recycle Bin $I file
 		 * left mid-teardown when zpool export ran shortly after.
 		 */
-		if (!CcUninitializeCacheMap(FileObject, NULL,
+		/*
+		 * Do not wait while this thread holds vfs_main_lock as writer:
+		 * we are inside an unmount (eg. MountMgr closing its database
+		 * on this volume). The deferred pass needs
+		 * zfs_AcquireForLazyWrite, which needs that lock, so the wait
+		 * could never end. Pass no event, as the Cache Manager would
+		 * signal one on our stack after we return, and leave the
+		 * teardown to the lazy writer.
+		 */
+		if (vfs_main_lock_write_held()) {
+			(void) CcUninitializeCacheMap(FileObject, NULL, NULL);
+		} else if (!CcUninitializeCacheMap(FileObject, NULL,
 		    &cc_uninit_event)) {
 			dprintf("CcUninitializeCacheMap deferred on vp %p "
 			    "fo %p, waiting\n", vp, FileObject);
