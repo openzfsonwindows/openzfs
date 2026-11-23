@@ -6614,7 +6614,13 @@ query_directory_FileFullDirectoryInformation(PDEVICE_OBJECT DeviceObject,
 		    kmem_alloc(zccb->searchname.MaximumLength,
 		    KM_SLEEP);
 
-		if (zccb->ContainsWildCards) {
+		/*
+		 * FsRtlIsNameInExpression() wants an upper-cased expression
+		 * only when it ignores case. On a case-sensitive dataset the
+		 * pattern must be kept as given, or "*.c" never matches.
+		 */
+		if (zccb->ContainsWildCards &&
+		    zfsvfs->z_case != ZFS_CASE_SENSITIVE) {
 			Status = RtlUpcaseUnicodeString(&zccb->searchname,
 			    IrpSp->Parameters.QueryDirectory.FileName, FALSE);
 		} else {
