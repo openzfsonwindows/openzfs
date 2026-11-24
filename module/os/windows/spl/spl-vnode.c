@@ -1198,6 +1198,7 @@ vnode_put(vnode_t *vp)
 		 */
 		vp->v_flags |= VNODE_INACTIVE_INPROGRESS;
 		vp->v_inactive_thread = current_thread();
+		vp->v_inactive_iocount = vp->v_iocount;
 		mutex_exit(&vp->v_mutex);
 		zfs_inactive(vp, NULL, NULL);
 		mutex_enter(&vp->v_mutex);
@@ -1270,6 +1271,7 @@ vnode_recycle_int(vnode_t *vp, int flags)
 				/* see VNODE_INACTIVE_INPROGRESS, vnode_put() */
 				vp->v_flags |= VNODE_INACTIVE_INPROGRESS;
 				vp->v_inactive_thread = current_thread();
+				vp->v_inactive_iocount = vp->v_iocount;
 			}
 			mutex_exit(&vp->v_mutex);
 			if (do_inactive) {
@@ -1313,6 +1315,21 @@ vnode_recycle_int(vnode_t *vp, int flags)
 	 * zfs_inactive above does not touch v_data or z_sa_hdl in this port,
 	 * so deferring the reclaim here is safe.
 	 */
+	/*
+	 * vnode_put() and vnode_rele() run zfs_inactive() with v_mutex
+	 * dropped, and its fast paths call vnode_recycle() on this vnode.
+	 * Another thread (eg. zfs_zget_ext() for zfs_build_path()) can take
+	 * an iocount in that window, before MARKTERM above refuses new
+	 * ones. Do not free the znode under it. Leave the vnode MARKTERM
+	 * and let the last vnode_put() recycle it.
+	 */
+	if (!(flags & FORCECLOSE) &&
+	    vp->v_inactive_thread == current_thread() &&
+	    vp->v_iocount > vp->v_inactive_iocount) {
+		mutex_exit(&vp->v_mutex);
+		return (-1);
+	}
+
 	if (vp->v_data != NULL) {
 		mutex_exit(&vp->v_mutex);
 		if (zfs_vnop_reclaim(vp))
@@ -1550,6 +1567,9 @@ vnode_rele(vnode_t *vp)
 		// ASSERT0(vp->v_flags & VNODE_DEAD);
 		vp->v_flags &= ~VNODE_NEEDINACTIVE;
 		atomic_inc_32(&vp->v_iocount);
+		/* see vnode_recycle_int() */
+		vp->v_inactive_thread = current_thread();
+		vp->v_inactive_iocount = vp->v_iocount;
 		mutex_exit(&vp->v_mutex);
 
 		zfs_inactive(vp, NULL, NULL);
@@ -1564,6 +1584,7 @@ vnode_rele(vnode_t *vp)
 		// Re-check we are still free, and recycle (markterm) was called
 		// we can reclaim now
 		mutex_enter(&vp->v_mutex);
+		vp->v_inactive_thread = NULL;
 		atomic_dec_32(&vp->v_iocount);
 		if ((vp->v_iocount == 0) && (vp->v_usecount == 0) &&
 		    ((vp->v_flags & (VNODE_MARKTERM)))) {
