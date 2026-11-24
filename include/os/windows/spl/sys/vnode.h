@@ -89,6 +89,7 @@ struct vnode {
 	kmutex_t v_mutex;
 	kcondvar_t v_inactive_cv;	/* see VNODE_INACTIVE_INPROGRESS */
 	void *v_inactive_thread;	/* owner of VNODE_INACTIVE_INPROGRESS */
+	uint32_t v_inactive_iocount;	/* v_iocount held by that owner */
 
 	mount_t *v_mount;
 	struct vnode *v_parent;
