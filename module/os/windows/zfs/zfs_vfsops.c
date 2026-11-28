@@ -1635,6 +1635,24 @@ zfsvfs_teardown(zfsvfs_t *zfsvfs, boolean_t unmounting)
 	}
 
 	/*
+	 * zil_close() above commits any outstanding log records, and
+	 * zfs_get_data() looks each file up with zfs_zget(). That creates
+	 * znodes and vnodes (and a root vnode as their parent) after the last
+	 * vflush() in zfs_vfs_unmount(), and nothing ever reclaims them: they
+	 * sit idle, each holding its dnode, and zfsvfs_free() can only detach
+	 * them. The objset then never finishes evicting, and spa_export waits
+	 * in spa_evicting_os_wait() forever.
+	 * z_unmounted is set now, so nothing can create more. Wait for the
+	 * async releases zfs_get_data() queued (reclaiming under them would
+	 * free a znode they are about to release), then reclaim what is left.
+	 */
+	if (unmounting && zfsvfs->z_os != NULL) {
+		taskq_wait_outstanding(dsl_pool_zrele_taskq(
+		    dmu_objset_pool(zfsvfs->z_os)), 0);
+		(void) vflush(zfsvfs->z_vfs, NULLVP, FORCECLOSE);
+	}
+
+	/*
 	 * z_os will be NULL if there was an error in attempting to reopen
 	 * zfsvfs, so just return as the properties had already been
 	 * unregistered and cached data had been evicted before.
